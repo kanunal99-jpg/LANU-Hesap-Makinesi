@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.time.Instant
 import java.util.UUID
 
 class CalculatorRepository(private val historyDao: CalculationHistoryDao, private val settingsDao: SettingsDao) {
@@ -134,8 +135,9 @@ class CommunicationRepository(
             val senderPhone = if (isOwn) profile?.phoneNumber ?: conversation.partnerPhone else conversation.partnerPhone
             val senderName = if (isOwn) profile?.displayName ?: "User" else conversation.partnerName
             val decrypted = CryptoUtils.decrypt(remote.ciphertext, remote.conversationId)
-            messageDao.insertMessage(MessageEntity(remote.id, remote.conversationId, senderPhone, senderName, remote.ciphertext, timestamp = System.currentTimeMillis(), status = if (isOwn) "SENT" else "DELIVERED"))
-            conversationDao.insertConversation(conversation.copy(lastMessageText = decrypted, lastMessageTime = System.currentTimeMillis()))
+            val timestamp = parseRemoteTimestamp(remote.createdAt)
+            messageDao.insertMessage(MessageEntity(remote.id, remote.conversationId, senderPhone, senderName, remote.ciphertext, timestamp = timestamp, status = if (isOwn) "SENT" else "DELIVERED"))
+            conversationDao.insertConversation(conversation.copy(lastMessageText = decrypted, lastMessageTime = timestamp))
         }
     }
 
@@ -149,11 +151,14 @@ class CommunicationRepository(
                 val senderPhone = if (isOwn) profile?.phoneNumber ?: conversation.partnerPhone else conversation.partnerPhone
                 val senderName = if (isOwn) profile?.displayName ?: "User" else conversation.partnerName
                 val decrypted = CryptoUtils.decrypt(remote.ciphertext, remote.conversationId)
-                messageDao.insertMessage(MessageEntity(remote.id, remote.conversationId, senderPhone, senderName, remote.ciphertext, timestamp = System.currentTimeMillis(), status = if (isOwn) "SENT" else "DELIVERED"))
-                conversationDao.insertConversation(conversation.copy(lastMessageText = decrypted, lastMessageTime = System.currentTimeMillis()))
+                val timestamp = parseRemoteTimestamp(remote.createdAt)
+                messageDao.insertMessage(MessageEntity(remote.id, remote.conversationId, senderPhone, senderName, remote.ciphertext, timestamp = timestamp, status = if (isOwn) "SENT" else "DELIVERED"))
+                conversationDao.insertConversation(conversation.copy(lastMessageText = decrypted, lastMessageTime = timestamp))
             }
         }, onConnectionState = onConnectionState)
     }
+
+    private fun parseRemoteTimestamp(value: String): Long = runCatching { Instant.parse(value).toEpochMilli() }.getOrElse { System.currentTimeMillis() }
 
     fun closeRealtime() = supabaseClient.closeRealtime()
     suspend fun addReaction(messageId: String, emoji: String) = messageDao.updateMessageReaction(messageId, emoji)
