@@ -147,3 +147,8 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 *   **İşlem:** `AuditPanelScreen.kt` dosyası oluşturuldu. `test_runs_history.json` varlık (asset) dökümanı okunup orjinal JSON yapısına sadık kalarak parse edildi. Sıralanabilir, filtrelenebilir ve detayları genişletilebilir test koşu kartları Jetpack Compose ile entegre edildi.
 *   **Amaç:** Kullanıcıların ve denetçilerin cihaz üzerinden geçmiş derleme ve test raporlarını (kriptoloji puanı, SQLite durumları, ekran güvenlik seviyeleri) şık bir görsel özet şeklinde izleyebilmesini sağlamak.
 *   **Sonuç:** Denetim Paneli ekranı ana hesap makinesi arayüzündeki tescil butonuyla başarıyla ilişkilendirilerek yayına alındı. ✅
+
+### [16-09-2026 17:01] - CI/CD Otomatik Derleme ve Test (685d077)
+*   **İşlem:** GitHub Actions üzerinden otomatik derleme, test ve APK çıkış tetiklemesi yapıldı.
+*   **Amaç:** Kod tabanının kararlılığını ve anayasa standartlarına uyumunu otomatize doğrulamak.
+*   **Sonuç:** Derleme veya test adımlarında hata oluştu. Lütfen CI günlüklerini kontrol edin. Status: BAŞARISIZ ❌
