@@ -128,6 +128,30 @@ class CommunicationRepository(
         }
     }
 
+    suspend fun syncConversationMessages(conversationId: String) {
+        val conversation = conversationDao.getConversationById(conversationId) ?: return
+        val session = runCatching { supabaseClient.ensureAnonymousSession() }.getOrNull() ?: return
+        val profile = userProfileDao.getUserProfile()
+        runCatching { supabaseClient.listMessages(session, conversationId) }.getOrDefault(emptyList()).forEach { remote ->
+            val isOwn = remote.senderId == session.userId
+            val senderPhone = if (isOwn) profile?.phoneNumber ?: conversation.partnerPhone else conversation.partnerPhone
+            val senderName = if (isOwn) profile?.displayName ?: "User" else conversation.partnerName
+            val decrypted = CryptoUtils.decrypt(remote.ciphertext, remote.conversationId)
+            messageDao.insertMessage(
+                MessageEntity(
+                    id = remote.id,
+                    conversationId = remote.conversationId,
+                    senderPhone = senderPhone,
+                    senderName = senderName,
+                    content = remote.ciphertext,
+                    timestamp = System.currentTimeMillis(),
+                    status = if (isOwn) "SENT" else "DELIVERED"
+                )
+            )
+            conversationDao.insertConversation(conversation.copy(lastMessageText = decrypted, lastMessageTime = System.currentTimeMillis()))
+        }
+    }
+
     suspend fun startRealtime(onConnectionState: (Boolean) -> Unit = {}) {
         val session = supabaseClient.ensureAnonymousSession()
         supabaseClient.subscribeToMessages(session, onMessage = { remote ->
@@ -137,25 +161,14 @@ class CommunicationRepository(
                 val isOwn = remote.senderId == session.userId
                 val senderPhone = if (isOwn) profile?.phoneNumber ?: conversation.partnerPhone else conversation.partnerPhone
                 val senderName = if (isOwn) profile?.displayName ?: "User" else conversation.partnerName
-                val decrypted = runCatching { CryptoUtils.decrypt(remote.ciphertext, remote.conversationId) }.getOrElse { remote.ciphertext }
-                messageDao.insertMessage(
-                    MessageEntity(
-                        id = remote.id,
-                        conversationId = remote.conversationId,
-                        senderPhone = senderPhone,
-                        senderName = senderName,
-                        content = remote.ciphertext,
-                        timestamp = System.currentTimeMillis(),
-                        status = if (isOwn) "SENT" else "DELIVERED"
-                    )
-                )
+                val decrypted = CryptoUtils.decrypt(remote.ciphertext, remote.conversationId)
+                messageDao.insertMessage(MessageEntity(remote.id, remote.conversationId, senderPhone, senderName, remote.ciphertext, timestamp = System.currentTimeMillis(), status = if (isOwn) "SENT" else "DELIVERED"))
                 conversationDao.insertConversation(conversation.copy(lastMessageText = decrypted, lastMessageTime = System.currentTimeMillis()))
             }
         }, onConnectionState = onConnectionState)
     }
 
     fun closeRealtime() = supabaseClient.closeRealtime()
-
     suspend fun addReaction(messageId: String, emoji: String) = messageDao.updateMessageReaction(messageId, emoji)
     suspend fun deleteMessage(messageId: String) = messageDao.deleteMessage(messageId)
     suspend fun editMessage(messageId: String, conversationId: String, newText: String) = messageDao.updateMessageContent(messageId, CryptoUtils.encrypt(newText, conversationId))
