@@ -1,0 +1,213 @@
+<resources>
+    <!-- App Name -->
+    <string name="app_name">LANU Hesap Makinesi</string>
+
+    <!-- General -->
+    <string name="cancel">İptal</string>
+    <string name="close">Kapat</string>
+    <string name="save">Kaydet</string>
+    <string name="loading">Yükleniyor...</string>
+    <string name="back">Geri</string>
+
+    <!-- CalculatorScreen -->
+    <string name="history">Geçmiş</string>
+    <string name="clear_all">Tümünü Temizle</string>
+    <string name="smart_clear">Akıllı Temizle</string>
+    <string name="smart_clear_title">Akıllı Temizleme</string>
+    <string name="smart_clear_desc">7 günden daha eski olan tüm hesaplama geçmişi kayıtlarını silmek istiyor musunuz?</string>
+    <string name="confirm_clear">Temizle</string>
+    <string name="clear_all_history_title">Tüm Geçmişi Temizle</string>
+    <string name="clear_all_history_desc">Tüm hesaplama geçmişi kayıtlarını kalıcı olarak silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.</string>
+    <string name="reset_calculation_title">Hesaplamayı Sıfırla</string>
+    <string name="reset_calculation_desc">Geçerli hesaplamayı sıfırlamak istediğinizden emin misiniz? Girilen işlem ve sonuç silinecektir.</string>
+    <string name="reset_calculation_confirm">Sıfırla</string>
+    <string name="no_calculations">Henüz hesaplama yok</string>
+    <string name="tap_to_rerun">Tekrar çalıştırmak için ifadeye dokunun</string>
+    <string name="tap_to_use_result">Geçerli denkleme eklemek için sonuca dokunun</string>
+    <string name="copied_result">Sonuç kopyalandı: %1$s</string>
+    <string name="copied_to_clipboard">Panoya kopyalandı</string>
+    <string name="content_desc_history">Hesaplama Geçmişi</string>
+    <string name="content_desc_unit_converter">Birim Dönüştürücü</string>
+    <string name="content_desc_secure_vault">Güvenli Kasa</string>
+    <string name="toggle_scientific_mode">Bilimsel Modu Değiştir</string>
+    <string name="theme_toggle_desc">Temayı Değiştir (Profesyonel Koyu / Sade Açık)</string>
+    <string name="theme_professional_dark">Profesyonel Koyu</string>
+    <string name="theme_clean_light">Sade Açık</string>
+    <string name="theme_switched_toast">%1$s moduna geçildi</string>
+    <string name="backspace">Geri Sil</string>
+
+    <!-- UnitConverterScreen -->
+    <string name="unit_converter">Birim Dönüştürücü</string>
+    <string name="back_to_calculator">Hesap Makinesine Dön</string>
+    <string name="from_label">Kaynak</string>
+    <string name="to_label">Hedef</string>
+    <string name="select_unit">Birim seç</string>
+    <string name="swap_units">Birimleri Değiştir</string>
+    <string name="copy_result">Sonucu Kopyala</string>
+    <string name="copied_value">Kopyalandı: %1$s %2$s</string>
+
+    <!-- Unit categories -->
+    <string name="cat_length">Uzunluk</string>
+    <string name="cat_weight">Ağırlık</string>
+    <string name="cat_temperature">Sıcaklık</string>
+    <string name="cat_area">Alan</string>
+    <string name="cat_volume">Hacim</string>
+    <string name="cat_speed">Hız</string>
+    <string name="cat_time">Zaman</string>
+    <string name="cat_data">Veri</string>
+
+    <!-- SecurityScreen -->
+    <string name="biometric_auth_title">Biyometrik Kimlik Doğrulama</string>
+    <string name="biometric_auth_desc">Gelecekte güvenli iletişim alanına hızlı erişmek için PIN kodu yerine parmak izi veya yüz tanıma kullanmak ister misiniz?</string>
+    <string name="yes_enable">Evet, Etkinleştir</string>
+    <string name="not_now">Şimdi Değil</string>
+    <string name="create_pin">Güvenli PIN\'inizi Oluşturun</string>
+    <string name="confirm_pin">PIN\'inizi Onaylayın</string>
+    <string name="enter_pin">Kilidi Açmak İçin PIN Girin</string>
+    <string name="pin_lock_desc">Bu PIN, özel iletişim alanınızı kilitleyecektir</string>
+    <string name="aes_vault_desc">Güvenli AES-256 kasa arayüzü</string>
+    <string name="lock_logo_desc">Kilit Logosu</string>
+    <string name="delete_last_digit">Son rakamı sil</string>
+    <string name="use_biometrics">Biyometrik kullan</string>
+
+    <!-- SettingsScreen -->
+    <string name="security_config">Güvenlik Yapılandırması</string>
+    <string name="auto_lock_background">Arka Planda Otomatik Kilitleme</string>
+    <string name="instant">Anında</string>
+    <string name="seconds_30">30 sn</string>
+    <string name="minute_1">1 dk</string>
+    <string name="minutes_5">5 dk</string>
+    <string name="seconds_30_full">30 saniye</string>
+    <string name="minute_1_full">1 dakika</string>
+    <string name="minutes_5_full">5 dakika</string>
+    <string name="biometric_setup_desc">Güvenli parmak izi veya yüz tanıma kilidini aç</string>
+    <string name="biometric_setup_error">Biyometrik doğrulamayı etkinleştirmek için önce PIN ayarlayın</string>
+
+    <!-- CommunicationScreen -->
+    <string name="lanu_secure_space">LANU Güvenli Alan</string>
+    <string name="secure_conn_active">Güvenli Bağlantı Aktif</string>
+    <string name="disconnected">Bağlantı Kesildi</string>
+    <string name="reconnecting">Yeniden Bağlanıyor...</string>
+    <string name="chats_tab">Sohbetler</string>
+    <string name="contacts_tab">Kişiler</string>
+    <string name="settings_tab">Ayarlar</string>
+    <string name="add_contact">Kişi Ekle</string>
+
+    <!-- Registration -->
+    <string name="register_secure_identity">Güvenli Kimlik Kaydı</string>
+    <string name="verify_mobile_otp">Mobil OTP Doğrulama</string>
+    <string name="enter_phone_desc">İstemci tarafı güvenli kasa tanımlayıcınızla bağlamak için telefon numaranızı girin.</string>
+    <string name="otp_sent_desc">Doğrulama kodu %1$s adresine gönderildi (Simülasyon Kodu: 1989)</string>
+    <string name="your_display_name">Görünen Adınız</string>
+    <string name="phone_label">E.164 Formatında Telefon (Örn: +905001234567)</string>
+    <string name="enter_otp_code">OTP Kodunu Girin</string>
+    <string name="all_fields_required">Tüm alanların doldurulması zorunludur</string>
+    <string name="phone_e164_error">Telefon E.164 formatında olmalıdır (+ ile başlamalıdır)</string>
+    <string name="invalid_otp_error">Geçersiz doğrulama kodu! (1989 deneyin)</string>
+    <string name="request_otp">OTP Kodu İste</string>
+    <string name="verify_otp">Kodu Doğrula</string>
+
+    <!-- Contacts -->
+    <string name="secure_contact_binding">Güvenli Kişi Eşleme</string>
+    <string name="contacts_never_shared_desc">Kişileri gizli arama anahtarları için yerel olarak saklayın. Kişiler asla paylaşılmaz.</string>
+    <string name="full_name">Tam Adı</string>
+    <string name="contact_phone_hint">E.164 Telefon (Örn: +905051112233)</string>
+    <string name="please_complete_all_fields">Lütfen tüm alanları doldurun</string>
+    <string name="number_must_start_plus">Numara \'+\' ile başlamalıdır</string>
+    <string name="bind_contact">Kişiyi Kaydet</string>
+    <string name="no_chats_active">Aktif özel sohbet bulunmuyor</string>
+    <string name="navigate_contacts_hint">Kişiler sekmesine gidin ve güvenli bir sohbet başlatın.</string>
+    <string name="no_chats_desc">Sohbet Yok</string>
+    <string name="no_contacts_bound">Güvenli kaydedilmiş kişi bulunmuyor.</string>
+    <string name="delete_contact">Kişiyi sil</string>
+    <string name="encryption_initialized">Uçtan uca şifreleme başlatıldı</string>
+
+    <!-- Settings / Cloud -->
+    <string name="cloud_server_settings">Bulut Sunucu Ayarları</string>
+    <string name="local_fallback_active">Yapılandırılmadı / Yerel Depolama Aktif</string>
+    <string name="configure">Yapılandır</string>
+    <string name="simulate_network_recovery">Ağ Bağlantı Döngüsünü Simüle Et</string>
+    <string name="revoke_identity_logout">Kimliği İptal Et ve Çıkış Yap</string>
+    <string name="supabase_credentials">Supabase Bulut Bilgileri</string>
+    <string name="supabase_desc">Canlı Postgres + E2EE senkronizasyonu kurmak için API bilgilerini girin. Boş bırakılırsa yerel depolama kullanılır.</string>
+    <string name="supabase_url_label">Supabase API URL adresi</string>
+    <string name="supabase_key_label">Supabase Anon Key anahtarı</string>
+    <string name="save_parameters">Parametreleri Kaydet</string>
+
+    <!-- ChatDetailScreen -->
+    <string name="e2ee_secured">Uçtan Uca Şifreli</string>
+    <string name="e2ee_secured_gcm">Uçtan Uca Şifreli (AES-GCM)</string>
+    <string name="voice_call">Sesli Arama</string>
+    <string name="video_call">Görüntülü Arama</string>
+    <string name="enter_encrypted_message">Şifreli mesaj yazın...</string>
+    <string name="send_secure_message">Güvenli mesaj gönder</string>
+    <string name="status_sending">İletiliyor</string>
+    <string name="status_sent">Gönderildi</string>
+    <string name="status_delivered">İletildi</string>
+    <string name="status_read">Okundu</string>
+
+    <!-- Chat enhancements -->
+    <string name="self_destruct_on">Kendini İmha Eden Mesajlar: AÇIK</string>
+    <string name="self_destruct_off">Kendini İmha Eden Mesajlar: KAPALI</string>
+    <string name="add_attachment">Dosya Ekle</string>
+    <string name="attachment_simulated">Güvenli dosya eki simüle edildi</string>
+    <string name="call_started">📞 Arama Başladı</string>
+    <string name="call_missed">📞 Cevapsız Arama</string>
+    
+    <!-- CallScreen -->
+    <string name="secure_video_call_title">GÜVENLİ GÖRÜNTÜLÜ ARAMA</string>
+    <string name="secure_voice_call_title">GÜVENLİ SESLİ ARAMA</string>
+    <string name="webrtc_connecting">WebRTC Bağlantısı Kuruluyor...</string>
+    <string name="call_ringing">Çalıyor...</string>
+    <string name="call_connected">Bağlandı • %1$s</string>
+    <string name="call_poor_connection">Zayıf Bağlantı • Sese Öncelik Veriliyor • %1$s</string>
+    <string name="call_reconnecting">Sinyal Kesildi • Yeniden Bağlanıyor...</string>
+    <string name="call_ended">Arama Sonlandırıldı</string>
+    <string name="call_failed">Arama Başarısız</string>
+    <string name="webrtc_active_stream">WebRTC Video Akışı Aktif\n(FPS: 30 • Gecikme: 45ms)</string>
+    <string name="speaker_toggle">Hoparlör Değiştir</string>
+    <string name="bluetooth_router">Bluetooth Cihaz Yönlendirici</string>
+    <string name="anc_toggle">Aktif Gürültü Engelleme (ANC)</string>
+    <string name="anc_enabled">ANC Açık (Ortam Sesi Engelleniyor)</string>
+    <string name="anc_disabled">ANC Kapalı</string>
+    <string name="anc_level_low">Düşük</string>
+    <string name="anc_level_medium">Orta</string>
+    <string name="anc_level_high">Yüksek</string>
+    <string name="anc_level_adaptive">Akıllı Adaptif</string>
+    <string name="anc_active_badge">ANC: %1$s</string>
+    <string name="anc_diagnostics_title">Sistem Durumu (ANC Tanılama)</string>
+    <string name="anc_status_processing">Durum: İşleniyor</string>
+    <string name="anc_status_idle">Durum: Beklemede</string>
+    <string name="anc_status_error">Durum: DSP Hatası (Donanım Yanıt Vermiyor)</string>
+    <string name="anc_latency_label">İşleme Gecikmesi: %1$d ms</string>
+    <string name="anc_suppression_label">Gürültü Baskılama: -%1$d dB</string>
+    <string name="anc_hardware_ok">Donanım Modülü: Aktif (OK)</string>
+    <string name="anc_hardware_error">Donanım Modülü: Bağlantı Kesildi</string>
+    <string name="anc_hardware_unsupported">Donanımsal ANC: Desteklenmiyor (Emülatör/Cihaz)</string>
+    <string name="anc_software_fallback">Yazılımsal Akıllı DSP: Devrede (%1$d%% Bastırma)</string>
+    <string name="anc_dsp_mode_title">İşleme Modu: %1$s</string>
+    <string name="anc_dsp_auto">Otomatik Hibrit</string>
+    <string name="anc_dsp_software">Yazılımsal DSP</string>
+    <string name="anc_dsp_hardware">Donanım Öncelikli</string>
+    <string name="net_diagnostics_title">Ağ, Gecikme &amp; Senkronizasyon</string>
+    <string name="net_rtt_label">Gidiş-Dönüş (RTT): %1$d ms</string>
+    <string name="net_jitter_label">Jitter: %1$d ms | Adaptif Tampon: %2$d ms</string>
+    <string name="net_lipsync_label">A/V Lip-Sync Sapması: ±%1$.1f ms (%2$s)</string>
+    <string name="net_packet_loss_label">Paket Kaybı: %%%1$.1f</string>
+    <string name="net_candidate_label">Bağlantı Türü: %1$s</string>
+    <string name="net_bitrate_label">Bant Genişliği &amp; Çözünürlük: %1$s (%2$d kbps)</string>
+    <string name="net_ice_restart">Ağ Değişimi / ICE Yeniden Başlat</string>
+    <string name="net_ice_restarting">ICE Adayları Yenileniyor...</string>
+    <string name="business_model_title">İş Modeli &amp; Kurumsal Güvenlik</string>
+    <string name="business_model_desc">LANU Uçtan Uca Şifreli İletişim Mimarisi ve Katmanlı Gelir Modeli</string>
+    <string name="camera_toggle">Kamerayı Aç/Kapat</string>
+    <string name="cameraswitch_desc">Ön/Arka Kamerayı Değiştir</string>
+    <string name="mute_mic_desc">Sesi Kapat</string>
+    <string name="end_call_desc">Aramayı Sonlandır</string>
+    <string name="screen_protection_title">Ekran &amp; Önizleme Koruması</string>
+    <string name="screen_protection_desc">Son uygulamalar ve ekran görüntülerinde sohbet ve arama gizliliğini korur (FLAG_SECURE)</string>
+    <string name="change_pin_title">PIN Kodunu Değiştir</string>
+    <string name="change_pin_desc">Mevcut şifrenizi doğrulayarak yeni bir erişim kodu belirleyin</string>
+    <string name="security_audit_logs_title">Güvenlik Denetim Günlüğü</string>
+    <string name="security_audit_logs_desc">Başarılı girişler, hatalı denemeler ve sistem güvenlik olayları</string>
+</resources>

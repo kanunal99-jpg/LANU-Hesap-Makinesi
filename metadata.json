@@ -1,0 +1,6 @@
+{
+  "name": "LANU Hesap Makinesi",
+  "description": "Premium gerçek zamanlı iletişim platformunun kilidini güvenli bir şekilde açan yüksek hassasiyetli bir bilimsel hesap makinesi.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

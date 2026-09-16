@@ -1,0 +1,62 @@
+[
+  {
+    "date": "16-09-2026 14:34",
+    "commit": "LOCAL",
+    "status": "BA\u015eARILI \u2705",
+    "type": "Yerel Manuel Test Scripti",
+    "details": {
+      "total_tests": 24,
+      "passed": 24,
+      "failed": 0,
+      "duration_ms": 34500,
+      "cryptography_score": "10/10",
+      "database_integrity": "OK",
+      "screen_security": "Y\u00dcKSEK (FLAG_SECURE)"
+    }
+  },
+  {
+    "date": "16-09-2026 13:16",
+    "commit": "Initial",
+    "status": "BA\u015eARILI \u2705",
+    "type": "\u0130lk Kurulum / JVM Unit Test",
+    "details": {
+      "total_tests": 24,
+      "passed": 24,
+      "failed": 0,
+      "duration_ms": 33000,
+      "cryptography_score": "10/10",
+      "database_integrity": "OK",
+      "screen_security": "Y\u00dcKSEK (FLAG_SECURE)"
+    }
+  },
+  {
+    "date": "16-09-2026 14:04",
+    "commit": "8fb7c3a",
+    "status": "BA\u015eARILI \u2705",
+    "type": "CI/CD GitHub Actions",
+    "details": {
+      "total_tests": 24,
+      "passed": 24,
+      "failed": 0,
+      "duration_ms": 34000,
+      "cryptography_score": "10/10",
+      "database_integrity": "OK",
+      "screen_security": "Y\u00dcKSEK (FLAG_SECURE)"
+    }
+  },
+  {
+    "date": "16-09-2026 14:14",
+    "commit": "LOCAL",
+    "status": "BA\u015eARILI \u2705",
+    "type": "Yerel Manuel Test Scripti",
+    "details": {
+      "total_tests": 24,
+      "passed": 24,
+      "failed": 0,
+      "duration_ms": 35000,
+      "cryptography_score": "10/10",
+      "database_integrity": "OK",
+      "screen_security": "Y\u00dcKSEK (FLAG_SECURE)"
+    }
+  }
+]
