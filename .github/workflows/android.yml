@@ -90,7 +90,7 @@ jobs:
           retention-days: 14
 
       - name: Publish GitHub Release
-        if: github.event_name == 'push' && success()
+        if: success() && (github.event_name == 'push' || (github.event_name == 'pull_request' && github.head_ref == 'feat/communication-real-backend-v2'))
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
