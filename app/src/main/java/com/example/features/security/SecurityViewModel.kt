@@ -43,19 +43,18 @@ class SecurityViewModel(
     private val _screenProtectionEnabled = MutableStateFlow(true)
     val screenProtectionEnabled: StateFlow<Boolean> = _screenProtectionEnabled.asStateFlow()
 
-    private val _themePreference = MutableStateFlow("system") // "system", "light", "dark"
+    private val _themePreference = MutableStateFlow("system")
     val themePreference: StateFlow<String> = _themePreference.asStateFlow()
 
-    private val _buttonColorTheme = MutableStateFlow("emerald") // "emerald", "indigo", "sunset", "cyberpunk"
+    private val _buttonColorTheme = MutableStateFlow("emerald")
     val buttonColorTheme: StateFlow<String> = _buttonColorTheme.asStateFlow()
 
-    private val _decimalPrecision = MutableStateFlow(6) // 2 to 10 decimal places
+    private val _decimalPrecision = MutableStateFlow(6)
     val decimalPrecision: StateFlow<Int> = _decimalPrecision.asStateFlow()
 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
-    // Brute-force protection state
     private val _failedAttempts = MutableStateFlow(0)
     val failedAttempts: StateFlow<Int> = _failedAttempts.asStateFlow()
 
@@ -106,7 +105,6 @@ class SecurityViewModel(
         viewModelScope.launch {
             _errorMessage.value = null
             if (_hasPin.value) {
-                // Verify existing PIN
                 val correct = repository.verifyPin(pin)
                 if (correct) {
                     _failedAttempts.value = 0
@@ -123,31 +121,34 @@ class SecurityViewModel(
                     }
                 }
             } else {
-                // Pin Setup Flow
-                if (_setupStep.value == SetupStep.ENTER_PIN) {
-                    if (pin.length < 4) {
-                        _errorMessage.value = "PIN en az 4 haneli olmalıdır"
-                        return@launch
-                    }
-                    _tempPin.value = pin
-                    _setupStep.value = SetupStep.CONFIRM_PIN
-                } else if (_setupStep.value == SetupStep.CONFIRM_PIN) {
-                    if (pin == _tempPin.value) {
-                        val success = repository.setupPin(pin)
-                        if (success) {
-                            eventTracker.logEvent("PIN_SETUP", "Yeni güvenli PIN oluşturuldu")
-                            _setupStep.value = SetupStep.COMPLETED
-                            _hasPin.value = true
-                            _failedAttempts.value = 0
-                            onSuccess()
-                        } else {
-                            _errorMessage.value = "PIN kaydedilemedi"
+                when (_setupStep.value) {
+                    SetupStep.ENTER_PIN -> {
+                        if (pin.length < 4) {
+                            _errorMessage.value = "PIN en az 4 haneli olmalıdır"
+                            return@launch
                         }
-                    } else {
-                        _errorMessage.value = "PIN kodları eşleşmiyor! Lütfen baştan girin."
-                        _setupStep.value = SetupStep.ENTER_PIN
-                        _tempPin.value = ""
+                        _tempPin.value = pin
+                        _setupStep.value = SetupStep.CONFIRM_PIN
                     }
+                    SetupStep.CONFIRM_PIN -> {
+                        if (pin == _tempPin.value) {
+                            val success = repository.setupPin(pin)
+                            if (success) {
+                                eventTracker.logEvent("PIN_SETUP", "Yeni güvenli PIN oluşturuldu")
+                                _setupStep.value = SetupStep.COMPLETED
+                                _hasPin.value = true
+                                _failedAttempts.value = 0
+                                onSuccess()
+                            } else {
+                                _errorMessage.value = "PIN kaydedilemedi"
+                            }
+                        } else {
+                            _errorMessage.value = "PIN kodları eşleşmiyor! Lütfen baştan girin."
+                            _setupStep.value = SetupStep.ENTER_PIN
+                            _tempPin.value = ""
+                        }
+                    }
+                    SetupStep.COMPLETED -> Unit
                 }
             }
         }
@@ -188,8 +189,7 @@ class SecurityViewModel(
     }
 
     fun getSecurityLogs(): List<SecurityAuditLog> {
-        val raw = eventTracker.getLoggedEvents()
-        return raw.map {
+        return eventTracker.getLoggedEvents().map {
             SecurityAuditLog(
                 type = it["type"] as? String ?: "EVENT",
                 timestamp = (it["timestamp"] as? Number)?.toLong() ?: System.currentTimeMillis(),
@@ -203,21 +203,13 @@ class SecurityViewModel(
         eventTracker.logEvent("LOGS_CLEARED", "Güvenlik günlüğü temizlendi")
     }
 
+    /**
+     * Legacy entry point retained for compatibility. It no longer contains a
+     * hardcoded PIN and always follows the normal authentication/setup flow.
+     */
     fun handleMasterPinEntered(onSuccess: () -> Unit) {
-        viewModelScope.launch {
-            if (!repository.hasPin()) {
-                // Save "2011." as the registered PIN since it's entered for the first time!
-                repository.setupPin("2011.")
-                eventTracker.logEvent("PIN_SETUP", "Master passcode registered successfully")
-                _hasPin.value = true
-                _setupStep.value = SetupStep.COMPLETED
-                _onPendingSuccessAction.value = onSuccess
-                _showBiometricOptIn.value = true
-            } else {
-                eventTracker.logEvent("SUCCESSFUL_UNLOCK", "Bypassed security via direct Master passcode entry")
-                onSuccess()
-            }
-        }
+        _errorMessage.value = "Özel PIN girişi kaldırıldı. Normal PIN doğrulamasını kullanın."
+        eventTracker.logEvent("SECURITY_CONFIG", "Hardcoded master PIN yolu devre dışı bırakıldı")
     }
 
     fun dismissBiometricOptIn(enable: Boolean) {
@@ -277,11 +269,9 @@ class SecurityViewModel(
     }
 
     fun unlock() {
-        viewModelScope.launch {
-            repository.verifyPin("") // bypass/unlock directly in non-persistent state if needed, or via repository toggle
-            // We manually toggle the repository's internal state flow
-            // But verifyPin or directly setting security status can unlock it.
-        }
+        // Unlocking must only happen through successful PIN/biometric authentication.
+        // This method remains for ViewModel compatibility but deliberately performs no bypass.
+        eventTracker.logEvent("UNLOCK_IGNORED", "Direct unlock request rejected")
     }
 
     fun appForegrounded() {
