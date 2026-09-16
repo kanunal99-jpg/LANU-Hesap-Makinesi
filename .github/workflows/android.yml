@@ -16,20 +16,28 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '17'
           distribution: 'temurin'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
+
+      - name: Generate Gradle Wrapper when repository wrapper is missing
+        run: |
+          if [ ! -f ./gradlew ]; then
+            gradle wrapper --gradle-version 9.3.1 --distribution-type bin
+          fi
+          chmod +x ./gradlew
+          ./gradlew --version
 
       - name: Cache Gradle Packages
         uses: actions/cache@v4
@@ -42,39 +50,67 @@ jobs:
             ${{ runner.os }}-gradle-
 
       - name: Run Unit and Robolectric Tests
-        run: ./gradlew :app:testDebugUnitTest
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+
+      - name: Run Android Lint
+        run: ./gradlew :app:lintDebug --no-daemon --stacktrace
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Generate APK SHA256
+        if: success()
+        run: |
+          mkdir -p app/build/reports/verification
+          sha256sum app/build/outputs/apk/debug/app-debug.apk | tee app/build/reports/verification/app-debug.apk.sha256
+
+      - name: Upload Debug APK Artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: LANU-Calculator-Debug-APK
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/reports/verification/app-debug.apk.sha256
+          retention-days: 14
+
+      - name: Upload Test Report Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Test-Report
+          path: |
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/reports/lint-results-debug.html
+          retention-days: 14
 
       - name: Update 'anayasa' Logs
         if: always()
         run: |
-          # Determine success or failure status
           if [ "${{ job.status }}" = "success" ]; then
             STATUS="BAŞARILI ✅"
-            DETAILS="Tüm birim testler başarıyla koşuldu, sıfır hata raporlandı. Hata ayıklama APK dosyası (app-debug.apk) başarıyla derlendi."
+            DETAILS="Unit/Robolectric testleri, Debug Lint ve Debug APK derlemesi CI üzerinde tamamlandı."
           else
             STATUS="BAŞARISIZ ❌"
-            DETAILS="Derleme veya test adımlarında hata oluştu. Lütfen CI günlüklerini kontrol edin."
+            DETAILS="CI test, lint veya derleme adımlarından en az biri başarısız oldu. Gerçek CI günlükleri kanıt kabul edilir."
           fi
 
           TIMESTAMP=$(date +"%d-%m-%Y %H:%M")
           COMMIT_HASH=$(git rev-parse --short HEAD)
 
-          # Log to ISLEM_GUNLUGU.md
+          mkdir -p anayasa
           echo "" >> anayasa/ISLEM_GUNLUGU.md
-          echo "### [$TIMESTAMP] - CI/CD Otomatik Derleme ve Test ($COMMIT_HASH)" >> anayasa/ISLEM_GUNLUGU.md
-          echo "*   **İşlem:** GitHub Actions üzerinden otomatik derleme, test ve APK çıkış tetiklemesi yapıldı." >> anayasa/ISLEM_GUNLUGU.md
-          echo "*   **Amaç:** Kod tabanının kararlılığını ve anayasa standartlarına uyumunu otomatize doğrulamak." >> anayasa/ISLEM_GUNLUGU.md
-          echo "*   **Sonuç:** $DETAILS Status: $STATUS" >> anayasa/ISLEM_GUNLUGU.md
+          echo "### [$TIMESTAMP] - CI/CD Otomatik Doğrulama ($COMMIT_HASH)" >> anayasa/ISLEM_GUNLUGU.md
+          echo "*   **İşlem:** GitHub Actions test + lint + APK derleme hattı çalıştırıldı." >> anayasa/ISLEM_GUNLUGU.md
+          echo "*   **Sonuç:** $STATUS" >> anayasa/ISLEM_GUNLUGU.md
+          echo "*   **Kanıt:** GitHub Actions run ve artifact kayıtları." >> anayasa/ISLEM_GUNLUGU.md
+          echo "*   **Açıklama:** $DETAILS" >> anayasa/ISLEM_GUNLUGU.md
 
-          # Log to OZELLIK_TESTLERI_VE_SONUCLARI.md (Update CI check block)
           echo "" >> anayasa/OZELLIK_TESTLERI_VE_SONUCLARI.md
-          echo "### 🤖 Otomatik CI/CD Test Doğrulaması ($TIMESTAMP)" >> anayasa/OZELLIK_TESTLERI_VE_SONUCLARI.md
+          echo "### 🤖 CI/CD Gerçek Doğrulaması ($TIMESTAMP)" >> anayasa/OZELLIK_TESTLERI_VE_SONUCLARI.md
           echo "*   **Commit Hash:** $COMMIT_HASH" >> anayasa/OZELLIK_TESTLERI_VE_SONUCLARI.md
-          echo "*   **Test Sonucu:** $STATUS" >> anayasa/OZELLIK_TESTLERI_VE_SONUCLARI.md
-          echo "*   **Açıklama:** $DETAILS" >> anayasa/OZELLIK_TESTLERI_VE_SONUCLARI.md
+          echo "*   **Durum:** $STATUS" >> anayasa/OZELLIK_TESTLERI_VE_SONUCLARI.md
+          echo "*   **Not:** Dokümantasyon, CI kanıtı olmadan 'başarılı' veya 'production ready' olarak işaretlenmemelidir." >> anayasa/OZELLIK_TESTLERI_VE_SONUCLARI.md
 
       - name: Commit and Push 'anayasa' updates
         if: github.event_name == 'push' && always()
@@ -82,21 +118,5 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add anayasa/ISLEM_GUNLUGU.md anayasa/OZELLIK_TESTLERI_VE_SONUCLARI.md
-          git commit -m "chore: anayasa güncelleme - CI/CD Entegrasyon Raporu (${{ job.status }})" || echo "No changes to commit"
+          git commit -m "chore: anayasa güncelleme - CI gerçek doğrulama (${{ job.status }})" || echo "No changes to commit"
           git push origin HEAD:${{ github.ref }} || echo "Push failed, skipping"
-
-      - name: Upload Debug APK Artifact
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: LanuVault-Debug-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 7
-
-      - name: Upload Test Report Artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Test-Report
-          path: app/build/reports/tests/testDebugUnitTest/
-          retention-days: 7
