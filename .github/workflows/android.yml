@@ -132,7 +132,7 @@ jobs:
           echo "### [$TIMESTAMP] - CI/CD Otomatik Doğrulama ($COMMIT_HASH)" >> anayasa/ISLEM_GUNLUGU.md
           echo "*   **İşlem:** GitHub Actions test + lint + APK derleme + release hattı çalıştırıldı." >> anayasa/ISLEM_GUNLUGU.md
           echo "*   **Sonuç:** $STATUS" >> anayasa/ISLEM_GUNLUGU.md
-          echo "*   **Kanıt:** GitHub Actions run, artifact ve release kayıtları." >> anayasa/ISLEM_GUNLUKU.md
+          echo "*   **Kanıt:** GitHub Actions run, artifact ve release kayıtları." >> anayasa/ISLEM_GUNLUGU.md
           echo "*   **Açıklama:** $DETAILS" >> anayasa/ISLEM_GUNLUGU.md
 
           echo "" >> anayasa/OZELLIK_TESTLERI_VE_SONUCLARI.md
