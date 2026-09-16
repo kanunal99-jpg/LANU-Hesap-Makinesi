@@ -101,7 +101,6 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
 
     fun logout(onComplete: () -> Unit) {
         viewModelScope.launch {
-            repository.closeRealtime()
             repository.logout()
             _isRegistered.value = false
             _userPhone.value = ""
@@ -190,6 +189,9 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
     fun addCallLog(partnerName: String, partnerPhone: String, isVideo: Boolean, durationSeconds: Int, isOutgoing: Boolean) { viewModelScope.launch { repository.addCallLog(partnerName, partnerPhone, isVideo, durationSeconds, isOutgoing) } }
     fun deleteCallLog(id: Long) { viewModelScope.launch { repository.deleteCallLog(id) } }
     fun clearAllCallLogs() { viewModelScope.launch { repository.clearAllCallLogs() } }
+
+    /** Compatibility action for the existing settings UI; this performs a real reconnect, not a fake network simulation. */
+    fun simulateNetworkLost() = connectRealtime()
 
     override fun onCleared() {
         repository.closeRealtime()
