@@ -14,7 +14,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.time.Instant
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 import java.util.UUID
 
 class CalculatorRepository(private val historyDao: CalculationHistoryDao, private val settingsDao: SettingsDao) {
@@ -158,7 +160,14 @@ class CommunicationRepository(
         }, onConnectionState = onConnectionState)
     }
 
-    private fun parseRemoteTimestamp(value: String): Long = runCatching { Instant.parse(value).toEpochMilli() }.getOrElse { System.currentTimeMillis() }
+    private fun parseRemoteTimestamp(value: String): Long {
+        val formats = arrayOf("yyyy-MM-dd'T'HH:mm:ss.SSSX", "yyyy-MM-dd'T'HH:mm:ssX")
+        return formats.asSequence().mapNotNull { pattern ->
+            runCatching {
+                SimpleDateFormat(pattern, Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.parse(value)?.time
+            }.getOrNull()
+        }.firstOrNull() ?: System.currentTimeMillis()
+    }
 
     fun closeRealtime() = supabaseClient.closeRealtime()
     suspend fun addReaction(messageId: String, emoji: String) = messageDao.updateMessageReaction(messageId, emoji)
