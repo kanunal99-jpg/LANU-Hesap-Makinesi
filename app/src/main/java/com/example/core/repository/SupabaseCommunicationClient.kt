@@ -2,25 +2,43 @@ package com.example.core.repository
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.Headers
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
+import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 /** Real LANU communication transport for the Willy-Kilo-Takip Supabase project. */
 class SupabaseCommunicationClient(
     private val baseUrl: String,
     private val publishableKey: String,
-    private val httpClient: OkHttpClient = OkHttpClient()
+    private val httpClient: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .build()
 ) {
     data class Session(val accessToken: String, val userId: String)
+    data class RemoteMessage(
+        val id: String,
+        val conversationId: String,
+        val senderId: String,
+        val ciphertext: String,
+        val createdAt: String
+    )
 
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
+    @Volatile private var cachedSession: Session? = null
+    @Volatile private var realtimeSocket: WebSocket? = null
 
     suspend fun ensureAnonymousSession(): Session = withContext(Dispatchers.IO) {
+        cachedSession?.let { return@withContext it }
         val request = Request.Builder()
             .url("${baseUrl.trimEnd('/')}/auth/v1/signup")
             .header("apikey", publishableKey)
@@ -28,13 +46,15 @@ class SupabaseCommunicationClient(
             .post("{}".toRequestBody(jsonMediaType))
             .build()
         execute(request).let { body ->
-            Session(
+            val session = Session(
                 accessToken = body.optString("access_token").ifBlank {
                     error("Supabase Auth access token alınamadı")
                 },
                 userId = body.optJSONObject("user")?.optString("id")?.ifBlank { null }
                     ?: error("Supabase Auth kullanıcı kimliği alınamadı")
             )
+            cachedSession = session
+            session
         }
     }
 
@@ -106,42 +126,76 @@ class SupabaseCommunicationClient(
                 .build()
             val rows = executeArray(request)
             buildList {
-                for (i in 0 until rows.length()) {
-                    val row = rows.getJSONObject(i)
-                    add(
-                        RemoteMessage(
-                            id = row.getString("id"),
-                            conversationId = row.getString("conversation_id"),
-                            senderId = row.getString("sender_id"),
-                            ciphertext = row.getString("ciphertext"),
-                            createdAt = row.getString("created_at")
-                        )
-                    )
-                }
+                for (i in 0 until rows.length()) add(remoteMessageFromRow(rows.getJSONObject(i)))
             }
         }
 
-    data class RemoteMessage(
-        val id: String,
-        val conversationId: String,
-        val senderId: String,
-        val ciphertext: String,
-        val createdAt: String
-    )
+    /** Opens a real Supabase Realtime Postgres Changes socket for lanu_messages. */
+    suspend fun subscribeToMessages(
+        session: Session,
+        onMessage: (RemoteMessage) -> Unit,
+        onConnectionState: (Boolean) -> Unit = {}
+    ) = withContext(Dispatchers.IO) {
+        realtimeSocket?.cancel()
+        val wsUrl = baseUrl.trimEnd('/')
+            .replaceFirst("https://", "wss://")
+            .replaceFirst("http://", "ws://") +
+            "/realtime/v1/websocket?apikey=" +
+            java.net.URLEncoder.encode(publishableKey, "UTF-8") + "&vsn=1.0.0"
+        val topic = "realtime:public:lanu_messages"
+        val join = JSONObject()
+            .put("topic", topic)
+            .put("event", "phx_join")
+            .put("payload", JSONObject()
+                .put("config", JSONObject()
+                    .put("broadcast", JSONObject().put("ack", false))
+                    .put("presence", JSONObject().put("key", ""))
+                    .put("postgres_changes", JSONArray().put(
+                        JSONObject().put("event", "INSERT").put("schema", "public").put("table", "lanu_messages")
+                    ))
+                )
+                .put("access_token", session.accessToken))
+            .put("ref", UUID.randomUUID().toString())
+
+        realtimeSocket = httpClient.newWebSocket(
+            Request.Builder().url(wsUrl).build(),
+            object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: okhttp3.Response) {
+                    onConnectionState(true)
+                    webSocket.send(join.toString())
+                }
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    runCatching {
+                        val root = JSONObject(text)
+                        if (root.optString("event") != "postgres_changes") return
+                        val record = root.optJSONObject("payload")?.optJSONObject("data")?.optJSONObject("record") ?: return
+                        onMessage(remoteMessageFromRow(record))
+                    }
+                }
+                override fun onClosing(webSocket: WebSocket, code: Int, reason: String) = onConnectionState(false)
+                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) = onConnectionState(false)
+                override fun onFailure(webSocket: WebSocket, t: Throwable, response: okhttp3.Response?) = onConnectionState(false)
+            }
+        )
+    }
+
+    fun closeRealtime() {
+        realtimeSocket?.close(1000, "LANU iletişim kapatıldı")
+        realtimeSocket = null
+    }
 
     private suspend fun lookupProfileId(session: Session, phoneNumber: String): String? =
         withContext(Dispatchers.IO) {
-            val hash = sha256(phoneNumber)
-            val encoded = java.net.URLEncoder.encode(hash, "UTF-8")
+            val payload = JSONObject().put("p_phone_hash", sha256(phoneNumber)).toString()
             val request = Request.Builder()
-                .url("${baseUrl.trimEnd('/')}/rest/v1/lanu_profiles?phone_hash=eq.$encoded&select=id")
+                .url("${baseUrl.trimEnd('/')}/rest/v1/rpc/lanu_find_profile_by_phone_hash")
                 .headers(sessionHeaders(session))
-                .get()
+                .post(payload.toRequestBody(jsonMediaType))
                 .build()
             executeArray(request).optJSONObject(0)?.optString("id")?.ifBlank { null }
         }
 
-    private fun sessionHeaders(session: Session) = okhttp3.Headers.Builder()
+    private fun sessionHeaders(session: Session) = Headers.Builder()
         .add("apikey", publishableKey)
         .add("Authorization", "Bearer ${session.accessToken}")
         .add("Content-Type", "application/json")
@@ -162,6 +216,14 @@ class SupabaseCommunicationClient(
             return JSONArray(text)
         }
     }
+
+    private fun remoteMessageFromRow(row: JSONObject): RemoteMessage = RemoteMessage(
+        id = row.getString("id"),
+        conversationId = row.getString("conversation_id"),
+        senderId = row.getString("sender_id"),
+        ciphertext = row.getString("ciphertext"),
+        createdAt = row.getString("created_at")
+    )
 
     private fun sha256(value: String): String = MessageDigest
         .getInstance("SHA-256")
