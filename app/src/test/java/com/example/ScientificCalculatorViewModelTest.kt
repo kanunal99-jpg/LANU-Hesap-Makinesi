@@ -7,7 +7,6 @@ import com.example.core.database.SettingsDao
 import com.example.core.database.SettingsEntity
 import com.example.core.repository.CalculatorRepository
 import com.example.features.calculator.AngleUnit
-import com.example.features.calculator.NotationMode
 import com.example.features.calculator.ScientificCalculatorViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -31,11 +30,30 @@ class ScientificCalculatorViewModelTest {
 
     private val fakeHistoryDao = object : CalculationHistoryDao {
         val historyList = mutableListOf<CalculationHistoryEntity>()
+
         override fun getAllHistory(): Flow<List<CalculationHistoryEntity>> = flowOf(historyList)
-        override suspend fun insertHistory(history: CalculationHistoryEntity) { historyList.add(history) }
-        override suspend fun deleteHistory(id: Long) { historyList.removeAll { it.id == id } }
-        override suspend fun clearAllHistory() { historyList.clear() }
-        override suspend fun deleteHistoryOlderThan(timestamp: Long) {}
+        override suspend fun insertHistory(history: CalculationHistoryEntity) {
+            historyList.removeAll { it.id == history.id && history.id != 0L }
+            historyList.add(history)
+        }
+        override suspend fun deleteHistory(id: Long) {
+            historyList.removeAll { it.id == id }
+        }
+        override suspend fun clearAllHistory() {
+            historyList.clear()
+        }
+        override suspend fun deleteHistoryOlderThan(timestamp: Long) {
+            historyList.removeAll { it.timestamp < timestamp }
+        }
+        override suspend fun getHistoryIdsToPrune(): List<Long> {
+            return historyList
+                .sortedByDescending { it.timestamp }
+                .drop(50)
+                .map { it.id }
+        }
+        override suspend fun deleteHistoryByIds(ids: List<Long>) {
+            historyList.removeAll { ids.contains(it.id) }
+        }
     }
 
     private val fakeSettingsDao = object : SettingsDao {
