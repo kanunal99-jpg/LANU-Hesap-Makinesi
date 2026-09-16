@@ -16,7 +16,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.util.UUID
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Real LANU communication transport for the Willy-Kilo-Takip Supabase project. */
 class SupabaseCommunicationClient(
@@ -40,6 +44,16 @@ class SupabaseCommunicationClient(
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
     @Volatile private var cachedSession: Session? = null
     @Volatile private var realtimeSocket: WebSocket? = null
+    @Volatile private var realtimeSession: Session? = null
+    @Volatile private var realtimeOnMessage: ((RemoteMessage) -> Unit)? = null
+    @Volatile private var realtimeOnConnectionState: ((Boolean) -> Unit)? = null
+    @Volatile private var realtimeClosed = true
+    @Volatile private var reconnectAttempt = 0
+    private val reconnectScheduled = AtomicBoolean(false)
+    private val realtimeExecutor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
+    @Volatile private var heartbeatFuture: ScheduledFuture<*>? = null
+    @Volatile private var reconnectFuture: ScheduledFuture<*>? = null
+
     private val sessionPrefs by lazy {
         val masterKey = MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
         EncryptedSharedPreferences.create(
@@ -121,11 +135,30 @@ class SupabaseCommunicationClient(
         buildList { for (i in 0 until rows.length()) add(remoteMessageFromRow(rows.getJSONObject(i))) }
     }
 
-    /** Opens a real Supabase Realtime Postgres Changes socket for lanu_messages. */
-    suspend fun subscribeToMessages(session: Session, onMessage: (RemoteMessage) -> Unit, onConnectionState: (Boolean) -> Unit = {}) = withContext(Dispatchers.IO) {
+    /** Opens a real Supabase Realtime Postgres Changes socket and keeps it alive with heartbeat/reconnect. */
+    suspend fun subscribeToMessages(
+        session: Session,
+        onMessage: (RemoteMessage) -> Unit,
+        onConnectionState: (Boolean) -> Unit = {}
+    ) = withContext(Dispatchers.IO) {
+        realtimeSession = session
+        realtimeOnMessage = onMessage
+        realtimeOnConnectionState = onConnectionState
+        realtimeClosed = false
+        reconnectAttempt = 0
+        reconnectScheduled.set(false)
+        connectRealtime()
+    }
+
+    private fun connectRealtime() {
+        if (realtimeClosed) return
+        heartbeatFuture?.cancel(false)
         realtimeSocket?.cancel()
+
+        val session = realtimeSession ?: return
         val wsUrl = baseUrl.trimEnd('/').replaceFirst("https://", "wss://").replaceFirst("http://", "ws://") +
             "/realtime/v1/websocket?apikey=${java.net.URLEncoder.encode(publishableKey, "UTF-8")}&vsn=1.0.0"
+        val joinRef = UUID.randomUUID().toString()
         val join = JSONObject()
             .put("topic", "realtime:public:lanu_messages")
             .put("event", "phx_join")
@@ -133,28 +166,93 @@ class SupabaseCommunicationClient(
                 .put("config", JSONObject()
                     .put("broadcast", JSONObject().put("ack", false))
                     .put("presence", JSONObject().put("key", ""))
-                    .put("postgres_changes", JSONArray().put(JSONObject().put("event", "INSERT").put("schema", "public").put("table", "lanu_messages"))))
+                    .put("postgres_changes", JSONArray().put(
+                        JSONObject().put("event", "INSERT").put("schema", "public").put("table", "lanu_messages")
+                    )))
                 .put("access_token", session.accessToken))
-            .put("ref", UUID.randomUUID().toString())
+            .put("ref", joinRef)
+            .put("join_ref", joinRef)
+
         realtimeSocket = httpClient.newWebSocket(Request.Builder().url(wsUrl).build(), object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: okhttp3.Response) { onConnectionState(true); webSocket.send(join.toString()) }
+            override fun onOpen(webSocket: WebSocket, response: okhttp3.Response) {
+                reconnectAttempt = 0
+                reconnectScheduled.set(false)
+                realtimeOnConnectionState?.invoke(true)
+                webSocket.send(join.toString())
+                heartbeatFuture?.cancel(false)
+                heartbeatFuture = realtimeExecutor.scheduleAtFixedRate({
+                    if (!realtimeClosed) {
+                        webSocket.send(
+                            JSONObject()
+                                .put("topic", "phoenix")
+                                .put("event", "heartbeat")
+                                .put("payload", JSONObject())
+                                .put("ref", UUID.randomUUID().toString())
+                                .toString()
+                        )
+                    }
+                }, 20, 20, TimeUnit.SECONDS)
+            }
+
             override fun onMessage(webSocket: WebSocket, text: String) {
                 runCatching {
                     val root = JSONObject(text)
-                    if (root.optString("event") != "postgres_changes") return
-                    val record = root.optJSONObject("payload")?.optJSONObject("data")?.optJSONObject("record") ?: return
-                    onMessage(remoteMessageFromRow(record))
+                    when (root.optString("event")) {
+                        "postgres_changes" -> {
+                            val record = root.optJSONObject("payload")?.optJSONObject("data")?.optJSONObject("record") ?: return
+                            realtimeOnMessage?.invoke(remoteMessageFromRow(record))
+                        }
+                        "phx_reply" -> {
+                            val status = root.optJSONObject("payload")?.optString("status")
+                            if (status == "error") scheduleReconnect()
+                        }
+                        "phx_error", "phx_close" -> scheduleReconnect()
+                    }
                 }
             }
-            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { onConnectionState(false) }
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { onConnectionState(false) }
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: okhttp3.Response?) { onConnectionState(false) }
+
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                heartbeatFuture?.cancel(false)
+                realtimeOnConnectionState?.invoke(false)
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                heartbeatFuture?.cancel(false)
+                realtimeOnConnectionState?.invoke(false)
+                scheduleReconnect()
+            }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: okhttp3.Response?) {
+                heartbeatFuture?.cancel(false)
+                realtimeOnConnectionState?.invoke(false)
+                scheduleReconnect()
+            }
         })
     }
 
+    private fun scheduleReconnect() {
+        if (realtimeClosed || realtimeSession == null || !reconnectScheduled.compareAndSet(false, true)) return
+        reconnectAttempt = (reconnectAttempt + 1).coerceAtMost(5)
+        val delaySeconds = 1L shl (reconnectAttempt - 1)
+        reconnectFuture?.cancel(false)
+        reconnectFuture = realtimeExecutor.schedule({
+            reconnectScheduled.set(false)
+            if (!realtimeClosed) connectRealtime()
+        }, delaySeconds.coerceAtMost(30), TimeUnit.SECONDS)
+    }
+
     fun closeRealtime() {
+        realtimeClosed = true
+        reconnectScheduled.set(false)
+        heartbeatFuture?.cancel(false)
+        reconnectFuture?.cancel(false)
+        heartbeatFuture = null
+        reconnectFuture = null
         realtimeSocket?.close(1000, "LANU iletişim kapatıldı")
         realtimeSocket = null
+        realtimeSession = null
+        realtimeOnMessage = null
+        realtimeOnConnectionState = null
     }
 
     private suspend fun lookupProfileId(session: Session, phoneNumber: String): String? = withContext(Dispatchers.IO) {
