@@ -6,10 +6,14 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.example.core.crypto.CryptoUtils
 import com.example.core.database.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 class CalculatorRepository(private val historyDao: CalculationHistoryDao, private val settingsDao: SettingsDao) {
@@ -72,6 +76,7 @@ class CommunicationRepository(
     val contacts: Flow<List<ContactEntity>> = contactDao.getAllContacts()
     val conversations: Flow<List<ConversationEntity>> = conversationDao.getAllConversations()
     val callLogs: Flow<List<CallLogEntity>> = callLogDao.getAllCallLogs()
+    private val realtimeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     suspend fun registerUser(phoneNumber: String, displayName: String): Boolean {
         if (phoneNumber.isBlank() || displayName.isBlank()) return false
@@ -137,8 +142,8 @@ class CommunicationRepository(
     suspend fun startRealtime(onConnectionState: (Boolean) -> Unit = {}) {
         val session = supabaseClient.ensureAnonymousSession()
         supabaseClient.subscribeToMessages(session, onMessage = { remote ->
-            kotlinx.coroutines.runBlocking {
-                val conversation = conversationDao.getConversationById(remote.conversationId) ?: return@runBlocking
+            realtimeScope.launch {
+                val conversation = conversationDao.getConversationById(remote.conversationId) ?: return@launch
                 val profile = userProfileDao.getUserProfile()
                 val isOwn = remote.senderId == session.userId
                 val senderPhone = if (isOwn) profile?.phoneNumber ?: conversation.partnerPhone else conversation.partnerPhone
