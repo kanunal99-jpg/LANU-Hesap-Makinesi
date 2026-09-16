@@ -89,6 +89,20 @@ jobs:
             app/build/reports/verification/app-debug.apk.sha256
           retention-days: 14
 
+      - name: Publish GitHub Release
+        if: github.event_name == 'push' && success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v1.0.0-debug.${{ github.run_number }}"
+          gh release create "$TAG" \
+            app/build/outputs/apk/debug/app-debug.apk \
+            app/build/reports/verification/app-debug.apk.sha256 \
+            --target "${{ github.sha }}" \
+            --title "LANU CALCULATOR $TAG" \
+            --notes "CI doğrulamalı debug APK. Commit: ${{ github.sha }}" \
+            --prerelease
+
       - name: Upload Test Report Artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -104,10 +118,10 @@ jobs:
         run: |
           if [ "${{ job.status }}" = "success" ]; then
             STATUS="BAŞARILI ✅"
-            DETAILS="Unit/Robolectric testleri, Debug Lint ve Debug APK derlemesi CI üzerinde tamamlandı."
+            DETAILS="Unit/Robolectric testleri, Debug Lint, Debug APK derlemesi ve GitHub Release adımları CI üzerinde tamamlandı."
           else
             STATUS="BAŞARISIZ ❌"
-            DETAILS="CI test, lint veya derleme adımlarından en az biri başarısız oldu. Gerçek CI günlükleri kanıt kabul edilir."
+            DETAILS="CI test, lint, derleme veya release adımlarından en az biri başarısız oldu. Gerçek CI günlükleri kanıt kabul edilir."
           fi
 
           TIMESTAMP=$(date +"%d-%m-%Y %H:%M")
@@ -116,9 +130,9 @@ jobs:
           mkdir -p anayasa
           echo "" >> anayasa/ISLEM_GUNLUGU.md
           echo "### [$TIMESTAMP] - CI/CD Otomatik Doğrulama ($COMMIT_HASH)" >> anayasa/ISLEM_GUNLUGU.md
-          echo "*   **İşlem:** GitHub Actions test + lint + APK derleme hattı çalıştırıldı." >> anayasa/ISLEM_GUNLUGU.md
+          echo "*   **İşlem:** GitHub Actions test + lint + APK derleme + release hattı çalıştırıldı." >> anayasa/ISLEM_GUNLUGU.md
           echo "*   **Sonuç:** $STATUS" >> anayasa/ISLEM_GUNLUGU.md
-          echo "*   **Kanıt:** GitHub Actions run ve artifact kayıtları." >> anayasa/ISLEM_GUNLUGU.md
+          echo "*   **Kanıt:** GitHub Actions run, artifact ve release kayıtları." >> anayasa/ISLEM_GUNLUGU.md
           echo "*   **Açıklama:** $DETAILS" >> anayasa/ISLEM_GUNLUGU.md
 
           echo "" >> anayasa/OZELLIK_TESTLERI_VE_SONUCLARI.md
