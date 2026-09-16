@@ -2,7 +2,7 @@ name: Android CI/CD Build & Test Automation
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main", "master", "feat/communication-real-backend-v2" ]
   pull_request:
     branches: [ "main", "master" ]
 
@@ -132,7 +132,7 @@ jobs:
           echo "### [$TIMESTAMP] - CI/CD Otomatik Doğrulama ($COMMIT_HASH)" >> anayasa/ISLEM_GUNLUGU.md
           echo "*   **İşlem:** GitHub Actions test + lint + APK derleme + release hattı çalıştırıldı." >> anayasa/ISLEM_GUNLUGU.md
           echo "*   **Sonuç:** $STATUS" >> anayasa/ISLEM_GUNLUGU.md
-          echo "*   **Kanıt:** GitHub Actions run, artifact ve release kayıtları." >> anayasa/ISLEM_GUNLUGU.md
+          echo "*   **Kanıt:** GitHub Actions run, artifact ve release kayıtları." >> anayasa/ISLEM_GUNLUKU.md
           echo "*   **Açıklama:** $DETAILS" >> anayasa/ISLEM_GUNLUGU.md
 
           echo "" >> anayasa/OZELLIK_TESTLERI_VE_SONUCLARI.md
@@ -142,7 +142,7 @@ jobs:
           echo "*   **Not:** Dokümantasyon, CI kanıtı olmadan 'başarılı' veya 'production ready' olarak işaretlenmemelidir." >> anayasa/OZELLIK_TESTLERI_VE_SONUCLARI.md
 
       - name: Commit and Push 'anayasa' updates
-        if: github.event_name == 'push' && always()
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && always()
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
