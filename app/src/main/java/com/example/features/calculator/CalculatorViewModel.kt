@@ -15,10 +15,13 @@ class CalculatorViewModel(
     class Factory(private val repository: CalculatorRepository) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            if (modelClass.isAssignableFrom(CalculatorViewModel::class.java)) {
+                return CalculatorViewModel(repository) as T
+            }
             if (modelClass.isAssignableFrom(ScientificCalculatorViewModel::class.java)) {
                 return ScientificCalculatorViewModel(repository) as T
             }
-            return CalculatorViewModel(repository) as T
+            throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }
     }
 }
