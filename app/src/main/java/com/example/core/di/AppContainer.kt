@@ -9,9 +9,7 @@ import com.example.core.repository.SupabaseCommunicationClient
 import com.example.core.security.SecurityEventTracker
 
 class AppContainer(context: Context) {
-    private val database: AppDatabase by lazy {
-        AppDatabase.getDatabase(context)
-    }
+    private val database: AppDatabase by lazy { AppDatabase.getDatabase(context) }
 
     private val supabaseCommunicationClient: SupabaseCommunicationClient by lazy {
         val key = intArrayOf(
@@ -20,6 +18,7 @@ class AppContainer(context: Context) {
             99,77,99,90,65,95,52,70,80,56,104,84,107,77
         ).map { it.toChar() }.joinToString("")
         SupabaseCommunicationClient(
+            context = context,
             baseUrl = "https://jolfbmwxmsamzqtxassg.supabase.co",
             publishableKey = key
         )
