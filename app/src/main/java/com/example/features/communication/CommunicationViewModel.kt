@@ -15,7 +15,6 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
     val contacts = repository.contacts
     val conversations = repository.conversations
     val callLogs = repository.callLogs
-
     private val _isRegistered = MutableStateFlow(false)
     val isRegistered: StateFlow<Boolean> = _isRegistered.asStateFlow()
     private val _userPhone = MutableStateFlow("")
@@ -36,7 +35,6 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
     val supabaseUrl: StateFlow<String> = _supabaseUrl.asStateFlow()
     private val _supabaseKey = MutableStateFlow("")
     val supabaseKey: StateFlow<String> = _supabaseKey.asStateFlow()
-
     private var messagesCollectorJob: Job? = null
 
     enum class NetworkState { ONLINE, OFFLINE, RECONNECTING }
@@ -53,9 +51,7 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
                 repository.startRealtime { connected ->
                     _networkState.value = if (connected) NetworkState.ONLINE else NetworkState.OFFLINE
                 }
-            }.onFailure {
-                _networkState.value = NetworkState.OFFLINE
-            }
+            }.onFailure { _networkState.value = NetworkState.OFFLINE }
         }
     }
 
@@ -124,7 +120,10 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
             val conv = repository.getConversationById(convId)
                 ?: repository.conversations.first().find { it.id == convId }
             _activeConversation.value = conv
-            if (conv != null) repository.getMessages(convId).collectLatest { msgs -> _activeMessages.value = msgs }
+            if (conv != null) {
+                repository.syncConversationMessages(convId)
+                repository.getMessages(convId).collectLatest { msgs -> _activeMessages.value = msgs }
+            }
         }
     }
 
