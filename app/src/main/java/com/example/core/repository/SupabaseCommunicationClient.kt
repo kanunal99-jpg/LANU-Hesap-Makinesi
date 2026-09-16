@@ -9,7 +9,6 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
-import java.util.UUID
 
 /** Real LANU communication transport for the Willy-Kilo-Takip Supabase project. */
 class SupabaseCommunicationClient(
@@ -73,24 +72,27 @@ class SupabaseCommunicationClient(
                 ?: error("Konuşma oluşturulamadı")
         }
 
-    suspend fun sendMessage(session: Session, conversationId: String, ciphertext: String): String =
-        withContext(Dispatchers.IO) {
-            val messageId = UUID.randomUUID().toString()
-            val payload = JSONObject()
-                .put("id", messageId)
-                .put("conversation_id", conversationId)
-                .put("sender_id", session.userId)
-                .put("ciphertext", ciphertext)
-                .toString()
-            val request = Request.Builder()
-                .url("${baseUrl.trimEnd('/')}/rest/v1/lanu_messages")
-                .headers(sessionHeaders(session))
-                .header("Prefer", "return=minimal")
-                .post(payload.toRequestBody(jsonMediaType))
-                .build()
-            execute(request)
-            messageId
-        }
+    suspend fun sendMessage(
+        session: Session,
+        conversationId: String,
+        messageId: String,
+        ciphertext: String
+    ): String = withContext(Dispatchers.IO) {
+        val payload = JSONObject()
+            .put("id", messageId)
+            .put("conversation_id", conversationId)
+            .put("sender_id", session.userId)
+            .put("ciphertext", ciphertext)
+            .toString()
+        val request = Request.Builder()
+            .url("${baseUrl.trimEnd('/')}/rest/v1/lanu_messages")
+            .headers(sessionHeaders(session))
+            .header("Prefer", "return=minimal")
+            .post(payload.toRequestBody(jsonMediaType))
+            .build()
+        execute(request)
+        messageId
+    }
 
     suspend fun listMessages(session: Session, conversationId: String): List<RemoteMessage> =
         withContext(Dispatchers.IO) {
