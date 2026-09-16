@@ -88,7 +88,7 @@ class CommunicationRepository(
 
     suspend fun getUserProfile(): Pair<String?, String?> { val p = userProfileDao.getUserProfile(); return if (p != null) Pair(p.phoneNumber, p.displayName) else Pair(settingsDao.getSettingValue("user_phone"), settingsDao.getSettingValue("user_name")) }
     suspend fun isUserRegistered(): Boolean = settingsDao.getSettingValue("user_registered") == "true"
-    suspend fun logout() { userProfileDao.deleteProfile(); settingsDao.deleteSetting("user_registered"); settingsDao.deleteSetting("user_phone"); settingsDao.deleteSetting("user_name"); settingsDao.deleteSetting("supabase_user_id") }
+    suspend fun logout() { supabaseClient.clearSession(); userProfileDao.deleteProfile(); settingsDao.deleteSetting("user_registered"); settingsDao.deleteSetting("user_phone"); settingsDao.deleteSetting("user_name"); settingsDao.deleteSetting("supabase_user_id") }
     suspend fun getSupabaseCredentials(): Pair<String?, String?> = Pair(settingsDao.getSettingValue("supabase_url"), settingsDao.getSettingValue("supabase_key"))
     suspend fun saveSupabaseCredentials(url: String, key: String) { settingsDao.insertSetting(SettingsEntity("supabase_url", url)); settingsDao.insertSetting(SettingsEntity("supabase_key", key)) }
     fun getMessages(conversationId: String): Flow<List<MessageEntity>> = messageDao.getMessagesForConversation(conversationId)
@@ -104,10 +104,7 @@ class CommunicationRepository(
         runCatching {
             val s = supabaseClient.ensureAnonymousSession()
             val remote = supabaseClient.createConversation(s, normalized)
-            if (remote != local.id) {
-                conversationDao.deleteConversation(local.id)
-                conversationDao.insertConversation(local.copy(id = remote))
-            }
+            if (remote != local.id) { conversationDao.deleteConversation(local.id); conversationDao.insertConversation(local.copy(id = remote)) }
             return remote
         }
         return local.id
@@ -119,13 +116,8 @@ class CommunicationRepository(
         messageDao.insertMessage(MessageEntity(messageId, conversationId, senderPhone, senderName, encrypted, mediaUrl, now, "SENDING"))
         conversationDao.insertConversation(conversation.copy(lastMessageText = if (mediaUrl != null && text.isBlank()) "📷 Fotoğraf" else text, lastMessageTime = now))
         try {
-            val s = supabaseClient.ensureAnonymousSession()
-            supabaseClient.upsertProfile(s, senderPhone, senderName)
-            supabaseClient.sendMessage(s, conversationId, messageId, encrypted)
-            messageDao.updateMessageStatus(messageId, "SENT")
-        } catch (_: Exception) {
-            messageDao.updateMessageStatus(messageId, "PENDING")
-        }
+            val s = supabaseClient.ensureAnonymousSession(); supabaseClient.upsertProfile(s, senderPhone, senderName); supabaseClient.sendMessage(s, conversationId, messageId, encrypted); messageDao.updateMessageStatus(messageId, "SENT")
+        } catch (_: Exception) { messageDao.updateMessageStatus(messageId, "PENDING") }
     }
 
     suspend fun syncConversationMessages(conversationId: String) {
@@ -137,17 +129,7 @@ class CommunicationRepository(
             val senderPhone = if (isOwn) profile?.phoneNumber ?: conversation.partnerPhone else conversation.partnerPhone
             val senderName = if (isOwn) profile?.displayName ?: "User" else conversation.partnerName
             val decrypted = CryptoUtils.decrypt(remote.ciphertext, remote.conversationId)
-            messageDao.insertMessage(
-                MessageEntity(
-                    id = remote.id,
-                    conversationId = remote.conversationId,
-                    senderPhone = senderPhone,
-                    senderName = senderName,
-                    content = remote.ciphertext,
-                    timestamp = System.currentTimeMillis(),
-                    status = if (isOwn) "SENT" else "DELIVERED"
-                )
-            )
+            messageDao.insertMessage(MessageEntity(remote.id, remote.conversationId, senderPhone, senderName, remote.ciphertext, timestamp = System.currentTimeMillis(), status = if (isOwn) "SENT" else "DELIVERED"))
             conversationDao.insertConversation(conversation.copy(lastMessageText = decrypted, lastMessageTime = System.currentTimeMillis()))
         }
     }
