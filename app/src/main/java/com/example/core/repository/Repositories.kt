@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.example.core.calls.LanuCallSignalingClient
 import com.example.core.crypto.CryptoUtils
 import com.example.core.database.*
 import kotlinx.coroutines.CoroutineScope
@@ -74,8 +75,16 @@ class CommunicationRepository(
     private val settingsDao: SettingsDao,
     private val userProfileDao: UserProfileDao,
     private val callLogDao: CallLogDao,
-    private val supabaseClient: SupabaseCommunicationClient
+    private val supabaseClient: SupabaseCommunicationClient,
+    private val callSignalingClient: LanuCallSignalingClient
 ) {
+    data class IncomingCallSignal(
+        val conversationId: String,
+        val partnerName: String,
+        val isVideo: Boolean,
+        val createdAt: String
+    )
+
     val contacts: Flow<List<ContactEntity>> = contactDao.getAllContacts()
     val conversations: Flow<List<ConversationEntity>> = conversationDao.getAllConversations()
     val callLogs: Flow<List<CallLogEntity>> = callLogDao.getAllCallLogs()
@@ -160,12 +169,29 @@ class CommunicationRepository(
         }, onConnectionState = onConnectionState)
     }
 
+    suspend fun findIncomingCallSince(conversations: List<ConversationEntity>, since: String): IncomingCallSignal? {
+        val ownId = callSignalingClient.currentUserId()
+        for (conversation in conversations) {
+            val signals = runCatching { callSignalingClient.poll(conversation.id, since) }.getOrDefault(emptyList())
+            val offer = signals.asSequence()
+                .filter { it.senderId != ownId && it.type == "offer" }
+                .lastOrNull()
+            if (offer != null) {
+                return IncomingCallSignal(
+                    conversationId = conversation.id,
+                    partnerName = conversation.partnerName,
+                    isVideo = !offer.payload.optString("sdp").contains("m=audio", ignoreCase = true) || offer.payload.optBoolean("video", false),
+                    createdAt = offer.createdAt
+                )
+            }
+        }
+        return null
+    }
+
     private fun parseRemoteTimestamp(value: String): Long {
         val formats = arrayOf("yyyy-MM-dd'T'HH:mm:ss.SSSX", "yyyy-MM-dd'T'HH:mm:ssX")
         return formats.asSequence().mapNotNull { pattern ->
-            runCatching {
-                SimpleDateFormat(pattern, Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.parse(value)?.time
-            }.getOrNull()
+            runCatching { SimpleDateFormat(pattern, Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.parse(value)?.time }.getOrNull()
         }.firstOrNull() ?: System.currentTimeMillis()
     }
 
