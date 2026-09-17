@@ -13,24 +13,26 @@ import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.view.WindowManager
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModelProvider
 import com.example.core.security.AppLifecycleObserver
 import com.example.core.security.AppLockState
 import com.example.core.security.AppLockViewModel
+import com.example.features.calculator.AuditPanelScreen
 import com.example.features.calculator.CalculatorScreen
 import com.example.features.calculator.CalculatorViewModel
-import com.example.features.calculator.UnitConverterScreen
-import com.example.features.calculator.FinanceScreen
 import com.example.features.calculator.CollaborationScreen
-import com.example.features.calculator.AuditPanelScreen
+import com.example.features.calculator.FinanceScreen
+import com.example.features.calculator.UnitConverterScreen
 import com.example.features.communication.ChatDetailScreen
 import com.example.features.communication.CommunicationScreen
 import com.example.features.communication.CommunicationViewModel
@@ -132,6 +134,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                 val isLocked by securityViewModel.isLocked.collectAsState()
                 val hasPin by securityViewModel.hasPin.collectAsState()
                 val screenProtection by securityViewModel.screenProtectionEnabled.collectAsState()
+                val incomingCall by commViewModel.incomingCall.collectAsState()
 
                 LaunchedEffect(screenProtection) {
                     if (screenProtection) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
@@ -146,6 +149,24 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                             if (hasPin) navigationBackstack.add(Screen.Security()) else navigationBackstack.add(Screen.Calculator)
                         }
                     }
+                }
+
+                if (incomingCall != null && !isLocked) {
+                    val call = incomingCall!!
+                    AlertDialog(
+                        onDismissRequest = { commViewModel.rejectIncomingCall() },
+                        title = { Text(if (call.isVideo) "Görüntülü arama" else "Sesli arama") },
+                        text = { Text("${call.partnerName} sizi arıyor.") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                commViewModel.acceptIncomingCall()
+                                navigateTo(Screen.Call(call.conversationId, call.partnerName, call.isVideo, outgoing = false))
+                            }) { Text("Cevapla") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { commViewModel.rejectIncomingCall() }) { Text("Reddet") }
+                        }
+                    )
                 }
 
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -190,12 +211,13 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                 viewModel = commViewModel,
                                 conversationId = screen.conversationId,
                                 onNavigateBack = { navigateBack() },
-                                onNavigateToCall = { partner, isVideo -> navigateTo(Screen.Call(screen.conversationId, partner, isVideo)) }
+                                onNavigateToCall = { partner, isVideo -> navigateTo(Screen.Call(screen.conversationId, partner, isVideo, outgoing = true)) }
                             )
                             is Screen.Call -> RealCallScreen(
                                 partnerName = screen.partnerName,
                                 conversationId = screen.conversationId,
                                 isVideo = screen.isVideo,
+                                outgoing = screen.outgoing,
                                 supabaseUrl = container.supabaseBaseUrl,
                                 supabaseKey = container.supabasePublishableKey,
                                 onEndCall = {
@@ -282,6 +304,6 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         data class Security(val directUnlockPin: String? = null) : Screen()
         object Communication : Screen()
         data class ChatDetail(val conversationId: String) : Screen()
-        data class Call(val conversationId: String, val partnerName: String, val isVideo: Boolean) : Screen()
+        data class Call(val conversationId: String, val partnerName: String, val isVideo: Boolean, val outgoing: Boolean = true) : Screen()
     }
 }
