@@ -3,74 +3,38 @@ package com.example.features.communication
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.example.core.database.ConversationEntity
-import com.example.core.database.MessageEntity
-import com.example.core.repository.CommunicationRepository
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 class CommunicationViewModel(private val repository: CommunicationRepository) : ViewModel() {
-    val contacts = repository.contacts
-    val conversations = repository.conversations
-    val callLogs = repository.callLogs
-    private val _isRegistered = MutableStateFlow(false)
-    val isRegistered: StateFlow<Boolean> = _isRegistered.asStateFlow()
-    private val _userPhone = MutableStateFlow("")
-    val userPhone: StateFlow<String> = _userPhone.asStateFlow()
-    private val _userName = MutableStateFlow("")
-    val userName: StateFlow<String> = _userName.asStateFlow()
-    private val _activeConversation = MutableStateFlow<ConversationEntity?>(null)
-    val activeConversation: StateFlow<ConversationEntity?> = _activeConversation.asStateFlow()
-    private val _activeMessages = MutableStateFlow<List<MessageEntity>>(emptyList())
-    val activeMessages: StateFlow<List<MessageEntity>> = _activeMessages.asStateFlow()
-    private val _isPartnerTyping = MutableStateFlow(false)
-    val isPartnerTyping: StateFlow<Boolean> = _isPartnerTyping.asStateFlow()
-    private val _searchQuery = MutableStateFlow("")
-    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
-    private val _networkState = MutableStateFlow(NetworkState.RECONNECTING)
-    val networkState: StateFlow<NetworkState> = _networkState.asStateFlow()
-    private val _supabaseUrl = MutableStateFlow("")
-    val supabaseUrl: StateFlow<String> = _supabaseUrl.asStateFlow()
-    private val _supabaseKey = MutableStateFlow("")
-    val supabaseKey: StateFlow<String> = _supabaseKey.asStateFlow()
-    private val _incomingCall = MutableStateFlow<CommunicationRepository.IncomingCallSignal?>(null)
-    val incomingCall: StateFlow<CommunicationRepository.IncomingCallSignal?> = _incomingCall.asStateFlow()
+    private val _conversations = MutableStateFlow<List<Conversation>>(emptyList())
+    val conversations: StateFlow<List<Conversation>> = _conversations.asStateFlow()
+
+    private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
+    val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
+
+    private val _incomingCall = MutableStateFlow<IncomingCall?>(null)
+    val incomingCall: StateFlow<IncomingCall?> = _incomingCall.asStateFlow()
+
     private var messagesCollectorJob: Job? = null
     private var incomingCallMonitorJob: Job? = null
     private var incomingCallCursor = nowIsoUtc()
 
-    enum class NetworkState { ONLINE, OFFLINE, RECONNECTING }
-
-    init {
-        checkRegistration()
-        loadSupabaseCredentials()
-    }
-
-    private fun connectRealtime() {
-        viewModelScope.launch {
-            _networkState.value = NetworkState.RECONNECTING
-            runCatching {
-                repository.startRealtime { connected ->
-                    _networkState.value = if (connected) NetworkState.ONLINE else NetworkState.OFFLINE
-                }
-            }.onFailure { _networkState.value = NetworkState.OFFLINE }
-            startIncomingCallMonitor()
-        }
-    }
-
-    private fun startIncomingCallMonitor() {
+    fun connectRealtime() {
+        repository.connectRealtime()
         incomingCallMonitorJob?.cancel()
         incomingCallMonitorJob = viewModelScope.launch {
             while (currentCoroutineContext().isActive) {
-                if (_isRegistered.value && _incomingCall.value == null) {
-                    val found = runCatching { repository.findIncomingCallSince(conversations.first(), incomingCallCursor) }.getOrNull()
-                    if (found != null) {
-                        incomingCallCursor = found.createdAt
-                        _incomingCall.value = found
+                if (_incomingCall.value == null && _conversations.value.isNotEmpty()) {
+                    repository.findIncomingCallSince(_conversations.value.first(), incomingCallCursor)?.let { call ->
+                        incomingCallCursor = call.createdAt
+                        _incomingCall.value = call
                     }
                 }
                 delay(1000)
@@ -79,159 +43,37 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
     }
 
     fun acceptIncomingCall() {
-        _incomingCall.value?.let {
-            _incomingCall.value = null
-            incomingCallCursor = nowIsoUtc()
-        }
-    }
-
-    fun rejectIncomingCall() {
-        val incoming = _incomingCall.value ?: return
-        _incomingCall.value = null
-        viewModelScope.launch {
-            runCatching { repository.sendCallControl(incoming.conversationId, "reject") }
-            incomingCallCursor = nowIsoUtc()
-        }
-    }
-
-    fun clearIncomingCall() {
         _incomingCall.value = null
         incomingCallCursor = nowIsoUtc()
     }
 
-    fun checkRegistration() {
+    fun rejectIncomingCall() {
         viewModelScope.launch {
-            val registered = repository.isUserRegistered()
-            _isRegistered.value = registered
-            if (registered) {
-                val profile = repository.getUserProfile()
-                _userPhone.value = profile.first ?: ""
-                _userName.value = profile.second ?: ""
-                connectRealtime()
+            _incomingCall.value?.let { call ->
+                repository.rejectCall(call.conversationId)
             }
-        }
-    }
-
-    fun register(phone: String, name: String, onComplete: () -> Unit) {
-        viewModelScope.launch {
-            val success = repository.registerUser(phone, name)
-            if (success) {
-                _isRegistered.value = true
-                _userPhone.value = repository.normalizePhoneNumber(phone)
-                _userName.value = name
-                connectRealtime()
-                onComplete()
-            }
-        }
-    }
-
-    fun logout(onComplete: () -> Unit) {
-        viewModelScope.launch {
-            repository.logout()
-            _isRegistered.value = false
-            _userPhone.value = ""
-            _userName.value = ""
-            _networkState.value = NetworkState.RECONNECTING
-            incomingCallMonitorJob?.cancel()
             _incomingCall.value = null
-            onComplete()
+            incomingCallCursor = nowIsoUtc()
         }
     }
 
-    fun addContact(name: String, phone: String) { viewModelScope.launch { repository.addContact(name, phone) } }
-    fun deleteContact(phone: String) { viewModelScope.launch { repository.deleteContact(phone) } }
-
-    fun loadSupabaseCredentials() {
-        viewModelScope.launch {
-            val creds = repository.getSupabaseCredentials()
-            _supabaseUrl.value = creds.first ?: ""
-            _supabaseKey.value = creds.second ?: ""
-        }
-    }
-
-    fun saveSupabaseCredentials(url: String, key: String) {
-        viewModelScope.launch {
-            repository.saveSupabaseCredentials(url.trim(), key.trim())
-            _supabaseUrl.value = url.trim()
-            _supabaseKey.value = key.trim()
-        }
-    }
-
-    fun setSearchQuery(query: String) { _searchQuery.value = query }
-
-    fun selectConversation(convId: String) {
+    fun selectConversation(conversation: Conversation) {
+        repository.selectConversation(conversation)
         messagesCollectorJob?.cancel()
         messagesCollectorJob = viewModelScope.launch {
-            val conv = repository.getConversationById(convId) ?: conversations.first().find { it.id == convId }
-            _activeConversation.value = conv
-            if (conv != null) {
-                repository.syncConversationMessages(convId)
-                repository.getMessages(convId).collectLatest { msgs -> _activeMessages.value = msgs }
-            }
+            repository.messages.collect { _messages.value = it }
         }
     }
 
-    fun startChat(partnerPhone: String, partnerName: String, onChatIdReady: (String) -> Unit) {
-        viewModelScope.launch {
-            val normalizedPhone = repository.normalizePhoneNumber(partnerPhone)
-            val existing = conversations.first().find { it.partnerPhone == normalizedPhone }
-            if (existing != null) {
-                selectConversation(existing.id)
-                onChatIdReady(existing.id)
-            } else {
-                val newId = repository.createConversation(partnerPhone, partnerName)
-                selectConversation(newId)
-                onChatIdReady(newId)
-            }
-        }
+    fun startChat(userId: String) = viewModelScope.launch {
+        repository.startChat(userId)
+        _conversations.value = repository.conversations.value
     }
 
-    fun sendMessage(text: String, isSelfDestruct: Boolean = false, destructDelaySeconds: Int = 10) {
-        val conv = _activeConversation.value ?: return
-        if (text.isBlank()) return
-        viewModelScope.launch {
-            repository.sendMessage(conv.id, text)
-            if (isSelfDestruct) {
-                delay((destructDelaySeconds + 2) * 1000L)
-                val sentMsg = repository.getMessages(conv.id).first().lastOrNull { it.senderPhone == _userPhone.value }
-                if (sentMsg != null) repository.deleteMessage(sentMsg.id)
-            }
-        }
-    }
-
-    fun sendMediaMessage(caption: String, mediaUrl: String) {
-        val conv = _activeConversation.value ?: return
-        viewModelScope.launch { repository.sendMessage(conv.id, caption, mediaUrl) }
-    }
-
-    fun insertSystemMessage(partnerName: String, text: String) {
-        viewModelScope.launch {
-            conversations.first().find { it.partnerName == partnerName }?.let { repository.sendMessage(it.id, text) }
-        }
-    }
-
-    fun addReaction(messageId: String, emoji: String) { viewModelScope.launch { repository.addReaction(messageId, emoji) } }
-    fun deleteMessage(messageId: String) { viewModelScope.launch { repository.deleteMessage(messageId) } }
-
-    fun deleteConversation(conversationId: String) {
-        viewModelScope.launch {
-            repository.clearConversationMessages(conversationId)
-            repository.deleteConversation(conversationId)
-            if (_activeConversation.value?.id == conversationId) {
-                _activeConversation.value = null
-                _activeMessages.value = emptyList()
-            }
-        }
-    }
-
-    fun editMessage(messageId: String, newText: String) {
-        val conv = _activeConversation.value ?: return
-        if (newText.isBlank()) return
-        viewModelScope.launch { repository.editMessage(messageId, conv.id, newText) }
-    }
-
-    fun clearConversationMessages(conversationId: String) { viewModelScope.launch { repository.clearConversationMessages(conversationId) } }
-    fun addCallLog(partnerName: String, partnerPhone: String, isVideo: Boolean, durationSeconds: Int, isOutgoing: Boolean) { viewModelScope.launch { repository.addCallLog(partnerName, partnerPhone, isVideo, durationSeconds, isOutgoing) } }
+    fun sendMessage(text: String) = viewModelScope.launch { repository.sendMessage(text) }
+    fun sendMedia(uri: String, mimeType: String) = viewModelScope.launch { repository.sendMedia(uri, mimeType) }
+    fun addReaction(messageId: String, reaction: String) = viewModelScope.launch { repository.addReaction(messageId, reaction) }
+    fun logCall(conversationId: String, type: String) = viewModelScope.launch { repository.logCall(conversationId, type) }
     fun deleteCallLog(id: Long) { viewModelScope.launch { repository.deleteCallLog(id) } }
     fun clearAllCallLogs() { viewModelScope.launch { repository.clearAllCallLogs() } }
     fun simulateNetworkLost() = connectRealtime()
@@ -249,7 +91,7 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
     }
 
     companion object {
-        private fun nowIsoUtc(): String = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", java.util.Locale.US).apply {
+        private fun nowIsoUtc(): String = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US).apply {
             timeZone = java.util.TimeZone.getTimeZone("UTC")
         }.format(java.util.Date())
     }
