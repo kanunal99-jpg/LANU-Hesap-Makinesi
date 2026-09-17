@@ -7,8 +7,10 @@ import com.example.core.database.ConversationEntity
 import com.example.core.database.MessageEntity
 import com.example.core.repository.CommunicationRepository
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class CommunicationViewModel(private val repository: CommunicationRepository) : ViewModel() {
@@ -63,7 +65,7 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
     private fun startIncomingCallMonitor() {
         incomingCallMonitorJob?.cancel()
         incomingCallMonitorJob = viewModelScope.launch {
-            while (isActive) {
+            while (currentCoroutineContext().isActive) {
                 if (_isRegistered.value && _incomingCall.value == null) {
                     val found = runCatching { repository.findIncomingCallSince(conversations.first(), incomingCallCursor) }.getOrNull()
                     if (found != null) {
@@ -77,9 +79,9 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
     }
 
     fun acceptIncomingCall() {
-        _incomingCall.value?.let { incoming ->
+        _incomingCall.value?.let {
             _incomingCall.value = null
-            viewModelScope.launch { incomingCallCursor = nowIsoUtc() }
+            incomingCallCursor = nowIsoUtc()
         }
     }
 
