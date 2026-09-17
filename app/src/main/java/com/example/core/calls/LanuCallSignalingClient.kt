@@ -39,10 +39,11 @@ class LanuCallSignalingClient(
 
     suspend fun send(conversationId: String, senderId: String, type: String, payload: JSONObject) = withContext(Dispatchers.IO) {
         val token = prefs.getString("access_token", null) ?: error("LANU oturumu bulunamadı")
+        val authenticatedSenderId = currentUserId()
         val body = JSONObject()
             .put("id", UUID.randomUUID().toString())
             .put("conversation_id", conversationId)
-            .put("sender_id", senderId)
+            .put("sender_id", authenticatedSenderId)
             .put("signal_type", type)
             .put("payload", payload)
             .toString()
