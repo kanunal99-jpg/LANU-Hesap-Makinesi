@@ -35,6 +35,8 @@ class LanuCallSignalingClient(
         )
     }
 
+    fun currentUserId(): String = prefs.getString("user_id", null) ?: error("LANU oturumu bulunamadı")
+
     suspend fun send(conversationId: String, senderId: String, type: String, payload: JSONObject) = withContext(Dispatchers.IO) {
         val token = prefs.getString("access_token", null) ?: error("LANU oturumu bulunamadı")
         val body = JSONObject()
