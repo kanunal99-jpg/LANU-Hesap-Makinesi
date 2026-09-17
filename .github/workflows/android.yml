@@ -2,7 +2,7 @@ name: Android CI/CD Build & Test Automation
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main", "master", "feat/communication-real-backend-v2" ]
   pull_request:
     branches: [ "main", "master" ]
 
@@ -90,7 +90,7 @@ jobs:
           retention-days: 14
 
       - name: Publish GitHub Release
-        if: github.event_name == 'push' && success()
+        if: success() && (github.event_name == 'push' || (github.event_name == 'pull_request' && github.head_ref == 'feat/communication-real-backend-v2'))
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -142,7 +142,7 @@ jobs:
           echo "*   **Not:** Dokümantasyon, CI kanıtı olmadan 'başarılı' veya 'production ready' olarak işaretlenmemelidir." >> anayasa/OZELLIK_TESTLERI_VE_SONUCLARI.md
 
       - name: Commit and Push 'anayasa' updates
-        if: github.event_name == 'push' && always()
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && always()
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
