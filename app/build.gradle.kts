@@ -100,7 +100,7 @@ dependencies {
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
   implementation(libs.retrofit)
-  implementation("org.webrtc:google-webrtc:1.0.32006")
+  implementation("com.infobip:google-webrtc:1.0.48246t")
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
