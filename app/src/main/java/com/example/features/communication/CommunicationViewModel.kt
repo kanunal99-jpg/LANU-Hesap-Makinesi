@@ -76,8 +76,25 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
         }
     }
 
+    fun acceptIncomingCall() {
+        _incomingCall.value?.let { incoming ->
+            _incomingCall.value = null
+            viewModelScope.launch { incomingCallCursor = nowIsoUtc() }
+        }
+    }
+
+    fun rejectIncomingCall() {
+        val incoming = _incomingCall.value ?: return
+        _incomingCall.value = null
+        viewModelScope.launch {
+            runCatching { repository.sendCallControl(incoming.conversationId, "reject") }
+            incomingCallCursor = nowIsoUtc()
+        }
+    }
+
     fun clearIncomingCall() {
         _incomingCall.value = null
+        incomingCallCursor = nowIsoUtc()
     }
 
     fun checkRegistration() {
@@ -105,6 +122,22 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
             }
         }
     }
+
+    fun logout(onComplete: () -> Unit) {
+        viewModelScope.launch {
+            repository.logout()
+            _isRegistered.value = false
+            _userPhone.value = ""
+            _userName.value = ""
+            _networkState.value = NetworkState.RECONNECTING
+            incomingCallMonitorJob?.cancel()
+            _incomingCall.value = null
+            onComplete()
+        }
+    }
+
+    fun addContact(name: String, phone: String) { viewModelScope.launch { repository.addContact(name, phone) } }
+    fun deleteContact(phone: String) { viewModelScope.launch { repository.deleteContact(phone) } }
 
     fun loadSupabaseCredentials() {
         viewModelScope.launch {
