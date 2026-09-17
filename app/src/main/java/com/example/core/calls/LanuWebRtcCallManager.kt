@@ -136,7 +136,7 @@ class LanuWebRtcCallManager(
         }
     }
 
-    private suspend fun createOffer() = suspendCancellableCoroutine<Unit> { cont ->
+    private fun createOffer() {
         peerConnection?.createOffer(object : SdpObserver {
             override fun onCreateSuccess(desc: SessionDescription) {
                 peerConnection?.setLocalDescription(object : SdpObserver {
@@ -147,18 +147,19 @@ class LanuWebRtcCallManager(
                                     .put("type", desc.type.canonicalForm())
                                     .put("sdp", desc.description))
                             }.onFailure {
-                                if (cont.isActive) cont.resumeWith(Result.failure(it))
+                                withContext(Dispatchers.Main) { onState(WebRtcCallState.FAILED) }
                             }
-                            if (cont.isActive) cont.resume(Unit) {}
                         }
                     }
-                    override fun onSetFailure(error: String) { if (cont.isActive) cont.resumeWith(Result.failure(IllegalStateException(error))) }
+                    override fun onSetFailure(error: String) {
+                        onState(WebRtcCallState.FAILED)
+                    }
                     override fun onCreateSuccess(p0: SessionDescription?) = Unit
                     override fun onCreateFailure(p0: String?) = Unit
                 }, desc)
             }
             override fun onSetSuccess() = Unit
-            override fun onCreateFailure(error: String) { if (cont.isActive) cont.resumeWith(Result.failure(IllegalStateException(error))) }
+            override fun onCreateFailure(error: String) { onState(WebRtcCallState.FAILED) }
             override fun onSetFailure(error: String) = Unit
         }, MediaConstraints())
     }
