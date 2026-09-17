@@ -27,11 +27,10 @@ class LanuWebRtcCallManager(
     private var eglBase: EglBase? = null
     private var lastSignalTimestamp: String? = null
     private var started = false
-    private var remoteDescriptionSet = AtomicBoolean(false)
-    private var pendingIce = mutableListOf<IceCandidate>()
+    private val remoteDescriptionSet = AtomicBoolean(false)
+    private val pendingIce = mutableListOf<IceCandidate>()
 
     val localVideoTrack: VideoTrack? get() = videoTrack
-    val remoteVideoTrack: VideoTrack? get() = peerConnection?.let { null }
     val eglContext: EglBase.Context? get() = eglBase?.eglBaseContext
 
     fun attachRenderers(local: SurfaceViewRenderer?, remote: SurfaceViewRenderer?) {
@@ -48,7 +47,7 @@ class LanuWebRtcCallManager(
                 initializePeerConnection()
                 pollSignals()
                 if (outgoing) createOffer()
-            } catch (_: Throwable) {
+            } catch (t: Throwable) {
                 withContext(Dispatchers.Main) { onState(WebRtcCallState.FAILED) }
             }
         }
@@ -73,7 +72,8 @@ class LanuWebRtcCallManager(
             )
         )
         rtcConfig.sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
-        peerConnection = factory!!.createPeerConnection(rtcConfig, observer) ?: error("WebRTC PeerConnection oluşturulamadı")
+        peerConnection = factory!!.createPeerConnection(rtcConfig, observer)
+            ?: error("WebRTC PeerConnection oluşturulamadı")
 
         val audioSource = factory!!.createAudioSource(MediaConstraints())
         audioTrack = factory!!.createAudioTrack("LANU_AUDIO", audioSource)
@@ -102,19 +102,20 @@ class LanuWebRtcCallManager(
     private val observer = object : PeerConnection.Observer {
         override fun onSignalingChange(state: PeerConnection.SignalingState) = Unit
         override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
-            when (state) {
-                PeerConnection.IceConnectionState.CONNECTED, PeerConnection.IceConnectionState.COMPLETED -> onState(WebRtcCallState.CONNECTED)
-                PeerConnection.IceConnectionState.DISCONNECTED, PeerConnection.IceConnectionState.CHECKING -> onState(WebRtcCallState.RECONNECTING)
-                PeerConnection.IceConnectionState.FAILED -> onState(WebRtcCallState.FAILED)
-                else -> Unit
+            val nextState = when (state) {
+                PeerConnection.IceConnectionState.CONNECTED, PeerConnection.IceConnectionState.COMPLETED -> WebRtcCallState.CONNECTED
+                PeerConnection.IceConnectionState.DISCONNECTED, PeerConnection.IceConnectionState.CHECKING -> WebRtcCallState.RECONNECTING
+                PeerConnection.IceConnectionState.FAILED -> WebRtcCallState.FAILED
+                else -> null
             }
+            if (nextState != null) onState(nextState)
         }
         override fun onIceConnectionReceivingChange(receiving: Boolean) = Unit
         override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) = Unit
         override fun onIceCandidate(candidate: IceCandidate) {
             scope.launch {
                 runCatching {
-                    signaling.send(conversationId, currentUserId(), "ice", JSONObject()
+                    signaling.send(conversationId, signaling.currentUserId(), "ice", JSONObject()
                         .put("sdpMid", candidate.sdpMid)
                         .put("sdpMLineIndex", candidate.sdpMLineIndex)
                         .put("candidate", candidate.sdp))
@@ -141,9 +142,14 @@ class LanuWebRtcCallManager(
                 peerConnection?.setLocalDescription(object : SdpObserver {
                     override fun onSetSuccess() {
                         scope.launch {
-                            signaling.send(conversationId, currentUserId(), "offer", JSONObject()
-                                .put("type", desc.type.canonicalForm())
-                                .put("sdp", desc.description))
+                            runCatching {
+                                signaling.send(conversationId, signaling.currentUserId(), "offer", JSONObject()
+                                    .put("type", desc.type.canonicalForm())
+                                    .put("sdp", desc.description))
+                            }.onFailure {
+                                if (cont.isActive) cont.resumeWithException(it)
+                                return@launch
+                            }
                             if (cont.isActive) cont.resume(Unit) {}
                         }
                     }
@@ -164,7 +170,7 @@ class LanuWebRtcCallManager(
                 val signals = signaling.poll(conversationId, lastSignalTimestamp)
                 for (signal in signals) {
                     lastSignalTimestamp = signal.createdAt
-                    if (signal.senderId == currentUserId()) continue
+                    if (signal.senderId == signaling.currentUserId()) continue
                     when (signal.type) {
                         "offer" -> handleOffer(signal.payload)
                         "answer" -> handleAnswer(signal.payload)
@@ -196,7 +202,13 @@ class LanuWebRtcCallManager(
             override fun onCreateSuccess(desc: SessionDescription) {
                 peerConnection?.setLocalDescription(object : SdpObserver {
                     override fun onSetSuccess() {
-                        scope.launch { signaling.send(conversationId, currentUserId(), "answer", JSONObject().put("type", "answer").put("sdp", desc.description)) }
+                        scope.launch {
+                            runCatching {
+                                signaling.send(conversationId, signaling.currentUserId(), "answer", JSONObject()
+                                    .put("type", "answer")
+                                    .put("sdp", desc.description))
+                            }.onFailure { withContext(Dispatchers.Main) { onState(WebRtcCallState.FAILED) } }
+                        }
                     }
                     override fun onSetFailure(error: String) { onState(WebRtcCallState.FAILED) }
                     override fun onCreateSuccess(p0: SessionDescription?) = Unit
@@ -212,7 +224,11 @@ class LanuWebRtcCallManager(
     private suspend fun handleAnswer(payload: JSONObject) = withContext(Dispatchers.Main) {
         val desc = SessionDescription(SessionDescription.Type.ANSWER, payload.getString("sdp"))
         peerConnection?.setRemoteDescription(object : SdpObserver {
-            override fun onSetSuccess() { remoteDescriptionSet.set(true); flushPendingIce(); onState(WebRtcCallState.CONNECTING) }
+            override fun onSetSuccess() {
+                remoteDescriptionSet.set(true)
+                flushPendingIce()
+                onState(WebRtcCallState.CONNECTING)
+            }
             override fun onSetFailure(error: String) { onState(WebRtcCallState.FAILED) }
             override fun onCreateSuccess(p0: SessionDescription?) = Unit
             override fun onCreateFailure(p0: String?) = Unit
@@ -220,7 +236,11 @@ class LanuWebRtcCallManager(
     }
 
     private fun handleIce(payload: JSONObject) {
-        val candidate = IceCandidate(payload.optString("sdpMid"), payload.getInt("sdpMLineIndex"), payload.getString("candidate"))
+        val candidate = IceCandidate(
+            payload.optString("sdpMid"),
+            payload.getInt("sdpMLineIndex"),
+            payload.getString("candidate")
+        )
         if (remoteDescriptionSet.get()) peerConnection?.addIceCandidate(candidate) else pendingIce += candidate
     }
 
@@ -234,19 +254,20 @@ class LanuWebRtcCallManager(
     fun setSpeaker(enabled: Boolean) { audioManager.isSpeakerphoneOn = enabled }
 
     fun endCall() {
-        scope.launch { runCatching { signaling.send(conversationId, currentUserId(), "hangup", JSONObject()) } }
+        scope.launch { runCatching { signaling.send(conversationId, signaling.currentUserId(), "hangup", JSONObject()) } }
         close()
     }
 
     fun close() {
         started = false
         capturer?.let { runCatching { it.stopCapture() }; it.dispose() }
-        videoTrack?.dispose(); audioTrack?.dispose()
-        peerConnection?.close(); peerConnection?.dispose()
-        factory?.dispose(); eglBase?.release()
+        videoTrack?.dispose()
+        audioTrack?.dispose()
+        peerConnection?.close()
+        peerConnection?.dispose()
+        factory?.dispose()
+        eglBase?.release()
         scope.cancel()
         audioManager.mode = AudioManager.MODE_NORMAL
     }
-
-    private fun currentUserId(): String = "" // replaced by authenticated user id at integration boundary
 }
