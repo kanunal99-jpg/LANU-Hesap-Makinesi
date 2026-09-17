@@ -23,12 +23,13 @@ fun RealCallScreen(
     partnerName: String,
     conversationId: String,
     isVideo: Boolean,
+    outgoing: Boolean = true,
     supabaseUrl: String,
     supabaseKey: String,
     onEndCall: () -> Unit
 ) {
     val context = LocalContext.current
-    var state by remember { mutableStateOf(WebRtcCallState.CONNECTING) }
+    var state by remember { mutableStateOf(if (outgoing) WebRtcCallState.CONNECTING else WebRtcCallState.RINGING) }
     var muted by remember { mutableStateOf(false) }
     var cameraOn by remember { mutableStateOf(isVideo) }
     var speakerOn by remember { mutableStateOf(true) }
@@ -58,11 +59,20 @@ fun RealCallScreen(
     }
 
     LaunchedEffect(manager) {
-        manager?.start(outgoing = true)
+        manager?.start(outgoing = outgoing)
     }
 
     DisposableEffect(manager) {
         onDispose { manager?.close() }
+    }
+
+    val stateText = when (state) {
+        WebRtcCallState.CONNECTED -> "Bağlandı"
+        WebRtcCallState.RECONNECTING -> "Yeniden bağlanıyor…"
+        WebRtcCallState.FAILED -> "Bağlantı başarısız"
+        WebRtcCallState.ENDED -> "Arama sonlandı"
+        WebRtcCallState.RINGING -> "Gelen arama"
+        else -> if (outgoing) "Aranıyor…" else "Bağlanıyor…"
     }
 
     Box(Modifier.fillMaxSize().background(Color(0xFF020617))) {
@@ -99,16 +109,7 @@ fun RealCallScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(partnerName, color = Color.White, style = MaterialTheme.typography.headlineSmall)
-            Text(
-                when (state) {
-                    WebRtcCallState.CONNECTED -> "Bağlandı"
-                    WebRtcCallState.RECONNECTING -> "Yeniden bağlanıyor…"
-                    WebRtcCallState.FAILED -> "Bağlantı başarısız"
-                    WebRtcCallState.ENDED -> "Arama sonlandı"
-                    else -> "Bağlanıyor…"
-                },
-                color = Color.White.copy(alpha = .8f)
-            )
+            Text(stateText, color = Color.White.copy(alpha = .8f))
         }
 
         Row(
@@ -133,10 +134,13 @@ fun RealCallScreen(
                 manager?.setSpeaker(speakerOn)
             }) { Text(if (speakerOn) "Hoparlör" else "Kulaklık") }
             Spacer(Modifier.width(8.dp))
-            Button(onClick = {
-                manager?.endCall()
-                onEndCall()
-            }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB91C1C))) { Text("Kapat") }
+            Button(
+                onClick = {
+                    manager?.endCall()
+                    onEndCall()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB91C1C))
+            ) { Text("Kapat") }
         }
     }
 }
