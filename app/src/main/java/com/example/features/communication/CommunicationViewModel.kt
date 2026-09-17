@@ -35,7 +35,11 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
     val supabaseUrl: StateFlow<String> = _supabaseUrl.asStateFlow()
     private val _supabaseKey = MutableStateFlow("")
     val supabaseKey: StateFlow<String> = _supabaseKey.asStateFlow()
+    private val _incomingCall = MutableStateFlow<CommunicationRepository.IncomingCallSignal?>(null)
+    val incomingCall: StateFlow<CommunicationRepository.IncomingCallSignal?> = _incomingCall.asStateFlow()
     private var messagesCollectorJob: Job? = null
+    private var incomingCallMonitorJob: Job? = null
+    private var incomingCallCursor = nowIsoUtc()
 
     enum class NetworkState { ONLINE, OFFLINE, RECONNECTING }
 
@@ -52,26 +56,29 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
                     _networkState.value = if (connected) NetworkState.ONLINE else NetworkState.OFFLINE
                 }
             }.onFailure { _networkState.value = NetworkState.OFFLINE }
+            startIncomingCallMonitor()
         }
     }
 
-    fun loadSupabaseCredentials() {
-        viewModelScope.launch {
-            val creds = repository.getSupabaseCredentials()
-            _supabaseUrl.value = creds.first ?: ""
-            _supabaseKey.value = creds.second ?: ""
+    private fun startIncomingCallMonitor() {
+        incomingCallMonitorJob?.cancel()
+        incomingCallMonitorJob = viewModelScope.launch {
+            while (isActive) {
+                if (_isRegistered.value && _incomingCall.value == null) {
+                    val found = runCatching { repository.findIncomingCallSince(conversations.first(), incomingCallCursor) }.getOrNull()
+                    if (found != null) {
+                        incomingCallCursor = found.createdAt
+                        _incomingCall.value = found
+                    }
+                }
+                delay(1000)
+            }
         }
     }
 
-    fun saveSupabaseCredentials(url: String, key: String) {
-        viewModelScope.launch {
-            repository.saveSupabaseCredentials(url.trim(), key.trim())
-            _supabaseUrl.value = url.trim()
-            _supabaseKey.value = key.trim()
-        }
+    fun clearIncomingCall() {
+        _incomingCall.value = null
     }
-
-    fun setSearchQuery(query: String) { _searchQuery.value = query }
 
     fun checkRegistration() {
         viewModelScope.launch {
@@ -99,25 +106,28 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
         }
     }
 
-    fun logout(onComplete: () -> Unit) {
+    fun loadSupabaseCredentials() {
         viewModelScope.launch {
-            repository.logout()
-            _isRegistered.value = false
-            _userPhone.value = ""
-            _userName.value = ""
-            _networkState.value = NetworkState.RECONNECTING
-            onComplete()
+            val creds = repository.getSupabaseCredentials()
+            _supabaseUrl.value = creds.first ?: ""
+            _supabaseKey.value = creds.second ?: ""
         }
     }
 
-    fun addContact(name: String, phone: String) { viewModelScope.launch { repository.addContact(name, phone) } }
-    fun deleteContact(phone: String) { viewModelScope.launch { repository.deleteContact(phone) } }
+    fun saveSupabaseCredentials(url: String, key: String) {
+        viewModelScope.launch {
+            repository.saveSupabaseCredentials(url.trim(), key.trim())
+            _supabaseUrl.value = url.trim()
+            _supabaseKey.value = key.trim()
+        }
+    }
+
+    fun setSearchQuery(query: String) { _searchQuery.value = query }
 
     fun selectConversation(convId: String) {
         messagesCollectorJob?.cancel()
         messagesCollectorJob = viewModelScope.launch {
-            val conv = repository.getConversationById(convId)
-                ?: repository.conversations.first().find { it.id == convId }
+            val conv = repository.getConversationById(convId) ?: conversations.first().find { it.id == convId }
             _activeConversation.value = conv
             if (conv != null) {
                 repository.syncConversationMessages(convId)
@@ -129,7 +139,7 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
     fun startChat(partnerPhone: String, partnerName: String, onChatIdReady: (String) -> Unit) {
         viewModelScope.launch {
             val normalizedPhone = repository.normalizePhoneNumber(partnerPhone)
-            val existing = repository.conversations.first().find { it.partnerPhone == normalizedPhone }
+            val existing = conversations.first().find { it.partnerPhone == normalizedPhone }
             if (existing != null) {
                 selectConversation(existing.id)
                 onChatIdReady(existing.id)
@@ -161,7 +171,7 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
 
     fun insertSystemMessage(partnerName: String, text: String) {
         viewModelScope.launch {
-            repository.conversations.first().find { it.partnerName == partnerName }?.let { repository.sendMessage(it.id, text) }
+            conversations.first().find { it.partnerName == partnerName }?.let { repository.sendMessage(it.id, text) }
         }
     }
 
@@ -189,18 +199,23 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
     fun addCallLog(partnerName: String, partnerPhone: String, isVideo: Boolean, durationSeconds: Int, isOutgoing: Boolean) { viewModelScope.launch { repository.addCallLog(partnerName, partnerPhone, isVideo, durationSeconds, isOutgoing) } }
     fun deleteCallLog(id: Long) { viewModelScope.launch { repository.deleteCallLog(id) } }
     fun clearAllCallLogs() { viewModelScope.launch { repository.clearAllCallLogs() } }
-
-    /** Compatibility action for the existing settings UI; this performs a real reconnect, not a fake network simulation. */
     fun simulateNetworkLost() = connectRealtime()
 
     override fun onCleared() {
         repository.closeRealtime()
         messagesCollectorJob?.cancel()
+        incomingCallMonitorJob?.cancel()
         super.onCleared()
     }
 
     class Factory(private val repository: CommunicationRepository) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T = CommunicationViewModel(repository) as T
+    }
+
+    companion object {
+        private fun nowIsoUtc(): String = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", java.util.Locale.US).apply {
+            timeZone = java.util.TimeZone.getTimeZone("UTC")
+        }.format(java.util.Date())
     }
 }
