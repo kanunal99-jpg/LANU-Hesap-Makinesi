@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
@@ -173,14 +174,12 @@ class CommunicationRepository(
         val ownId = callSignalingClient.currentUserId()
         for (conversation in conversations) {
             val signals = runCatching { callSignalingClient.poll(conversation.id, since) }.getOrDefault(emptyList())
-            val offer = signals.asSequence()
-                .filter { it.senderId != ownId && it.type == "offer" }
-                .lastOrNull()
+            val offer = signals.asSequence().filter { it.senderId != ownId && it.type == "offer" }.lastOrNull()
             if (offer != null) {
                 return IncomingCallSignal(
                     conversationId = conversation.id,
                     partnerName = conversation.partnerName,
-                    isVideo = !offer.payload.optString("sdp").contains("m=audio", ignoreCase = true) || offer.payload.optBoolean("video", false),
+                    isVideo = offer.payload.optString("sdp").contains("m=video", ignoreCase = true),
                     createdAt = offer.createdAt
                 )
             }
@@ -188,11 +187,13 @@ class CommunicationRepository(
         return null
     }
 
+    suspend fun sendCallControl(conversationId: String, signalType: String) {
+        callSignalingClient.send(conversationId, callSignalingClient.currentUserId(), signalType, JSONObject())
+    }
+
     private fun parseRemoteTimestamp(value: String): Long {
         val formats = arrayOf("yyyy-MM-dd'T'HH:mm:ss.SSSX", "yyyy-MM-dd'T'HH:mm:ssX")
-        return formats.asSequence().mapNotNull { pattern ->
-            runCatching { SimpleDateFormat(pattern, Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.parse(value)?.time }.getOrNull()
-        }.firstOrNull() ?: System.currentTimeMillis()
+        return formats.asSequence().mapNotNull { pattern -> runCatching { SimpleDateFormat(pattern, Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.parse(value)?.time }.getOrNull() }.firstOrNull() ?: System.currentTimeMillis()
     }
 
     fun closeRealtime() = supabaseClient.closeRealtime()
