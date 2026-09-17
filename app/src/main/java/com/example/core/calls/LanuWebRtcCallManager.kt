@@ -147,25 +147,24 @@ class LanuWebRtcCallManager(
                                     .put("type", desc.type.canonicalForm())
                                     .put("sdp", desc.description))
                             }.onFailure {
-                                if (cont.isActive) cont.resumeWithException(it)
-                                return@launch
+                                if (cont.isActive) cont.resumeWith(Result.failure(it))
                             }
                             if (cont.isActive) cont.resume(Unit) {}
                         }
                     }
-                    override fun onSetFailure(error: String) { if (cont.isActive) cont.resumeWithException(IllegalStateException(error)) }
+                    override fun onSetFailure(error: String) { if (cont.isActive) cont.resumeWith(Result.failure(IllegalStateException(error))) }
                     override fun onCreateSuccess(p0: SessionDescription?) = Unit
                     override fun onCreateFailure(p0: String?) = Unit
                 }, desc)
             }
             override fun onSetSuccess() = Unit
-            override fun onCreateFailure(error: String) { if (cont.isActive) cont.resumeWithException(IllegalStateException(error)) }
+            override fun onCreateFailure(error: String) { if (cont.isActive) cont.resumeWith(Result.failure(IllegalStateException(error))) }
             override fun onSetFailure(error: String) = Unit
         }, MediaConstraints())
     }
 
     private suspend fun pollSignals() {
-        while (scope.isActive && started) {
+        while (currentCoroutineContext().isActive && started) {
             runCatching {
                 val signals = signaling.poll(conversationId, lastSignalTimestamp)
                 for (signal in signals) {
