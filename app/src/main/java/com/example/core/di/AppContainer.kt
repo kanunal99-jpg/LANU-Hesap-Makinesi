@@ -1,6 +1,7 @@
 package com.example.core.di
 
 import android.content.Context
+import com.example.core.calls.LanuCallSignalingClient
 import com.example.core.database.AppDatabase
 import com.example.core.repository.CalculatorRepository
 import com.example.core.repository.CommunicationRepository
@@ -27,6 +28,14 @@ class AppContainer(context: Context) {
         )
     }
 
+    val callSignalingClient: LanuCallSignalingClient by lazy {
+        LanuCallSignalingClient(
+            context = context,
+            baseUrl = supabaseBaseUrl,
+            publishableKey = supabasePublishableKey
+        )
+    }
+
     val calculatorRepository: CalculatorRepository by lazy {
         CalculatorRepository(database.calculationHistoryDao(), database.settingsDao())
     }
@@ -47,7 +56,8 @@ class AppContainer(context: Context) {
             database.settingsDao(),
             database.userProfileDao(),
             database.callLogDao(),
-            supabaseCommunicationClient
+            supabaseCommunicationClient,
+            callSignalingClient
         )
     }
 }
