@@ -45,9 +45,9 @@ class LanuWebRtcCallManager(
         scope.launch {
             try {
                 initializePeerConnection()
-                pollSignals()
+                scope.launch { pollSignals() }
                 if (outgoing) createOffer()
-            } catch (t: Throwable) {
+            } catch (_: Throwable) {
                 withContext(Dispatchers.Main) { onState(WebRtcCallState.FAILED) }
             }
         }
@@ -254,8 +254,11 @@ class LanuWebRtcCallManager(
     fun setSpeaker(enabled: Boolean) { audioManager.isSpeakerphoneOn = enabled }
 
     fun endCall() {
-        scope.launch { runCatching { signaling.send(conversationId, signaling.currentUserId(), "hangup", JSONObject()) } }
-        close()
+        val conversation = conversationId
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            runCatching { signaling.send(conversation, signaling.currentUserId(), "hangup", JSONObject()) }
+            withContext(Dispatchers.Main) { close() }
+        }
     }
 
     fun close() {
