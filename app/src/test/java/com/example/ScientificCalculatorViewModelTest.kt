@@ -78,6 +78,39 @@ class ScientificCalculatorViewModelTest {
     }
 
     @Test
+    fun `scientific display preserves values beyond Double range`() {
+        val actual = HighPrecisionMathEngine.format(
+            BigDecimal("1E+400"), precision = 4, scientificNotation = true
+        )
+        assertEquals("1.0000e+400", actual)
+    }
+
+    @Test
+    fun `scientific display preserves significant decimal digits`() {
+        val actual = HighPrecisionMathEngine.format(
+            BigDecimal("123456789012345678901234567890"),
+            precision = 18, scientificNotation = true
+        )
+        assertEquals("1.234567890123456789e+29", actual)
+    }
+
+    @Test
+    fun `scientific display handles exponent rounding and negative tiny values`() {
+        assertEquals(
+            "1.000e+01",
+            HighPrecisionMathEngine.format(BigDecimal("9.9999"), precision = 3, scientificNotation = true)
+        )
+        assertEquals(
+            "-1.23e-12",
+            HighPrecisionMathEngine.format(BigDecimal("-0.00000000000123"), precision = 2, scientificNotation = true)
+        )
+        assertEquals(
+            "0",
+            HighPrecisionMathEngine.format(BigDecimal.ZERO, precision = 2, scientificNotation = true)
+        )
+    }
+
+    @Test
     fun `high precision engine solves decimal addition without floating point artifacts`() {
         val result = HighPrecisionMathEngine.evaluate("0.1 + 0.2")
         assertEquals("0.3", result.stripTrailingZeros().toPlainString())
