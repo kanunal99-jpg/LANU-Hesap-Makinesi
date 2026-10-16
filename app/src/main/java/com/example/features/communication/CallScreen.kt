@@ -258,7 +258,7 @@ fun CallScreen(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "E2EE",
+                        text = "DEMO",
                         color = MaterialTheme.colorScheme.primary,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Medium
@@ -283,7 +283,7 @@ fun CallScreen(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "HD Opus",
+                        text = "SES DEMO",
                         color = Color(0xFF4CAF50),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Medium
@@ -308,7 +308,7 @@ fun CallScreen(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "4G Optimized",
+                        text = "AĞ DEMO",
                         color = Color(0xFF2196F3),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Medium
@@ -369,6 +369,13 @@ fun CallScreen(
                 },
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = stringResource(R.string.call_demo_disclaimer),
+                color = Color(0xFFFFCC80),
+                fontSize = 11.sp,
                 textAlign = TextAlign.Center
             )
         }

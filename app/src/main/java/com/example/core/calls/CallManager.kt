@@ -19,6 +19,11 @@ enum class WebRtcCallState {
     FAILED
 }
 
+/**
+ * This is a LOCAL CALL UI DEMO. Delays only simulate ringing/connected states:
+ * no WebRTC peer connection, signaling, audio transport or encryption is established.
+ * Do not report CONNECTED as a real remote party until transport is implemented.
+ */
 class CallManager(private val context: Context) {
     private val scope = CoroutineScope(Dispatchers.Main)
 

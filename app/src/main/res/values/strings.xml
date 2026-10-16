@@ -137,8 +137,8 @@
     <!-- ChatDetailScreen -->
     <string name="e2ee_secured">Uçtan Uca Şifreli</string>
     <string name="e2ee_secured_gcm">Uçtan Uca Şifreli (AES-GCM)</string>
-    <string name="voice_call">Sesli Arama</string>
-    <string name="video_call">Görüntülü Arama</string>
+    <string name="voice_call">Sesli Arama (Demo)</string>
+    <string name="video_call">Görüntülü Arama (Demo)</string>
     <string name="enter_encrypted_message">Şifreli mesaj yazın...</string>
     <string name="send_secure_message">Güvenli mesaj gönder</string>
     <string name="status_sending">İletiliyor</string>
@@ -151,20 +151,21 @@
     <string name="self_destruct_off">Kendini İmha Eden Mesajlar: KAPALI</string>
     <string name="add_attachment">Dosya Ekle</string>
     <string name="attachment_simulated">Güvenli dosya eki simüle edildi</string>
-    <string name="call_started">📞 Arama Başladı</string>
-    <string name="call_missed">📞 Cevapsız Arama</string>
+    <string name="call_started">📞 Demo Arama Başladı</string>
+    <string name="call_missed">📞 Demo Cevapsız Arama</string>
     
     <!-- CallScreen -->
-    <string name="secure_video_call_title">GÜVENLİ GÖRÜNTÜLÜ ARAMA</string>
-    <string name="secure_voice_call_title">GÜVENLİ SESLİ ARAMA</string>
-    <string name="webrtc_connecting">WebRTC Bağlantısı Kuruluyor...</string>
-    <string name="call_ringing">Çalıyor...</string>
-    <string name="call_connected">Bağlandı • %1$s</string>
-    <string name="call_poor_connection">Zayıf Bağlantı • Sese Öncelik Veriliyor • %1$s</string>
-    <string name="call_reconnecting">Sinyal Kesildi • Yeniden Bağlanıyor...</string>
-    <string name="call_ended">Arama Sonlandırıldı</string>
-    <string name="call_failed">Arama Başarısız</string>
-    <string name="webrtc_active_stream">WebRTC Video Akışı Aktif\n(FPS: 30 • Gecikme: 45ms)</string>
+    <string name="secure_video_call_title">GÖRÜNTÜLÜ GÖRÜŞME DEMOSU</string>
+    <string name="secure_voice_call_title">SESLİ GÖRÜŞME DEMOSU</string>
+    <string name="webrtc_connecting">Demo bağlantısı hazırlanıyor...</string>
+    <string name="call_ringing">Demo: zil çalıyor...</string>
+    <string name="call_connected">Simülasyon • %1$s (gerçek bağlantı yok)</string>
+    <string name="call_poor_connection">Demo: zayıf ağ etkisi • %1$s</string>
+    <string name="call_reconnecting">Demo: ağ yeniden bağlanıyor...</string>
+    <string name="call_ended">Demo sonlandırıldı</string>
+    <string name="call_failed">Demo işlemi başarısız</string>
+    <string name="call_demo_disclaimer">DEMO: Gerçek arama, uçtan uca şifreli karşı cihaz bağlantısı veya WebRTC görüşmesi kurulmaz.</string>
+    <string name="webrtc_active_stream">Demo görüntü alanı\nGerçek karşı taraf görüntüsü aktarılmıyor</string>
     <string name="speaker_toggle">Hoparlör Değiştir</string>
     <string name="bluetooth_router">Bluetooth Cihaz Yönlendirici</string>
     <string name="anc_toggle">Aktif Gürültü Engelleme (ANC)</string>
