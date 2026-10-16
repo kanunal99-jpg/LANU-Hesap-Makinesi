@@ -59,7 +59,14 @@ object HighPrecisionMathEngine {
 
         val stripped = value.stripTrailingZeros()
         if (scientificNotation) {
-            return String.format(Locale.US, "%.${precision}e", value.toDouble())
+            require(precision >= 0) { "Precision cannot be negative" }
+            // Keep the full BigDecimal exponent; Double overflows near 1E309.
+            val rounded = value.round(MathContext(precision + 1, RoundingMode.HALF_UP))
+            val exponent = rounded.precision() - rounded.scale() - 1
+            val mantissa = rounded.movePointLeft(exponent).setScale(precision, RoundingMode.HALF_UP)
+            val exponentSign = if (exponent >= 0) "+" else "-"
+            val exponentDigits = kotlin.math.abs(exponent).toString().padStart(2, '0')
+            return "${mantissa.toPlainString()}e$exponentSign$exponentDigits"
         }
 
         // If the number is within normal display scale, show plain string
