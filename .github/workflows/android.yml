@@ -73,11 +73,17 @@ jobs:
       - name: Build Debug APK
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Generate APK SHA256
+      - name: Generate and verify portable APK SHA256
         if: success()
+        shell: bash
         run: |
+          set -euo pipefail
+          APK_DIR="app/build/outputs/apk/debug"
           mkdir -p app/build/reports/verification
-          sha256sum app/build/outputs/apk/debug/app-debug.apk | tee app/build/reports/verification/app-debug.apk.sha256
+          # A checksum that embeds repository paths cannot be checked after
+          # downloading the APK and .sha256 into the same phone/PC folder.
+          (cd "$APK_DIR" && sha256sum app-debug.apk) > app/build/reports/verification/app-debug.apk.sha256
+          (cd "$APK_DIR" && sha256sum -c ../../../reports/verification/app-debug.apk.sha256)
 
       - name: Upload Debug APK Artifact
         if: success()
