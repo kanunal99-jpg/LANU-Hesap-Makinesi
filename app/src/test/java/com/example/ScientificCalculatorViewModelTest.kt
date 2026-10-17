@@ -129,6 +129,32 @@ class ScientificCalculatorViewModelTest {
     }
 
     @Test
+    fun `cube root supports magnitudes beyond Double range`() {
+        val huge = HighPrecisionMathEngine.cbrt(BigDecimal("8E+600"))
+        val tiny = HighPrecisionMathEngine.cbrt(BigDecimal("1E-600"))
+        assertEquals(0, huge.compareTo(BigDecimal("2E+200")))
+        assertEquals(0, tiny.compareTo(BigDecimal("1E-200")))
+    }
+
+    @Test
+    fun `cube root supports negative values without floating point conversion`() {
+        assertEquals(
+            0,
+            HighPrecisionMathEngine.cbrt(BigDecimal("-8E+600")).compareTo(BigDecimal("-2E+200"))
+        )
+        assertEquals(0, HighPrecisionMathEngine.cbrt(BigDecimal("-27")).compareTo(BigDecimal("-3")))
+        assertEquals(0, HighPrecisionMathEngine.cbrt(BigDecimal.ZERO).compareTo(BigDecimal.ZERO))
+    }
+
+    @Test
+    fun `cube root preserves 34-digit precision for irrational values`() {
+        val root = HighPrecisionMathEngine.cbrt(BigDecimal("2"))
+        val cubed = root.multiply(root, HighPrecisionMathEngine.DEFAULT_MATH_CONTEXT)
+            .multiply(root, HighPrecisionMathEngine.DEFAULT_MATH_CONTEXT)
+        assertTrue(cubed.subtract(BigDecimal(2)).abs() <= BigDecimal("1E-32"))
+    }
+
+    @Test
     fun `high precision engine solves decimal addition without floating point artifacts`() {
         val result = HighPrecisionMathEngine.evaluate("0.1 + 0.2")
         assertEquals("0.3", result.stripTrailingZeros().toPlainString())
