@@ -359,6 +359,40 @@ class ScientificCalculatorViewModelTest {
     }
 
     @Test
+    fun `radian tangent at PI over two rejects numerical poles`() {
+        val mc = HighPrecisionMathEngine.DEFAULT_MATH_CONTEXT
+        val halfPi = HighPrecisionMathEngine.PI.divide(BigDecimal(2), mc)
+        for (pole in listOf(halfPi, halfPi.negate())) {
+            try {
+                HighPrecisionMathEngine.tan(pole, isDegrees = false)
+                org.junit.Assert.fail("Tangent must not return a fabricated finite value at PI/2")
+            } catch (expected: ArithmeticException) {
+                assertTrue(expected.message.orEmpty().contains("Tangent"))
+            }
+        }
+    }
+
+    @Test
+    fun `degree tangent retains exact undefined ninety degrees`() {
+        try {
+            HighPrecisionMathEngine.tan(BigDecimal("90"), isDegrees = true)
+            org.junit.Assert.fail("Tangent 90 degrees is undefined")
+        } catch (expected: ArithmeticException) {
+            assertTrue(expected.message.orEmpty().contains("Tangent"))
+        }
+    }
+
+    @Test
+    fun `ordinary tangent values remain defined`() {
+        val mc = HighPrecisionMathEngine.DEFAULT_MATH_CONTEXT
+        val quarterPi = HighPrecisionMathEngine.PI.divide(BigDecimal(4), mc)
+        val result = HighPrecisionMathEngine.tan(quarterPi, isDegrees = false)
+        assertTrue(result.subtract(BigDecimal.ONE).abs() <= BigDecimal("1E-27"))
+        val fortyFive = HighPrecisionMathEngine.tan(BigDecimal("45"), isDegrees = true)
+        assertTrue(fortyFive.subtract(BigDecimal.ONE).abs() <= BigDecimal("1E-27"))
+    }
+
+    @Test
     fun `high precision engine solves decimal addition without floating point artifacts`() {
         val result = HighPrecisionMathEngine.evaluate("0.1 + 0.2")
         assertEquals("0.3", result.stripTrailingZeros().toPlainString())
