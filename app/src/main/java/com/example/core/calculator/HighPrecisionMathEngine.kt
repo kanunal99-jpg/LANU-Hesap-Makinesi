@@ -207,9 +207,15 @@ object HighPrecisionMathEngine {
             return BigDecimal.ZERO
         }
 
-        // If exponent is integer
+        // If exponent is integer, reject impossible or excessively expensive
+        // requests before converting BigDecimal to Int. toInt() truncates values
+        // outside its range (e.g. 2147483648), yielding incorrect results.
         if (exponent.remainder(BigDecimal.ONE).compareTo(BigDecimal.ZERO) == 0) {
-            val expInt = exponent.toInt()
+            val maxMagnitude = BigDecimal(10000)
+            if (exponent.abs() > maxMagnitude) {
+                throw ArithmeticException("Integer exponent out of supported range (-10000 to 10000)")
+            }
+            val expInt = exponent.intValueExact()
             if (expInt >= 0) {
                 return base.pow(expInt, mc)
             } else {

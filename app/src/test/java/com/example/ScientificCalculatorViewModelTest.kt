@@ -155,6 +155,35 @@ class ScientificCalculatorViewModelTest {
     }
 
     @Test
+    fun `integer power rejects out of range exponents before Int conversion`() {
+        for (badExponent in listOf("10001", "-10001", "2147483648", "-2147483649", "1E+100")) {
+            try {
+                HighPrecisionMathEngine.pow(BigDecimal(2), BigDecimal(badExponent))
+                org.junit.Assert.fail("Expected safe rejection for $badExponent")
+            } catch (expected: ArithmeticException) {
+                assertTrue(expected.message.orEmpty().contains("range"))
+            }
+        }
+    }
+
+    @Test
+    fun `integer power keeps negative bases and reciprocal results correct`() {
+        assertEquals(0, HighPrecisionMathEngine.pow(BigDecimal(-2), BigDecimal(3)).compareTo(BigDecimal(-8)))
+        assertEquals(0, HighPrecisionMathEngine.pow(BigDecimal(2), BigDecimal(-3)).compareTo(BigDecimal("0.125")))
+        assertEquals(0, HighPrecisionMathEngine.pow(BigDecimal(2), BigDecimal(0)).compareTo(BigDecimal.ONE))
+    }
+
+    @Test
+    fun `expression parser also rejects overflowing exponent without wrapping`() {
+        try {
+            HighPrecisionMathEngine.evaluate("2^2147483648")
+            org.junit.Assert.fail("Overflowing exponent must not wrap to a negative Int")
+        } catch (expected: ArithmeticException) {
+            assertTrue(expected.message.orEmpty().contains("range"))
+        }
+    }
+
+    @Test
     fun `high precision engine solves decimal addition without floating point artifacts`() {
         val result = HighPrecisionMathEngine.evaluate("0.1 + 0.2")
         assertEquals("0.3", result.stripTrailingZeros().toPlainString())
