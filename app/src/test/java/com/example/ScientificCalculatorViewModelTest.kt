@@ -248,6 +248,31 @@ class ScientificCalculatorViewModelTest {
     }
 
     @Test
+    fun `inverse tangent handles values much larger than Double can represent`() {
+        val positive = HighPrecisionMathEngine.atan(BigDecimal("1E+400"))
+        val negative = HighPrecisionMathEngine.atan(BigDecimal("-1E+400"))
+        assertTrue(positive.subtract(BigDecimal(90)).abs() <= BigDecimal("1E-28"))
+        assertTrue(negative.add(BigDecimal(90)).abs() <= BigDecimal("1E-28"))
+    }
+
+    @Test
+    fun `inverse tangent reduces ordinary large arguments without changing accuracy`() {
+        val actual = HighPrecisionMathEngine.atan(BigDecimal(2), isDegrees = false)
+        val expected = BigDecimal("1.107148717794090503017065460178537")
+        assertTrue(actual.subtract(expected).abs() <= BigDecimal("1E-28"))
+        val negative = HighPrecisionMathEngine.atan(BigDecimal(-2), isDegrees = false)
+        assertTrue(negative.add(actual).abs() <= BigDecimal("1E-30"))
+    }
+
+    @Test
+    fun `inverse tangent stays stable for zero and sub Double range inputs`() {
+        assertEquals(0, HighPrecisionMathEngine.atan(BigDecimal.ZERO).compareTo(BigDecimal.ZERO))
+        val tiny = BigDecimal("1E-400")
+        val tinyRadians = HighPrecisionMathEngine.atan(tiny, isDegrees = false)
+        assertTrue(tinyRadians.subtract(tiny).abs() <= BigDecimal("1E-430"))
+    }
+
+    @Test
     fun `high precision engine solves decimal addition without floating point artifacts`() {
         val result = HighPrecisionMathEngine.evaluate("0.1 + 0.2")
         assertEquals("0.3", result.stripTrailingZeros().toPlainString())

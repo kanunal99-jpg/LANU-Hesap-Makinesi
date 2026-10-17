@@ -345,6 +345,17 @@ object HighPrecisionMathEngine {
 
     // High-precision Inverse Trigonometric: atan
     fun atan(x: BigDecimal, isDegrees: Boolean = true, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        // atan(x) = sign(x) * (PI/2 - atan(1/abs(x))) for |x| > 1.
+        // Reducing the argument to [-1, 1] avoids converting 1E+400 to
+        // Double.POSITIVE_INFINITY and avoids Newton iteration near a tan pole.
+        if (x.abs() > BigDecimal.ONE) {
+            val reciprocal = BigDecimal.ONE.divide(x.abs(), mc)
+            val smallRad = atan(reciprocal, isDegrees = false, mc = mc)
+            val reduced = HALF_PI.subtract(smallRad, mc)
+            val rad = if (x.signum() < 0) reduced.negate() else reduced
+            return if (isDegrees) rad.multiply(BigDecimal(180), mc).divide(PI, mc) else rad
+        }
+
         val dblRes = kotlin.math.atan(x.toDouble())
         var rad = BigDecimal(dblRes, mc)
         for (i in 0 until 8) {
