@@ -41,6 +41,7 @@ import android.widget.Toast
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import com.example.R
+import com.example.core.calculator.HighPrecisionMathEngine
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -100,7 +101,7 @@ fun CalculatorScreen(
 
     // Auto-toggle graph mode when x is present in expression
     LaunchedEffect(expression) {
-        if (expression.contains("x") || expression.contains("X")) {
+        if (HighPrecisionMathEngine.containsGraphVariable(expression)) {
             showGraph = true
         }
     }

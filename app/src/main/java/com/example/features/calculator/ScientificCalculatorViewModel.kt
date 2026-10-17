@@ -238,7 +238,7 @@ open class ScientificCalculatorViewModel(
     fun calculate(saveHistory: Boolean = true): BigDecimal? {
         val expr = _expression.value
         if (expr.isBlank()) return null
-        if (expr.contains("x") || expr.contains("X")) {
+        if (HighPrecisionMathEngine.containsGraphVariable(expr)) {
             return null
         }
 
@@ -297,7 +297,7 @@ open class ScientificCalculatorViewModel(
     protected fun evaluateRealtime() {
         val expr = _expression.value
         if (expr.isNotBlank()) {
-            if (expr.contains("x") || expr.contains("X")) {
+            if (HighPrecisionMathEngine.containsGraphVariable(expr)) {
                 _result.value = "f(x) Grafik Çizimi Aktif 📈"
                 _uiState.update {
                     it.copy(

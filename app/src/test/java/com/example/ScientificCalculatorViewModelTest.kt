@@ -302,6 +302,35 @@ class ScientificCalculatorViewModelTest {
     }
 
     @Test
+    fun `scientific e and pi constants work with case insensitive input`() {
+        assertEquals(0, HighPrecisionMathEngine.evaluate("e").compareTo(HighPrecisionMathEngine.E))
+        assertEquals(0, HighPrecisionMathEngine.evaluate("E").compareTo(HighPrecisionMathEngine.E))
+        assertEquals(0, HighPrecisionMathEngine.evaluate("pi").compareTo(HighPrecisionMathEngine.PI))
+        assertEquals(0, HighPrecisionMathEngine.evaluate("π").compareTo(HighPrecisionMathEngine.PI))
+        assertEquals(0, HighPrecisionMathEngine.evaluate("e+1").compareTo(HighPrecisionMathEngine.E.add(BigDecimal.ONE, HighPrecisionMathEngine.DEFAULT_MATH_CONTEXT)))
+    }
+
+    @Test
+    fun `graph variable recognizer ignores the exp function name`() {
+        assertEquals(false, HighPrecisionMathEngine.containsGraphVariable("exp(1)"))
+        assertEquals(false, HighPrecisionMathEngine.containsGraphVariable("exp(2)+PI"))
+        assertEquals(false, HighPrecisionMathEngine.containsGraphVariable("1E+6"))
+        assertEquals(true, HighPrecisionMathEngine.containsGraphVariable("x^2+1"))
+        assertEquals(true, HighPrecisionMathEngine.containsGraphVariable("2X+1"))
+        assertEquals(true, HighPrecisionMathEngine.containsGraphVariable("sin(x)"))
+    }
+
+    @Test
+    fun `viewModel calculates exp instead of erroneously entering graph mode`() {
+        viewModel.appendExpression("exp(1)")
+        assertEquals(false, HighPrecisionMathEngine.containsGraphVariable(viewModel.uiState.value.expression))
+        val computed = viewModel.calculate(saveHistory = false)
+        assertNotNull(computed)
+        assertTrue(computed!! > BigDecimal("2.7"))
+        assertTrue(viewModel.uiState.value.result != "f(x) Grafik Çizimi Aktif 📈")
+    }
+
+    @Test
     fun `high precision engine solves decimal addition without floating point artifacts`() {
         val result = HighPrecisionMathEngine.evaluate("0.1 + 0.2")
         assertEquals("0.3", result.stripTrailingZeros().toPlainString())

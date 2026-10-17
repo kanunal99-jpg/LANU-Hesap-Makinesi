@@ -34,6 +34,14 @@ object HighPrecisionMathEngine {
     }
 
     /**
+     * Graph variables must be stand-alone letters, not part of a function
+     * name such as exp, max or a scientific notation exponent.
+     * "2x", "x^2", "sin(x)" are graph expressions; "exp(1)" is not.
+     */
+    fun containsGraphVariable(expression: String): Boolean =
+        Regex("(?<![A-Za-z])x(?![A-Za-z])", RegexOption.IGNORE_CASE).containsMatchIn(expression)
+
+    /**
      * Sanitizes expression string by replacing common math symbols with standard tokens.
      */
     fun sanitize(expr: String): String {
@@ -476,7 +484,7 @@ object HighPrecisionMathEngine {
                 while (ch in 'A'..'Z' || ch in 'a'..'z' || ch in '0'..'9') nextChar()
                 val token = str.substring(startPos, pos)
 
-                when (token) {
+                when (token.uppercase(Locale.US)) {
                     "PI" -> x = PI
                     "E" -> x = E
                     else -> {
