@@ -318,7 +318,14 @@ object HighPrecisionMathEngine {
     // High-precision Trigonometric: tan
     fun tan(angle: BigDecimal, isDegrees: Boolean = true, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
         val cosVal = cos(angle, isDegrees, mc)
-        if (cosVal.compareTo(BigDecimal.ZERO) == 0) throw ArithmeticException("Tangent undefined (division by zero)")
+        // In radian mode, the PI constant and Taylor evaluation introduce
+        // a tiny non-zero rounding residue at PI/2 (and odd multiples).
+        // Dividing by that residue would invent a huge finite tangent.
+        val precision = if (mc.precision > 0) mc.precision else DEFAULT_MATH_CONTEXT.precision
+        val zeroTolerance = BigDecimal.ONE.scaleByPowerOfTen(2 - precision)
+        if (cosVal.abs() <= zeroTolerance) {
+            throw ArithmeticException("Tangent undefined or numerically unstable near PI/2")
+        }
         val sinVal = sin(angle, isDegrees, mc)
         return sinVal.divide(cosVal, mc)
     }
