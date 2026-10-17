@@ -63,15 +63,25 @@ object HighPrecisionMathEngine {
         precision: Int = 16,
         scientificNotation: Boolean = false
     ): String {
+        require(precision >= 0) { "Precision cannot be negative" }
         if (value.compareTo(BigDecimal.ZERO) == 0) return "0"
 
         val stripped = value.stripTrailingZeros()
+        // Scale may be near Int.MAX_VALUE; compute magnitude in Long to
+        // avoid overflow and never allocate a gigantic plain decimal string.
+        val magnitude = stripped.precision().toLong() - stripped.scale().toLong() - 1L
+        if (!scientificNotation && (magnitude < -precision.toLong() || magnitude >= 24L)) {
+            if (magnitude !in -10000L..10000L) return stripped.toString()
+            return format(value, precision, scientificNotation = true)
+        }
         if (scientificNotation) {
-            require(precision >= 0) { "Precision cannot be negative" }
             // Keep the full BigDecimal exponent; Double overflows near 1E309.
             val rounded = value.round(MathContext(precision + 1, RoundingMode.HALF_UP))
-            val exponent = rounded.precision() - rounded.scale() - 1
-            val mantissa = rounded.movePointLeft(exponent).setScale(precision, RoundingMode.HALF_UP)
+            val exponent = rounded.precision().toLong() - rounded.scale().toLong() - 1L
+            if (exponent !in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()) {
+                return rounded.stripTrailingZeros().toString()
+            }
+            val mantissa = rounded.movePointLeft(exponent.toInt()).setScale(precision, RoundingMode.HALF_UP)
             val exponentSign = if (exponent >= 0) "+" else "-"
             val exponentDigits = kotlin.math.abs(exponent).toString().padStart(2, '0')
             return "${mantissa.toPlainString()}e$exponentSign$exponentDigits"
