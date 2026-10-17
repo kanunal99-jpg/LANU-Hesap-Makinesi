@@ -84,7 +84,15 @@ object HighPrecisionMathEngine {
         if (value.signum() == 0) return BigDecimal.ZERO
 
         val two = BigDecimal(2)
-        var x = BigDecimal(kotlin.math.sqrt(value.toDouble()), mc)
+        // Normalize the initial estimate by decimal magnitude. Converting the
+        // original number to Double may become Infinity (e.g. 1E+400) or zero
+        // (e.g. 1E-400), even though BigDecimal can represent both exactly.
+        val decimalExponent = value.precision().toLong() - value.scale().toLong() - 1L
+        val halfExponent = Math.floorDiv(decimalExponent, 2L)
+        if (halfExponent !in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()) {
+            throw ArithmeticException("Square root exponent out of range")
+        }
+        var x = BigDecimal.ONE.scaleByPowerOfTen(halfExponent.toInt())
         for (i in 0 until 20) {
             val nextX = x.add(value.divide(x, mc), mc).divide(two, mc)
             if (x == nextX) break
