@@ -273,6 +273,35 @@ class ScientificCalculatorViewModelTest {
     }
 
     @Test
+    fun `inverse trig endpoints retain requested 80 digit precision`() {
+        val context = java.math.MathContext(80, java.math.RoundingMode.HALF_UP)
+        val halfPi = HighPrecisionMathEngine.PI.divide(BigDecimal(2), context)
+        val asinPositive = HighPrecisionMathEngine.asin(BigDecimal.ONE, isDegrees = false, mc = context)
+        val asinNegative = HighPrecisionMathEngine.asin(BigDecimal("-1"), isDegrees = false, mc = context)
+        assertEquals(0, asinPositive.compareTo(halfPi))
+        assertEquals(0, asinNegative.compareTo(halfPi.negate()))
+        assertTrue(asinPositive.precision() > 70)
+    }
+
+    @Test
+    fun `inverse cosine endpoints respect high precision context`() {
+        val context = java.math.MathContext(80, java.math.RoundingMode.HALF_UP)
+        assertEquals(0, HighPrecisionMathEngine.acos(BigDecimal.ONE, isDegrees = false, mc = context).compareTo(BigDecimal.ZERO))
+        val actual = HighPrecisionMathEngine.acos(BigDecimal("-1"), isDegrees = false, mc = context)
+        val expected = HighPrecisionMathEngine.PI.round(context)
+        assertTrue(actual.subtract(expected).abs() <= BigDecimal("1E-78"))
+    }
+
+    @Test
+    fun `large argument atan uses high precision half pi`() {
+        val context = java.math.MathContext(80, java.math.RoundingMode.HALF_UP)
+        val expected = HighPrecisionMathEngine.PI.divide(BigDecimal(2), context)
+        val actual = HighPrecisionMathEngine.atan(BigDecimal("1E+400"), isDegrees = false, mc = context)
+        assertTrue(actual.subtract(expected).abs() <= BigDecimal("1E-78"))
+        assertTrue(actual.precision() > 70)
+    }
+
+    @Test
     fun `high precision engine solves decimal addition without floating point artifacts`() {
         val result = HighPrecisionMathEngine.evaluate("0.1 + 0.2")
         assertEquals("0.3", result.stripTrailingZeros().toPlainString())
