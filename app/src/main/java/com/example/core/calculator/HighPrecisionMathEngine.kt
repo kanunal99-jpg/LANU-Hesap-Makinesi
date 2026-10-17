@@ -107,7 +107,14 @@ object HighPrecisionMathEngine {
         val isNeg = value.signum() < 0
         val absVal = value.abs()
         val three = BigDecimal(3)
-        var x = BigDecimal(kotlin.math.cbrt(absVal.toDouble()), mc)
+        // A Double seed overflows to Infinity for 1E+400 and underflows for
+        // 1E-400. Use decimal magnitude for an entirely BigDecimal estimate.
+        val decimalExponent = absVal.precision().toLong() - absVal.scale().toLong() - 1L
+        val thirdExponent = Math.floorDiv(decimalExponent, 3L)
+        if (thirdExponent !in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()) {
+            throw ArithmeticException("Cube root exponent out of range")
+        }
+        var x = BigDecimal.ONE.scaleByPowerOfTen(thirdExponent.toInt())
         for (i in 0 until 20) {
             val x2 = x.multiply(x, mc)
             val nextX = x.multiply(BigDecimal(2), mc).add(absVal.divide(x2, mc), mc).divide(three, mc)
