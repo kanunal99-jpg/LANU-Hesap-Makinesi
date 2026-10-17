@@ -322,7 +322,7 @@ object HighPrecisionMathEngine {
         // a tiny non-zero rounding residue at PI/2 (and odd multiples).
         // Dividing by that residue would invent a huge finite tangent.
         val precision = if (mc.precision > 0) mc.precision else DEFAULT_MATH_CONTEXT.precision
-        val zeroTolerance = BigDecimal.ONE.scaleByPowerOfTen(1 - precision)
+        val zeroTolerance = BigDecimal.ONE.scaleByPowerOfTen(2 - precision)
         if (cosVal.abs() <= zeroTolerance) {
             throw ArithmeticException("Tangent undefined or numerically unstable near PI/2")
         }
