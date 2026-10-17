@@ -393,6 +393,40 @@ class ScientificCalculatorViewModelTest {
     }
 
     @Test
+    fun `tiny nonzero display never rounds to the string zero`() {
+        assertEquals(
+            "1.0000e-400",
+            HighPrecisionMathEngine.format(BigDecimal("1E-400"), precision = 4)
+        )
+        assertEquals(
+            "-1.0000e-400",
+            HighPrecisionMathEngine.format(BigDecimal("-1E-400"), precision = 4)
+        )
+        assertEquals(
+            "4.0000e-03",
+            HighPrecisionMathEngine.format(BigDecimal("0.004"), precision = 4, scientificNotation = true)
+        )
+    }
+
+    @Test
+    fun `extremely large or small scales avoid huge plain decimal strings`() {
+        assertEquals("1E+1000000", HighPrecisionMathEngine.format(BigDecimal("1E+1000000"), precision = 3))
+        assertEquals("1E-1000000", HighPrecisionMathEngine.format(BigDecimal("1E-1000000"), precision = 3))
+    }
+
+    @Test
+    fun `ordinary decimal display stays readable and rejects negative precision`() {
+        assertEquals("0.12", HighPrecisionMathEngine.format(BigDecimal("0.123456"), precision = 2))
+        assertEquals("0", HighPrecisionMathEngine.format(BigDecimal.ZERO, precision = 4))
+        try {
+            HighPrecisionMathEngine.format(BigDecimal.ZERO, precision = -1)
+            org.junit.Assert.fail("Negative display precision should be rejected even for zero")
+        } catch (expected: IllegalArgumentException) {
+            assertTrue(expected.message.orEmpty().contains("Precision"))
+        }
+    }
+
+    @Test
     fun `high precision engine solves decimal addition without floating point artifacts`() {
         val result = HighPrecisionMathEngine.evaluate("0.1 + 0.2")
         assertEquals("0.3", result.stripTrailingZeros().toPlainString())
