@@ -331,6 +331,34 @@ class ScientificCalculatorViewModelTest {
     }
 
     @Test
+    fun `implicit multiplication handles pi parentheses and functions`() {
+        val mc = HighPrecisionMathEngine.DEFAULT_MATH_CONTEXT
+        val twoPi = HighPrecisionMathEngine.PI.multiply(BigDecimal(2), mc)
+        assertEquals(0, HighPrecisionMathEngine.evaluate("2π").compareTo(twoPi))
+        assertEquals(0, HighPrecisionMathEngine.evaluate("2PI").compareTo(twoPi))
+        assertEquals(0, HighPrecisionMathEngine.evaluate("2(3+4)").compareTo(BigDecimal(14)))
+        assertEquals(0, HighPrecisionMathEngine.evaluate("(1+2)(3+4)").compareTo(BigDecimal(21)))
+        assertTrue(HighPrecisionMathEngine.evaluate("2sin(30)").subtract(BigDecimal.ONE).abs() < BigDecimal("1E-28"))
+    }
+
+    @Test
+    fun `euler constant remains distinct from scientific exponent notation`() {
+        val mc = HighPrecisionMathEngine.DEFAULT_MATH_CONTEXT
+        val twoE = HighPrecisionMathEngine.E.multiply(BigDecimal(2), mc)
+        assertEquals(0, HighPrecisionMathEngine.evaluate("2e").compareTo(twoE))
+        assertEquals(0, HighPrecisionMathEngine.evaluate("2E+3").compareTo(BigDecimal("2000")))
+        assertEquals(0, HighPrecisionMathEngine.evaluate("2e-3").compareTo(BigDecimal("0.002")))
+        assertEquals(0, HighPrecisionMathEngine.evaluate("2exp(0)").compareTo(BigDecimal(2)))
+    }
+
+    @Test
+    fun `explicit arithmetic precedence survives implicit multiplication`() {
+        assertEquals(0, HighPrecisionMathEngine.evaluate("2+3(4+1)").compareTo(BigDecimal(17)))
+        assertEquals(0, HighPrecisionMathEngine.evaluate("20/2(2)").compareTo(BigDecimal(20)))
+        assertEquals(0, HighPrecisionMathEngine.evaluate("2^3(2)").compareTo(BigDecimal(16)))
+    }
+
+    @Test
     fun `high precision engine solves decimal addition without floating point artifacts`() {
         val result = HighPrecisionMathEngine.evaluate("0.1 + 0.2")
         assertEquals("0.3", result.stripTrailingZeros().toPlainString())
