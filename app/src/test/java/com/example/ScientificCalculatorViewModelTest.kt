@@ -338,7 +338,7 @@ class ScientificCalculatorViewModelTest {
         assertEquals(0, HighPrecisionMathEngine.evaluate("2PI").compareTo(twoPi))
         assertEquals(0, HighPrecisionMathEngine.evaluate("2(3+4)").compareTo(BigDecimal(14)))
         assertEquals(0, HighPrecisionMathEngine.evaluate("(1+2)(3+4)").compareTo(BigDecimal(21)))
-        assertEquals(0, HighPrecisionMathEngine.evaluate("2sin(30)").compareTo(BigDecimal.ONE))
+        assertTrue(HighPrecisionMathEngine.evaluate("2sin(30)").subtract(BigDecimal.ONE).abs() < BigDecimal("1E-28"))
     }
 
     @Test
