@@ -146,8 +146,13 @@ object HighPrecisionMathEngine {
     fun exp(x: BigDecimal, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
         if (x.compareTo(BigDecimal.ZERO) == 0) return BigDecimal.ONE
 
+        // Reject extreme inputs before narrowing BigDecimal to Int. Otherwise
+        // 2147483648 wraps into a negative k and returns a wrong result.
+        if (x.abs() > BigDecimal(10000)) {
+            throw ArithmeticException("Exponential argument out of supported range (-10000 to 10000)")
+        }
         // Separate integer and fractional part: e^(k + f) = (e^k) * e^f
-        val k = x.setScale(0, RoundingMode.DOWN).toInt()
+        val k = x.setScale(0, RoundingMode.DOWN).intValueExact()
         val f = x.subtract(BigDecimal(k))
 
         // Compute e^f using Taylor series: sum_{n=0..} f^n / n!
