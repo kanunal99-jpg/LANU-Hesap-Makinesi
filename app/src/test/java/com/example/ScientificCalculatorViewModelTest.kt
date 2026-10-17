@@ -111,6 +111,24 @@ class ScientificCalculatorViewModelTest {
     }
 
     @Test
+    fun `square root supports magnitudes beyond Double range`() {
+        val huge = HighPrecisionMathEngine.sqrt(BigDecimal("1E+400"))
+        val tiny = HighPrecisionMathEngine.sqrt(BigDecimal("1E-400"))
+        assertEquals(0, huge.compareTo(BigDecimal("1E+200")))
+        assertEquals(0, tiny.compareTo(BigDecimal("1E-200")))
+    }
+
+    @Test
+    fun `square root retains precision after BigDecimal magnitude normalization`() {
+        val root = HighPrecisionMathEngine.sqrt(BigDecimal("2"))
+        val squared = root.multiply(root, HighPrecisionMathEngine.DEFAULT_MATH_CONTEXT)
+        assertTrue(squared.subtract(BigDecimal(2)).abs() <= BigDecimal("1E-32"))
+
+        val larger = BigDecimal("9E+400")
+        assertEquals(0, HighPrecisionMathEngine.sqrt(larger).compareTo(BigDecimal("3E+200")))
+    }
+
+    @Test
     fun `high precision engine solves decimal addition without floating point artifacts`() {
         val result = HighPrecisionMathEngine.evaluate("0.1 + 0.2")
         assertEquals("0.3", result.stripTrailingZeros().toPlainString())
