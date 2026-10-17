@@ -303,7 +303,7 @@ object HighPrecisionMathEngine {
             if (positiveDeg.compareTo(BigDecimal(120)) == 0 || positiveDeg.compareTo(BigDecimal(240)) == 0) return BigDecimal("-0.5")
         }
         // cos(x) = sin(x + PI/2)
-        val shifted = if (isDegrees) angle.add(BigDecimal(90)) else angle.add(HALF_PI)
+        val shifted = if (isDegrees) angle.add(BigDecimal(90)) else angle.add(PI.divide(BigDecimal(2), mc))
         return sin(shifted, isDegrees, mc)
     }
 
@@ -318,8 +318,8 @@ object HighPrecisionMathEngine {
     // High-precision Inverse Trigonometric: asin
     fun asin(x: BigDecimal, isDegrees: Boolean = true, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
         if (x.abs().compareTo(BigDecimal.ONE) > 0) throw ArithmeticException("Domain error for asin: [-1, 1]")
-        if (x.compareTo(BigDecimal.ONE) == 0) return if (isDegrees) BigDecimal(90) else HALF_PI
-        if (x.compareTo(BigDecimal("-1")) == 0) return if (isDegrees) BigDecimal(-90) else HALF_PI.negate()
+        if (x.compareTo(BigDecimal.ONE) == 0) return if (isDegrees) BigDecimal(90) else PI.divide(BigDecimal(2), mc)
+        if (x.compareTo(BigDecimal("-1")) == 0) return if (isDegrees) BigDecimal(-90) else PI.divide(BigDecimal(2), mc).negate()
         if (x.compareTo(BigDecimal.ZERO) == 0) return BigDecimal.ZERO
 
         val dblRes = kotlin.math.asin(x.toDouble())
@@ -339,7 +339,7 @@ object HighPrecisionMathEngine {
     // High-precision Inverse Trigonometric: acos
     fun acos(x: BigDecimal, isDegrees: Boolean = true, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
         val asinVal = asin(x, isDegrees, mc)
-        val half = if (isDegrees) BigDecimal(90) else HALF_PI
+        val half = if (isDegrees) BigDecimal(90) else PI.divide(BigDecimal(2), mc)
         return half.subtract(asinVal, mc)
     }
 
@@ -351,7 +351,7 @@ object HighPrecisionMathEngine {
         if (x.abs() > BigDecimal.ONE) {
             val reciprocal = BigDecimal.ONE.divide(x.abs(), mc)
             val smallRad = atan(reciprocal, isDegrees = false, mc = mc)
-            val reduced = HALF_PI.subtract(smallRad, mc)
+            val reduced = PI.divide(BigDecimal(2), mc).subtract(smallRad, mc)
             val rad = if (x.signum() < 0) reduced.negate() else reduced
             return if (isDegrees) rad.multiply(BigDecimal(180), mc).divide(PI, mc) else rad
         }
