@@ -456,6 +456,10 @@ object HighPrecisionMathEngine {
                         if (divisor.compareTo(BigDecimal.ZERO) == 0) throw ArithmeticException("Modulo by zero")
                         x = x.remainder(divisor, mc)
                     }
+                    // Implied multiplication: 2PI, 2sin(30), 2(3+4), (2+3)(4+1)
+                    // are factors at the same precedence as explicit '*' and '/'.
+                    ch == '(' || ch == '.' || ch in '0'..'9' ||
+                        ch in 'A'..'Z' || ch in 'a'..'z' -> x = x.multiply(parseFactor(), mc)
                     else -> return x
                 }
             }
@@ -475,9 +479,15 @@ object HighPrecisionMathEngine {
                 while ((ch in '0'..'9') || ch == '.') nextChar()
                 // Check for scientific notation exponent: e.g. 1.5E6 or 2e-4
                 if (ch == 'E' || ch == 'e') {
-                    nextChar()
-                    if (ch == '+' || ch == '-') nextChar()
-                    while (ch in '0'..'9') nextChar()
+                    // Consume E only when followed by actual exponent digits.
+                    // Otherwise 'e' is the Euler constant: "2e" means "2 * e".
+                    var i = pos + 1
+                    if (i < str.length && (str[i] == '+' || str[i] == '-')) i++
+                    val exponentDigitsStart = i
+                    while (i < str.length && str[i] in '0'..'9') i++
+                    if (i > exponentDigitsStart) {
+                        while (pos < i) nextChar()
+                    }
                 }
                 x = BigDecimal(str.substring(startPos, pos), mc)
             } else if (ch in 'A'..'Z' || ch in 'a'..'z') {
