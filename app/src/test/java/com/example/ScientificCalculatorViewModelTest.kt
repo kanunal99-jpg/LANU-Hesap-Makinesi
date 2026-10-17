@@ -184,6 +184,38 @@ class ScientificCalculatorViewModelTest {
     }
 
     @Test
+    fun `exponential rejects overflowing arguments before Int conversion`() {
+        for (invalid in listOf("10000.01", "-10000.01", "2147483648", "-2147483649", "1E+100")) {
+            try {
+                HighPrecisionMathEngine.exp(BigDecimal(invalid))
+                org.junit.Assert.fail("Expected safe rejection for $invalid")
+            } catch (expected: ArithmeticException) {
+                assertTrue(expected.message.orEmpty().contains("range"))
+            }
+        }
+    }
+
+    @Test
+    fun `exponential retains small integer and fractional calculations`() {
+        assertEquals(0, HighPrecisionMathEngine.exp(BigDecimal.ZERO).compareTo(BigDecimal.ONE))
+        val positive = HighPrecisionMathEngine.exp(BigDecimal.ONE)
+        val negative = HighPrecisionMathEngine.exp(BigDecimal("-1"))
+        val product = positive.multiply(negative, HighPrecisionMathEngine.DEFAULT_MATH_CONTEXT)
+        assertTrue(product.subtract(BigDecimal.ONE).abs() <= BigDecimal("1E-32"))
+        assertTrue(HighPrecisionMathEngine.exp(BigDecimal("0.5")) > BigDecimal.ONE)
+    }
+
+    @Test
+    fun `expression parser cannot wrap a huge exp argument`() {
+        try {
+            HighPrecisionMathEngine.evaluate("exp(2147483648)")
+            org.junit.Assert.fail("exp must not silently truncate the argument")
+        } catch (expected: ArithmeticException) {
+            assertTrue(expected.message.orEmpty().contains("range"))
+        }
+    }
+
+    @Test
     fun `high precision engine solves decimal addition without floating point artifacts`() {
         val result = HighPrecisionMathEngine.evaluate("0.1 + 0.2")
         assertEquals("0.3", result.stripTrailingZeros().toPlainString())
