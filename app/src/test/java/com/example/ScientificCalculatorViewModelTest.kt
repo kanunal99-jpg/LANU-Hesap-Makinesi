@@ -216,6 +216,38 @@ class ScientificCalculatorViewModelTest {
     }
 
     @Test
+    fun `logarithm handles very large values beyond Double range`() {
+        val result = HighPrecisionMathEngine.log10(BigDecimal("1E+400"))
+        assertTrue(result.subtract(BigDecimal("400")).abs() <= BigDecimal("1E-27"))
+    }
+
+    @Test
+    fun `logarithm handles extremely small positive values without underflow`() {
+        val result = HighPrecisionMathEngine.log10(BigDecimal("1E-400"))
+        assertTrue(result.subtract(BigDecimal("-400")).abs() <= BigDecimal("1E-27"))
+    }
+
+    @Test
+    fun `logarithm keeps normal values accurate`() {
+        assertEquals(0, HighPrecisionMathEngine.ln(BigDecimal.ONE).compareTo(BigDecimal.ZERO))
+        val actual = HighPrecisionMathEngine.ln(BigDecimal("2"))
+        val expected = BigDecimal("0.693147180559945309417232121458176568")
+        assertTrue(actual.subtract(expected).abs() <= BigDecimal("1E-29"))
+    }
+
+    @Test
+    fun `logarithm rejects invalid and unsupported extreme input`() {
+        for (value in listOf("0", "-1", "1E+4001", "1E-4001")) {
+            try {
+                HighPrecisionMathEngine.ln(BigDecimal(value))
+                org.junit.Assert.fail("ln must reject: $value")
+            } catch (expected: ArithmeticException) {
+                assertTrue(expected.message.orEmpty().contains("Logarithm"))
+            }
+        }
+    }
+
+    @Test
     fun `high precision engine solves decimal addition without floating point artifacts`() {
         val result = HighPrecisionMathEngine.evaluate("0.1 + 0.2")
         assertEquals("0.3", result.stripTrailingZeros().toPlainString())

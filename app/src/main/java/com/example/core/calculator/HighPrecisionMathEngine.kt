@@ -179,8 +179,20 @@ object HighPrecisionMathEngine {
         if (x.signum() <= 0) throw ArithmeticException("Logarithm of non-positive number")
         if (x.compareTo(BigDecimal.ONE) == 0) return BigDecimal.ZERO
 
-        // Use Double approximation for initial value, then Newton-Raphson: x_{n+1} = x_n + 2 * (x - e^{x_n}) / (x + e^{x_n})
-        var y = BigDecimal(kotlin.math.ln(x.toDouble()), mc)
+        // Normalize the decimal magnitude before forming the initial estimate.
+        // x.toDouble() overflows near 1E+309 and underflows near 1E-324;
+        // the normalized significand is always within [1, 10).
+        val decimalExponent = x.precision().toLong() - x.scale().toLong() - 1L
+        // exp(y) is also used below, so reject inputs outside its safe
+        // operating range instead of exhausting CPU or overflowing.
+        if (decimalExponent !in -4000L..4000L) {
+            throw ArithmeticException("Logarithm argument out of supported magnitude range")
+        }
+        val significand = x.movePointLeft(decimalExponent.toInt())
+        val lnTen = BigDecimal("2.302585092994045684017991454684364207601101488628772976033327900967572609677352480235997205089598298")
+        var y = lnTen.multiply(BigDecimal.valueOf(decimalExponent), mc)
+            .add(BigDecimal(kotlin.math.ln(significand.toDouble()), mc), mc)
+        // Newton-Raphson: y_next = y + 2 * (x - e^y) / (x + e^y).
         for (i in 0 until 10) {
             val ey = exp(y, mc)
             val num = x.subtract(ey, mc)
