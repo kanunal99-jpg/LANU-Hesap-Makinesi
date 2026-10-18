@@ -488,6 +488,38 @@ class ScientificCalculatorViewModelTest {
     }
 
     @Test
+    fun `factorial rejects enormous BigDecimal values before allocating BigInteger`() {
+        for (value in listOf("1001", "2147483648", "1E+1000000")) {
+            try {
+                HighPrecisionMathEngine.factorial(BigDecimal(value))
+                org.junit.Assert.fail("Huge factorial must be rejected safely: $value")
+            } catch (expected: ArithmeticException) {
+                assertTrue(expected.message.orEmpty().contains("1000"))
+            }
+        }
+    }
+
+    @Test
+    fun `factorial boundary and ordinary results remain correct`() {
+        assertEquals(0, HighPrecisionMathEngine.factorial(BigDecimal.ZERO).compareTo(BigDecimal.ONE))
+        assertEquals(0, HighPrecisionMathEngine.factorial(BigDecimal.ONE).compareTo(BigDecimal.ONE))
+        assertEquals(0, HighPrecisionMathEngine.factorial(BigDecimal(5)).compareTo(BigDecimal(120)))
+        assertEquals(2568, HighPrecisionMathEngine.factorial(BigDecimal(1000)).toPlainString().length)
+    }
+
+    @Test
+    fun `fractional and negative factorial arguments still fail`() {
+        for (bad in listOf("-1", "1.5")) {
+            try {
+                HighPrecisionMathEngine.factorial(BigDecimal(bad))
+                org.junit.Assert.fail("Non-natural factorial must be rejected: $bad")
+            } catch (_: ArithmeticException) {
+                // The supported domain remains the integer range 0 through 1000.
+            }
+        }
+    }
+
+    @Test
     fun `high precision engine solves decimal addition without floating point artifacts`() {
         val result = HighPrecisionMathEngine.evaluate("0.1 + 0.2")
         assertEquals("0.3", result.stripTrailingZeros().toPlainString())
