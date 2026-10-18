@@ -467,6 +467,9 @@ class ScientificCalculatorViewModelTest {
         assertEquals(0, HighPrecisionMathEngine.evaluate(nested).compareTo(BigDecimal("5")))
         assertEquals(0, HighPrecisionMathEngine.evaluate("1+2+3+4").compareTo(BigDecimal("10")))
         assertEquals(0, HighPrecisionMathEngine.evaluate("2^3^2").compareTo(BigDecimal("512")))
+        assertEquals(0, HighPrecisionMathEngine.evaluate("--3").compareTo(BigDecimal("3")))
+        assertEquals(0, HighPrecisionMathEngine.evaluate("---3").compareTo(BigDecimal("-3")))
+        assertEquals(0, HighPrecisionMathEngine.evaluate("-2^2").compareTo(BigDecimal("-4")))
     }
 
     @Test
