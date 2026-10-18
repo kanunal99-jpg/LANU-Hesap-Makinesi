@@ -157,7 +157,7 @@ object HighPrecisionMathEngine {
         if (n.remainder(BigDecimal.ONE).compareTo(BigDecimal.ZERO) != 0) {
             throw ArithmeticException("Factorial only supported for integers")
         }
-        val intVal = n.intValueExact().toBigInteger()
+        val intVal = BigInteger.valueOf(n.intValueExact().toLong())
 
         var result = BigInteger.ONE
         var current = BigInteger.ONE
