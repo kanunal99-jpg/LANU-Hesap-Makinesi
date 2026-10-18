@@ -10,9 +10,11 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.view.WindowManager
+import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -23,8 +25,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModelProvider
 import com.example.core.security.AppLifecycleObserver
-import com.example.core.security.AppLockState
-import com.example.core.security.AppLockViewModel
 import com.example.features.calculator.CalculatorScreen
 import com.example.features.calculator.CalculatorViewModel
 import com.example.features.calculator.UnitConverterScreen
@@ -43,7 +43,6 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
 
     private lateinit var calcViewModel: CalculatorViewModel
     private lateinit var securityViewModel: SecurityViewModel
-    private lateinit var appLockViewModel: AppLockViewModel
     private lateinit var commViewModel: CommunicationViewModel
 
     private var sensorManager: SensorManager? = null
@@ -75,6 +74,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         enableEdgeToEdge()
 
         val app = application as LanuApplication
@@ -94,7 +94,6 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         // Instantiate ViewModels securely with factories
         calcViewModel = ViewModelProvider(this, CalculatorViewModel.Factory(container.calculatorRepository))[CalculatorViewModel::class.java]
         securityViewModel = ViewModelProvider(this, SecurityViewModel.Factory(container.securityRepository, container.securityEventTracker))[SecurityViewModel::class.java]
-        appLockViewModel = ViewModelProvider(this, AppLockViewModel.Factory(securityViewModel))[AppLockViewModel::class.java]
         commViewModel = ViewModelProvider(this, CommunicationViewModel.Factory(container.communicationRepository))[CommunicationViewModel::class.java]
 
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
@@ -154,12 +153,12 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
 
             MyApplicationTheme(darkTheme = darkTheme) {
                 val isLocked by securityViewModel.isLocked.collectAsState()
-                val hasPin by securityViewModel.hasPin.collectAsState()
                 val screenProtection by securityViewModel.screenProtectionEnabled.collectAsState()
 
-                // Dynamically apply FLAG_SECURE for screenshot and recent app task preview protection
-                LaunchedEffect(screenProtection) {
-                    if (screenProtection) {
+                val currentScreen = navigationBackstack.lastOrNull() ?: Screen.Calculator
+                // Private content and authentication always retain screenshot protection.
+                SideEffect {
+                    if (screenProtection || isSecureScreen(currentScreen) || currentScreen is Screen.Security) {
                         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
                     } else {
                         window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
@@ -172,19 +171,19 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                         val currentScreen = navigationBackstack.lastOrNull()
                         if (currentScreen != null && isSecureScreen(currentScreen)) {
                             navigationBackstack.clear()
-                            if (hasPin) {
-                                navigationBackstack.add(Screen.Security())
-                            } else {
-                                navigationBackstack.add(Screen.Calculator)
-                            }
+                            navigationBackstack.add(Screen.Calculator)
                         }
                     }
+                }
+
+                BackHandler(enabled = currentScreen is Screen.Communication) {
+                    returnToCalculator()
                 }
 
                 Surface(modifier = Modifier.fillMaxSize()) {
                     // Silent and animation-free transitions during navigation
                     AnimatedContent(
-                        targetState = navigationBackstack.lastOrNull() ?: Screen.Calculator,
+                        targetState = if (isLocked && isSecureScreen(currentScreen)) Screen.Calculator else currentScreen,
                         transitionSpec = {
                             EnterTransition.None togetherWith ExitTransition.None
                         },
@@ -259,12 +258,13 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                 SecurityScreen(
                                     viewModel = securityViewModel,
                                     onUnlockSuccess = {
-                                        appLockViewModel.unlockApp()
-                                        securityViewModel.checkPinExists()
-                                        navigateTo(Screen.Communication)
+                                        if (!securityViewModel.isLocked.value) {
+                                            navigationBackstack.clear()
+                                            navigationBackstack.add(Screen.Communication)
+                                        }
                                     },
                                     onNavigateBack = {
-                                        navigateTo(Screen.Calculator)
+                                        returnToCalculator()
                                     },
                                     directUnlockPin = screen.directUnlockPin
                                 )
@@ -277,8 +277,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                         navigateTo(Screen.ChatDetail(chatId))
                                     },
                                     onNavigateToCalculator = {
-                                        securityViewModel.lock() // Lock secure space when returning to calculator
-                                        navigateTo(Screen.Calculator)
+                                        returnToCalculator()
                                     }
                                 )
                             }
@@ -322,9 +321,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     }
 
     private fun handleLockOnScreenOff() {
-        if (::appLockViewModel.isInitialized) {
-            appLockViewModel.lockApp()
-        } else if (::securityViewModel.isInitialized) {
+        if (::securityViewModel.isInitialized) {
             securityViewModel.lock()
         }
         if (::calcViewModel.isInitialized) {
@@ -338,17 +335,13 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     }
 
     private fun handleAppBackgrounded() {
-        backgroundTimestamp = System.currentTimeMillis()
+        backgroundTimestamp = SystemClock.elapsedRealtime()
         if (::securityViewModel.isInitialized) {
             securityViewModel.appBackgrounded()
             val timeoutMs = securityViewModel.lockTimeoutMs.value
             // Only lock immediately if timeout is set to 0 (Anında)
             if (timeoutMs == 0L) {
-                if (::appLockViewModel.isInitialized) {
-                    appLockViewModel.lockApp()
-                } else {
-                    securityViewModel.lock()
-                }
+                securityViewModel.lock()
                 if (::calcViewModel.isInitialized) {
                     calcViewModel.onKeyPress("AC")
                 }
@@ -359,33 +352,25 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     private fun handleAppForegrounded() {
         if (::securityViewModel.isInitialized) {
             val timeoutMs = securityViewModel.lockTimeoutMs.value
-            val elapsed = System.currentTimeMillis() - backgroundTimestamp
+            val elapsed = SystemClock.elapsedRealtime() - backgroundTimestamp
             // If backgrounded and timeout expired (or immediate), lock the app!
-            if (backgroundTimestamp > 0L && (timeoutMs == 0L || elapsed >= timeoutMs)) {
-                if (::appLockViewModel.isInitialized) {
-                    appLockViewModel.lockApp()
-                } else {
-                    securityViewModel.lock()
-                }
+            if (backgroundTimestamp > 0L && (timeoutMs >= 0L && elapsed >= timeoutMs)) {
+                securityViewModel.lock()
             }
             securityViewModel.appForegrounded()
             securityViewModel.checkPinExists()
         }
         backgroundTimestamp = 0L
 
-        // Direct to PIN entry screen on foreground return ONLY IF app is locked and PIN is configured
+        // Conceal the private area on a locked foreground return.
         val hasPin = if (::securityViewModel.isInitialized) securityViewModel.hasPin.value else false
-        val isLocked = if (::appLockViewModel.isInitialized) {
-            appLockViewModel.lockState.value == AppLockState.LOCKED
-        } else if (::securityViewModel.isInitialized) {
-            securityViewModel.isLocked.value
-        } else true
+        val isLocked = if (::securityViewModel.isInitialized) securityViewModel.isLocked.value else true
 
         if (isLocked && hasPin) {
             val currentScreen = navigationBackstack.lastOrNull()
             if (currentScreen != null && isSecureScreen(currentScreen)) {
                 navigationBackstack.clear()
-                navigationBackstack.add(Screen.Security())
+                navigationBackstack.add(Screen.Calculator)
             }
         }
     }
@@ -416,6 +401,13 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         shakeListener?.let {
             sensorManager?.unregisterListener(it)
         }
+    }
+
+    private fun returnToCalculator() {
+        securityViewModel.lock()
+        calcViewModel.onKeyPress("AC")
+        navigationBackstack.clear()
+        navigationBackstack.add(Screen.Calculator)
     }
 
     // Helper functions for our lightweight navigator

@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.core.repository.SecurityRepository
 import com.example.core.security.SecurityEventTracker
+import com.example.core.security.PinPolicy
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -62,6 +63,13 @@ class SecurityViewModel(
     val lockoutRemainingSeconds: StateFlow<Int> = _lockoutRemainingSeconds.asStateFlow()
 
     private var lockoutJob: Job? = null
+    private var authenticationGeneration = 0
+
+    private val _isAuthenticating = MutableStateFlow(false)
+    val isAuthenticating = _isAuthenticating.asStateFlow()
+
+    private val _isReady = MutableStateFlow(false)
+    val isReady = _isReady.asStateFlow()
 
     private val _showBiometricOptIn = MutableStateFlow(false)
     val showBiometricOptIn: StateFlow<Boolean> = _showBiometricOptIn.asStateFlow()
@@ -81,7 +89,16 @@ class SecurityViewModel(
 
     fun checkPinExists() {
         viewModelScope.launch {
-            _hasPin.value = repository.hasPin()
+            try {
+                _hasPin.value = repository.hasPin()
+                refreshAttemptStatus()
+                _isReady.value = true
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                _isReady.value = false
+                _errorMessage.value = "Güvenlik bilgileri okunamadı. Lütfen tekrar deneyin."
+                repository.lock()
+            }
         }
     }
 
@@ -97,87 +114,137 @@ class SecurityViewModel(
     }
 
     fun handlePinEntered(pin: String, onSuccess: () -> Unit) {
-        if (_lockoutRemainingSeconds.value > 0) {
-            _errorMessage.value = "Çok fazla hatalı deneme! Lütfen ${_lockoutRemainingSeconds.value} saniye bekleyin."
+        if (!_isReady.value || _isAuthenticating.value) return
+        if (!PinPolicy.isValid(pin)) {
+            _errorMessage.value = "PIN 4–12 rakamdan oluşmalıdır."
             return
         }
-
+        val generation = authenticationGeneration
+        _isAuthenticating.value = true
         viewModelScope.launch {
-            _errorMessage.value = null
-            if (_hasPin.value) {
-                val correct = repository.verifyPin(pin)
-                if (correct) {
-                    _failedAttempts.value = 0
-                    eventTracker.logEvent("SUCCESSFUL_UNLOCK", "PIN code verification succeeded")
-                    onSuccess()
-                } else {
-                    _failedAttempts.value += 1
-                    val attempts = _failedAttempts.value
-                    if (attempts >= 5) {
-                        triggerLockout()
+            try {
+                _errorMessage.value = null
+                // Read the authority, rather than a possibly stale startup UI value.
+                _hasPin.value = repository.hasPin()
+                if (_hasPin.value) {
+                    val correct = repository.verifyPin(pin)
+                    refreshAttemptStatus()
+                    if (generation != authenticationGeneration) {
+                        repository.lock()
+                        return@launch
+                    }
+                    if (correct) {
+                        eventTracker.logEvent("SUCCESSFUL_UNLOCK", "PIN doğrulaması başarılı")
+                        onSuccess()
+                    } else if (_lockoutRemainingSeconds.value == 0) {
+                        _errorMessage.value = "Hatalı PIN kodu! (${_failedAttempts.value}/5 deneme)"
+                        eventTracker.logEvent("FAILED_PIN_ATTEMPT", "PIN doğrulaması başarısız")
                     } else {
-                        eventTracker.logEvent("FAILED_PIN_ATTEMPT", "PIN verification failed (Attempt $attempts/5)")
-                        _errorMessage.value = "Hatalı PIN kodu! ($attempts/5 deneme)"
+                        eventTracker.logEvent("BRUTE_FORCE_LOCKOUT", "PIN deneme sınırı: 30 saniye bekleme")
                     }
-                }
-            } else {
-                when (_setupStep.value) {
-                    SetupStep.ENTER_PIN -> {
-                        if (pin.length < 4) {
-                            _errorMessage.value = "PIN en az 4 haneli olmalıdır"
-                            return@launch
+                } else {
+                    when (_setupStep.value) {
+                        SetupStep.ENTER_PIN -> {
+                            _tempPin.value = pin
+                            _setupStep.value = SetupStep.CONFIRM_PIN
                         }
-                        _tempPin.value = pin
-                        _setupStep.value = SetupStep.CONFIRM_PIN
-                    }
-                    SetupStep.CONFIRM_PIN -> {
-                        if (pin == _tempPin.value) {
-                            val success = repository.setupPin(pin)
-                            if (success) {
-                                eventTracker.logEvent("PIN_SETUP", "Yeni güvenli PIN oluşturuldu")
-                                _setupStep.value = SetupStep.COMPLETED
+                        SetupStep.CONFIRM_PIN -> {
+                            if (pin != _tempPin.value) {
+                                resetSetup()
+                                _errorMessage.value = "PIN kodları eşleşmiyor. Lütfen baştan girin."
+                            } else if (repository.setupPin(pin)) {
+                                _tempPin.value = ""
                                 _hasPin.value = true
-                                _failedAttempts.value = 0
+                                if (generation != authenticationGeneration) {
+                                    repository.lock()
+                                    return@launch
+                                }
+                                _setupStep.value = SetupStep.COMPLETED
+                                eventTracker.logEvent("PIN_SETUP", "Yeni güvenli PIN oluşturuldu")
                                 onSuccess()
                             } else {
-                                _errorMessage.value = "PIN kaydedilemedi"
+                                _errorMessage.value = "PIN kaydedilemedi. Lütfen tekrar deneyin."
                             }
-                        } else {
-                            _errorMessage.value = "PIN kodları eşleşmiyor! Lütfen baştan girin."
-                            _setupStep.value = SetupStep.ENTER_PIN
-                            _tempPin.value = ""
                         }
+                        SetupStep.COMPLETED -> Unit
                     }
-                    SetupStep.COMPLETED -> Unit
                 }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                repository.lock()
+                _errorMessage.value = "Doğrulama tamamlanamadı. Lütfen tekrar deneyin."
+            } finally {
+                _isAuthenticating.value = false
             }
         }
     }
 
-    private fun triggerLockout() {
+    private suspend fun updateAttemptStatus() {
+        val status = repository.getPinAttemptStatus()
+        _failedAttempts.value = status.failedAttempts
+        _lockoutRemainingSeconds.value = status.remainingSeconds
+        if (status.remainingSeconds > 0) {
+            _errorMessage.value = "Çok fazla hatalı deneme. Lütfen ${status.remainingSeconds} saniye bekleyin."
+        }
+    }
+
+    private suspend fun refreshAttemptStatus() {
+        updateAttemptStatus()
         lockoutJob?.cancel()
-        lockoutJob = viewModelScope.launch {
-            _failedAttempts.value = 0
-            eventTracker.logEvent("BRUTE_FORCE_LOCKOUT", "5 hatalı PIN denemesi - 30 saniye kilitlendi")
-            for (sec in 30 downTo 1) {
-                _lockoutRemainingSeconds.value = sec
-                _errorMessage.value = "Çok fazla hatalı deneme! Lütfen $sec saniye bekleyin."
-                delay(1000L)
+        if (_lockoutRemainingSeconds.value > 0) {
+            lockoutJob = viewModelScope.launch {
+                while (_lockoutRemainingSeconds.value > 0) {
+                    delay(1000L)
+                    updateAttemptStatus()
+                }
+                _errorMessage.value = null
             }
-            _lockoutRemainingSeconds.value = 0
-            _errorMessage.value = null
+        }
+    }
+
+    fun onBiometricAuthenticated(onSuccess: () -> Unit) {
+        if (!_isReady.value || _isAuthenticating.value) return
+        val generation = authenticationGeneration
+        _isAuthenticating.value = true
+        viewModelScope.launch {
+            try {
+                val success = repository.completeBiometricUnlock()
+                refreshAttemptStatus()
+                if (generation != authenticationGeneration) {
+                    repository.lock()
+                } else if (success) {
+                    _errorMessage.value = null
+                    eventTracker.logEvent("BIOMETRIC_SUCCESS", "Biyometrik doğrulama başarılı")
+                    onSuccess()
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                repository.lock()
+                _errorMessage.value = "Biyometrik giriş tamamlanamadı. PIN kullanın."
+            } finally {
+                _isAuthenticating.value = false
+            }
         }
     }
 
     suspend fun changePin(currentPin: String, newPin: String): Boolean {
-        if (newPin.length < 4) return false
-        val success = repository.changePin(currentPin, newPin)
-        if (success) {
-            _hasPin.value = true
-            _failedAttempts.value = 0
-            eventTracker.logEvent("PIN_CHANGED", "PIN kodu başarıyla güncellendi")
+        if (_isAuthenticating.value || !PinPolicy.isValid(newPin)) return false
+        _isAuthenticating.value = true
+        return try {
+            val success = repository.changePin(currentPin, newPin)
+            refreshAttemptStatus()
+            if (success) {
+                _hasPin.value = true
+                eventTracker.logEvent("PIN_CHANGED", "PIN kodu başarıyla güncellendi")
+            }
+            success
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            _errorMessage.value = "PIN güncellenemedi. Lütfen tekrar deneyin."
+            false
+        } finally {
+            _isAuthenticating.value = false
         }
-        return success
     }
 
     fun setScreenProtectionEnabled(enabled: Boolean) {
@@ -259,12 +326,14 @@ class SecurityViewModel(
     }
 
     fun resetSetup() {
+        authenticationGeneration++
         _setupStep.value = SetupStep.ENTER_PIN
         _tempPin.value = ""
         _errorMessage.value = null
     }
 
     fun lock() {
+        resetSetup()
         repository.lock()
     }
 

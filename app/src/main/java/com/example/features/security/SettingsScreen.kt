@@ -17,6 +17,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.core.security.PinPolicy
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -36,6 +37,8 @@ fun SettingsScreen(
     val biometricEnabled by securityViewModel.biometricEnabled.collectAsState()
     val screenProtectionEnabled by securityViewModel.screenProtectionEnabled.collectAsState()
     val hasPin by securityViewModel.hasPin.collectAsState()
+    val lockoutRemainingSeconds by securityViewModel.lockoutRemainingSeconds.collectAsState()
+    val isAuthenticating by securityViewModel.isAuthenticating.collectAsState()
     val themePreference by securityViewModel.themePreference.collectAsState()
     val buttonColorTheme by securityViewModel.buttonColorTheme.collectAsState()
     val decimalPrecision by securityViewModel.decimalPrecision.collectAsState()
@@ -473,7 +476,7 @@ fun SettingsScreen(
                         )
                         OutlinedTextField(
                             value = currentPinInput,
-                            onValueChange = { currentPinInput = it },
+                            onValueChange = { currentPinInput = it.filter { digit -> digit in '0'..'9' }.take(PinPolicy.MAX_LENGTH) },
                             label = { Text("Mevcut PIN Kodu") },
                             visualTransformation = PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
@@ -482,8 +485,8 @@ fun SettingsScreen(
                         )
                         OutlinedTextField(
                             value = newPinInput,
-                            onValueChange = { newPinInput = it },
-                            label = { Text("Yeni PIN (En az 4 hane)") },
+                            onValueChange = { newPinInput = it.filter { digit -> digit in '0'..'9' }.take(PinPolicy.MAX_LENGTH) },
+                            label = { Text("Yeni PIN (4–12 hane)") },
                             visualTransformation = PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                             singleLine = true,
@@ -491,14 +494,16 @@ fun SettingsScreen(
                         )
                         OutlinedTextField(
                             value = confirmPinInput,
-                            onValueChange = { confirmPinInput = it },
+                            onValueChange = { confirmPinInput = it.filter { digit -> digit in '0'..'9' }.take(PinPolicy.MAX_LENGTH) },
                             label = { Text("Yeni PIN (Tekrar)") },
                             visualTransformation = PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        if (dialogError != null) {
+                        if (lockoutRemainingSeconds > 0) {
+                            Text("$lockoutRemainingSeconds saniye sonra tekrar deneyin.", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                        } else if (dialogError != null) {
                             Text(dialogError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
                         }
                     }
@@ -511,10 +516,11 @@ fun SettingsScreen(
                     }
                 } else {
                     Button(
+                        enabled = !isAuthenticating && lockoutRemainingSeconds == 0,
                         onClick = {
                             triggerVibration()
-                            if (newPinInput.length < 4) {
-                                dialogError = "Yeni PIN en az 4 haneli olmalıdır"
+                            if (!PinPolicy.isValid(newPinInput)) {
+                                dialogError = "Yeni PIN 4–12 rakamdan oluşmalıdır"
                                 return@Button
                             }
                             if (newPinInput != confirmPinInput) {
@@ -527,7 +533,9 @@ fun SettingsScreen(
                                     changeSuccess = true
                                     dialogError = null
                                 } else {
-                                    dialogError = "Mevcut PIN hatalı!"
+                                    dialogError = if (lockoutRemainingSeconds > 0) {
+                                        "Çok fazla hatalı deneme. $lockoutRemainingSeconds saniye bekleyin."
+                                    } else "PIN güncellenemedi. Mevcut PIN'i kontrol edip tekrar deneyin."
                                 }
                             }
                         }

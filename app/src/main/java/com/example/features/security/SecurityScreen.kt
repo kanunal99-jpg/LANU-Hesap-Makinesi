@@ -5,9 +5,12 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import androidx.biometric.BiometricPrompt
+import com.example.core.security.PinPolicy
 import com.example.core.security.BiometricAuthManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -63,6 +66,20 @@ fun SecurityScreen(
     val biometricEnabled by viewModel.biometricEnabled.collectAsState()
     val showBiometricOptIn by viewModel.showBiometricOptIn.collectAsState()
     val lockoutRemainingSeconds by viewModel.lockoutRemainingSeconds.collectAsState()
+    val isAuthenticating by viewModel.isAuthenticating.collectAsState()
+    val isReady by viewModel.isReady.collectAsState()
+    val inputEnabled = isReady && !isAuthenticating && lockoutRemainingSeconds == 0
+    var biometricPrompt by remember { mutableStateOf<BiometricPrompt?>(null) }
+    var screenActive by remember { mutableStateOf(true) }
+
+    DisposableEffect(viewModel) {
+        screenActive = true
+        onDispose {
+            screenActive = false
+            biometricPrompt?.cancelAuthentication()
+            viewModel.resetSetup()
+        }
+    }
 
     var enteredDigits by remember { mutableStateOf("") }
 
@@ -77,32 +94,24 @@ fun SecurityScreen(
         }
     }
 
-    // Direct unlock trigger if coming from Calculator Easter Egg
-    LaunchedEffect(directUnlockPin) {
-        if (!directUnlockPin.isNullOrBlank()) {
-            enteredDigits = directUnlockPin
-            if (directUnlockPin == "2011.") {
-                viewModel.handleMasterPinEntered {
-                    onUnlockSuccess()
-                }
-            } else {
-                viewModel.handlePinEntered(directUnlockPin) {
-                    onUnlockSuccess()
-                }
-            }
+    // The calculator entry code only opens authentication; it is never a PIN bypass.
+    LaunchedEffect(directUnlockPin, isReady) {
+        if (isReady && !directUnlockPin.isNullOrBlank() && directUnlockPin != "2011.") {
+            viewModel.handlePinEntered(directUnlockPin, onUnlockSuccess)
         }
     }
 
     // Centralized biometric prompt launcher helper using BiometricAuthManager
     val showBiometricPrompt = {
-        if (hasPin) {
+        if (hasPin && biometricEnabled && inputEnabled) {
             val activity = context as? FragmentActivity
             if (activity != null) {
-                BiometricAuthManager.authenticate(
+                biometricPrompt = BiometricAuthManager.authenticate(
                     activity = activity,
                     onSuccess = {
-                        viewModel.logEvent("BIOMETRIC_SUCCESS", "Successfully unlocked via biometrics")
-                        onUnlockSuccess()
+                        if (screenActive && activity.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                            viewModel.onBiometricAuthenticated(onUnlockSuccess)
+                        }
                     },
                     onFallbackToPin = {
                         // Keep user on the PIN entry screen and let them enter digits manually
@@ -118,8 +127,8 @@ fun SecurityScreen(
     }
 
     // Trigger Biometric verification on launch if enabled and PIN exists
-    LaunchedEffect(hasPin, biometricEnabled) {
-        if (hasPin && biometricEnabled) {
+    LaunchedEffect(hasPin, biometricEnabled, isReady) {
+        if (hasPin && biometricEnabled && inputEnabled) {
             showBiometricPrompt()
         }
     }
@@ -170,14 +179,16 @@ fun SecurityScreen(
     }
 
     val subtitleText = when {
-        !hasPin -> "Bu PIN, özel iletişim alanınızı kilitleyecektir"
-        else -> "Güvenli AES-256 kasa arayüzü"
+        !hasPin -> "4–12 rakam seçin ve Devam'a dokunun"
+        else -> "4–12 haneli PIN'inizi girip Doğrula'ya dokunun"
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
+            .systemBarsPadding()
+            .verticalScroll(rememberScrollState())
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
@@ -238,14 +249,14 @@ fun SecurityScreen(
         // Animated passcode-dot visualizer
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                repeat(4) { index ->
+                repeat(maxOf(PinPolicy.MIN_LENGTH, enteredDigits.length)) { index ->
                     val isFilled = index < enteredDigits.length
                     Box(
                         modifier = Modifier
-                            .size(16.dp)
+                            .size(12.dp)
                             .clip(CircleShape)
                             .background(
                                 if (isFilled) MaterialTheme.colorScheme.primary 
@@ -301,9 +312,9 @@ fun SecurityScreen(
                                     if (item == "Biometric" || item == "Delete") Color.Transparent
                                     else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
                                 )
-                                .clickable(enabled = lockoutRemainingSeconds <= 0) {
+                                .clickable(enabled = inputEnabled && (item != "Biometric" || (hasPin && biometricEnabled))) {
                                     triggerVibration()
-                                    if (lockoutRemainingSeconds > 0) return@clickable
+                                    if (!inputEnabled) return@clickable
                                     when (item) {
                                         "Delete" -> {
                                             if (enteredDigits.isNotEmpty()) {
@@ -328,14 +339,8 @@ fun SecurityScreen(
                                             }
                                         }
                                         else -> {
-                                            if (enteredDigits.length < 4) {
+                                            if (enteredDigits.length < PinPolicy.MAX_LENGTH) {
                                                 enteredDigits += item
-                                                if (enteredDigits.length == 4) {
-                                                    viewModel.handlePinEntered(enteredDigits) {
-                                                        onUnlockSuccess()
-                                                    }
-                                                    enteredDigits = ""
-                                                }
                                             }
                                         }
                                     }
@@ -352,7 +357,7 @@ fun SecurityScreen(
                                     )
                                 }
                                 "Biometric" -> {
-                                    if (hasPin && hasBiometricHardware) {
+                                    if (hasPin && biometricEnabled && hasBiometricHardware) {
                                         Icon(
                                             imageVector = Icons.Default.Fingerprint,
                                             contentDescription = stringResource(R.string.use_biometrics),
@@ -373,6 +378,22 @@ fun SecurityScreen(
                             }
                         }
                     }
+                }
+            }
+            Button(
+                onClick = {
+                    val pin = enteredDigits
+                    enteredDigits = ""
+                    viewModel.handlePinEntered(pin, onUnlockSuccess)
+                },
+                enabled = inputEnabled && PinPolicy.isValid(enteredDigits),
+                modifier = Modifier.fillMaxWidth().testTag("pin_submit")
+            ) {
+                Text(if (isAuthenticating) "Doğrulanıyor…" else if (!hasPin) "Devam" else "Doğrula")
+            }
+            if (!isReady) {
+                TextButton(onClick = { viewModel.checkPinExists() }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Güvenlik bilgilerini yeniden yükle")
                 }
             }
         }
