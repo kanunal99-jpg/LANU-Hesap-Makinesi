@@ -49,7 +49,9 @@ object HighPrecisionMathEngine {
         return expr
             .replace("×", "*")
             .replace("÷", "/")
-            .replace("mod", "%")
+            // Replace MOD only as a standalone operator, not inside a word.
+            // Handle pasted or voice-entered MOD/MoD as well as the "mod" key.
+            .replace(Regex("(?<![A-Za-z])mod(?![A-Za-z])", RegexOption.IGNORE_CASE), "%")
             .replace("π", "PI")
             .replace(" ", "")
             .replace("（", "(")

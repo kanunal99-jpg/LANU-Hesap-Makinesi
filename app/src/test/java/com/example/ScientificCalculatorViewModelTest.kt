@@ -473,6 +473,21 @@ class ScientificCalculatorViewModelTest {
     }
 
     @Test
+    fun `mod operator accepts pasted uppercase and mixed case expressions`() {
+        for (expression in listOf("10mod3", "10MOD3", "10MoD3")) {
+            assertEquals(0, HighPrecisionMathEngine.evaluate(expression).compareTo(BigDecimal.ONE))
+        }
+        assertEquals(0, HighPrecisionMathEngine.evaluate("12 MOD 5").compareTo(BigDecimal(2)))
+    }
+
+    @Test
+    fun `mod is not replaced inside unrelated function or identifier text`() {
+        assertEquals("12mode", HighPrecisionMathEngine.sanitize("12mode"))
+        assertEquals("modern(2)", HighPrecisionMathEngine.sanitize("modern(2)"))
+        assertEquals("12%5", HighPrecisionMathEngine.sanitize("12MoD5"))
+    }
+
+    @Test
     fun `high precision engine solves decimal addition without floating point artifacts`() {
         val result = HighPrecisionMathEngine.evaluate("0.1 + 0.2")
         assertEquals("0.3", result.stripTrailingZeros().toPlainString())
