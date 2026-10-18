@@ -320,3 +320,15 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 *   **Sonuç:** BAŞARILI ✅
 *   **Kanıt:** GitHub Actions run, artifact ve release kayıtları.
 *   **Açıklama:** Unit/Robolectric testleri, Debug Lint, Debug APK derlemesi ve GitHub Release adımları CI üzerinde tamamlandı.
+
+### [18-10-2026] — 2011. gizli alan: kalıcı giriş koruması
+
+- **Kök neden / P1:** Hatalı PIN sayacı yalnız ViewModel belleğindeydi; süreç kapanınca 5 deneme/30 saniye sınırı aşılabiliyordu. Sayaç ve son tarih tek Room ayarında atomik saklanıyor; giriş ve PIN değiştirme aynı kilitli doğrulama yolunu kullanıyor. Eşzamanlı istekler Mutex ile sıralanıyor.
+- **Kök neden / P1:** Biyometrik callback yalnız yönlendirme yapıyor, gerçek repository kilidini açmıyordu. Artık etkinleştirme, kayıtlı PIN ve bekleme sınırı kontrolünden sonra yetkili kilit durumu güncelleniyor. Ekrandan ayrılırken prompt iptal ediliyor; geç gelen doğrulama yönlendirmesi reddediliyor.
+- **Kök neden / P1:** PIN değiştirme 4'ten uzun veya rakam olmayan PIN kabul ederken giriş tuş takımı yalnız dört haneyi gönderiyordu. Kurulum/giriş/değiştirme için ortak 4–12 ASCII rakam politikası ve açık Doğrula/Devam düğmesi eklendi. Eski PIN hash biçimi korunuyor; mevcut PIN kurulum yoluyla ezilemiyor.
+- **Gizleme / P1:** Ana gizli alanın geri tuşu ve hesap makinesine dönüşü kilidi kapatıp özel gezinme geçmişini temizliyor. Kilitli özel içerik çizilmiyor. PIN ve gizli ekranlarda FLAG_SECURE, genel hesap makinesi tercihi kapalı olsa da zorunlu. Ayar açıklaması bu davranışı açıkça belirtir. Arka plan süresi monoton saatle ölçülüyor; soğuk açılış kilitli kalıyor.
+- **Hata yönetimi:** Doğrulama sırasında yinelenen dokunma engeli, okunamayan güvenlik durumunda kapalı kalma, okunamayan deneme kaydında sınırlı bekleme ve yeniden yükleme eklendi. PIN/geçici PIN günlüklenmiyor; kurulumdan çıkışta geçici PIN temizleniyor.
+- **Test:** HiddenAreaSecurityTest içinde 22 regresyon testi eklendi. CI test/lint/APK sonucu henüz bekleniyor; yerel Android SDK/Gradle bulunmadığından yerel Android derlemesi yapılmadı. Gerçek parmak izi donanımı ve fiziksel cihaz smoke ayrıca gereklidir.
+- **Geri dönüş:** Bu geliştirme commit'i revert edilebilir; Room şema sürümü/veri silme değişikliği yok. Yeni pin_attempt_state ayarı eski sürümce yok sayılır.
+
+- **Ek kök neden / P1:** Hesap makinesi dokunmatik ve fiziksel Enter/= akışları dört veya daha fazla rakamı PIN sayıp normal hesaplamayı engelliyordu; artık = her iki girişte de hesaplar. 2011. tetikleyicisi PIN ekranını açmaya devam eder; rastgele sayılar özel alana yönlendirilmez. İlk PR koşusunda 22 yeni test ve mevcut testler geçti; son değişiklik için CI yeniden çalıştırılacak.

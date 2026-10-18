@@ -53,3 +53,12 @@ Kullanıcı güvenliğini ve sistem kontrollerini sağlar.
 *   **Görevleri:**
     *   `SecurityScreen.kt`: PIN şifre doğrulaması ve brute-force kilitleme ekranı.
     *   `SettingsScreen.kt`: Görünüm, otomatik kilitleme zaman aşımı, şifre değiştirme ve denetim günlüklerinin yer aldığı arayüz.
+
+### 18.10.2026 — Gizli alan doğrulaması
+
+- core/security/PinPolicy.kt: ortak PIN biçimi/sınırları ve PinAttemptStatus.
+- core/repository/Repositories.kt (SecurityRepository): yetkili kilit durumu, tek satırda kalıcı PIN deneme kaydı, Mutex, ortak PIN doğrulama/değiştirme ve biyometrik başarı yolu.
+- features/security/SecurityViewModel.kt: yükleme/doğrulama durumları, kalıcı kayıttan geri sayım, geç gelen giriş sonucunu iptal eden oturum nesli.
+- features/security/SecurityScreen.kt: 4–12 hane ve açık gönderme, prompt iptali, küçük ekran kaydırması.
+- MainActivity.kt: yetkili repository durumuna göre özel ekran kapısı, kilitleyerek geri dönüş, zorunlu özel ekran koruması.
+- test/java/com/example/HiddenAreaSecurityTest.kt: 22 otomatik güvenlik regresyonu. Veritabanı şeması değişmez.

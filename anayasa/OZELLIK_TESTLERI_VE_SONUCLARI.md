@@ -298,3 +298,19 @@ Uygulamanın şifreleme motoru, veri mimarisi, güvenlik politikaları ve kamufl
 *   **Commit Hash:** 2a3ff34
 *   **Durum:** BAŞARILI ✅
 *   **Not:** Dokümantasyon, CI kanıtı olmadan 'başarılı' veya 'production ready' olarak işaretlenmemelidir.
+
+### [18-10-2026] — Gizli alan giriş regresyon kapsamı
+
+**Dosya:** app/src/test/java/com/example/HiddenAreaSecurityTest.kt — 22 test, sonuç CI bekliyor.
+
+- 4–12 ASCII PIN sınırları, geçersiz kurulum, eski hash uyumu ve 2011. kodunun doğrulamayı atlamaması.
+- Kurulumun mevcut PIN'i ezememesi ve uzun PIN'in doğrulanabilmesi.
+- Beş hata sonrası doğru PIN'in de beklemesi; sayaç ve sürenin repository yeniden yaratıldığında korunması; süre sonunda giriş; beklerken yeniden denemenin süreyi uzatmaması.
+- Başarılı girişte sayacın temizlenmesi ve paralel isteklerin sınırı aşamaması.
+- PIN değişiminde biçim kontrolü, ortak kalıcı deneme sınırı ve değişimin kendiliğinden oturum açmaması.
+- Biyometrik onay yolunda PIN/tercih/bekleme denetimi ve gerçek kilit durumunun güncellenmesi. Bu, gerçek sensör doğrulaması değildir.
+- Bozuk deneme kaydında güvenli bekleme; anında arka plan kilidi; soğuk oturumun kapalı kalması.
+
+**Fiziksel cihaz kabul testi (bekliyor):** 2011. → PIN kur/onayla → gizli alan → Geri → hesap makinesi; yeniden 2011. → yanlış PIN x5 → zorla durdur/aç → bekleme; 6/12 haneli PIN değiştir/aç; etkin/pasif biyometri; parmak izi istemi sırasında Geri/Home; ekran kapatma; 30 sn/1 dk/5 dk dönüş; küçük ekranda tuş takımı kaydırma; ekran görüntüsü/son uygulamalar koruması.
+
+- **Ek doğrulama:** Fiziksel ve dokunmatik = artık ScientificCalculatorViewModel'in normal hesaplama yoluna bağlıdır. 1234, 12345.67 ve uzun sayıların = ile PIN ekranına gitmemesi fiziksel cihaz kabul kapsamına eklendi. İlk PR CI koşusunda birim testler geçti; final sürüm CI sonucu bekleniyor.

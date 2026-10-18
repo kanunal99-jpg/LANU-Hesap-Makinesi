@@ -5,6 +5,10 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.example.core.security.PinPolicy
+import com.example.core.security.PinAttemptStatus
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import com.example.core.crypto.CryptoUtils
 import com.example.core.database.*
 import kotlinx.coroutines.flow.Flow
@@ -64,7 +68,14 @@ class CalculatorRepository(private val historyDao: CalculationHistoryDao, privat
     }
 }
 
-class SecurityRepository(private val context: Context, private val settingsDao: SettingsDao) {
+class SecurityRepository(
+    private val context: Context,
+    private val settingsDao: SettingsDao,
+    private val clock: () -> Long = System::currentTimeMillis
+) {
+    private val authenticationMutex = Mutex()
+    private var backgroundedAt: Long? = null
+
     
     private val sharedPreferences: SharedPreferences by lazy {
         try {
@@ -91,30 +102,88 @@ class SecurityRepository(private val context: Context, private val settingsDao: 
         return settingsDao.getSettingValue("pin_hash") != null
     }
 
-    suspend fun setupPin(pin: String): Boolean {
-        if (pin.length < 4) return false
-        val hashed = CryptoUtils.hashPin(pin)
-        settingsDao.insertSetting(SettingsEntity("pin_hash", hashed))
+    suspend fun setupPin(pin: String): Boolean = authenticationMutex.withLock {
+        // Setup can never replace an existing credential without checking it.
+        if (!PinPolicy.isValid(pin) || hasPin()) return@withLock false
+        settingsDao.insertSetting(SettingsEntity("pin_hash", CryptoUtils.hashPin(pin)))
+        saveAttemptState(0, 0L)
         _isLockedState.value = false
-        return true
+        true
     }
 
-    suspend fun verifyPin(pin: String): Boolean {
+    suspend fun getPinAttemptStatus(): PinAttemptStatus = authenticationMutex.withLock {
+        readAttemptStatus()
+    }
+
+    private suspend fun readAttemptStatus(): PinAttemptStatus {
+        val value = settingsDao.getSettingValue("pin_attempt_state") ?: return PinAttemptStatus()
+        val parts = value.split(':')
+        val failures = parts.getOrNull(0)?.toIntOrNull()
+        val until = parts.getOrNull(1)?.toLongOrNull()
+        if (parts.size != 2 || failures == null || failures !in 0 until PinPolicy.MAX_ATTEMPTS || until == null || until < 0L) {
+            // Corrupt counters fail closed for one bounded waiting period.
+            saveAttemptState(0, clock() + PinPolicy.LOCKOUT_MS)
+            return PinAttemptStatus(remainingSeconds = 30)
+        }
+        if (until == 0L) return PinAttemptStatus(failedAttempts = failures)
+        val remaining = (until - clock()).coerceIn(0L, PinPolicy.LOCKOUT_MS)
+        if (remaining == 0L) {
+            saveAttemptState(0, 0L)
+            return PinAttemptStatus()
+        }
+        return PinAttemptStatus(failures, ((remaining + 999L) / 1000L).toInt())
+    }
+
+    private suspend fun saveAttemptState(failures: Int, until: Long) {
+        // One Room row keeps the counter and deadline atomic across process restarts.
+        settingsDao.insertSetting(SettingsEntity("pin_attempt_state", "$failures:$until"))
+    }
+
+    private suspend fun checkPin(pin: String): Boolean {
+        val status = readAttemptStatus()
+        if (status.remainingSeconds > 0) return false
         val storedHash = settingsDao.getSettingValue("pin_hash") ?: return false
-        val enteredHash = CryptoUtils.hashPin(pin)
-        val matches = storedHash == enteredHash
+        val matches = PinPolicy.isValid(pin) && java.security.MessageDigest.isEqual(
+            storedHash.toByteArray(Charsets.UTF_8),
+            CryptoUtils.hashPin(pin).toByteArray(Charsets.UTF_8)
+        )
         if (matches) {
-            _isLockedState.value = false
-            updateLastActiveTime()
+            saveAttemptState(0, 0L)
+        } else {
+            val failures = status.failedAttempts + 1
+            if (failures >= PinPolicy.MAX_ATTEMPTS) {
+                saveAttemptState(0, clock() + PinPolicy.LOCKOUT_MS)
+            } else {
+                saveAttemptState(failures, 0L)
+            }
         }
         return matches
     }
 
-    suspend fun changePin(currentPin: String, newPin: String): Boolean {
-        if (newPin.length < 4) return false
-        val currentMatches = verifyPin(currentPin)
-        if (!currentMatches) return false
-        return setupPin(newPin)
+    suspend fun verifyPin(pin: String): Boolean = authenticationMutex.withLock {
+        val matches = checkPin(pin)
+        if (matches) {
+            updateLastActiveTime()
+            _isLockedState.value = false
+        }
+        matches
+    }
+
+    suspend fun changePin(currentPin: String, newPin: String): Boolean = authenticationMutex.withLock {
+        if (!PinPolicy.isValid(newPin) || !checkPin(currentPin)) return@withLock false
+        settingsDao.insertSetting(SettingsEntity("pin_hash", CryptoUtils.hashPin(newPin)))
+        true
+    }
+
+    /** Called only by the successful Android biometric prompt callback. */
+    suspend fun completeBiometricUnlock(): Boolean = authenticationMutex.withLock {
+        if (!hasPin() || !isBiometricEnabled() || readAttemptStatus().remainingSeconds > 0) {
+            return@withLock false
+        }
+        saveAttemptState(0, 0L)
+        updateLastActiveTime()
+        _isLockedState.value = false
+        true
     }
 
     suspend fun isScreenProtectionEnabled(): Boolean {
@@ -141,28 +210,15 @@ class SecurityRepository(private val context: Context, private val settingsDao: 
     }
 
     suspend fun handleAppBackgrounded() {
-        settingsDao.insertSetting(SettingsEntity("backgrounded_time", System.currentTimeMillis().toString()))
+        backgroundedAt = SystemClock.elapsedRealtime()
+        if (getLockTimeout() == 0L) lock()
     }
 
     suspend fun handleAppForegrounded() {
-        val pinExists = hasPin()
-        if (!pinExists) {
-            _isLockedState.value = false
-            return
-        }
-
-        val backgroundedTimeStr = settingsDao.getSettingValue("backgrounded_time")
-        val lockTimeoutMs = getLockTimeout()
-
-        if (backgroundedTimeStr != null && lockTimeoutMs >= 0) {
-            val backgroundedTime = backgroundedTimeStr.toLongOrNull() ?: 0L
-            val elapsed = System.currentTimeMillis() - backgroundedTime
-            if (elapsed > lockTimeoutMs) {
-                _isLockedState.value = true
-            }
-        } else {
-            _isLockedState.value = true
-        }
+        val startedAt = backgroundedAt ?: return
+        backgroundedAt = null
+        val timeout = getLockTimeout()
+        if (timeout >= 0L && SystemClock.elapsedRealtime() - startedAt >= timeout) lock()
     }
 
     fun lock() {

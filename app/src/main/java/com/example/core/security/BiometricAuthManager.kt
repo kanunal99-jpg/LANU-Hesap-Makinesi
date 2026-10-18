@@ -68,7 +68,7 @@ object BiometricAuthManager {
         onSuccess: () -> Unit,
         onFallbackToPin: (() -> Unit)? = null,
         onError: (errorCode: Int, errorMessage: String) -> Unit = { _, _ -> }
-    ) {
+    ): BiometricPrompt? {
         val executor: Executor = ContextCompat.getMainExecutor(activity)
 
         val callback = object : BiometricPrompt.AuthenticationCallback() {
@@ -116,14 +116,16 @@ object BiometricAuthManager {
             .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.BIOMETRIC_WEAK)
             .build()
 
-        try {
+        return try {
             val biometricPrompt = BiometricPrompt(activity, executor, callback)
             biometricPrompt.authenticate(promptInfo)
+            biometricPrompt
         } catch (e: Exception) {
             activity.runOnUiThread {
                 onError(-2, e.message ?: "Kimlik doğrulama başlatılamadı")
                 onFallbackToPin?.invoke()
             }
+            null
         }
     }
 }

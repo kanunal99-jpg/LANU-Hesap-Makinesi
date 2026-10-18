@@ -206,7 +206,7 @@
     <string name="mute_mic_desc">Sesi Kapat</string>
     <string name="end_call_desc">Aramayı Sonlandır</string>
     <string name="screen_protection_title">Ekran &amp; Önizleme Koruması</string>
-    <string name="screen_protection_desc">Son uygulamalar ve ekran görüntülerinde sohbet ve arama gizliliğini korur (FLAG_SECURE)</string>
+    <string name="screen_protection_desc">Hesap makinesinde ekran görüntüsü korumasını seçin. Gizli alanda koruma her zaman açıktır.</string>
     <string name="change_pin_title">PIN Kodunu Değiştir</string>
     <string name="change_pin_desc">Mevcut şifrenizi doğrulayarak yeni bir erişim kodu belirleyin</string>
     <string name="security_audit_logs_title">Güvenlik Denetim Günlüğü</string>

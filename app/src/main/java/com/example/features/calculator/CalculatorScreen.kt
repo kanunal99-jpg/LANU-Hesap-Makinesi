@@ -58,7 +58,6 @@ import androidx.compose.ui.input.key.*
 fun CalculatorScreen(
     viewModel: CalculatorViewModel,
     onNavigateToLock: () -> Unit,
-    onNavigateWithDirectUnlock: (String) -> Unit,
     onNavigateToUnitConverter: (String?) -> Unit,
     onNavigateToFinance: () -> Unit,
     onNavigateToCollaboration: () -> Unit,
@@ -295,13 +294,7 @@ fun CalculatorScreen(
                             }
                             Key.Enter, Key.NumPadEnter -> {
                                 triggerVibration()
-                                val digits = expression.filter { it.isDigit() }
-                                if (digits.length >= 4 && !expression.contains("[+\\-*×÷ mod ^!]".toRegex())) {
-                                    viewModel.onKeyPress("AC")
-                                    onNavigateWithDirectUnlock(digits)
-                                } else {
-                                    viewModel.onKeyPress("=")
-                                }
+                                viewModel.onKeyPress("=")
                                 true
                             }
                             Key.Escape, Key.Delete -> {
@@ -523,16 +516,7 @@ fun CalculatorScreen(
                                     .aspectRatio(if (isLandscape) 2.2f else if (isScientific) 1.5f else 1.2f),
                                 onClick = {
                                     triggerVibration()
-                                    if (key == "=") {
-                                        // Easter Egg: check if entered text is exactly a valid PIN
-                                        val digits = expression.filter { it.isDigit() }
-                                        if (digits.length >= 4 && !expression.contains("[+\\-*×÷ mod ^!]".toRegex())) {
-                                            viewModel.onKeyPress("AC")
-                                            onNavigateWithDirectUnlock(digits)
-                                        } else {
-                                            viewModel.onKeyPress(key)
-                                        }
-                                    } else if (key == "AC") {
+                                    if (key == "AC") {
                                         val hasActiveCalculation = expression.isNotBlank() || (result.isNotBlank() && result != "0" && result != "Error")
                                         if (hasActiveCalculation) {
                                             showResetCalculationDialog = true
