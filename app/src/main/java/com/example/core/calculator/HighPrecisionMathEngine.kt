@@ -495,7 +495,7 @@ object HighPrecisionMathEngine {
             factorNesting++
             try {
             if (eat('+')) return parseFactor()
-            val negate = eat('-')
+            if (eat('-')) return parseFactor().negate()
             var x: BigDecimal
             val startPos = this.pos
 
@@ -565,7 +565,7 @@ object HighPrecisionMathEngine {
                 x = factorial(x)
             }
 
-            return if (negate) x.negate() else x
+            return x
             } finally {
                 factorNesting--
             }
