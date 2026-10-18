@@ -427,6 +427,52 @@ class ScientificCalculatorViewModelTest {
     }
 
     @Test
+    fun `nested parentheses reject before a stack overflow`() {
+        val expression = "(".repeat(140) + "1" + ")".repeat(140)
+        try {
+            HighPrecisionMathEngine.evaluate(expression)
+            org.junit.Assert.fail("Deep parenthesis nesting should be bounded")
+        } catch (expected: IllegalArgumentException) {
+            assertTrue(expected.message.orEmpty().contains("nesting"))
+        }
+    }
+
+    @Test
+    fun `deep unary and exponent recursion has a safe limit`() {
+        val deepSigns = "-".repeat(140) + "1"
+        val deepPowers = "2^".repeat(140) + "1"
+        for (expression in listOf(deepSigns, deepPowers)) {
+            try {
+                HighPrecisionMathEngine.evaluate(expression)
+                org.junit.Assert.fail("Recursive expression must be rejected safely")
+            } catch (expected: IllegalArgumentException) {
+                assertTrue(expected.message.orEmpty().contains("nesting"))
+            }
+        }
+    }
+
+    @Test
+    fun `oversized pasted expression fails without costly parsing`() {
+        try {
+            HighPrecisionMathEngine.evaluate("1+".repeat(4200) + "1")
+            org.junit.Assert.fail("Input over 8192 characters should be rejected")
+        } catch (expected: IllegalArgumentException) {
+            assertTrue(expected.message.orEmpty().contains("length"))
+        }
+    }
+
+    @Test
+    fun `ordinary nested and flat expressions still work`() {
+        val nested = "(".repeat(32) + "2+3" + ")".repeat(32)
+        assertEquals(0, HighPrecisionMathEngine.evaluate(nested).compareTo(BigDecimal("5")))
+        assertEquals(0, HighPrecisionMathEngine.evaluate("1+2+3+4").compareTo(BigDecimal("10")))
+        assertEquals(0, HighPrecisionMathEngine.evaluate("2^3^2").compareTo(BigDecimal("512")))
+        assertEquals(0, HighPrecisionMathEngine.evaluate("--3").compareTo(BigDecimal("3")))
+        assertEquals(0, HighPrecisionMathEngine.evaluate("---3").compareTo(BigDecimal("-3")))
+        assertEquals(0, HighPrecisionMathEngine.evaluate("-2^2").compareTo(BigDecimal("-4")))
+    }
+
+    @Test
     fun `high precision engine solves decimal addition without floating point artifacts`() {
         val result = HighPrecisionMathEngine.evaluate("0.1 + 0.2")
         assertEquals("0.3", result.stripTrailingZeros().toPlainString())
