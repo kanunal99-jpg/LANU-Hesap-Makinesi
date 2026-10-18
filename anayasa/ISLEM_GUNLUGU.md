@@ -330,3 +330,5 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - **Hata yönetimi:** Doğrulama sırasında yinelenen dokunma engeli, okunamayan güvenlik durumunda kapalı kalma, okunamayan deneme kaydında sınırlı bekleme ve yeniden yükleme eklendi. PIN/geçici PIN günlüklenmiyor; kurulumdan çıkışta geçici PIN temizleniyor.
 - **Test:** HiddenAreaSecurityTest içinde 22 regresyon testi eklendi. CI test/lint/APK sonucu henüz bekleniyor; yerel Android SDK/Gradle bulunmadığından yerel Android derlemesi yapılmadı. Gerçek parmak izi donanımı ve fiziksel cihaz smoke ayrıca gereklidir.
 - **Geri dönüş:** Bu geliştirme commit'i revert edilebilir; Room şema sürümü/veri silme değişikliği yok. Yeni pin_attempt_state ayarı eski sürümce yok sayılır.
+
+- **Ek kök neden / P1:** Hesap makinesi dokunmatik ve fiziksel Enter/= akışları dört veya daha fazla rakamı PIN sayıp normal hesaplamayı engelliyordu; artık = her iki girişte de hesaplar. 2011. tetikleyicisi PIN ekranını açmaya devam eder; rastgele sayılar özel alana yönlendirilmez. İlk PR koşusunda 22 yeni test ve mevcut testler geçti; son değişiklik için CI yeniden çalıştırılacak.

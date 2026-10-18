@@ -197,10 +197,6 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                         securityViewModel.checkPinExists()
                                         navigateTo(Screen.Security())
                                     },
-                                    onNavigateWithDirectUnlock = { directPin ->
-                                        securityViewModel.checkPinExists()
-                                        navigateTo(Screen.Security(directPin))
-                                    },
                                     onNavigateToUnitConverter = { initialValue ->
                                         navigateTo(Screen.UnitConverter(initialValue))
                                     },
