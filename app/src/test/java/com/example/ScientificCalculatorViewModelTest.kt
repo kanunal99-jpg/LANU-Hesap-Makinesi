@@ -520,6 +520,40 @@ class ScientificCalculatorViewModelTest {
     }
 
     @Test
+    fun `asin keeps the angle offset for values rounded to 1 by Double`() {
+        val x = BigDecimal("0.999999999999999999999999")
+        val angle = HighPrecisionMathEngine.asin(x, isDegrees = false)
+        val piOverTwo = HighPrecisionMathEngine.PI.divide(
+            BigDecimal(2), HighPrecisionMathEngine.DEFAULT_MATH_CONTEXT
+        )
+        val offset = piOverTwo.subtract(angle)
+        assertTrue(offset > BigDecimal("1E-13"))
+        assertTrue(offset < BigDecimal("1E-11"))
+        val recovered = HighPrecisionMathEngine.sin(angle, isDegrees = false)
+        assertTrue(recovered.subtract(x).abs() <= BigDecimal("1E-28"))
+    }
+
+    @Test
+    fun `asin remains symmetric close to negative one`() {
+        val x = BigDecimal("0.999999999999999999999999")
+        val positive = HighPrecisionMathEngine.asin(x, isDegrees = false)
+        val negative = HighPrecisionMathEngine.asin(x.negate(), isDegrees = false)
+        assertTrue(positive.add(negative).abs() <= BigDecimal("1E-28"))
+        val recovered = HighPrecisionMathEngine.sin(negative, isDegrees = false)
+        assertTrue(recovered.add(x).abs() <= BigDecimal("1E-28"))
+    }
+
+    @Test
+    fun `asin domain endpoints and moderate input remain accurate`() {
+        assertEquals(0, HighPrecisionMathEngine.asin(BigDecimal.ONE).compareTo(BigDecimal(90)))
+        assertEquals(0, HighPrecisionMathEngine.asin(BigDecimal("-1")).compareTo(BigDecimal(-90)))
+        val x = BigDecimal("0.9")
+        val radians = HighPrecisionMathEngine.asin(x, isDegrees = false)
+        assertTrue(HighPrecisionMathEngine.sin(radians, isDegrees = false)
+            .subtract(x).abs() <= BigDecimal("1E-28"))
+    }
+
+    @Test
     fun `high precision engine solves decimal addition without floating point artifacts`() {
         val result = HighPrecisionMathEngine.evaluate("0.1 + 0.2")
         assertEquals("0.3", result.stripTrailingZeros().toPlainString())
