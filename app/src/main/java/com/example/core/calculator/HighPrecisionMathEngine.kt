@@ -27,6 +27,7 @@ object HighPrecisionMathEngine {
         isDegrees: Boolean = true,
         mathContext: MathContext = DEFAULT_MATH_CONTEXT
     ): BigDecimal {
+        require(expression.length <= 8192) { "Expression exceeds supported length (8192 characters)" }
         val sanitized = sanitize(expression)
         if (sanitized.isBlank()) return BigDecimal.ZERO
         val parser = ExpressionParser(sanitized, isDegrees, mathContext)
@@ -423,6 +424,8 @@ object HighPrecisionMathEngine {
     ) {
         private var pos = -1
         private var ch = ' '
+        private var factorNesting = 0
+        private val maxFactorNesting = 128
 
         private fun nextChar() {
             pos++
@@ -484,6 +487,13 @@ object HighPrecisionMathEngine {
 
         // Factor = (+/- Factor) or (Base ^ Factor) or Function / Number / Constant
         private fun parseFactor(): BigDecimal {
+            // Parentheses, unary signs and power chains all recurse through
+            // parseFactor. Reject excessively deep input before JVM stack overflow.
+            if (factorNesting >= maxFactorNesting) {
+                throw IllegalArgumentException("Expression nesting exceeds supported depth (128)")
+            }
+            factorNesting++
+            try {
             if (eat('+')) return parseFactor()
             val negate = eat('-')
             var x: BigDecimal
@@ -556,6 +566,9 @@ object HighPrecisionMathEngine {
             }
 
             return if (negate) x.negate() else x
+            } finally {
+                factorNesting--
+            }
         }
     }
 }
