@@ -332,3 +332,9 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - **Geri dönüş:** Bu geliştirme commit'i revert edilebilir; Room şema sürümü/veri silme değişikliği yok. Yeni pin_attempt_state ayarı eski sürümce yok sayılır.
 
 - **Ek kök neden / P1:** Hesap makinesi dokunmatik ve fiziksel Enter/= akışları dört veya daha fazla rakamı PIN sayıp normal hesaplamayı engelliyordu; artık = her iki girişte de hesaplar. 2011. tetikleyicisi PIN ekranını açmaya devam eder; rastgele sayılar özel alana yönlendirilmez. İlk PR koşusunda 22 yeni test ve mevcut testler geçti; son değişiklik için CI yeniden çalıştırılacak.
+
+### [18-10-2026 19:11] - CI/CD Otomatik Doğrulama (3890a97)
+*   **İşlem:** GitHub Actions test + lint + APK derleme + release hattı çalıştırıldı.
+*   **Sonuç:** BAŞARILI ✅
+*   **Kanıt:** GitHub Actions run, artifact ve release kayıtları.
+*   **Açıklama:** Unit/Robolectric testleri, Debug Lint, Debug APK derlemesi ve GitHub Release adımları CI üzerinde tamamlandı.

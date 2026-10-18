@@ -314,3 +314,8 @@ Uygulamanın şifreleme motoru, veri mimarisi, güvenlik politikaları ve kamufl
 **Fiziksel cihaz kabul testi (bekliyor):** 2011. → PIN kur/onayla → gizli alan → Geri → hesap makinesi; yeniden 2011. → yanlış PIN x5 → zorla durdur/aç → bekleme; 6/12 haneli PIN değiştir/aç; etkin/pasif biyometri; parmak izi istemi sırasında Geri/Home; ekran kapatma; 30 sn/1 dk/5 dk dönüş; küçük ekranda tuş takımı kaydırma; ekran görüntüsü/son uygulamalar koruması.
 
 - **Ek doğrulama:** Fiziksel ve dokunmatik = artık ScientificCalculatorViewModel'in normal hesaplama yoluna bağlıdır. 1234, 12345.67 ve uzun sayıların = ile PIN ekranına gitmemesi fiziksel cihaz kabul kapsamına eklendi. İlk PR CI koşusunda birim testler geçti; final sürüm CI sonucu bekleniyor.
+
+### 🤖 CI/CD Gerçek Doğrulaması (18-10-2026 19:11)
+*   **Commit Hash:** 3890a97
+*   **Durum:** BAŞARILI ✅
+*   **Not:** Dokümantasyon, CI kanıtı olmadan 'başarılı' veya 'production ready' olarak işaretlenmemelidir.
