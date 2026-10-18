@@ -355,6 +355,19 @@ object HighPrecisionMathEngine {
         if (x.compareTo(BigDecimal("-1")) == 0) return if (isDegrees) BigDecimal(-90) else PI.divide(BigDecimal(2), mc).negate()
         if (x.compareTo(BigDecimal.ZERO) == 0) return BigDecimal.ZERO
 
+        // Near +/-1, x.toDouble() rounds distinct BigDecimal inputs to 1.0,
+        // making Newton's derivative cos(y) almost zero. Reduce to a smaller
+        // argument before the Double seed: asin(x) = sign(x) *
+        // (PI/2 - asin(sqrt(1 - x*x))). The recursive argument is < 0.75.
+        if (x.abs() > BigDecimal("0.75")) {
+            val distance = BigDecimal.ONE.subtract(x.abs().multiply(x.abs(), mc), mc)
+                .max(BigDecimal.ZERO)
+            val small = asin(sqrt(distance, mc), isDegrees = false, mc = mc)
+            val radians = PI.divide(BigDecimal(2), mc).subtract(small, mc)
+                .let { if (x.signum() < 0) it.negate() else it }
+            return if (isDegrees) radians.multiply(BigDecimal(180), mc).divide(PI, mc) else radians
+        }
+
         val dblRes = kotlin.math.asin(x.toDouble())
         var rad = BigDecimal(dblRes, mc)
         // Refine with Newton's method: f(y) = sin(y) - x = 0 => y_new = y - (sin(y) - x) / cos(y)
