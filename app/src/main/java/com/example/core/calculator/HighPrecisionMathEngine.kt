@@ -148,11 +148,16 @@ object HighPrecisionMathEngine {
     // High-precision Factorial using BigInteger
     fun factorial(n: BigDecimal): BigDecimal {
         if (n.signum() < 0) throw ArithmeticException("Factorial of negative number")
+        // Enforce the documented 1000! ceiling BEFORE computing a potentially
+        // enormous BigInteger. A value such as 1E+1000000 must fail immediately
+        // rather than allocate millions of digits during conversion.
+        if (n > BigDecimal(1000)) {
+            throw ArithmeticException("Factorial overflow (>1000!)")
+        }
         if (n.remainder(BigDecimal.ONE).compareTo(BigDecimal.ZERO) != 0) {
             throw ArithmeticException("Factorial only supported for integers")
         }
-        val intVal = n.toBigInteger()
-        if (intVal > BigInteger.valueOf(1000)) throw ArithmeticException("Factorial overflow (>1000!)")
+        val intVal = n.intValueExact().toBigInteger()
 
         var result = BigInteger.ONE
         var current = BigInteger.ONE
