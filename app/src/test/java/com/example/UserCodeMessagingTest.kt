@@ -7,6 +7,7 @@ import com.example.core.database.*
 import com.example.core.messaging.*
 import com.example.core.repository.CommunicationRepository
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.*
