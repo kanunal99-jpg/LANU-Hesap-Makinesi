@@ -34,6 +34,8 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
     val errorMessage = _errorMessage.asStateFlow()
     private val _busy = MutableStateFlow(false)
     val busy = _busy.asStateFlow()
+    private val _isSending = MutableStateFlow(false)
+    val isSending = _isSending.asStateFlow()
     enum class NetworkState { ONLINE, OFFLINE, RECONNECTING, UNCONFIGURED }
     private val _networkState = MutableStateFlow(if (repository.relayConfigured) NetworkState.OFFLINE else NetworkState.UNCONFIGURED)
     val networkState = _networkState.asStateFlow()
@@ -73,6 +75,9 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
         if (syncOwners.isEmpty()) { syncJob?.cancel(); syncJob = null }
     }
     private suspend fun synchronize() {
+        if (repository.relayConfigured && _networkState.value != NetworkState.ONLINE) {
+            _networkState.value = NetworkState.RECONNECTING
+        }
         try {
             repository.synchronize(_activeConversation.value?.id)
             _networkState.value = NetworkState.ONLINE
@@ -118,6 +123,7 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
         messagesCollectorJob?.cancel()
         messagesCollectorJob = viewModelScope.launch {
             _activeConversation.value = repository.getConversationById(id)
+            repository.markConversationOpened(id)
             repository.getMessages(id).collectLatest { _activeMessages.value = it }
         }
     }
@@ -133,15 +139,32 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
         selectConversation(id)
         onReady(id)
     }
-    fun sendMessage(text: String, isSelfDestruct: Boolean = false, destructDelaySeconds: Int = 10) {
-        val conversation = _activeConversation.value ?: return
+    fun sendMessage(
+        text: String,
+        isSelfDestruct: Boolean = false,
+        destructDelaySeconds: Int = 10,
+        onQueued: () -> Unit = {}
+    ) {
+        val conversation = _activeConversation.value
+        if (conversation == null) {
+            _errorMessage.value = "Sohbet henüz açılmadı. Mesaj saklanmadı."
+            return
+        }
+        if (_isSending.value) return
+        _isSending.value = true
         operation {
-            val messageId = repository.sendMessage(conversation.id, text)
-            synchronize()
-            // This is explicitly a local display timer, never a remote deletion promise.
-            if (isSelfDestruct) {
-                delay(destructDelaySeconds * 1000L)
-                repository.hideMessageLocally(messageId)
+            try {
+                // Clear the composer only after encrypted content is safely queued in Room.
+                val messageId = repository.sendMessage(conversation.id, text)
+                onQueued()
+                // The timer is *only* a local hide, never remote deletion.
+                if (isSelfDestruct) viewModelScope.launch {
+                    delay(destructDelaySeconds.coerceAtLeast(1) * 1000L)
+                    repository.hideMessageLocally(messageId)
+                }
+                synchronize()
+            } finally {
+                _isSending.value = false
             }
         }
     }
