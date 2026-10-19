@@ -341,8 +341,7 @@ fun CalculatorScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 124.dp, max = 190.dp)
-                    .verticalScroll(rememberScrollState())
+                    .height(if (isLandscape) 145.dp else 188.dp)
                     .padding(horizontal = 24.dp, vertical = 10.dp)
                     .testTag("calculator_display"),
                 verticalArrangement = Arrangement.Center,
@@ -423,49 +422,59 @@ fun CalculatorScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Formula Display
-                Text(
-                    text = expression.ifBlank { "0" },
-                    fontSize = if (expression.length > 15) 23.sp else 30.sp,
-                    fontWeight = FontWeight.Light,
-                    textAlign = TextAlign.End,
-                    maxLines = 3,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                // The expression and graph may scroll, but the final answer stays
+                // pinned outside that scroll container on every screen height.
+                Box(
+                    modifier = Modifier.fillMaxWidth().weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                    contentAlignment = Alignment.BottomEnd
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.End
+                    ) {
+                        Text(
+                            text = expression.ifBlank { "0" },
+                            fontSize = if (expression.length > 15) 23.sp else 30.sp,
+                            fontWeight = FontWeight.Light,
+                            textAlign = TextAlign.End,
+                            maxLines = 3,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (showGraph) {
+                            InteractiveFunctionGrapher(
+                                expression = expression,
+                                isDegrees = isDegrees,
+                                modifier = Modifier.padding(top = 12.dp, bottom = 8.dp)
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(5.dp))
 
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Real-time Result Preview
+                // Result is always in the visible display, never below the keypad.
                 val copySuccessMsg = stringResource(R.string.copied_to_clipboard)
                 Text(
                     text = result,
-                    fontSize = if (result.length > 16) 27.sp else 38.sp,
+                    fontSize = if (result.length > 17) 25.sp else 37.sp,
+                    maxLines = 2,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.primary,
                     textAlign = TextAlign.End,
-                    modifier = Modifier
-                        .fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth()
+                        .testTag("calculator_result")
                         .combinedClickable(
                             onClick = {},
                             onLongClick = {
                                 if (result.isNotBlank() && result != "Error") {
                                     triggerVibration()
                                     clipboardManager.setText(AnnotatedString(result))
-                                    scope.launch {
-                                        snackbarHostState.showSnackbar(copySuccessMsg)
-                                    }
+                                    scope.launch { snackbarHostState.showSnackbar(copySuccessMsg) }
                                 }
                             }
                         )
                 )
-                if (showGraph) {
-                    InteractiveFunctionGrapher(
-                        expression = expression,
-                        isDegrees = isDegrees,
-                        modifier = Modifier.padding(top = 12.dp, bottom = 8.dp)
-                    )
-                }
             }
 
             // Keypad Grid
