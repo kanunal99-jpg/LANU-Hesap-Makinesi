@@ -185,4 +185,44 @@ class UserCodeMessagingTest {
         assertEquals(recovered, repo.restoreIdentity(backup, "a-long-password-123"))
         assertEquals(recovered, repository().ensureIdentity())
     }
+
+    @Test fun `incoming ciphertext must authenticate before storing and sending delivery or read receipts`() = runBlocking {
+        val alice = UserCodes.create()
+        val bob = UserCodes.create()
+        vault.save(alice)
+        val conversationId = UserCodes.conversationId(alice.id, bob.id)
+        val messageId = java.util.UUID.randomUUID().toString()
+        val eventId = java.util.UUID.randomUUID().toString()
+        var ciphertext = "lanu2:" + "A".repeat(40)
+        var acknowledgements = 0
+        val relay = object : MessagingRelay {
+            override val configured = true
+            override suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject): JSONObject = when (action) {
+                "register" -> JSONObject().put("code", alice.code).put("nonce", alice.nonce)
+                "sync" -> JSONObject()
+                    .put("contacts", org.json.JSONArray().put(
+                        JSONObject().put("id", bob.id).put("code", bob.code)
+                            .put("nonce", bob.nonce).put("publicKey", bob.publicKey)
+                            .put("codeAtAdd", bob.code).put("mutual", true)))
+                    .put("events", org.json.JSONArray().put(JSONObject().put("id", eventId)
+                        .put("message", JSONObject().put("id", messageId)
+                            .put("senderId", bob.id).put("recipientId", alice.id)
+                            .put("revision", 1).put("status", "SENT")
+                            .put("createdAt", System.currentTimeMillis())
+                            .put("content", ciphertext))))
+                "ack" -> JSONObject().put("acknowledged", true).also { acknowledgements++ }
+                else -> error("Unexpected relay call: $action")
+            }
+        }
+        val repo = repository(relay = relay)
+        assertTrue(runCatching { repo.synchronize(conversationId) }.exceptionOrNull() is SecurityException)
+        assertNull("Tampered message must never be saved", db.messageDao().getMessage(messageId))
+        assertEquals("An invalid message must never be marked delivered or read", 0, acknowledgements)
+
+        ciphertext = PeerMessageCrypto.encrypt(bob, alice.id, alice.publicKey, messageId, "doğrulanmış mesaj")
+        repo.synchronize(conversationId)
+        assertNotNull("Authentic message must be saved for offline access", db.messageDao().getMessage(messageId))
+        assertTrue("Valid message must be acknowledged", acknowledgements > 0)
+        assertEquals("doğrulanmış mesaj", repo.getMessages(conversationId).first()[0].content)
+    }
 }
