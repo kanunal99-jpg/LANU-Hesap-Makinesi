@@ -90,9 +90,9 @@ fun CommunicationScreen(
         },
         bottomBar = {
             NavigationBar {
-                listOf("Sohbetler", "Kişiler", "Ayarlar", "Aramalar").forEachIndexed { index, label ->
+                listOf("Sohbetler", "Kişiler", "Ayarlar").forEachIndexed { index, label ->
                     NavigationBarItem(selected = tab == index, onClick = { tab = index },
-                        icon = { Icon(when (index) { 0 -> Icons.Default.ChatBubble; 1 -> Icons.Default.Contacts; 2 -> Icons.Default.Settings; else -> Icons.Default.Phone }, label) },
+                        icon = { Icon(when (index) { 0 -> Icons.Default.ChatBubble; 1 -> Icons.Default.Contacts; 2 -> Icons.Default.Settings; else -> Icons.Default.Settings }, label) },
                         label = { Text(label) })
                 }
             }
@@ -120,7 +120,6 @@ fun CommunicationScreen(
                         0 -> ChatsTab(viewModel, vibrate, onNavigateToChat)
                         1 -> ContactsTab(viewModel, vibrate, onNavigateToChat)
                         2 -> SettingsTab(viewModel, securityViewModel, vibrate)
-                        3 -> CallLogsTab(viewModel, vibrate)
                     }
                 }
             }
