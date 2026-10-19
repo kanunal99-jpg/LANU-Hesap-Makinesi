@@ -360,3 +360,9 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - Kimlik için parolalı AES-GCM/PBKDF2 yedek/dönüş eklendi; API 23 PBKDF2 uyumu ve mevcut başka kimliğin geçmişini ezmeme testleri yazıldı. Kod tek başına kurtarma sırrı değildir.
 - Yerel otomatik silme artık tam gönderilen mesaj ID'sine bağlı; son mesajı seçip yanlış mesajı gizleme ihtimali giderildi.
 - Durum: canlı HTTPS smoke ve son Android CI/APK doğrulaması sürüyor; henüz yeni sürüm yayımlandı sayılmaz.
+
+### [19-10-2026 09:47] - CI/CD Otomatik Doğrulama (d83e998)
+*   **İşlem:** GitHub Actions test + lint + APK derleme + release hattı çalıştırıldı.
+*   **Sonuç:** BAŞARILI ✅
+*   **Kanıt:** GitHub Actions run, artifact ve release kayıtları.
+*   **Açıklama:** Unit/Robolectric testleri, Debug Lint, Debug APK derlemesi ve GitHub Release adımları CI üzerinde tamamlandı.
