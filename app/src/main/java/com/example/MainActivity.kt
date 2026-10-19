@@ -378,8 +378,10 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         return screen is Screen.Communication || screen is Screen.ChatDetail
     }
 
-    private fun requiresScreenshotProtection(screen: Screen): Boolean {
-        return screen is Screen.Security || isSecureScreen(screen)
+    companion object {
+        /** Decoy and public utilities may be captured; PIN + private screens never may. */
+        fun requiresScreenshotProtection(screen: Screen): Boolean =
+            screen is Screen.Security || screen is Screen.Communication || screen is Screen.ChatDetail
     }
 
     // Define Screen state models
