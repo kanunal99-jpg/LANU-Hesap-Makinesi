@@ -29,9 +29,6 @@ import com.example.features.calculator.CalculatorScreen
 import com.example.features.calculator.CalculatorViewModel
 import com.example.features.calculator.UnitConverterScreen
 import com.example.features.calculator.FinanceScreen
-import com.example.features.calculator.CollaborationScreen
-import com.example.features.calculator.AuditPanelScreen
-import com.example.features.communication.CallScreen
 import com.example.features.communication.ChatDetailScreen
 import com.example.features.communication.CommunicationScreen
 import com.example.features.communication.CommunicationViewModel
@@ -153,12 +150,13 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
 
             MyApplicationTheme(darkTheme = darkTheme) {
                 val isLocked by securityViewModel.isLocked.collectAsState()
-                val screenProtection by securityViewModel.screenProtectionEnabled.collectAsState()
 
                 val currentScreen = navigationBackstack.lastOrNull() ?: Screen.Calculator
-                // Private content and authentication always retain screenshot protection.
+                // The decoy calculator and public utilities allow screenshots.
+                // PIN and every private area ALWAYS block screenshots, independently
+                // of the user's legacy optional screen-protection preference.
                 SideEffect {
-                    if (screenProtection || isSecureScreen(currentScreen) || currentScreen is Screen.Security) {
+                    if (requiresScreenshotProtection(currentScreen)) {
                         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
                     } else {
                         window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
@@ -203,12 +201,6 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                     onNavigateToFinance = {
                                         navigateTo(Screen.Finance)
                                     },
-                                    onNavigateToCollaboration = {
-                                        navigateTo(Screen.Collaboration)
-                                    },
-                                    onNavigateToAuditPanel = {
-                                        navigateTo(Screen.AuditPanel)
-                                    },
                                     themePreference = themePreference,
                                     buttonColorTheme = buttonColorTheme,
                                     onToggleTheme = {
@@ -231,20 +223,6 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                             }
                             is Screen.Finance -> {
                                 FinanceScreen(
-                                    onNavigateBack = {
-                                        navigateBack()
-                                    }
-                                )
-                            }
-                            is Screen.Collaboration -> {
-                                CollaborationScreen(
-                                    onNavigateBack = {
-                                        navigateBack()
-                                    }
-                                )
-                            }
-                            is Screen.AuditPanel -> {
-                                AuditPanelScreen(
                                     onNavigateBack = {
                                         navigateBack()
                                     }
@@ -284,29 +262,6 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                     onNavigateBack = {
                                         navigateBack()
                                     },
-                                    onNavigateToCall = { partner, isVideo ->
-                                        navigateTo(Screen.Call(partner, isVideo))
-                                    }
-                                )
-                            }
-                            is Screen.Call -> {
-                                CallScreen(
-                                    partnerName = screen.partnerName,
-                                    isVideo = screen.isVideo,
-                                    themePreference = themePreference,
-                                    onToggleTheme = {
-                                        val nextTheme = when (themePreference) {
-                                            "system" -> "light"
-                                            "light" -> "dark"
-                                            else -> "system"
-                                        }
-                                        securityViewModel.setThemePreference(nextTheme)
-                                    },
-                                    onEndCall = { duration ->
-                                        val msg = if (duration > 0) "📞 Arama Bitti • $duration sn" else "📞 Cevapsız Arama"
-                                        commViewModel.insertSystemMessage(screen.partnerName, msg)
-                                        navigateBack()
-                                    }
                                 )
                             }
                         }
@@ -420,7 +375,11 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     }
 
     private fun isSecureScreen(screen: Screen): Boolean {
-        return screen is Screen.Communication || screen is Screen.ChatDetail || screen is Screen.Call
+        return screen is Screen.Communication || screen is Screen.ChatDetail
+    }
+
+    private fun requiresScreenshotProtection(screen: Screen): Boolean {
+        return screen is Screen.Security || isSecureScreen(screen)
     }
 
     // Define Screen state models
@@ -428,12 +387,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         object Calculator : Screen()
         data class UnitConverter(val initialValue: String? = null) : Screen()
         object Finance : Screen()
-        object Collaboration : Screen()
-        object AuditPanel : Screen()
         data class Security(val directUnlockPin: String? = null) : Screen()
         object Communication : Screen()
         data class ChatDetail(val conversationId: String) : Screen()
-        data class Call(val partnerName: String, val isVideo: Boolean) : Screen()
     }
 }
 
