@@ -154,7 +154,12 @@ jobs:
           apk="app/build/outputs/apk/debug/app-debug.apk"
           apksigner="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -n 1)"
           test -x "$apksigner" && test -s "$apk"
-          actual="$("$apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr '[:upper:]' '[:lower:]' | tr -d ' :\r\n')"
+          cert_report="$("$apksigner" verify --print-certs "$apk")"
+          # Print only public certificate information to make build-tool format changes diagnosable.
+          printf '%s\n' "$cert_report" | grep -Ei '(certificate|signer|SHA-256)' | head -n 12 || true
+          actual="$(printf '%s\n' "$cert_report" |
+            sed -nE 's/.*certificate SHA-256 digest:[[:space:]]*([0-9a-fA-F:]+).*/\1/p' |
+            head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
           if ! [[ "$actual" =~ ^[0-9a-f]{64}$ ]]; then
             echo "::error::Unable to verify the APK signing certificate."
             exit 1
