@@ -91,44 +91,15 @@ fun CollaborationScreen(
         )
     }
 
-    // Auto simulated updates to show realtime broadcast integration
-    LaunchedEffect(isJoined) {
-        if (isJoined) {
-            val names = listOf("Merve S.", "Caner Y.", "Jane D.")
-            val formulas = listOf(
-                Pair("5000 * 0.20", "1000 TL"),
-                Pair("cos(60) * 100", "50"),
-                Pair("1500 - 30%", "1050 TL"),
-                Pair("ln(e) + 12", "13"),
-                Pair("area(50m² -> yd²)", "59.8 yd²")
-            )
-            while (true) {
-                delay(6000) // Simulates a broadcast received every 6 seconds
-                val randomUser = names.random()
-                val randomFormula = formulas.random()
-                val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
-                val color = participants.firstOrNull { it.name == randomUser }?.color ?: Color.Gray
-
-                syncFeeds.add(
-                    SyncCalculation(
-                        UUID.randomUUID().toString(),
-                        randomUser,
-                        color,
-                        randomFormula.first,
-                        randomFormula.second,
-                        time
-                    )
-                )
-            }
-        }
-    }
+    // Demo only: do not fabricate new remote participants or incoming activity.
+    // A real collaboration transport must be implemented before "connected" is shown.
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Text(
-                        text = "Ortak Çalışma Alanı",
+                        text = "Ortak Çalışma • DEMO",
                         fontWeight = FontWeight.Bold,
                         fontSize = 20.sp
                     )
@@ -149,7 +120,7 @@ fun CollaborationScreen(
                         onClick = {
                             triggerVibration()
                             clipboardManager.setText(AnnotatedString(roomId))
-                            android.widget.Toast.makeText(context, "Oda linki kopyalandı!", android.widget.Toast.LENGTH_SHORT).show()
+                            android.widget.Toast.makeText(context, "Örnek oda kodu kopyalandı (gerçek bağlantı yok)", android.widget.Toast.LENGTH_SHORT).show()
                         },
                         modifier = Modifier.testTag("collab_share_button")
                     ) {
@@ -181,7 +152,7 @@ fun CollaborationScreen(
                 ) {
                     Column {
                         Text(
-                            text = "Aktif Senkronizasyon Odası",
+                            text = "Örnek Oda (Gerçek Bağlantı Yok)",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                         )
@@ -202,7 +173,7 @@ fun CollaborationScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Bağlı",
+                            text = "DEMO",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium,
                             color = Color(0xFF10B981)
@@ -370,7 +341,7 @@ fun CollaborationScreen(
                                     "Ahmet K. (Siz)",
                                     Color(0xFF3B82F6),
                                     expressionInput,
-                                    "Yayınlandı",
+                                    "Yalnız cihazda (DEMO)",
                                     time
                                 )
                             )

@@ -250,7 +250,7 @@ fun CalculatorScreen(
                         },
                         modifier = Modifier.testTag("collaboration_button")
                     ) {
-                        Icon(Icons.Default.Groups, contentDescription = "Ortak Çalışma", tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Default.Groups, contentDescription = "Ortak Çalışma (Demo)", tint = MaterialTheme.colorScheme.primary)
                     }
                     IconButton(
                         onClick = {

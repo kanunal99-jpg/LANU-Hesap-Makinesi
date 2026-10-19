@@ -62,6 +62,7 @@ fun ChatDetailScreen(
     val userPhone by viewModel.userId.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
     val isPartnerTyping by viewModel.isPartnerTyping.collectAsState()
+    val isSending by viewModel.isSending.collectAsState()
 
     var textInput by remember { mutableStateOf("") }
     var isSelfDestructEnabled by remember { mutableStateOf(false) }
@@ -170,13 +171,14 @@ fun ChatDetailScreen(
                     ) {
                         Icon(
                             imageVector = if (isSelfDestructEnabled) Icons.Default.Timer else Icons.Default.TimerOff,
-                            contentDescription = "Self Destruct Timer",
+                            contentDescription = "Yalnız bu telefondaki mesajı 10 saniye sonra gizle",
                             tint = if (isSelfDestructEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                         )
                     }
                     IconButton(
                         onClick = {
                             triggerVibration()
+                            Toast.makeText(context, "Gerçek arama yok. Yalnızca arayüz demosu açılıyor.", Toast.LENGTH_LONG).show()
                             onNavigateToCall(activeConversation?.partnerName ?: "Node", false)
                         },
                         modifier = Modifier.testTag("voice_call_btn")
@@ -186,6 +188,7 @@ fun ChatDetailScreen(
                     IconButton(
                         onClick = {
                             triggerVibration()
+                            Toast.makeText(context, "Gerçek görüntülü arama yok. Yalnızca demo açılıyor.", Toast.LENGTH_LONG).show()
                             onNavigateToCall(activeConversation?.partnerName ?: "Node", true)
                         },
                         modifier = Modifier.testTag("video_call_btn")
@@ -242,7 +245,7 @@ fun ChatDetailScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Yok Olan Mesaj Modu Aktif: Gönderilen mesajlar 10 sn sonra silinir.",
+                            text = "Yalnız gönderimi onaylanan mesaj 10 sn sonra bu cihazda gizlenir. Sunucudan veya karşı taraftan silinmez.",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.primary
@@ -374,14 +377,15 @@ fun ChatDetailScreen(
 
                     IconButton(
                         onClick = {
-                            if (textInput.isNotBlank()) {
+                            if (textInput.isNotBlank() && !isSending) {
                                 triggerVibration()
+                                val queuedText = textInput
                                 viewModel.sendMessage(
-                                    text = textInput,
+                                    text = queuedText,
                                     isSelfDestruct = isSelfDestructEnabled,
-                                    destructDelaySeconds = 10
+                                    destructDelaySeconds = 10,
+                                    onQueued = { if (textInput == queuedText) textInput = "" }
                                 )
-                                textInput = ""
                             }
                         },
                         modifier = Modifier

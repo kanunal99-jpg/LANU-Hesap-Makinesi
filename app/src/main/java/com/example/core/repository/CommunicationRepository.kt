@@ -120,6 +120,8 @@ class CommunicationRepository(
     }
     suspend fun lookupContactByPhone(code: String) = contactDao.getContactByPhone(UserCodes.normalize(code))
     suspend fun getConversationById(id: String) = conversationDao.getConversationById(id)
+    /** UI-only unread reset; server READ receipts still require active conversation sync. */
+    suspend fun markConversationOpened(id: String) = conversationDao.clearUnreadCount(id)
     fun normalizePhoneNumber(code: String) = UserCodes.normalize(code)
     private suspend fun savedPeer(code: String): JSONObject? = settingsDao.getSettingValue("lanu_peer_code_$code")?.let(::JSONObject)
     private suspend fun peerForConversation(id: String): JSONObject? = settingsDao.getSettingValue("lanu_peer_conv_$id")?.let(::JSONObject)
@@ -233,9 +235,14 @@ class CommunicationRepository(
                         val contact = contactDao.getContactByPhone(peer.getString("code"))
                         conversationDao.insertConversation(ConversationEntity(convId, peer.getString("code"), contact?.name ?: peer.getString("code")))
                     }
+                    // A replayed or revised event must not inflate the unread badge.
+                    val firstLocalReceipt = messageDao.getMessage(id) == null
                     messageDao.insertMessage(MessageEntity(id, convId, senderId, if (senderId == own.id) "Ben" else peer.getString("code"), message.getString("content"),
                         timestamp = message.getLong("createdAt"), status = message.getString("status"), reaction = message.optString("reaction").ifBlank { null }))
                     conversationDao.getConversationById(convId)?.let { conversationDao.insertConversation(it.copy(lastMessageText = "Şifreli mesaj", lastMessageTime = maxOf(it.lastMessageTime, message.getLong("createdAt")))) }
+                    if (senderId != own.id && activeConversationId != convId && firstLocalReceipt) {
+                        conversationDao.incrementUnreadCount(convId)
+                    }
                 }
                 settingsDao.insertSetting(SettingsEntity("lanu_message_revision_$id", revision.toString()))
             }
@@ -255,13 +262,19 @@ class CommunicationRepository(
         relay.request(registerRemote(), "react", JSONObject().put("messageId", messageId).put("reaction", emoji))
     }
     suspend fun hideMessageLocally(messageId: String) {
+        val message = messageDao.getMessage(messageId) ?: return
+        // Hiding an unsent queued message would silently cancel delivery.
+        // The local timer may hide only after the relay has accepted it.
+        if (message.status in setOf("PENDING", "WAITING", "SENDING")) return
         settingsDao.insertSetting(SettingsEntity("lanu_hidden_$messageId", "true"))
         messageDao.deleteMessage(messageId)
     }
     suspend fun deleteMessage(messageId: String) {
         val own = ensureIdentity()
         val message = messageDao.getMessage(messageId) ?: return
-        if (message.senderPhone == own.id && message.content.startsWith("lanu2:")) relay.request(registerRemote(), "delete", JSONObject().put("messageId", messageId))
+        if (message.senderPhone == own.id && message.content.startsWith("lanu2:") &&
+            message.status !in setOf("PENDING", "WAITING", "SENDING")
+        ) relay.request(registerRemote(), "delete", JSONObject().put("messageId", messageId))
         else settingsDao.insertSetting(SettingsEntity("lanu_hidden_$messageId", "true"))
         messageDao.deleteMessage(messageId)
     }
