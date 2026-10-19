@@ -759,7 +759,7 @@ fun ConstitutionDashboardDialog(
                             val principles = listOf(
                                 Pair("1. Gizlilik Birinci Sınıftır (Privacy First) 🛡️", "Uygulama arka plandayken veya son uygulamalar ekranındayken ekran görüntüsü ve hassas veri sızıntılarını tamamen engeller (FLAG_SECURE)."),
                                 Pair("2. Kusursuz Kamuflaj (Flawless Camouflage) 🧮", "Hesap makinesi ve birim dönüştürücü arayüzleri, normal bir yardımcı uygulama gibi kayıpsız ve tam fonksiyonel çalışır."),
-                                Pair("3. Yerel Öncelikli Güvenlik (Local-First Secure) 🗄️", "Tüm veriler yerel şifreli Room veritabanında saklanır. Şifreli bulut eşitleme tamamen isteğe bağlıdır ve uçtan uca korumalıdır."),
+                                Pair("3. Yerel Öncelikli Güvenlik (Local-First Secure) 🗄️", "Mesaj gövdeleri cihazda şifrelenir; Room veritabanının tamamı ayrıca şifrelenmiş değildir. Mesaj senkronizasyonu açık gizli alanda yapılır."),
                                 Pair("4. Hatasız Derleme ve Lint (Zero-Error Code) ⚙️", "Her yeni kod güncellemesi, hatasız derlenmeli ve Android Lint statik kod analizi standartlarını 100% karşılamalıdır."),
                                 Pair("5. Her Yenilik APK Olarak Çıkarılacak (APK Release) 📦", "Eklenen her yeni özellik veya hata gideriminden sonra uygulamanın kararlı bir sürüm APK çıktısı otomatik veya manuel olarak derlenmelidir."),
                                 Pair("6. Hatalardan Ders Çıkarma (Failed Attempts Log) 🚫", "Süreç boyunca karşılaşılan derleme ve çalışma zamanı hataları, bir daha tekrarlanmaması için işlem günlüğünde kalıcı olarak saklanır.")
@@ -788,11 +788,11 @@ fun ConstitutionDashboardDialog(
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 val scorecard = listOf(
-                                    Triple("Kriptografi Motoru (AES-256-GCM)", "10 / 10", "Geçti ✅"),
-                                    Triple("Biyometrik Kimlik Doğrulama", "10 / 10", "Geçti ✅"),
-                                    Triple("Anti-Forensics & Sızıntı Engelleme", "10 / 10", "Geçti ✅"),
-                                    Triple("Kamuflaj Kusursuzluğu (Decoy UI)", "10 / 10", "Geçti ✅"),
-                                    Triple("Temiz MVVM & Clean Architecture", "10 / 10", "Geçti ✅")
+                                    Triple("Kriptografi Motoru (AES-256-GCM)", "Test gerek", "Bağımsız denetim yok"),
+                                    Triple("Biyometrik Kimlik Doğrulama", "Test gerek", "Gerçek cihaz testi yok"),
+                                    Triple("Ekran Koruması", "Test gerek", "Cihaz doğrulaması yok"),
+                                    Triple("Hesap Makinesi Kamuflajı", "Test gerek", "Manuel kontrol gerekiyor"),
+                                    Triple("Uygulama Mimarisi", "İnceleme gerek", "Puan ölçülmedi")
                                 )
                                 item {
                                     Text("Anayasal Değerlendirme Karnesi", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 4.dp))
@@ -846,10 +846,10 @@ fun ConstitutionDashboardDialog(
                                                 coroutineScope.launch {
                                                     delay(2000L)
                                                     isSimulatingTest = false
-                                                    testResultText = "Bütünlük Doğrulaması BAŞARILI! ✅ (24/24 Test Geçti)"
+                                                    testResultText = "Bu bir arayüz demosudur. Gerçek otomatik test çalıştırılmadı."
                                                     securityViewModel.logEvent(
                                                         "CONSTITUTION_AUDIT",
-                                                        "Manuel anayasal bütünlük testi uygulama içi denetim panelinden çalıştırıldı ve 100% başarı ile tescillendi."
+                                                        "Arayüz demo animasyonu görüntülendi; otomatik test yapılmadı."
                                                     )
                                                 }
                                             },
@@ -857,7 +857,7 @@ fun ConstitutionDashboardDialog(
                                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
                                             contentPadding = PaddingValues(vertical = 4.dp)
                                         ) {
-                                            Text("Simüle Test", fontSize = 11.sp)
+                                            Text("Demo Göster", fontSize = 11.sp)
                                         }
 
                                         Button(
@@ -868,18 +868,22 @@ fun ConstitutionDashboardDialog(
                                                 coroutineScope.launch {
                                                     delay(1000L)
                                                     val startTime = System.currentTimeMillis()
-                                                    val dummyPlaintext = "LanuVault_Live_Diagnostic_Test_Payload"
-                                                    val encrypted = com.example.core.crypto.CryptoUtils.encrypt(dummyPlaintext, "LANU_TEST_SECRET")
-                                                    val decrypted = com.example.core.crypto.CryptoUtils.decrypt(encrypted, "LANU_TEST_SECRET")
-                                                    val endTime = System.currentTimeMillis()
-                                                    val duration = endTime - startTime
-                                                    
-                                                    delay(1000L)
+                                                    val cryptoSuccess = runCatching {
+                                                        val plain = "LanuVault_Live_Diagnostic_Test_Payload"
+                                                        val encrypted = com.example.core.crypto.CryptoUtils.encrypt(plain, "LANU_TEST_SECRET")
+                                                        encrypted != plain && com.example.core.crypto.CryptoUtils.decrypt(encrypted, "LANU_TEST_SECRET") == plain
+                                                    }.getOrDefault(false)
+                                                    val duration = System.currentTimeMillis() - startTime
+
                                                     isSimulatingTest = false
-                                                    testResultText = "Tüm Testler Geçti! ✅\nŞifreleme Hızı: ${duration}ms | DB Bütünlüğü: OK"
+                                                    testResultText = if (cryptoSuccess) {
+                                                        "Yerel şifreleme/çözme öz testi başarılı (${duration}ms). Veritabanı ve cihaz güvenliği test edilmedi."
+                                                    } else {
+                                                        "Yerel şifreleme/çözme öz testi başarısız. Veritabanı ve cihaz güvenliği test edilmedi."
+                                                    }
                                                     securityViewModel.logEvent(
-                                                        "MANUAL_SYSTEM_DIAGNOSTIC",
-                                                        "Canlı tanısal test paketi çalıştırıldı. Şifreleme/Çözme süresi: ${duration}ms, Veritabanı bütünlüğü doğrulandı."
+                                                        "LOCAL_CRYPTO_SELF_TEST",
+                                                        "Yerel şifreleme öz testi: ${if (cryptoSuccess) "BAŞARILI" else "BAŞARISIZ"}; DB ve cihaz testi yapılmadı."
                                                     )
                                                 }
                                             },
@@ -887,7 +891,7 @@ fun ConstitutionDashboardDialog(
                                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                             contentPadding = PaddingValues(vertical = 4.dp)
                                         ) {
-                                            Text("Tüm Testleri Koş", fontSize = 11.sp)
+                                            Text("Şifreleme Öz Testi", fontSize = 11.sp)
                                         }
                                     }
                                 }
