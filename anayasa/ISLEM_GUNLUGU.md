@@ -338,3 +338,13 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 *   **Sonuç:** BAŞARILI ✅
 *   **Kanıt:** GitHub Actions run, artifact ve release kayıtları.
 *   **Açıklama:** Unit/Robolectric testleri, Debug Lint, Debug APK derlemesi ve GitHub Release adımları CI üzerinde tamamlandı.
+
+### [19-10-2026] — Telefon/SMS yerine kalıcı LANU kodu (GELİŞTİRME)
+
+- Kök neden: kayıt ekranı gerçek SMS çağrısı yerine sabit 1989/2026 demo kontrolü yapıyor; mesaj teslim durumları zamanlayıcıyla değişiyordu.
+- Telefon/OTP ekranı ve READ_CONTACTS izni kaldırıldı. Kullanıcı kodu, kopyala/paylaş, kodla kişi kaydetme ve açık onaylı kod değiştirme ekranları eklendi.
+- Kalıcı özel kimlik Android Keystore korumalı depoda tutulur; anahtar okunamazsa yeni kimlik veya düz metin fallback üretilmez. Paylaşılabilir kod özel anahtar/şifre değildir.
+- ECDH/AES-GCM ve imzalı HTTPS istekleri, ortak sabit kimlikten türetilen sohbet anahtarı ve sunucudan onaylanan teslim olayları için altyapı eklendi. Kamuya açık kod değişimi hesap anahtarlarını değiştirmez.
+- Otomatik örnek kişiler, demo yanıtları, sahte yazıyor/iletildi/okundu zamanlayıcıları kaldırıldı. Sunucu yapılandırılmadan bağlantı aktif gösterilmez.
+- Eski Room alan adları şema/veri korunarak tutulur; profilin eski telefon kimliği yeni sabit kimliğe geçirilir. Mevcut mesaj/geçmiş silinmez.
+- Durum: Android ve sunucu entegrasyonu geliştiriliyor. Yeni kod henüz CI/gerçek cihaz/canlı sunucu ile doğrulanmış değildir; tamamlandı veya yayımlandı sayılmaz.

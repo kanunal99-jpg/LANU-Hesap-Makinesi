@@ -1,6 +1,9 @@
 package com.example.core.di
 
 import android.content.Context
+import com.example.BuildConfig
+import com.example.core.messaging.EncryptedMessagingIdentityStore
+import com.example.core.messaging.HttpMessagingRelay
 import com.example.core.database.AppDatabase
 import com.example.core.repository.CalculatorRepository
 import com.example.core.repository.CommunicationRepository
@@ -31,7 +34,9 @@ class AppContainer(context: Context) {
             database.messageDao(),
             database.settingsDao(),
             database.userProfileDao(),
-            database.callLogDao()
+            database.callLogDao(),
+            EncryptedMessagingIdentityStore(context),
+            HttpMessagingRelay(BuildConfig.LANU_RELAY_URL)
         )
     }
 }

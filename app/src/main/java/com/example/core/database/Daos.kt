@@ -37,6 +37,12 @@ interface UserProfileDao {
 
     @Query("DELETE FROM user_profiles")
     suspend fun deleteProfile()
+
+    @Transaction
+    suspend fun replaceProfile(profile: UserProfileEntity) {
+        deleteProfile()
+        insertProfile(profile)
+    }
 }
 
 @Dao
@@ -83,6 +89,15 @@ interface ConversationDao {
 
 @Dao
 interface MessageDao {
+    @Query("SELECT * FROM messages WHERE status IN ('PENDING', 'WAITING') ORDER BY timestamp ASC")
+    suspend fun getPendingMessages(): List<MessageEntity>
+
+    @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
+    suspend fun getMessage(id: String): MessageEntity?
+
+    @Query("UPDATE messages SET senderPhone = :newId WHERE senderPhone = :oldId")
+    suspend fun migrateSender(oldId: String, newId: String)
+
     @Query("SELECT * FROM messages WHERE conversationId = :convId ORDER BY timestamp ASC")
     fun getMessagesForConversation(convId: String): Flow<List<MessageEntity>>
 

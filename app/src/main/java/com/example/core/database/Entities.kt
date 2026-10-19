@@ -13,7 +13,7 @@ data class CalculationHistoryEntity(
 
 @Entity(tableName = "user_profiles")
 data class UserProfileEntity(
-    @PrimaryKey val phoneNumber: String, // Normalized E.164
+    @PrimaryKey val phoneNumber: String, // LANU public code; legacy column name retained.
     val displayName: String,
     val avatarUrl: String? = null,
     val registeredAt: Long = System.currentTimeMillis()
@@ -27,11 +27,11 @@ data class SettingsEntity(
 
 @Entity(tableName = "contacts")
 data class ContactEntity(
-    @PrimaryKey val phoneNumber: String, // Normalized E.164 (primary lookup identity)
+    @PrimaryKey val phoneNumber: String, // LANU public contact code; legacy column name retained to preserve stored data.
     val name: String,
     val isBlocked: Boolean = false,
     val avatarUrl: String? = null,
-    val statusText: String? = "Hi, I am using LANU Calculator"
+    val statusText: String? = "Karşılıklı kayıt bekleniyor"
 )
 
 @Entity(tableName = "conversations")

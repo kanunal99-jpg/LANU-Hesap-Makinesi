@@ -319,3 +319,9 @@ Uygulamanın şifreleme motoru, veri mimarisi, güvenlik politikaları ve kamufl
 *   **Commit Hash:** 3890a97
 *   **Durum:** BAŞARILI ✅
 *   **Not:** Dokümantasyon, CI kanıtı olmadan 'başarılı' veya 'production ready' olarak işaretlenmemelidir.
+
+### [19-10-2026] — Kullanıcı koduyla mesajlaşma / test planı
+
+- UserCodeMessagingTest: kalıcı kimlik, açık onaylı kod yenileme, kod/anahtar bağı, kendi kodu/telefon reddi, eski profil/geçmişin korunması, iki bağımsız anahtar arasında şifreleme, yanlış alıcı/tahrif reddi ve istek imzası testleri eklendi.
+- Test sonuçları henüz bekleniyor. Sunucu: karşılıklı kişi kaydı, yetki/tekrar oynatma kontrolü, idempotent gönderim, gerçek teslim/okunma olayları ve eski kodun iptali ayrıca doğrulanacak.
+- Fiziksel cihazda Keystore, yeniden açılış, kodun korunması ve iki cihazlı uçtan uca smoke gereklidir.
