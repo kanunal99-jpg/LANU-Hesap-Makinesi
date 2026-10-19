@@ -5,7 +5,7 @@ Bu belge `AppInformationDialog.kt` içindeki uygulama içi bilgilendirmelerin te
 ## Bu sürümde gerçekten uygulananlar
 - Android `android:allowBackup=false`; Android 11 ve önceki otomatik yedekleme XML'inde uygulama kökü hariç.
 - Android 12+ cloud-backup ve device-transfer XML'lerinde uygulama kökü hariç. OEM davranışları fiziksel cihazda ayrıca kontrol edilmeli.
-- Kamera ve RECORD_AUDIO için kütüphane manifestlerinden de gelebilecek izni kaldırma kuralı. Sesle matematik girişi harici Android RecognizerIntent uygulamasına devredilir; LANU kendi mikrofon kaydını yapmaz.
+- Kamera ve RECORD_AUDIO izinleri manifestten çıkarıldı; bağımlılıklar Android manifest birleştirmesinde bu izinleri tekrar getiriyor mu, Robolectric ile kontrol edilir. Sesle matematik girişi harici Android RecognizerIntent uygulamasına devredilir; LANU kendi mikrofon kaydını yapmaz.
 - Gizli alan Ayarlar menüsünden açılan Türkçe Veri Kullanımı, Kullanım Koşulları ve SSS bilgi ekranları. SSS yalnız metin mesajlaşmasının desteklendiğini; arama/ortak çalışma demolarını ve bildirim olmadığını belirtir.
 - Fiziksel cihazda farklı yazı boyutları, TalkBack, kontrast ve klavye gezinmesi doğrulanmadı. Önemli anahtarlar için açıklayıcı erişilebilirlik açıklamaları eklendi.
 - Bu değişikliklerde kullanıcı davranışı izleyen analitik SDK'sı veya yeni ağ uç noktası eklenmedi.
