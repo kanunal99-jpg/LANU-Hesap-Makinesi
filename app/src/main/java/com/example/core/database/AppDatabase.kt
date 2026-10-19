@@ -38,7 +38,9 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "lanu_calculator_db"
                 )
-                .fallbackToDestructiveMigration()
+                // Fail closed on unknown schema versions: silently deleting chat history
+                // and identity-related settings is unacceptable for a secure messenger.
+                // Add explicit Room migrations for future schema upgrades.
                 .build()
                 INSTANCE = instance
                 instance
