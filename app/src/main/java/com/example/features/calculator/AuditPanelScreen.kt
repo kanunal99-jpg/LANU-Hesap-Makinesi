@@ -186,7 +186,7 @@ fun AuditPanelScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Tarihsel Test Koşuları (${filteredRuns.size})",
+                    text = "APK içindeki tarihsel test kayıtları (${filteredRuns.size})",
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f)
