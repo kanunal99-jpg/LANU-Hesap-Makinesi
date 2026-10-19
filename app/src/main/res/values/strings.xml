@@ -1,6 +1,7 @@
 <resources>
     <!-- App Name -->
-    <string name="app_name">LANU Hesap Makinesi</string>
+    <string name="app_name">LANU</string>
+    <string name="app_full_name">LANU Hesap Makinesi</string>
 
     <!-- General -->
     <string name="cancel">İptal</string>

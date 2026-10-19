@@ -53,15 +53,13 @@ import java.util.Locale
 fun ChatDetailScreen(
     viewModel: CommunicationViewModel,
     conversationId: String,
-    onNavigateBack: () -> Unit,
-    onNavigateToCall: (String, Boolean) -> Unit // (partnerName, isVideo)
+    onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
     val activeConversation by viewModel.activeConversation.collectAsState()
     val messages by viewModel.activeMessages.collectAsState()
     val userPhone by viewModel.userId.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
-    val isPartnerTyping by viewModel.isPartnerTyping.collectAsState()
     val isSending by viewModel.isSending.collectAsState()
 
     var textInput by remember { mutableStateOf("") }
@@ -78,17 +76,6 @@ fun ChatDetailScreen(
         }
     }
 
-    // Photo picker launcher (M3 Zero-permission Android Photo Picker)
-    val photoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia(),
-        onResult = { uri ->
-            if (uri != null) {
-                triggerVibration()
-                viewModel.sendMediaMessage("📷 Fotoğraf", uri.toString())
-            }
-        }
-    )
-
     androidx.lifecycle.compose.LifecycleResumeEffect(conversationId) {
         viewModel.selectConversation(conversationId)
         viewModel.startSync("chat:$conversationId")
@@ -103,7 +90,7 @@ fun ChatDetailScreen(
 
 
     // Auto scroll to bottom when new messages arrive
-    LaunchedEffect(messages.size, isPartnerTyping) {
+    LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size - 1)
         }
@@ -174,26 +161,6 @@ fun ChatDetailScreen(
                             contentDescription = "Yalnız bu telefondaki mesajı 10 saniye sonra gizle",
                             tint = if (isSelfDestructEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                         )
-                    }
-                    IconButton(
-                        onClick = {
-                            triggerVibration()
-                            Toast.makeText(context, "Gerçek arama yok. Yalnızca arayüz demosu açılıyor.", Toast.LENGTH_LONG).show()
-                            onNavigateToCall(activeConversation?.partnerName ?: "Node", false)
-                        },
-                        modifier = Modifier.testTag("voice_call_btn")
-                    ) {
-                        Icon(Icons.Default.Call, contentDescription = stringResource(R.string.voice_call), tint = MaterialTheme.colorScheme.primary)
-                    }
-                    IconButton(
-                        onClick = {
-                            triggerVibration()
-                            Toast.makeText(context, "Gerçek görüntülü arama yok. Yalnızca demo açılıyor.", Toast.LENGTH_LONG).show()
-                            onNavigateToCall(activeConversation?.partnerName ?: "Node", true)
-                        },
-                        modifier = Modifier.testTag("video_call_btn")
-                    ) {
-                        Icon(Icons.Default.Videocam, contentDescription = stringResource(R.string.video_call), tint = MaterialTheme.colorScheme.primary)
                     }
                     var showMenu by remember { mutableStateOf(false) }
                     IconButton(onClick = { showMenu = true }) {
@@ -293,39 +260,6 @@ fun ChatDetailScreen(
                     )
                 }
 
-                // Typing indicator bubble
-                if (isPartnerTyping) {
-                    item {
-                        Row(
-                            modifier = Modifier.padding(start = 4.dp, top = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                modifier = Modifier.padding(vertical = 2.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(12.dp),
-                                        strokeWidth = 1.5.dp,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "${activeConversation?.partnerName ?: "Karşı taraf"} yazıyor...",
-                                        fontSize = 12.sp,
-                                        fontStyle = FontStyle.Italic,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
             }
 
             // Input Control Panel
@@ -339,24 +273,6 @@ fun ChatDetailScreen(
                         .padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(
-                        onClick = {
-                            triggerVibration()
-                            photoPickerLauncher.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                            )
-                        },
-                        modifier = Modifier
-                            .size(48.dp)
-                            .padding(end = 8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AttachFile,
-                            contentDescription = stringResource(R.string.add_attachment),
-                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
-                    }
-
                     OutlinedTextField(
                         value = textInput,
                         onValueChange = { textInput = it },

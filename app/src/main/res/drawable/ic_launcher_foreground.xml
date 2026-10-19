@@ -1,30 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Original LANU premium calculator glyph: emerald glass, champagne numerals.
+     108dp adaptive safe area; not the Android robot/sample icon. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path android:pathData="M31,63.928c0,0 6.4,-11 12.1,-13.1c7.2,-2.6 26,-1.4 26,-1.4l38.1,38.1L107,108.928l-32,-1L31,63.928z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:endX="85.84757"
-                android:endY="92.4963"
-                android:startX="42.9492"
-                android:startY="49.59793"
-                android:type="linear">
-                <item
-                    android:color="#44000000"
-                    android:offset="0.0" />
-                <item
-                    android:color="#00000000"
-                    android:offset="1.0" />
-            </gradient>
-        </aapt:attr>
-    </path>
-    <path
-        android:fillColor="#FFFFFF"
-        android:fillType="nonZero"
-        android:pathData="M65.3,45.828l3.8,-6.6c0.2,-0.4 0.1,-0.9 -0.3,-1.1c-0.4,-0.2 -0.9,-0.1 -1.1,0.3l-3.9,6.7c-6.3,-2.8 -13.4,-2.8 -19.7,0l-3.9,-6.7c-0.2,-0.4 -0.7,-0.5 -1.1,-0.3C38.8,38.328 38.7,38.828 38.9,39.228l3.8,6.6C36.2,49.428 31.7,56.028 31,63.928h46C76.3,56.028 71.8,49.428 65.3,45.828zM43.4,57.328c-0.8,0 -1.5,-0.5 -1.8,-1.2c-0.3,-0.7 -0.1,-1.5 0.4,-2.1c0.5,-0.5 1.4,-0.7 2.1,-0.4c0.7,0.3 1.2,1 1.2,1.8C45.3,56.528 44.5,57.328 43.4,57.328L43.4,57.328zM64.6,57.328c-0.8,0 -1.5,-0.5 -1.8,-1.2s-0.1,-1.5 0.4,-2.1c0.5,-0.5 1.4,-0.7 2.1,-0.4c0.7,0.3 1.2,1 1.2,1.8C66.5,56.528 65.6,57.328 64.6,57.328L64.6,57.328z"
-        android:strokeWidth="1"
-        android:strokeColor="#00000000" />
+    <!-- Soft halo -->
+    <path android:fillColor="#2249B4A0"
+        android:pathData="M54,22 A32,32 0,1 1,54,86 A32,32 0,1 1,54,22" />
+    <!-- Calculator housing -->
+    <path android:fillColor="#062F36"
+        android:pathData="M34,24 C34,20 37,17 41,17 L67,17 C71,17 74,20 74,24 L74,83 C74,87 71,90 67,90 L41,90 C37,90 34,87 34,83 Z" />
+    <!-- Metallic border -->
+    <path android:fillColor="#E3C98E"
+        android:pathData="M41,17 L67,17 C71,17 74,20 74,24 L74,27 L71,27 L71,24 C71,22 69,20 67,20 L41,20 C39,20 37,22 37,24 L37,82 C37,85 39,87 41,87 L67,87 C69,87 71,85 71,82 L71,27 L74,27 L74,83 C74,87 71,90 67,90 L41,90 C37,90 34,87 34,83 L34,24 C34,20 37,17 41,17 Z" />
+    <!-- Calculator readout -->
+    <path android:fillColor="#13786F"
+        android:pathData="M40,29 L68,29 L68,45 L40,45 Z"/>
+    <!-- Large geometric L signature -->
+    <path android:fillColor="#FCF6DB"
+        android:pathData="M45,33 L49,33 L49,40 L61,40 L61,43 L45,43 Z"/>
+    <!-- Tiny readout glint -->
+    <path android:fillColor="#82D8BE"
+        android:pathData="M62,32 L66,32 L66,34 L62,34 Z"/>
+    <!-- Raised chic calculator keys -->
+    <path android:fillColor="#E9F3EB"
+        android:pathData="M40,51 L47,51 L47,58 L40,58 Z M51,51 L58,51 L58,58 L51,58 Z M62,51 L69,51 L69,58 L62,58 Z
+                          M40,62 L47,62 L47,69 L40,69 Z M51,62 L58,62 L58,69 L51,69 Z M40,73 L47,73 L47,80 L40,80 Z M51,73 L58,73 L58,80 L51,80 Z" />
+    <!-- Gold equals key spanning two rows -->
+    <path android:fillColor="#D7AE64"
+        android:pathData="M62,62 L69,62 L69,80 L62,80 Z"/>
+    <path android:fillColor="#06353A"
+        android:pathData="M64,69 L67,69 L67,70 L64,70 Z M64,73 L67,73 L67,74 L64,74 Z"/>
 </vector>
