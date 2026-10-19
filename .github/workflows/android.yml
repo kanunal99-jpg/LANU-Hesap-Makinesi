@@ -67,8 +67,56 @@ jobs:
       - name: Run Android Lint
         run: ./gradlew :app:lintDebug --no-daemon --stacktrace
 
-      - name: Ensure CI Debug Keystore
+      # Never expose long-lived signing credentials to pull_request builds.
+      # The complete keyset must exist as protected repository/environment secrets.
+      - name: Restore stable signing key (trusted pushes only)
+        if: github.event_name == 'push'
+        id: signing
+        env:
+          LANU_SIGNING_KEYSTORE_BASE64: ${{ secrets.LANU_SIGNING_KEYSTORE_BASE64 }}
+          LANU_SIGNING_STORE_PASSWORD: ${{ secrets.LANU_SIGNING_STORE_PASSWORD }}
+          LANU_SIGNING_KEY_PASSWORD: ${{ secrets.LANU_SIGNING_KEY_PASSWORD }}
+          LANU_SIGNING_KEY_ALIAS: ${{ secrets.LANU_SIGNING_KEY_ALIAS }}
+          LANU_SIGNING_CERT_SHA256: ${{ secrets.LANU_SIGNING_CERT_SHA256 }}
+        shell: bash
         run: |
+          set -euo pipefail
+          count=0
+          for value in "$LANU_SIGNING_KEYSTORE_BASE64" "$LANU_SIGNING_STORE_PASSWORD" "$LANU_SIGNING_KEY_PASSWORD" "$LANU_SIGNING_KEY_ALIAS" "$LANU_SIGNING_CERT_SHA256"; do
+            if [ -n "$value" ]; then count=$((count+1)); fi
+          done
+          if [ "$count" -eq 0 ]; then
+            echo "mode=ephemeral" >> "$GITHUB_OUTPUT"
+            echo "::warning::No protected signing key installed. This debug APK CANNOT be claimed as a safe update."
+          elif [ "$count" -ne 5 ]; then
+            echo "::error::Incomplete LANU signing secrets. All five must be configured together."
+            exit 1
+          else
+            expected="$(printf '%s' "$LANU_SIGNING_CERT_SHA256" | tr -d ' :\r\n' | tr '[:upper:]' '[:lower:]')"
+            if ! [[ "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "::error::Expected signing certificate fingerprint must contain 64 hex characters."
+              exit 1
+            fi
+            safe_keystore="$RUNNER_TEMP/lanu-stable-signing.jks"
+            umask 077
+            printf '%s' "$LANU_SIGNING_KEYSTORE_BASE64" | base64 --decode > "$safe_keystore"
+            if [ ! -s "$safe_keystore" ]; then
+              echo "::error::Stable keystore is empty or unavailable."
+              exit 1
+            fi
+            echo "LANU_SIGNING_KEYSTORE_PATH=$safe_keystore" >> "$GITHUB_ENV"
+            echo "LANU_SIGNING_STORE_PASSWORD=$LANU_SIGNING_STORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "LANU_SIGNING_KEY_PASSWORD=$LANU_SIGNING_KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "LANU_SIGNING_KEY_ALIAS=$LANU_SIGNING_KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "mode=stable" >> "$GITHUB_OUTPUT"
+            echo "expected_fingerprint=$expected" >> "$GITHUB_OUTPUT"
+            echo "Protected keystore restored for trusted push; no private key is uploaded as artifact."
+          fi
+
+      - name: Ensure isolated CI debug keystore for PRs and unprovisioned builds
+        if: github.event_name == 'pull_request' || steps.signing.outputs.mode == 'ephemeral'
+        run: |
+          set -euo pipefail
           if [ ! -f ./debug.keystore ]; then
             keytool -genkeypair -v \
               -keystore ./debug.keystore \
@@ -96,6 +144,41 @@ jobs:
           test -n "$ACTUAL"
           test "$ACTUAL" = "$LANU_VERSION_CODE"
 
+      - name: Verify APK certificate and pinned signing identity
+        shell: bash
+        env:
+          SIGNING_MODE: ${{ steps.signing.outputs.mode }}
+          EXPECTED_FINGERPRINT: ${{ steps.signing.outputs.expected_fingerprint }}
+        run: |
+          set -euo pipefail
+          apk="app/build/outputs/apk/debug/app-debug.apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$apksigner" && test -s "$apk"
+          cert_report="$("$apksigner" verify --print-certs "$apk")"
+          # Print only public certificate information to make build-tool format changes diagnosable.
+          printf '%s\n' "$cert_report" | grep -Ei '(certificate|signer|SHA-256)' | head -n 12 || true
+          actual="$(printf '%s\n' "$cert_report" |
+            sed -nE 's/.*certificate SHA-256 digest:[[:space:]]*([0-9a-fA-F:]+).*/\1/p' |
+            head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          if ! [[ "$actual" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::Unable to verify the APK signing certificate."
+            exit 1
+          fi
+          if [ "$SIGNING_MODE" = "stable" ]; then
+            if [ "$actual" != "$EXPECTED_FINGERPRINT" ]; then
+              echo "::error::APK signing certificate differs from pinned fingerprint; release blocked."
+              exit 1
+            fi
+          fi
+          mkdir -p app/build/reports/verification
+          {
+            echo "apk=app-debug.apk"
+            echo "signing_mode=${SIGNING_MODE:-ephemeral}"
+            echo "certificate_sha256=$actual"
+            echo "upgrade_verified_on_device=false"
+          } > app/build/reports/verification/app-debug.apk.signer.txt
+          echo "APK certificate verified: $actual (mode=${SIGNING_MODE:-ephemeral})"
+
       - name: Generate and verify portable APK SHA256
         if: success()
         shell: bash
@@ -116,20 +199,31 @@ jobs:
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             app/build/reports/verification/app-debug.apk.sha256
+            app/build/reports/verification/app-debug.apk.signer.txt
           retention-days: 14
 
       - name: Publish GitHub Release
         if: github.event_name == 'push' && success()
         env:
           GH_TOKEN: ${{ github.token }}
+          SIGNING_MODE: ${{ steps.signing.outputs.mode }}
+        shell: bash
         run: |
-          TAG="v1.0.0-debug.${{ github.run_number }}"
+          set -euo pipefail
+          if [ "$SIGNING_MODE" = "stable" ]; then
+            TAG="v1.1.0-signed.${{ github.run_number }}"
+            NOTES="Korunan anahtarla imzalanmış APK; sertifika SHA-256 CI'da sabit değere karşı doğrulandı. Eski debug sürümlerin sertifikası farklı olabilir; üzerlerine yükseltme GARANTİ DEĞİLDİR. İlk sürüm dahil gerçek cihaz kurulum/yükseltme testi ayrıca gereklidir."
+          else
+            TAG="v1.0.0-debug.${{ github.run_number }}"
+            NOTES="GEÇİCİ, her çalışmada farklı debug anahtarı kullanılmış olabilir. Bu APK eski kurulumun üzerine güvenli güncelleme değildir. Kurulu LANU uygulamasını silmeyin; önce verinizi yedekleyin."
+          fi
           gh release create "$TAG" \
             app/build/outputs/apk/debug/app-debug.apk \
             app/build/reports/verification/app-debug.apk.sha256 \
+            app/build/reports/verification/app-debug.apk.signer.txt \
             --target "${{ github.sha }}" \
             --title "LANU CALCULATOR $TAG" \
-            --notes "CI doğrulamalı debug APK. Commit: ${{ github.sha }}" \
+            --notes "Commit: ${{ github.sha }}. $NOTES" \
             --prerelease
 
       - name: Upload Test Report Artifact
