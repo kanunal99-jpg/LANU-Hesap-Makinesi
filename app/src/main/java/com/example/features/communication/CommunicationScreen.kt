@@ -1,6 +1,18 @@
 package com.example.features.communication
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import android.content.Context
+import android.content.Intent
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import com.example.core.messaging.UserCodes
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -46,317 +58,114 @@ fun CommunicationScreen(
     onNavigateToCalculator: () -> Unit
 ) {
     val context = LocalContext.current
-    val isRegistered by viewModel.isRegistered.collectAsState()
-    val userPhone by viewModel.userPhone.collectAsState()
-    val userName by viewModel.userName.collectAsState()
-    val networkState by viewModel.networkState.collectAsState()
-
-    var activeTab by remember { mutableIntStateOf(0) }
-    var showAddContactDialog by remember { mutableStateOf(false) }
-    var showRegisterDialog by remember { mutableStateOf(!isRegistered) }
-
-    // Synchronize local register dialog trigger
-    LaunchedEffect(isRegistered) {
-        showRegisterDialog = !isRegistered
-    }
-
-    val triggerVibration = {
-        val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createOneShot(30, VibrationEffect.DEFAULT_AMPLITUDE))
-        } else {
-            @Suppress("DEPRECATION")
-            vibrator.vibrate(30)
+    val code by viewModel.userPhone.collectAsState()
+    val name by viewModel.userName.collectAsState()
+    val network by viewModel.networkState.collectAsState()
+    val error by viewModel.errorMessage.collectAsState()
+    var tab by remember { mutableIntStateOf(0) }
+    var showAdd by remember { mutableStateOf(false) }
+    val vibrate: () -> Unit = {
+        (context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator)?.let {
+            if (Build.VERSION.SDK_INT >= 26) it.vibrate(VibrationEffect.createOneShot(30, VibrationEffect.DEFAULT_AMPLITUDE))
         }
     }
-
+    androidx.lifecycle.compose.LifecycleResumeEffect(viewModel) {
+        viewModel.startSync("home")
+        onPauseOrDispose { viewModel.stopSync("home") }
+    }
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = "LANU Güvenli Alan",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        when (networkState) {
-                                            CommunicationViewModel.NetworkState.ONLINE -> MaterialTheme.colorScheme.primary
-                                            CommunicationViewModel.NetworkState.OFFLINE -> MaterialTheme.colorScheme.error
-                                            CommunicationViewModel.NetworkState.RECONNECTING -> Color.Yellow
-                                        }
-                                    )
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = when (networkState) {
-                                    CommunicationViewModel.NetworkState.ONLINE -> "Güvenli Bağlantı Aktif"
-                                    CommunicationViewModel.NetworkState.OFFLINE -> "Bağlantı Kesildi"
-                                    CommunicationViewModel.NetworkState.RECONNECTING -> "Yeniden Bağlanıyor..."
-                                },
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
-                            )
-                        }
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = {
-                            triggerVibration()
-                            onNavigateToCalculator()
-                        }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Calculate,
-                            contentDescription = stringResource(R.string.back_to_calculator)
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
+            TopAppBar(title = { Column {
+                Text("LANU Güvenli Alan", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(when (network) {
+                    CommunicationViewModel.NetworkState.ONLINE -> "Sunucu bağlantısı doğrulandı"
+                    CommunicationViewModel.NetworkState.UNCONFIGURED -> "Mesajlaşma henüz etkin değil"
+                    CommunicationViewModel.NetworkState.OFFLINE -> "Çevrimdışı · mesajlar bekliyor"
+                    CommunicationViewModel.NetworkState.RECONNECTING -> "Bağlanıyor…"
+                }, fontSize = 11.sp)
+            } }, actions = {
+                IconButton(onClick = { viewModel.refresh() }) { Icon(Icons.Default.Refresh, "Yenile") }
+                IconButton(onClick = onNavigateToCalculator) { Icon(Icons.Default.Calculate, "Kilitle ve dön") }
+            })
         },
         bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-            ) {
-                NavigationBarItem(
-                    selected = activeTab == 0,
-                    onClick = { activeTab = 0 },
-                    icon = { Icon(Icons.Default.ChatBubble, contentDescription = stringResource(R.string.chats_tab)) },
-                    label = { Text(stringResource(R.string.chats_tab)) }
-                )
-                NavigationBarItem(
-                    selected = activeTab == 1,
-                    onClick = { activeTab = 1 },
-                    icon = { Icon(Icons.Default.Contacts, contentDescription = stringResource(R.string.contacts_tab)) },
-                    label = { Text(stringResource(R.string.contacts_tab)) }
-                )
-                NavigationBarItem(
-                    selected = activeTab == 2,
-                    onClick = { activeTab = 2 },
-                    icon = { Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.settings_tab)) },
-                    label = { Text(stringResource(R.string.settings_tab)) }
-                )
-                NavigationBarItem(
-                    selected = activeTab == 3,
-                    onClick = { activeTab = 3 },
-                    icon = { Icon(Icons.Default.Phone, contentDescription = "Aramalar") },
-                    label = { Text("Aramalar") }
-                )
+            NavigationBar {
+                listOf("Sohbetler", "Kişiler", "Ayarlar", "Aramalar").forEachIndexed { index, label ->
+                    NavigationBarItem(selected = tab == index, onClick = { tab = index },
+                        icon = { Icon(when (index) { 0 -> Icons.Default.ChatBubble; 1 -> Icons.Default.Contacts; 2 -> Icons.Default.Settings; else -> Icons.Default.Phone }, label) },
+                        label = { Text(label) })
+                }
             }
         },
         floatingActionButton = {
-            if (activeTab == 1) {
-                FloatingActionButton(
-                    onClick = {
-                        triggerVibration()
-                        showAddContactDialog = true
-                    },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.testTag("add_contact_fab")
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.add_contact))
+            if (tab == 1) FloatingActionButton(onClick = { showAdd = true }, modifier = Modifier.testTag("add_contact_fab")) { Icon(Icons.Default.Add, "Kodla kişi ekle") }
+        }
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            if (error != null) {
+                Card(Modifier.fillMaxWidth().padding(8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(error ?: "", modifier = Modifier.weight(1f), fontSize = 12.sp)
+                        TextButton(onClick = { viewModel.clearError() }) { Text("Kapat") }
+                    }
+                }
+            }
+            if (code.isBlank()) {
+                Text("Kimliğiniz hazırlanıyor. Açılamazsa yeniden deneyin.", Modifier.padding(16.dp))
+                TextButton(onClick = { viewModel.checkRegistration() }) { Text("Yeniden dene") }
+            } else {
+                if (tab < 2) IdentityCodeCard(code, name)
+                Box(Modifier.weight(1f)) {
+                    when (tab) {
+                        0 -> ChatsTab(viewModel, vibrate, onNavigateToChat)
+                        1 -> ContactsTab(viewModel, vibrate, onNavigateToChat)
+                        2 -> SettingsTab(viewModel, securityViewModel, vibrate)
+                        3 -> CallLogsTab(viewModel, vibrate)
+                    }
                 }
             }
         }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .background(MaterialTheme.colorScheme.background)
-        ) {
-            when (activeTab) {
-                0 -> ChatsTab(viewModel, triggerVibration, onNavigateToChat)
-                1 -> ContactsTab(viewModel, triggerVibration, onNavigateToChat)
-                2 -> SettingsTab(viewModel, securityViewModel, triggerVibration)
-                3 -> CallLogsTab(viewModel, triggerVibration)
+    }
+    if (showAdd) {
+        var alias by remember { mutableStateOf("") }
+        var otherCode by remember { mutableStateOf("") }
+        var validation by remember { mutableStateOf<String?>(null) }
+        AlertDialog(onDismissRequest = { showAdd = false }, title = { Text("Kodla kişi ekle") }, text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Karşı tarafın LANU kodunu kaydedin. Yazışmak için onun da sizin kodunuzu kaydetmesi gerekir.")
+                OutlinedTextField(alias, { alias = it.take(60) }, label = { Text("Kişiye vereceğiniz ad") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("contact_name_input"))
+                OutlinedTextField(otherCode, { otherCode = it.take(40) }, label = { Text("LANU kullanıcı kodu") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("contact_code_input"))
+                validation?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        }, confirmButton = { Button(onClick = {
+            val normalized = UserCodes.normalize(otherCode)
+            when {
+                normalized.isBlank() -> validation = "LANU-XXXX-XXXX-XXXX-XXXX-XXXX biçiminde bir kod girin."
+                normalized == code -> validation = "Kendi kodunuzu ekleyemezsiniz."
+                else -> { viewModel.addContact(alias, normalized); showAdd = false }
+            }
+        }, modifier = Modifier.testTag("contact_save_button")) { Text("Kişiyi kaydet") } }, dismissButton = { TextButton(onClick = { showAdd = false }) { Text("Vazgeç") } })
+    }
+}
+
+@Composable
+private fun IdentityCodeCard(code: String, name: String) {
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+        Column(Modifier.padding(12.dp)) {
+            Text(name.ifBlank { "LANU Kullanıcısı" }, fontWeight = FontWeight.Bold)
+            Text("Kullanıcı kodun", fontSize = 11.sp)
+            Text(code, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.testTag("my_user_code"))
+            Row {
+                TextButton(onClick = { clipboard.setText(AnnotatedString(code)) }) { Text("Kopyala") }
+                TextButton(onClick = {
+                    context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"; putExtra(Intent.EXTRA_TEXT, code)
+                    }, "Kullanıcı kodunu paylaş"))
+                }) { Text("Paylaş") }
             }
         }
-    }
-
-    // Secure E.164 Phone Registration Overlay Dialog
-    if (showRegisterDialog) {
-        var inputPhone by remember { mutableStateOf("") }
-        var inputName by remember { mutableStateOf("") }
-        var verificationStep by remember { mutableStateOf(false) }
-        var otpCode by remember { mutableStateOf("") }
-        var validationError by remember { mutableStateOf<String?>(null) }
-
-        AlertDialog(
-            onDismissRequest = {},
-            title = {
-                Text(
-                    text = if (!verificationStep) "Güvenli Kimlik Kaydı" else "Mobil OTP Doğrulama",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
-                )
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = if (!verificationStep) 
-                            "İstemci tarafı güvenli kasa tanımlayıcınızla bağlamak için telefon numaranızı girin."
-                            else "Doğrulama kodu $inputPhone adresine gönderildi (Simülasyon Kodu: 1989)",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                    )
-
-                    if (!verificationStep) {
-                        OutlinedTextField(
-                            value = inputName,
-                            onValueChange = { inputName = it },
-                            label = { Text("Görünen Adınız") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth().testTag("reg_name_input")
-                        )
-
-                        OutlinedTextField(
-                            value = inputPhone,
-                            onValueChange = { inputPhone = it },
-                            label = { Text("E.164 Formatında Telefon (Örn: +905001234567)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth().testTag("reg_phone_input")
-                        )
-                    } else {
-                        OutlinedTextField(
-                            value = otpCode,
-                            onValueChange = { otpCode = it },
-                            label = { Text("OTP Kodunu Girin") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth().testTag("reg_otp_input")
-                        )
-                    }
-
-                    if (validationError != null) {
-                        Text(
-                            text = validationError ?: "",
-                            color = MaterialTheme.colorScheme.error,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        triggerVibration()
-                        validationError = null
-                        if (!verificationStep) {
-                            if (inputName.isBlank() || inputPhone.isBlank()) {
-                                validationError = "Tüm alanların doldurulması zorunludur"
-                            } else if (!inputPhone.startsWith("+")) {
-                                validationError = "Telefon E.164 formatında olmalıdır (+ ile başlamalıdır)"
-                            } else {
-                                verificationStep = true
-                            }
-                        } else {
-                            if (otpCode == "1989" || otpCode == "2026") {
-                                viewModel.register(inputPhone, inputName) {
-                                    showRegisterDialog = false
-                                }
-                            } else {
-                                validationError = "Geçersiz doğrulama kodu! (1989 deneyin)"
-                            }
-                        }
-                    },
-                    modifier = Modifier.testTag("reg_submit_button")
-                ) {
-                    Text(if (!verificationStep) "OTP Kodu İste" else "Kodu Doğrula")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        triggerVibration()
-                        onNavigateToCalculator()
-                    }
-                ) {
-                    Text("İptal")
-                }
-            }
-        )
-    }
-
-    // Add Contact Dialog
-    if (showAddContactDialog) {
-        var contactName by remember { mutableStateOf("") }
-        var contactPhone by remember { mutableStateOf("") }
-        var contactError by remember { mutableStateOf<String?>(null) }
-
-        AlertDialog(
-            onDismissRequest = { showAddContactDialog = false },
-            title = { Text("Güvenli Kişi Eşleme", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = "Kişileri gizli arama anahtarları için yerel olarak saklayın. Kişiler asla paylaşılmaz.",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    )
-
-                    OutlinedTextField(
-                        value = contactName,
-                        onValueChange = { contactName = it },
-                        label = { Text("Tam Adı") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth().testTag("contact_name_input")
-                    )
-
-                    OutlinedTextField(
-                        value = contactPhone,
-                        onValueChange = { contactPhone = it },
-                        label = { Text("E.164 Telefon (Örn: +905051112233)") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth().testTag("contact_phone_input")
-                    )
-
-                    if (contactError != null) {
-                        Text(
-                            text = contactError ?: "",
-                            color = MaterialTheme.colorScheme.error,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        triggerVibration()
-                        if (contactName.isBlank() || contactPhone.isBlank()) {
-                            contactError = "Lütfen tüm alanları doldurun"
-                        } else if (!contactPhone.startsWith("+")) {
-                            contactError = "Numara '+' ile başlamalıdır"
-                        } else {
-                            viewModel.addContact(contactName, contactPhone)
-                            showAddContactDialog = false
-                        }
-                    },
-                    modifier = Modifier.testTag("contact_save_button")
-                ) {
-                    Text("Kişiyi Kaydet")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddContactDialog = false }) {
-                    Text("Kapat")
-                }
-            }
-        )
     }
 }
 
@@ -685,7 +494,7 @@ fun ContactsTab(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = contact.phoneNumber,
+                                text = contact.phoneNumber + "\n" + (contact.statusText ?: ""),
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
                             )
@@ -711,225 +520,75 @@ fun ContactsTab(
 }
 
 @Composable
-fun SettingsTab(
-    viewModel: CommunicationViewModel,
-    securityViewModel: SecurityViewModel,
-    triggerVibration: () -> Unit
-) {
-    val userPhone by viewModel.userPhone.collectAsState()
-    val userName by viewModel.userName.collectAsState()
-    val lockTimeoutMs by securityViewModel.lockTimeoutMs.collectAsState()
-    val biometricEnabled by securityViewModel.biometricEnabled.collectAsState()
-    val hasPin by securityViewModel.hasPin.collectAsState()
-    val savedSupabaseUrl by viewModel.supabaseUrl.collectAsState()
-    val savedSupabaseKey by viewModel.supabaseKey.collectAsState()
-    val isCloudConfigured = savedSupabaseUrl.isNotBlank() && savedSupabaseKey.isNotBlank()
-
-    var showCredsDialog by remember { mutableStateOf(false) }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
-    ) {
-        // User Profile Header
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
-            )
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(56.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = userName.take(2).uppercase(),
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(16.dp))
-
-                Column {
-                    Text(
-                        text = userName,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = userPhone,
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
-                    )
-                }
+fun SettingsTab(viewModel: CommunicationViewModel, securityViewModel: SecurityViewModel, triggerVibration: () -> Unit) {
+    val code by viewModel.userPhone.collectAsState()
+    val name by viewModel.userName.collectAsState()
+    val busy by viewModel.busy.collectAsState()
+    var showRotate by remember { mutableStateOf(false) }
+    var showName by remember { mutableStateOf(false) }
+    var backupAction by remember { mutableStateOf<String?>(null) }
+    var filePassword by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        val password = filePassword; filePassword = ""
+        if (uri != null) viewModel.exportIdentity(password) { raw ->
+            withContext(Dispatchers.IO) {
+                val stream = context.contentResolver.openOutputStream(uri, "wt") ?: error("Yedek dosyası açılamadı")
+                stream.use { it.write(raw.toByteArray(Charsets.UTF_8)) }
             }
-        }
-
-        Divider(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f))
-
-        com.example.features.security.SettingsScreen(
-            securityViewModel = securityViewModel,
-            triggerVibration = triggerVibration,
-            modifier = Modifier.padding(vertical = 4.dp)
-        )
-
-        Divider(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f))
-
-        // Server Credentials Panel
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Bulut Sunucu Senkronizasyonu",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Text(
-                    text = if (isCloudConfigured) "Aktif (Supabase Canlı DB + E2EE)" else "Yapılandırılmadı (Yalnızca Yerel Güvenli Kasa)",
-                    fontSize = 11.sp,
-                    color = if (isCloudConfigured) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-                )
-            }
-            Button(
-                onClick = {
-                    triggerVibration()
-                    showCredsDialog = true
-                },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isCloudConfigured) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Text(
-                    text = if (isCloudConfigured) "Düzenle" else "Yapılandır",
-                    color = if (isCloudConfigured) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                )
-            }
-        }
-
-        // Advanced Diagnostics Card
-        var showDiagnostics by remember { mutableStateOf(false) }
-        OutlinedCard(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
-        ) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Gelişmiş Ağ Tanılama & Test",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    TextButton(onClick = { showDiagnostics = !showDiagnostics }) {
-                        Text(if (showDiagnostics) "Gizle" else "Göster", fontSize = 12.sp)
-                    }
-                }
-                if (showDiagnostics) {
-                    Text(
-                        text = "Sunucu veya ağ kopması durumunda uçtan uca şifreleme ve yeniden bağlanma döngüsünü simüle eder.",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                    )
-                    Button(
-                        onClick = {
-                            triggerVibration()
-                            viewModel.simulateNetworkLost()
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Ağ Bağlantı Döngüsünü Simüle Et")
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.weight(1f))
-
-        // Log Out Button
-        TextButton(
-            onClick = {
-                triggerVibration()
-                viewModel.logout {}
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Kimliği İptal Et ve Çıkış Yap", color = MaterialTheme.colorScheme.error)
         }
     }
-
-    // Cloud Credentials Dialog
-    if (showCredsDialog) {
-        var supabaseUrl by remember(showCredsDialog) { mutableStateOf<String>(savedSupabaseUrl) }
-        var supabaseKey by remember(showCredsDialog) { mutableStateOf<String>(savedSupabaseKey) }
-
-        AlertDialog(
-            onDismissRequest = { showCredsDialog = false },
-            title = { Text("Supabase Bulut Bilgileri", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        text = "Canlı Postgres + E2EE senkronizasyonu kurmak için API bilgilerinizi girin. Boş bırakılırsa yerel şifreli depolama kullanılır.",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                    )
-                    OutlinedTextField(
-                        value = supabaseUrl,
-                        onValueChange = { supabaseUrl = it },
-                        label = { Text("Supabase API URL") },
-                        placeholder = { Text("https://xyzcompany.supabase.co") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = supabaseKey,
-                        onValueChange = { supabaseKey = it },
-                        label = { Text("Supabase Anon Key") },
-                        placeholder = { Text("eyJhbGciOiJIUzI1NiIsIn...") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        triggerVibration()
-                        viewModel.saveSupabaseCredentials(supabaseUrl, supabaseKey)
-                        showCredsDialog = false
+    val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val password = filePassword; filePassword = ""
+        if (uri != null) viewModel.restoreIdentity(password) {
+            withContext(Dispatchers.IO) {
+                val stream = context.contentResolver.openInputStream(uri) ?: error("Yedek dosyası açılamadı")
+                stream.use { input ->
+                    val output = ByteArrayOutputStream(); val buffer = ByteArray(4096)
+                    while (true) {
+                        val count = input.read(buffer); if (count < 0) break
+                        require(output.size() + count <= 32768) { "Yedek dosyası çok büyük" }
+                        output.write(buffer, 0, count)
                     }
-                ) {
-                    Text("Parametreleri Kaydet")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCredsDialog = false }) {
-                    Text("Kapat")
+                    output.toString("UTF-8")
                 }
             }
-        )
+        }
+    }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        IdentityCodeCard(code, name)
+        Text("Kodunuz uygulama yeniden açıldığında değişmez. Yalnızca siz yeni kod oluşturmayı seçerseniz değiştirilir.", fontSize = 12.sp)
+        OutlinedButton(onClick = { showName = true }, modifier = Modifier.fillMaxWidth()) { Text("Görünen adı düzenle") }
+        OutlinedButton(onClick = { showRotate = true }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("change_user_code")) { Text("Kullanıcı kodumu değiştir") }
+        Text("Uygulamayı silmeden veya cihaz değiştirmeden önce kimliğini yedekle. Parolalı yedeği geri yükleyerek aynı kodu kullanabilirsin.", fontSize = 12.sp)
+        OutlinedButton(onClick = { backupAction = "export" }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Kimliğimi yedekle") }
+        OutlinedButton(onClick = { backupAction = "restore" }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Kimlik yedeğini geri yükle") }
+        com.example.features.security.SettingsScreen(securityViewModel, triggerVibration)
+    }
+    if (showRotate) AlertDialog(onDismissRequest = { showRotate = false }, title = { Text("Yeni kullanıcı kodu oluşturulsun mu?") },
+        text = { Text("Yeni kişiler sizi yeni kodunuzla ekleyecek. Kimliğiniz, kayıtlı kişileriniz ve mesaj geçmişiniz korunur. Bu işlem yalnızca sizin isteğinizle yapılır.") },
+        confirmButton = { Button(onClick = { showRotate = false; viewModel.rotateCode() }, enabled = !busy) { Text("Yeni kod oluştur") } },
+        dismissButton = { TextButton(onClick = { showRotate = false }) { Text("Vazgeç") } })
+    if (backupAction != null) {
+        var password by remember { mutableStateOf("") }
+        val exporting = backupAction == "export"
+        AlertDialog(onDismissRequest = { backupAction = null }, title = { Text(if (exporting) "Kimliğini parola ile yedekle" else "Kimlik yedeğini aç") },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("En az 12 karakterli bir parola kullan. Parolan olmadan yedeğin açılamaz; kullanıcı kodun bu parolanın yerine geçmez.")
+                OutlinedTextField(password, { password = it.take(256) }, label = { Text("Yedek parolası") }, visualTransformation = PasswordVisualTransformation(), singleLine = true)
+            } },
+            confirmButton = { Button(onClick = {
+                filePassword = password; backupAction = null
+                if (exporting) exportLauncher.launch("LANU-kimlik-yedegi.lanu.json") else restoreLauncher.launch(arrayOf("*/*"))
+            }, enabled = password.length >= 12) { Text(if (exporting) "Dosyaya kaydet" else "Yedek dosyasını seç") } },
+            dismissButton = { TextButton(onClick = { backupAction = null }) { Text("Vazgeç") } })
+    }
+    if (showName) {
+        var input by remember { mutableStateOf(name) }
+        AlertDialog(onDismissRequest = { showName = false }, title = { Text("Görünen ad") },
+            text = { OutlinedTextField(input, { input = it.take(60) }, singleLine = true) },
+            confirmButton = { Button(onClick = { viewModel.updateDisplayName(input); showName = false }, enabled = input.isNotBlank()) { Text("Kaydet") } },
+            dismissButton = { TextButton(onClick = { showName = false }) { Text("Vazgeç") } })
     }
 }
 

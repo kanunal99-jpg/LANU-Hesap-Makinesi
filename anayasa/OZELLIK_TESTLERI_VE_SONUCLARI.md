@@ -319,3 +319,16 @@ Uygulamanın şifreleme motoru, veri mimarisi, güvenlik politikaları ve kamufl
 *   **Commit Hash:** 3890a97
 *   **Durum:** BAŞARILI ✅
 *   **Not:** Dokümantasyon, CI kanıtı olmadan 'başarılı' veya 'production ready' olarak işaretlenmemelidir.
+
+### [19-10-2026] — Kullanıcı koduyla mesajlaşma / test planı
+
+- UserCodeMessagingTest: kalıcı kimlik, açık onaylı kod yenileme, kod/anahtar bağı, kendi kodu/telefon reddi, eski profil/geçmişin korunması, iki bağımsız anahtar arasında şifreleme, yanlış alıcı/tahrif reddi ve istek imzası testleri eklendi.
+- Test sonuçları henüz bekleniyor. Sunucu: karşılıklı kişi kaydı, yetki/tekrar oynatma kontrolü, idempotent gönderim, gerçek teslim/okunma olayları ve eski kodun iptali ayrıca doğrulanacak.
+- Fiziksel cihazda Keystore, yeniden açılış, kodun korunması ve iki cihazlı uçtan uca smoke gereklidir.
+
+### [19-10-2026] — Sunucu doğrulama sonucu
+
+- `npm test --prefix server`: 17/17 başarılı (protokol 10, gerçek yerel HTTP 1, PostgreSQL/PGlite 6). Karşılıklı kod kaydı, iki ayrı anahtar arasında şifreli mesaj, teslim/okundu, imza/tahrif/zaman/tekrar reddi, başka kullanıcının verisine erişim reddi, idempotence, kod değiştirme, kişi silme ve düzenleme/tepki/silme olayları doğrulandı.
+- RLS, tablo/RPC yetkileri, trigger/revision, teslim ACK yetkisi, nonce/120 istek-dakika atomik sınırı gerçek SQL motorunda doğrulandı.
+- Deno 2.9.6 typecheck başarılı. Canlı Edge/Postgres smoke ve 16 yeni Android testinin sonucu ayrıca kaydedilecek.
+- Fiziksel cihazda şifreli yedek export/import, Keystore, yeniden açılışta aynı kod, iki telefonla metin aktarımı ve uygulama arka plana geçerken okundu bildiriminin durması bekleyen kabul testleridir.

@@ -37,11 +37,11 @@ fun ChatMessageStatus(status: String, modifier: Modifier = Modifier) {
         modifier = modifier
     ) { targetStatus ->
         when (targetStatus) {
-            "SENDING" -> {
+            "PENDING", "WAITING", "SENDING" -> {
                 CircularProgressIndicator(
                     modifier = Modifier
                         .size(12.dp)
-                        .semantics { contentDescription = sendingContentDesc },
+                        .semantics { contentDescription = if (targetStatus == "WAITING") "Karşı tarafın kodunuzu kaydetmesi bekleniyor" else if (targetStatus == "PENDING") "Gönderim bekliyor" else sendingContentDesc },
                     strokeWidth = 1.5.dp,
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
                 )

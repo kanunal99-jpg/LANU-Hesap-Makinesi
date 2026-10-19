@@ -62,3 +62,15 @@ Kullanıcı güvenliğini ve sistem kontrollerini sağlar.
 - features/security/SecurityScreen.kt: 4–12 hane ve açık gönderme, prompt iptali, küçük ekran kaydırması.
 - MainActivity.kt: yetkili repository durumuna göre özel ekran kapısı, kilitleyerek geri dönüş, zorunlu özel ekran koruması.
 - test/java/com/example/HiddenAreaSecurityTest.kt: 22 otomatik güvenlik regresyonu. Veritabanı şeması değişmez.
+
+### 19.10.2026 — Kod kimliği ve mesaj taşıma
+
+- core/messaging/MessagingIdentity.kt: kalıcı EC kimliği, kod üretme/yenileme, Keystore depolama ve kimliğe bağlı AES-GCM.
+- core/messaging/MessagingRelay.kt: imzalı, yeniden yönlendirme kabul etmeyen HTTPS istekleri.
+- core/repository/CommunicationRepository.kt: telefon bağımsız kimlik/rehber, şifreli gönderim kuyruğu ve sunucu olaylarını kalıcı kayda uygulama.
+- features/communication: gerçek bağlantı durumları, kullanıcı kodu kartı, karşılıklı kayıt ve kimliği silmeyen çıkış.
+- UserCodeMessagingTest.kt: kimlik, eski veri uyumu ve kriptografik sınır regresyonları.
+
+- `IdentityBackup.kt`: PBKDF2-HMAC-SHA256 (210000)/AES-GCM taşınabilir kimlik yedeği; parolayla kurtarma ve anahtar çifti doğrulama. API 23 HMAC tabanlı eşdeğer fallback.
+- `supabase/`: yalnız imzalı Edge servisi erişimli RLS tabloları, ACK/revision/event ve atomik nonce RPC.
+- `server/`: kilitli PGlite bağımlılığı, 17 protokol/HTTP/SQL testi ve canlı HTTPS smoke aracı; dağıtım/kurtarma sınırları README'de.

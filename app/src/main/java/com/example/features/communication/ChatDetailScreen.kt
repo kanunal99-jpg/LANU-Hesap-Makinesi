@@ -59,7 +59,8 @@ fun ChatDetailScreen(
     val context = LocalContext.current
     val activeConversation by viewModel.activeConversation.collectAsState()
     val messages by viewModel.activeMessages.collectAsState()
-    val userPhone by viewModel.userPhone.collectAsState()
+    val userPhone by viewModel.userId.collectAsState()
+    val errorMessage by viewModel.errorMessage.collectAsState()
     val isPartnerTyping by viewModel.isPartnerTyping.collectAsState()
 
     var textInput by remember { mutableStateOf("") }
@@ -83,15 +84,22 @@ fun ChatDetailScreen(
             if (uri != null) {
                 triggerVibration()
                 viewModel.sendMediaMessage("📷 Fotoğraf", uri.toString())
-                Toast.makeText(context, "Fotoğraf uçtan uca şifrelenerek gönderildi", Toast.LENGTH_SHORT).show()
             }
         }
     )
 
-    // Set conversation selection on start
-    LaunchedEffect(conversationId) {
+    androidx.lifecycle.compose.LifecycleResumeEffect(conversationId) {
         viewModel.selectConversation(conversationId)
+        viewModel.startSync("chat:$conversationId")
+        onPauseOrDispose {
+            viewModel.leaveConversation(conversationId)
+            viewModel.stopSync("chat:$conversationId")
+        }
     }
+    LaunchedEffect(errorMessage) {
+        errorMessage?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show(); viewModel.clearError() }
+    }
+
 
     // Auto scroll to bottom when new messages arrive
     LaunchedEffect(messages.size, isPartnerTyping) {
@@ -261,7 +269,7 @@ fun ChatDetailScreen(
 
                     val isMine = message.senderPhone == userPhone
                     // Real-time client-side decryption using the secure utility
-                    val decryptedText = CryptoUtils.decrypt(message.content, conversationId)
+                    val decryptedText = message.content
                     
                     MessageBubble(
                         text = decryptedText,

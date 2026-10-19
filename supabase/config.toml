@@ -1,0 +1,6 @@
+project_id = "talhknjcjaijqiqwdyhf"
+
+[functions.lanu-relay]
+# Each payload is authenticated by a P-256 signature and a durable one-use nonce.
+# Public contact codes are never accepted as authentication credentials.
+verify_jwt = false
