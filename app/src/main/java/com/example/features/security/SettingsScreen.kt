@@ -9,6 +9,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -45,6 +47,7 @@ fun SettingsScreen(
 
     var showChangePinDialog by remember { mutableStateOf(false) }
     var showAuditLogsDialog by remember { mutableStateOf(false) }
+    var informationTopic by remember { mutableStateOf<InformationTopic?>(null) }
     val coroutineScope = rememberCoroutineScope()
 
     Column(
@@ -84,7 +87,9 @@ fun SettingsScreen(
                     triggerVibration()
                     securityViewModel.setThemePreference(if (isChecked) "dark" else "light")
                 },
-                modifier = Modifier.testTag("dark_mode_switch")
+                modifier = Modifier.testTag("dark_mode_switch").semantics {
+                    contentDescription = "Koyu tema, ${if (themePreference == "dark") "açık" else "kapalı"}"
+                }
             )
         }
 
@@ -314,7 +319,9 @@ fun SettingsScreen(
                     triggerVibration()
                     securityViewModel.setBiometricEnabled(isChecked)
                 },
-                modifier = Modifier.testTag("biometric_switch")
+                modifier = Modifier.testTag("biometric_switch").semantics {
+                    contentDescription = "Biyometrik giriş, ${if (biometricEnabled && hasPin) "açık" else "kapalı"}"
+                }
             )
         }
 
@@ -343,7 +350,9 @@ fun SettingsScreen(
                     triggerVibration()
                     securityViewModel.setScreenProtectionEnabled(isChecked)
                 },
-                modifier = Modifier.testTag("screen_protection_switch")
+                modifier = Modifier.testTag("screen_protection_switch").semantics {
+                    contentDescription = "Ekran görüntüsü koruması, ${if (screenProtectionEnabled) "açık" else "kapalı"}"
+                }
             )
         }
 
@@ -446,6 +455,26 @@ fun SettingsScreen(
                 )
             }
         }
+
+        HorizontalDivider()
+        Text("Gizlilik ve Yardım", fontWeight = FontWeight.Bold, fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.primary)
+        Text(
+            "Mesajlaşma, veri kullanımı ve yedekleme hakkında uygulama içi bilgilendirme.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        InformationTopic.entries.forEach { topic ->
+            OutlinedButton(
+                onClick = { triggerVibration(); informationTopic = topic },
+                modifier = Modifier.fillMaxWidth().testTag("open_information_${topic.name.lowercase()}")
+            ) {
+                Text(topic.title)
+            }
+        }
+    }
+
+    informationTopic?.let { topic ->
+        AppInformationDialog(topic) { informationTopic = null }
     }
 
     // Change PIN Dialog
