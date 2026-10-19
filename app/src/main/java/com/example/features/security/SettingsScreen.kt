@@ -37,7 +37,6 @@ fun SettingsScreen(
 ) {
     val lockTimeoutMs by securityViewModel.lockTimeoutMs.collectAsState()
     val biometricEnabled by securityViewModel.biometricEnabled.collectAsState()
-    val screenProtectionEnabled by securityViewModel.screenProtectionEnabled.collectAsState()
     val hasPin by securityViewModel.hasPin.collectAsState()
     val lockoutRemainingSeconds by securityViewModel.lockoutRemainingSeconds.collectAsState()
     val isAuthenticating by securityViewModel.isAuthenticating.collectAsState()
@@ -325,35 +324,25 @@ fun SettingsScreen(
             )
         }
 
-        // Screen Protection (FLAG_SECURE)
+        // Private screenshots are always blocked by MainActivity, irrespective of
+        // an older user preference; ordinary calculator screenshots are allowed.
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth().testTag("screenshot_policy"),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = stringResource(R.string.screen_protection_title),
+                    text = "Ekran Görüntüsü Koruması",
                     fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onBackground
+                    fontWeight = FontWeight.Medium
                 )
                 Text(
-                    text = stringResource(R.string.screen_protection_desc),
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+                    text = "Hesap makinesinde ekran görüntüsü serbesttir. PIN, sohbetler ve tüm gizli alanda her zaman engellenir.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Switch(
-                checked = screenProtectionEnabled,
-                onCheckedChange = { isChecked ->
-                    triggerVibration()
-                    securityViewModel.setScreenProtectionEnabled(isChecked)
-                },
-                modifier = Modifier.testTag("screen_protection_switch").semantics {
-                    contentDescription = "Ekran görüntüsü koruması, ${if (screenProtectionEnabled) "açık" else "kapalı"}"
-                }
-            )
+            Icon(Icons.Default.Lock, contentDescription = "Gizli alanda koruma zorunlu")
         }
 
         // Change PIN Row
