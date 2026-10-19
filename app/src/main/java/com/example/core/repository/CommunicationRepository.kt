@@ -221,6 +221,13 @@ class CommunicationRepository(
                 if (message.optBoolean("deleted") || hidden) messageDao.deleteMessage(id)
                 else {
                     val peer = settingsDao.getSettingValue("lanu_peer_id_$peerId")?.let(::JSONObject) ?: throw IllegalStateException("Gönderenin anahtarı bulunamadı")
+                    // Never persist or acknowledge an unreadable/tampered encrypted message.
+                    // The relay cannot authenticate E2EE ciphertext; only the recipient can.
+                    try {
+                        PeerMessageCrypto.decrypt(own, peerId, peer.getString("publicKey"), id, senderId, message.getString("content"))
+                    } catch (e: Exception) {
+                        throw SecurityException("Şifreli mesaj doğrulanamadı. Teslim/okundu onayı gönderilmedi.", e)
+                    }
                     settingsDao.insertSetting(SettingsEntity("lanu_peer_conv_$convId", peer.toString()))
                     if (conversationDao.getConversationById(convId) == null) {
                         val contact = contactDao.getContactByPhone(peer.getString("code"))
