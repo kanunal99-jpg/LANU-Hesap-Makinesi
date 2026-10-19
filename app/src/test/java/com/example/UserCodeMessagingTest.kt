@@ -283,4 +283,28 @@ class UserCodeMessagingTest {
         assertEquals(0, db.conversationDao().getConversationById(conversationId)?.unreadCount)
         assertTrue("Read is sent only when B opens the conversation", readAcks.any { messageId in it })
     }
+
+    @Test fun `local expiration never destroys unsent messages and offline delete cancels queue`() = runBlocking {
+        val repo = repository()
+        val own = repo.ensureIdentity()
+        val pendingId = java.util.UUID.randomUUID().toString()
+        db.messageDao().insertMessage(MessageEntity(
+            pendingId, "conversation", own.id, "Ben", "lanu2:fakeciphertext", status = "PENDING"
+        ))
+        repo.hideMessageLocally(pendingId)
+        assertNotNull("An unsent message must stay queued even if the local timer expires", db.messageDao().getMessage(pendingId))
+        db.messageDao().updateMessageStatus(pendingId, "WAITING")
+        repo.hideMessageLocally(pendingId)
+        assertNotNull("Mutual-contact waiting messages must remain queued", db.messageDao().getMessage(pendingId))
+        db.messageDao().updateMessageStatus(pendingId, "SENT")
+        repo.hideMessageLocally(pendingId)
+        assertNull("Only a relay-accepted message may expire locally", db.messageDao().getMessage(pendingId))
+
+        val cancelledId = java.util.UUID.randomUUID().toString()
+        db.messageDao().insertMessage(MessageEntity(
+            cancelledId, "conversation", own.id, "Ben", "lanu2:fakeciphertext", status = "PENDING"
+        ))
+        repo.deleteMessage(cancelledId)
+        assertNull("An offline queued message can be cancelled without calling the relay", db.messageDao().getMessage(cancelledId))
+    }
 }
