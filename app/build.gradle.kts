@@ -34,10 +34,13 @@ android {
       keyPassword = System.getenv("KEY_PASSWORD")
     }
     create("debugConfig") {
-      storeFile = file("${rootDir}/debug.keystore")
-      storePassword = "android"
-      keyAlias = "androiddebugkey"
-      keyPassword = "android"
+      // CI restores the stable key from protected Actions secrets on trusted pushes.
+      // PR/local builds may use a transient debug key; NEVER call those APKs safe upgrades.
+      val stableKeystore = System.getenv("LANU_SIGNING_KEYSTORE_PATH")
+      storeFile = file(stableKeystore ?: "${rootDir}/debug.keystore")
+      storePassword = if (stableKeystore != null) System.getenv("LANU_SIGNING_STORE_PASSWORD") else "android"
+      keyAlias = if (stableKeystore != null) System.getenv("LANU_SIGNING_KEY_ALIAS") else "androiddebugkey"
+      keyPassword = if (stableKeystore != null) System.getenv("LANU_SIGNING_KEY_PASSWORD") else "android"
     }
   }
 
