@@ -40,6 +40,9 @@ import androidx.compose.ui.text.AnnotatedString
 import android.widget.Toast
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import com.example.R
 import com.example.core.calculator.HighPrecisionMathEngine
 import androidx.compose.ui.text.font.FontFamily
@@ -60,8 +63,6 @@ fun CalculatorScreen(
     onNavigateToLock: () -> Unit,
     onNavigateToUnitConverter: (String?) -> Unit,
     onNavigateToFinance: () -> Unit,
-    onNavigateToCollaboration: () -> Unit,
-    onNavigateToAuditPanel: () -> Unit,
     themePreference: String = "system",
     buttonColorTheme: String = "emerald",
     onToggleTheme: () -> Unit = {}
@@ -80,6 +81,7 @@ fun CalculatorScreen(
     var showClearAllHistoryDialog by remember { mutableStateOf(false) }
     var showResetCalculationDialog by remember { mutableStateOf(false) }
     var showGraph by remember { mutableStateOf(false) }
+    var toolsMenuExpanded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -149,23 +151,41 @@ fun CalculatorScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            CenterAlignedTopAppBar(
+            TopAppBar(
                 title = {
-                    Text(
-                        text = "LANU",
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.5.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.primary,
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(10.dp))
                             .clickable {
                                 triggerVibration()
                                 onNavigateToLock()
                             }
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
                             .testTag("lanu_title_button")
-                    )
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_launcher_foreground),
+                            contentDescription = null,
+                            tint = Color.Unspecified,
+                            modifier = Modifier.size(39.dp)
+                        )
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Column {
+                            Text(
+                                text = "LANU",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1
+                            )
+                            Text(
+                                text = "HESAP MAKİNESİ",
+                                fontSize = 8.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1
+                            )
+                        }
+                    }
                 },
                 navigationIcon = {
                     IconButton(
@@ -179,90 +199,66 @@ fun CalculatorScreen(
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = {
-                            triggerVibration()
-                            onToggleTheme()
-                        },
-                        modifier = Modifier.testTag("theme_toggle_button")
-                    ) {
+                    IconButton(onClick = {
+                        triggerVibration()
+                        onToggleTheme()
+                    }, modifier = Modifier.testTag("theme_toggle_button")) {
                         val (icon, desc) = when (themePreference) {
                             "dark" -> Pair(Icons.Default.DarkMode, stringResource(R.string.theme_professional_dark))
                             "light" -> Pair(Icons.Default.LightMode, stringResource(R.string.theme_clean_light))
                             else -> Pair(Icons.Default.BrightnessAuto, stringResource(R.string.theme_toggle_desc))
                         }
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = desc,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
+                        Icon(icon, contentDescription = desc, tint = MaterialTheme.colorScheme.primary)
                     }
-                    IconButton(
-                        onClick = {
-                            triggerVibration()
-                            try {
-                                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Matematiksel ifadeyi söyleyin (örn. 5 artı 3)")
-                                }
-                                speechRecognizerLauncher.launch(intent)
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Ses tanıma desteklenmiyor", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        modifier = Modifier.testTag("voice_input_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Mic,
-                            contentDescription = "Sesle Giriş",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    IconButton(
-                        onClick = {
-                            triggerVibration()
-                            val initialVal = if (result.isNotBlank() && result != "Error") {
-                                result
-                            } else if (expression.toDoubleOrNull() != null) {
-                                expression
-                            } else {
-                                null
-                            }
-                            onNavigateToUnitConverter(initialVal)
-                        },
-                        modifier = Modifier.testTag("unit_converter_button")
-                    ) {
+                    IconButton(onClick = {
+                        triggerVibration()
+                        val initialVal = if (result.isNotBlank() && result != "Error") {
+                            result
+                        } else if (expression.toDoubleOrNull() != null) {
+                            expression
+                        } else null
+                        onNavigateToUnitConverter(initialVal)
+                    }, modifier = Modifier.testTag("unit_converter_button")) {
                         Icon(Icons.Default.SwapHoriz, contentDescription = stringResource(R.string.content_desc_unit_converter))
                     }
-                    IconButton(
-                        onClick = {
-                            triggerVibration()
-                            onNavigateToFinance()
-                        },
-                        modifier = Modifier.testTag("finance_button")
-                    ) {
-                        Icon(Icons.Default.TrendingUp, contentDescription = "Finansal Hesaplamalar", tint = MaterialTheme.colorScheme.primary)
-                    }
-                    IconButton(
-                        onClick = {
-                            triggerVibration()
-                            onNavigateToCollaboration()
-                        },
-                        modifier = Modifier.testTag("collaboration_button")
-                    ) {
-                        Icon(Icons.Default.Groups, contentDescription = "Ortak Çalışma (Demo)", tint = MaterialTheme.colorScheme.primary)
-                    }
-                    IconButton(
-                        onClick = {
-                            triggerVibration()
-                            onNavigateToAuditPanel()
-                        },
-                        modifier = Modifier.testTag("audit_panel_button")
-                    ) {
-                        Icon(Icons.Default.VerifiedUser, contentDescription = "Denetim Paneli", tint = MaterialTheme.colorScheme.primary)
+                    Box {
+                        IconButton(onClick = { toolsMenuExpanded = true }, modifier = Modifier.testTag("calculator_tools")) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Diğer hesaplama araçları")
+                        }
+                        DropdownMenu(
+                            expanded = toolsMenuExpanded,
+                            onDismissRequest = { toolsMenuExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Finansal Hesaplamalar") },
+                                leadingIcon = { Icon(Icons.Default.TrendingUp, contentDescription = null) },
+                                onClick = {
+                                    toolsMenuExpanded = false
+                                    triggerVibration()
+                                    onNavigateToFinance()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Sesle hesaplama") },
+                                leadingIcon = { Icon(Icons.Default.Mic, contentDescription = null) },
+                                onClick = {
+                                    toolsMenuExpanded = false
+                                    triggerVibration()
+                                    try {
+                                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Matematiksel ifadeyi söyleyin")
+                                        }
+                                        speechRecognizerLauncher.launch(intent)
+                                    } catch (_: Exception) {
+                                        Toast.makeText(context, "Ses tanıma desteklenmiyor", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            )
+                        }
                     }
                 },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent
                 )
             )
@@ -345,9 +341,11 @@ fun CalculatorScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
-                    .padding(horizontal = 24.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.Bottom,
+                    .heightIn(min = 124.dp, max = 190.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = 10.dp)
+                    .testTag("calculator_display"),
+                verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.End
             ) {
                 // Indicators Panel
@@ -423,20 +421,12 @@ fun CalculatorScreen(
                     }
                 }
 
-                if (showGraph) {
-                    InteractiveFunctionGrapher(
-                        expression = expression,
-                        isDegrees = isDegrees,
-                        modifier = Modifier.padding(bottom = 12.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 // Formula Display
                 Text(
                     text = expression.ifBlank { "0" },
-                    fontSize = if (expression.length > 15) 28.sp else 38.sp,
+                    fontSize = if (expression.length > 15) 23.sp else 30.sp,
                     fontWeight = FontWeight.Light,
                     textAlign = TextAlign.End,
                     maxLines = 3,
@@ -450,9 +440,9 @@ fun CalculatorScreen(
                 val copySuccessMsg = stringResource(R.string.copied_to_clipboard)
                 Text(
                     text = result,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Normal,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                    fontSize = if (result.length > 16) 27.sp else 38.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
                     textAlign = TextAlign.End,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -469,6 +459,13 @@ fun CalculatorScreen(
                             }
                         )
                 )
+                if (showGraph) {
+                    InteractiveFunctionGrapher(
+                        expression = expression,
+                        isDegrees = isDegrees,
+                        modifier = Modifier.padding(top = 12.dp, bottom = 8.dp)
+                    )
+                }
             }
 
             // Keypad Grid
@@ -498,14 +495,17 @@ fun CalculatorScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                    .padding(bottom = 24.dp, top = 12.dp, start = 16.dp, end = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .padding(bottom = 12.dp, top = 10.dp, start = 16.dp, end = 16.dp)
+                    .testTag("calculator_keypad"),
+                verticalArrangement = Arrangement.spacedBy(7.dp)
             ) {
                 keys.forEach { row ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(7.dp)
                     ) {
                         row.forEach { key ->
                             CalculatorButton(
@@ -513,7 +513,7 @@ fun CalculatorScreen(
                                 buttonColorTheme = buttonColorTheme,
                                 modifier = Modifier
                                     .weight(1f)
-                                    .aspectRatio(if (isLandscape) 2.2f else if (isScientific) 1.5f else 1.2f),
+                                    .height(if (isLandscape) 40.dp else if (isScientific) 49.dp else 54.dp),
                                 onClick = {
                                     triggerVibration()
                                     if (key == "AC") {
