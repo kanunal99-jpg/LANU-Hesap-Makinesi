@@ -245,7 +245,7 @@ fun ChatDetailScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Yalnız bu cihazda 10 sn sonra gizlenir. Karşı taraf ve sunucudan silinmez.",
+                            text = "Yalnız gönderimi onaylanan mesaj 10 sn sonra bu cihazda gizlenir. Sunucudan veya karşı taraftan silinmez.",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.primary
