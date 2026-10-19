@@ -226,4 +226,61 @@ class UserCodeMessagingTest {
         assertTrue("Valid message must be acknowledged", acknowledgements > 0)
         assertEquals("doğrulanmış mesaj", repo.getMessages(conversationId).first()[0].content)
     }
+
+    @Test fun `recipient gets offline message on entering private area and unread badge counts once`() = runBlocking {
+        val alice = UserCodes.create()
+        val bob = UserCodes.create()
+        vault.save(bob)
+        val conversationId = UserCodes.conversationId(alice.id, bob.id)
+        val messageId = java.util.UUID.randomUUID().toString()
+        val eventId = java.util.UUID.randomUUID().toString()
+        val ciphertext = PeerMessageCrypto.encrypt(alice, bob.id, bob.publicKey, messageId, "Sonradan gelen mesaj")
+        var serverOnline = false
+        val readAcks = mutableListOf<List<String>>()
+        val relay = object : MessagingRelay {
+            override val configured = true
+            override suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject): JSONObject {
+                if (!serverOnline) throw RelayException(503, "Temporary offline")
+                return when (action) {
+                    "register" -> JSONObject().put("code", bob.code).put("nonce", bob.nonce)
+                    "sync" -> JSONObject()
+                        .put("contacts", org.json.JSONArray().put(JSONObject()
+                            .put("id", alice.id).put("code", alice.code)
+                            .put("nonce", alice.nonce).put("publicKey", alice.publicKey)
+                            .put("codeAtAdd", alice.code).put("mutual", true)))
+                        .put("events", org.json.JSONArray().put(JSONObject()
+                            .put("id", eventId).put("message", JSONObject()
+                                .put("id", messageId).put("senderId", alice.id)
+                                .put("recipientId", bob.id).put("revision", 1)
+                                .put("status", "SENT").put("deleted", false)
+                                .put("createdAt", System.currentTimeMillis())
+                                .put("content", ciphertext))))
+                    "ack" -> JSONObject().put("acknowledged", true).also {
+                        val readIds = data.optJSONArray("readIds") ?: org.json.JSONArray()
+                        readAcks.add((0 until readIds.length()).map { readIds.getString(it) })
+                    }
+                    else -> error("Unexpected operation: $action")
+                }
+            }
+        }
+        val repo = repository(relay = relay)
+        assertTrue(runCatching { repo.synchronize() }.exceptionOrNull() is RelayException)
+        assertNull(db.messageDao().getMessage(messageId))
+
+        // User B unlocks the private area once online, after A sent the message.
+        serverOnline = true
+        repo.synchronize()
+        assertEquals(1, db.conversationDao().getConversationById(conversationId)?.unreadCount)
+        assertEquals("Sonradan gelen mesaj", repo.getMessages(conversationId).first().single().content)
+        assertTrue(readAcks.all { it.isEmpty() })
+
+        // A duplicate event after reconnect must not inflate the unread count.
+        repo.synchronize()
+        assertEquals(1, db.conversationDao().getConversationById(conversationId)?.unreadCount)
+        repo.markConversationOpened(conversationId)
+        assertEquals(0, db.conversationDao().getConversationById(conversationId)?.unreadCount)
+        repo.synchronize(conversationId)
+        assertEquals(0, db.conversationDao().getConversationById(conversationId)?.unreadCount)
+        assertTrue("Read is sent only when B opens the conversation", readAcks.any { messageId in it })
+    }
 }
