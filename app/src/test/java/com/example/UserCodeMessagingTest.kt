@@ -143,4 +143,46 @@ class UserCodeMessagingTest {
         val rotated = a.copy(nonce = UserCodes.newNonce())
         assertEquals(UserCodes.conversationId(a.id, b.id), UserCodes.conversationId(rotated.id, b.id))
     }
+
+    @Test fun `password encrypted backup restores exact identity with random salt and iv`() {
+        val own = UserCodes.create()
+        val password = "Yedek-parolam-çok-güçlü"
+        val first = IdentityBackup.export(own, password)
+        val second = IdentityBackup.export(own, password)
+        assertNotEquals(first, second)
+        assertFalse(first.contains(own.privateKey))
+        assertFalse(first.contains(own.code))
+        assertEquals(own, IdentityBackup.restore(first, password))
+        assertEquals(own, IdentityBackup.restore(second, password))
+    }
+    @Test fun `wrong backup password tampering and untrusted kdf are rejected`() {
+        val own = UserCodes.create()
+        val backup = IdentityBackup.export(own, "a-long-password-123")
+        val tampered = JSONObject(backup).put("data", UserCodes.encode(ByteArray(128))).toString()
+        val expensive = JSONObject(backup).put("iterations", Int.MAX_VALUE).toString()
+        for ((value, password) in listOf(backup to "wrong-password-123", tampered to "a-long-password-123", expensive to "a-long-password-123")) {
+            try { IdentityBackup.restore(value, password); fail("Invalid backup must fail") } catch (_: IllegalArgumentException) { }
+        }
+        try { IdentityBackup.export(own, "1234"); fail("Short password must fail") } catch (_: IllegalArgumentException) { }
+    }
+    @Test fun `android 23 fallback derives the same key as native pbkdf2`() {
+        val salt = ByteArray(16) { it.toByte() }
+        for (password in listOf("password12345", "Türkçe-parola-ışık")) {
+            val expected = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(
+                javax.crypto.spec.PBEKeySpec(password.toCharArray(), salt, 12, 256)).encoded
+            assertArrayEquals(expected, IdentityBackup.softwarePbkdf2(password, salt, 12))
+        }
+    }
+    @Test fun `fresh device can recover code but existing other history is protected`() = runBlocking {
+        val recovered = UserCodes.create()
+        val backup = IdentityBackup.export(recovered, "a-long-password-123")
+        val repo = repository()
+        val initial = repo.ensureIdentity()
+        db.conversationDao().insertConversation(ConversationEntity("history", "legacy", "Eski sohbet"))
+        try { repo.restoreIdentity(backup, "a-long-password-123"); fail("Must preserve other history") } catch (_: IllegalArgumentException) { }
+        assertEquals(initial, repo.ensureIdentity())
+        db.conversationDao().deleteConversation("history")
+        assertEquals(recovered, repo.restoreIdentity(backup, "a-long-password-123"))
+        assertEquals(recovered, repository().ensureIdentity())
+    }
 }

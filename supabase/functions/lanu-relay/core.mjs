@@ -1,0 +1,161 @@
+// Shared by the deployed edge function and the local protocol/security tests.
+const alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+const encoder = new TextEncoder();
+const hex64 = /^[a-f0-9]{64}$/;
+const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
+const codePattern = /^LANU(?:-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{4}){5}$/;
+const noncePattern = /^[A-Za-z0-9_-]{22}$/;
+export class RelayError extends Error { constructor(status, message) { super(message); this.status = status; } }
+const insist = (condition, status, message) => { if (!condition) throw new RelayError(status, message); };
+function decode(value) { return Uint8Array.from(atob(value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=')), c => c.charCodeAt(0)); }
+async function digest(value) { return new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(value))); }
+export async function publicId(publicKey) { return [...await digest(publicKey)].map(v => v.toString(16).padStart(2, '0')).join(''); }
+export async function publicCode(publicKey, nonce) {
+  let buffer = 0, bits = 0, value = '';
+  for (const byte of await digest(publicKey + ':' + nonce)) {
+    buffer = (buffer << 8) | byte; bits += 8;
+    while (bits >= 5 && value.length < 20) { bits -= 5; value += alphabet[(buffer >>> bits) & 31]; }
+    if (value.length === 20) break;
+  }
+  return 'LANU-' + value.match(/.{4}/g).join('-');
+}
+// Java's SHA256withECDSA returns DER; WebCrypto requires a fixed 64-byte P-1363 signature.
+function signatureBytes(value) {
+  const bytes = decode(value);
+  insist(bytes.length >= 8 && bytes.length <= 72 && bytes[0] === 0x30 && bytes[1] === bytes.length - 2, 401, 'Geçersiz istek imzası.');
+  let offset = 2;
+  const result = new Uint8Array(64);
+  for (let part = 0; part < 2; part++) {
+    insist(bytes[offset++] === 2, 401, 'Geçersiz istek imzası.');
+    let length = bytes[offset++];
+    insist(length > 0 && length <= 33 && offset + length <= bytes.length, 401, 'Geçersiz istek imzası.');
+    if (length === 33) { insist(bytes[offset] === 0, 401, 'Geçersiz istek imzası.'); offset++; length--; }
+    result.set(bytes.slice(offset, offset + length), part * 32 + (32 - length)); offset += length;
+  }
+  insist(offset === bytes.length, 401, 'Geçersiz istek imzası.');
+  return result;
+}
+async function verify(publicKey, payload, signature) {
+  try {
+    const key = await crypto.subtle.importKey('spki', decode(publicKey), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+    return await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, signatureBytes(signature), encoder.encode(payload));
+  } catch { return false; }
+}
+const messageIds = values => Array.isArray(values) && values.length <= 200 && values.every(value => typeof value === 'string' && uuid.test(value));
+const ciphertext = value => typeof value === 'string' && value.length <= 50000 && /^lanu2:[A-Za-z0-9_-]{38,}$/.test(value);
+export function createRelay(store, clock = Date.now) {
+  return async envelope => {
+    insist(envelope && typeof envelope.payload === 'string' && envelope.payload.length <= 70000 && typeof envelope.signature === 'string', 400, 'Geçersiz istek.');
+    let input;
+    try { input = JSON.parse(envelope.payload); } catch { throw new RelayError(400, 'Geçersiz istek.'); }
+    const { action, identityId: owner, ts, requestId } = input;
+    const data = input.data ?? {};
+    insist(hex64.test(owner ?? '') && uuid.test(requestId ?? '') && typeof action === 'string' && typeof data === 'object' && data !== null && !Array.isArray(data), 400, 'Geçersiz kimlik veya istek.');
+    insist(Number.isSafeInteger(ts) && Math.abs(clock() - ts) <= 300000, 401, 'Cihaz saatini kontrol edin; istek süresi geçersiz.');
+    let identity = await store.identity(owner);
+    const publicKey = action === 'register' ? data.publicKey : identity?.publicKey;
+    insist(typeof publicKey === 'string' && publicKey.length <= 256 && await publicId(publicKey) === owner, 401, 'Kimlik doğrulanamadı.');
+    insist(await verify(publicKey, envelope.payload, envelope.signature), 401, 'İstek imzası doğrulanamadı.');
+    if (action === 'register') {
+      insist(noncePattern.test(data.nonce ?? '') && codePattern.test(data.code ?? '') && await publicCode(publicKey, data.nonce) === data.code, 400, 'Kullanıcı kodu anahtarla eşleşmiyor.');
+      identity = await store.register({ id: owner, code: data.code, nonce: data.nonce, publicKey });
+      insist(identity.publicKey === publicKey, 409, 'Kimlik kaydı çakıştı.');
+    }
+    insist(identity, 401, 'Kimlik bulunamadı.');
+    insist(await store.consumeNonce(owner, requestId, clock()), 409, 'Bu istek daha önce işlendi.');
+    switch (action) {
+      case 'register': return { code: identity.code, nonce: identity.nonce };
+      case 'rotate': {
+        insist(noncePattern.test(data.nonce ?? '') && data.expectedCode === identity.code, 409, 'Kod değişti; kimliği yenileyip tekrar deneyin.');
+        const code = await publicCode(publicKey, data.nonce);
+        const changed = await store.rotate(owner, identity.code, code, data.nonce);
+        insist(changed, 409, 'Kod değişti; tekrar deneyin.');
+        return { code, nonce: data.nonce };
+      }
+      case 'addContact': {
+        insist(codePattern.test(data.code ?? ''), 400, 'Geçerli bir LANU kodu girin.');
+        const peer = await store.identityByCode(data.code) ?? await store.existingPeerByCode(owner, data.code);
+        insist(peer, 404, 'Bu kodla bir kullanıcı bulunamadı.');
+        insist(peer.id !== owner, 400, 'Kendi kodunuzu ekleyemezsiniz.');
+        await store.addContact(owner, peer.id, data.code);
+        return { peer: { ...peer, mutual: await store.mutual(owner, peer.id) } };
+      }
+      case 'removeContact': {
+        insist(hex64.test(data.peerId ?? ''), 400, 'Geçersiz kişi.');
+        await store.removeContact(owner, data.peerId); return { removed: true };
+      }
+      case 'send': {
+        insist(uuid.test(data.messageId ?? '') && hex64.test(data.peerId ?? '') && data.peerId !== owner && ciphertext(data.content), 400, 'Geçersiz şifreli mesaj.');
+        insist(await store.mutual(owner, data.peerId), 409, 'Yazışmak için karşı tarafın da kodunuzu kaydetmesi gerekir.');
+        const existing = await store.message(data.messageId);
+        if (existing) insist(existing.senderId === owner && existing.recipientId === data.peerId && existing.content === data.content, 409, 'Mesaj kimliği farklı içerikle kullanılmış.');
+        const message = existing ?? await store.send({ id: data.messageId, senderId: owner, recipientId: data.peerId, content: data.content });
+        insist(message.senderId === owner && message.recipientId === data.peerId && message.content === data.content, 409, 'Mesaj kimliği çakıştı.');
+        return { status: message.status };
+      }
+      case 'sync': return { contacts: await store.contacts(owner), events: await store.events(owner) };
+      case 'ack': {
+        const eventIds = data.eventIds ?? [], readIds = data.readIds ?? [];
+        insist(messageIds(eventIds) && messageIds(readIds), 400, 'Geçersiz teslim bildirimi.');
+        await store.ack(owner, eventIds, readIds); return { acknowledged: true };
+      }
+      case 'edit': case 'delete': case 'react': {
+        insist(uuid.test(data.messageId ?? ''), 400, 'Geçersiz mesaj.');
+        const message = await store.message(data.messageId);
+        insist(message && (message.senderId === owner || message.recipientId === owner), 404, 'Mesaj bulunamadı.');
+        if (action !== 'react') insist(message.senderId === owner, 403, 'Bu işlem yalnızca kendi mesajınızda yapılabilir.');
+        insist(!message.deleted, 409, 'Mesaj silinmiş.');
+        if (action === 'edit') insist(ciphertext(data.content), 400, 'Geçersiz şifreli mesaj.');
+        if (action === 'react') insist(typeof data.reaction === 'string' && data.reaction.length <= 16, 400, 'Geçersiz tepki.');
+        await store.updateMessage(data.messageId, action === 'delete' ? { deleted: true } : action === 'edit' ? { content: data.content } : { reaction: data.reaction });
+        return { updated: true };
+      }
+      default: throw new RelayError(400, 'Bilinmeyen işlem.');
+    }
+  };
+}
+
+/** Only used inside the trusted edge function. Never ship its service key in Android. */
+export class RestStore {
+  constructor(url, serviceKey, fetcher = fetch) { this.url = url.replace(/\/$/, '') + '/rest/v1/'; this.serviceKey = serviceKey; this.fetcher = fetcher; }
+  async query(path, method = 'GET', data, prefer) {
+    const response = await this.fetcher(this.url + path, { method, headers: { apikey: this.serviceKey, ...(this.serviceKey.startsWith('sb_secret_') ? {} : { Authorization: 'Bearer ' + this.serviceKey }), 'Content-Type': 'application/json', ...(prefer ? { Prefer: prefer } : {}) }, ...(data === undefined ? {} : { body: JSON.stringify(data) }) });
+    const raw = await response.text();
+    let parsed; try { parsed = raw ? JSON.parse(raw) : null; } catch { throw new RelayError(503, 'Sunucu yanıtı okunamadı.'); }
+    if (!response.ok) {
+      if (response.status === 409) throw new RelayError(409, 'Kayıt çakıştı; tekrar deneyin.');
+      throw new RelayError(503, 'Mesajlaşma sunucusu işlemi tamamlayamadı.');
+    }
+    return parsed;
+  }
+  mapIdentity(row) { return row ? { id: row.id, code: row.code, nonce: row.nonce, publicKey: row.public_key } : null; }
+  async identity(id) { return this.mapIdentity((await this.query('lanu_identities?id=eq.' + id + '&limit=1'))[0]); }
+  async identityByCode(code) { return this.mapIdentity((await this.query('lanu_identities?code=eq.' + encodeURIComponent(code) + '&limit=1'))[0]); }
+  async register(value) {
+    await this.query('lanu_identities?on_conflict=id', 'POST', { id: value.id, code: value.code, nonce: value.nonce, public_key: value.publicKey }, 'resolution=ignore-duplicates');
+    return this.identity(value.id);
+  }
+  async consumeNonce(owner, requestId) {
+    const result = await this.query('rpc/lanu_consume_nonce', 'POST', { p_owner: owner, p_request_id: requestId });
+    insist(!result.limited, 429, 'Çok fazla istek. Biraz bekleyip tekrar deneyin.');
+    return result.allowed;
+  }
+  async rotate(owner, expected, code, nonce) { return (await this.query('lanu_identities?id=eq.' + owner + '&code=eq.' + encodeURIComponent(expected), 'PATCH', { code, nonce }, 'return=representation')).length === 1; }
+  async addContact(owner, peer, code) { await this.query('lanu_contacts?on_conflict=owner_id,peer_id', 'POST', { owner_id: owner, peer_id: peer, code_at_add: code }, 'resolution=ignore-duplicates'); }
+  async removeContact(owner, peer) { await this.query('lanu_contacts?owner_id=eq.' + owner + '&peer_id=eq.' + peer, 'DELETE'); }
+  async existingPeerByCode(owner, code) { const row = (await this.query('lanu_contacts?owner_id=eq.' + owner + '&code_at_add=eq.' + encodeURIComponent(code) + '&limit=1'))[0]; return row ? this.identity(row.peer_id) : null; }
+  async mutual(owner, peer) { return (await this.query('lanu_contacts?or=(and(owner_id.eq.' + owner + ',peer_id.eq.' + peer + '),and(owner_id.eq.' + peer + ',peer_id.eq.' + owner + '))&select=owner_id')).length === 2; }
+  async contacts(owner) {
+    const edges = await this.query('lanu_contacts?owner_id=eq.' + owner);
+    return Promise.all(edges.map(async edge => ({ ...await this.identity(edge.peer_id), codeAtAdd: edge.code_at_add, mutual: await this.mutual(owner, edge.peer_id) })));
+  }
+  mapMessage(row) { return row ? { id: row.id, senderId: row.sender_id, recipientId: row.recipient_id, content: row.content, createdAt: Date.parse(row.created_at), status: row.read_at ? 'READ' : row.delivered_at ? 'DELIVERED' : 'SENT', deleted: row.deleted, reaction: row.reaction ?? '', revision: row.revision } : null; }
+  async message(id) { return this.mapMessage((await this.query('lanu_messages?id=eq.' + id + '&limit=1'))[0]); }
+  async send(value) {
+    await this.query('lanu_messages?on_conflict=id', 'POST', { id: value.id, sender_id: value.senderId, recipient_id: value.recipientId, content: value.content }, 'resolution=ignore-duplicates');
+    return this.message(value.id);
+  }
+  async events(owner) { return (await this.query('lanu_events?owner_id=eq.' + owner + '&acked=eq.false&order=created_at.asc,id.asc&limit=200')).map(row => ({ id: row.id, message: row.snapshot })); }
+  async ack(owner, eventIds, readIds) { await this.query('rpc/lanu_ack', 'POST', { p_owner: owner, p_event_ids: eventIds, p_read_ids: readIds }); }
+  async updateMessage(id, changes) { await this.query('lanu_messages?id=eq.' + id, 'PATCH', changes); }
+}

@@ -88,9 +88,10 @@ fun ChatDetailScreen(
         }
     )
 
-    DisposableEffect(conversationId) {
+    androidx.lifecycle.compose.LifecycleResumeEffect(conversationId) {
+        viewModel.selectConversation(conversationId)
         viewModel.startSync("chat:$conversationId")
-        onDispose {
+        onPauseOrDispose {
             viewModel.leaveConversation(conversationId)
             viewModel.stopSync("chat:$conversationId")
         }
@@ -99,10 +100,6 @@ fun ChatDetailScreen(
         errorMessage?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show(); viewModel.clearError() }
     }
 
-    // Set conversation selection on start
-    LaunchedEffect(conversationId) {
-        viewModel.selectConversation(conversationId)
-    }
 
     // Auto scroll to bottom when new messages arrive
     LaunchedEffect(messages.size, isPartnerTyping) {

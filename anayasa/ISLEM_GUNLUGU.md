@@ -348,3 +348,15 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - Otomatik örnek kişiler, demo yanıtları, sahte yazıyor/iletildi/okundu zamanlayıcıları kaldırıldı. Sunucu yapılandırılmadan bağlantı aktif gösterilmez.
 - Eski Room alan adları şema/veri korunarak tutulur; profilin eski telefon kimliği yeni sabit kimliğe geçirilir. Mevcut mesaj/geçmiş silinmez.
 - Durum: Android ve sunucu entegrasyonu geliştiriliyor. Yeni kod henüz CI/gerçek cihaz/canlı sunucu ile doğrulanmış değildir; tamamlandı veya yayımlandı sayılmaz.
+
+- Başarısız ilk CI (24f76ac): titreşim lambda'sı nullable Unit döndürdüğünden CommunicationScreen derlenmedi. İşlev türü açıkça () -> Unit yapılarak giderildi; yeni CI ile doğrulanacak. Yerel sunucu protokolünün 10 testi geçti; bu kayıt canlı sunucu veya fiziksel cihaz kanıtı değildir.
+- Okunma bildirimi için arka plana geçişte senkronizasyonu durduran LifecycleResumeEffect eklendi.
+
+### [19-10-2026] — İmzalı canlı servis ve kimlik kurtarma
+
+- Yerel sunucu protokol/HTTP/Postgres testleri: 17 geçti, 0 hata. Deno 2.9.6 giriş dosyası typecheck başarılı. Bunlar fiziksel Android cihaz testi değildir.
+- Ayrı LANU Supabase projesi (talhknjcjaijqiqwdyhf, Frankfurt) 0 $/ay teklif ile oluşturuldu; başka uygulamaların projeleri değiştirilmedi. Migration ve kendi P-256 doğrulamasını kullanan Edge v1 yayımlandı. İlk migration isteği Invalid/expired requestState ile başarısız oldu; boş şema sorguyla doğrulandı ve ikinci denemede uygulandı.
+- Advisors: güvenlik/hız için yalnız INFO bulguları. RLS/no-policy beş tablo için kasıtlı doğrudan erişim reddi; yeni indekslerin unused bilgisi yeni ve boş servis için beklenen durum. Anon/authenticated yetkileri testlerle kapalı.
+- Kimlik için parolalı AES-GCM/PBKDF2 yedek/dönüş eklendi; API 23 PBKDF2 uyumu ve mevcut başka kimliğin geçmişini ezmeme testleri yazıldı. Kod tek başına kurtarma sırrı değildir.
+- Yerel otomatik silme artık tam gönderilen mesaj ID'sine bağlı; son mesajı seçip yanlış mesajı gizleme ihtimali giderildi.
+- Durum: canlı HTTPS smoke ve son Android CI/APK doğrulaması sürüyor; henüz yeni sürüm yayımlandı sayılmaz.

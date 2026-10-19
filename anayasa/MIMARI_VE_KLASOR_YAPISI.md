@@ -70,3 +70,7 @@ Kullanıcı güvenliğini ve sistem kontrollerini sağlar.
 - core/repository/CommunicationRepository.kt: telefon bağımsız kimlik/rehber, şifreli gönderim kuyruğu ve sunucu olaylarını kalıcı kayda uygulama.
 - features/communication: gerçek bağlantı durumları, kullanıcı kodu kartı, karşılıklı kayıt ve kimliği silmeyen çıkış.
 - UserCodeMessagingTest.kt: kimlik, eski veri uyumu ve kriptografik sınır regresyonları.
+
+- `IdentityBackup.kt`: PBKDF2-HMAC-SHA256 (210000)/AES-GCM taşınabilir kimlik yedeği; parolayla kurtarma ve anahtar çifti doğrulama. API 23 HMAC tabanlı eşdeğer fallback.
+- `supabase/`: yalnız imzalı Edge servisi erişimli RLS tabloları, ACK/revision/event ve atomik nonce RPC.
+- `server/`: kilitli PGlite bağımlılığı, 17 protokol/HTTP/SQL testi ve canlı HTTPS smoke aracı; dağıtım/kurtarma sınırları README'de.

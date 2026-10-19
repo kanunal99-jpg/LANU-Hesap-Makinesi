@@ -147,8 +147,8 @@
     <string name="status_read">Okundu</string>
 
     <!-- Chat enhancements -->
-    <string name="self_destruct_on">Bu Cihazda Otomatik Silme Eden Mesajlar: AÇIK</string>
-    <string name="self_destruct_off">Bu Cihazda Otomatik Silme Eden Mesajlar: KAPALI</string>
+    <string name="self_destruct_on">Bu Cihazda Otomatik Silme: AÇIK</string>
+    <string name="self_destruct_off">Bu Cihazda Otomatik Silme: KAPALI</string>
     <string name="add_attachment">Dosya Ekle</string>
     <string name="attachment_simulated">Güvenli dosya eki simüle edildi</string>
     <string name="call_started">📞 Demo Arama Başladı</string>

@@ -88,6 +88,21 @@ class CommunicationRepository(
         changed
     }
 
+    suspend fun exportIdentity(password: String): String = withContext(Dispatchers.Default) {
+        IdentityBackup.export(ensureIdentity(), password)
+    }
+    suspend fun restoreIdentity(backup: String, password: String): MessagingIdentity = syncMutex.withLock {
+        val restored = withContext(Dispatchers.Default) { IdentityBackup.restore(backup, password) }
+        val own = ensureIdentity()
+        require(own.id == restored.id || (conversations.first().isEmpty() && contacts.first().isEmpty())) {
+            "Bu cihazda başka kimliğe ait kayıtlar var. Kimlikler birbirinin üzerine yazılamaz."
+        }
+        withContext(Dispatchers.IO) { identityStore.save(restored) }
+        _identity.value = restored
+        userProfileDao.replaceProfile(UserProfileEntity(restored.code, userProfileDao.getUserProfile()?.displayName ?: "LANU Kullanıcısı"))
+        restored
+    }
+
     suspend fun addContact(name: String, code: String) {
         val own = ensureIdentity()
         val normalized = UserCodes.normalize(code)
@@ -158,7 +173,7 @@ class CommunicationRepository(
         }
     }
 
-    suspend fun sendMessage(conversationId: String, text: String, mediaUrl: String? = null, onTypingStateChange: (suspend (Boolean) -> Unit)? = null) {
+    suspend fun sendMessage(conversationId: String, text: String, mediaUrl: String? = null, onTypingStateChange: (suspend (Boolean) -> Unit)? = null): String {
         require(mediaUrl == null) { "Medya aktarımı henüz etkin değil; metin mesajı gönderebilirsiniz." }
         require(text.isNotBlank() && text.length <= 8000) { "Mesaj 1–8000 karakter olmalıdır." }
         val own = ensureIdentity()
@@ -167,6 +182,7 @@ class CommunicationRepository(
         val encrypted = PeerMessageCrypto.encrypt(own, peer.getString("id"), peer.getString("publicKey"), id, text)
         messageDao.insertMessage(MessageEntity(id, conversationId, own.id, userProfileDao.getUserProfile()?.displayName ?: "Ben", encrypted, status = "PENDING"))
         conversationDao.getConversationById(conversationId)?.let { conversationDao.insertConversation(it.copy(lastMessageText = "Şifreli mesaj", lastMessageTime = System.currentTimeMillis())) }
+        return id
     }
 
     suspend fun synchronize(activeConversationId: String? = null) = syncMutex.withLock {

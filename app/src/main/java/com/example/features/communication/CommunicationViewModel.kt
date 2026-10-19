@@ -97,6 +97,21 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
             finally { _busy.value = false }
         }
     }
+    fun exportIdentity(password: String, writer: suspend (String) -> Unit) {
+        if (_busy.value) return
+        _busy.value = true
+        operation { try { writer(repository.exportIdentity(password)) } finally { _busy.value = false } }
+    }
+    fun restoreIdentity(password: String, reader: suspend () -> String) {
+        if (_busy.value) return
+        _busy.value = true
+        operation {
+            try {
+                val own = repository.restoreIdentity(reader(), password)
+                _userPhone.value = own.code; _userId.value = own.id
+            } finally { _busy.value = false }
+        }
+    }
     fun addContact(name: String, code: String) = operation { repository.addContact(name, code); synchronize() }
     fun deleteContact(code: String) = operation { repository.deleteContact(code) }
     fun selectConversation(id: String) {
@@ -121,12 +136,12 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
     fun sendMessage(text: String, isSelfDestruct: Boolean = false, destructDelaySeconds: Int = 10) {
         val conversation = _activeConversation.value ?: return
         operation {
-            repository.sendMessage(conversation.id, text)
+            val messageId = repository.sendMessage(conversation.id, text)
             synchronize()
             // This is explicitly a local display timer, never a remote deletion promise.
             if (isSelfDestruct) {
                 delay(destructDelaySeconds * 1000L)
-                _activeMessages.value.lastOrNull { it.senderPhone == _userId.value }?.let { repository.hideMessageLocally(it.id) }
+                repository.hideMessageLocally(messageId)
             }
         }
     }

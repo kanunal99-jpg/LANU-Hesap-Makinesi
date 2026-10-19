@@ -1,5 +1,11 @@
 package com.example.features.communication
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.rememberScrollState
@@ -58,14 +64,14 @@ fun CommunicationScreen(
     val error by viewModel.errorMessage.collectAsState()
     var tab by remember { mutableIntStateOf(0) }
     var showAdd by remember { mutableStateOf(false) }
-    val vibrate = {
+    val vibrate: () -> Unit = {
         (context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator)?.let {
             if (Build.VERSION.SDK_INT >= 26) it.vibrate(VibrationEffect.createOneShot(30, VibrationEffect.DEFAULT_AMPLITUDE))
         }
     }
-    DisposableEffect(viewModel) {
+    androidx.lifecycle.compose.LifecycleResumeEffect(viewModel) {
         viewModel.startSync("home")
-        onDispose { viewModel.stopSync("home") }
+        onPauseOrDispose { viewModel.stopSync("home") }
     }
     Scaffold(
         topBar = {
@@ -520,17 +526,63 @@ fun SettingsTab(viewModel: CommunicationViewModel, securityViewModel: SecurityVi
     val busy by viewModel.busy.collectAsState()
     var showRotate by remember { mutableStateOf(false) }
     var showName by remember { mutableStateOf(false) }
+    var backupAction by remember { mutableStateOf<String?>(null) }
+    var filePassword by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        val password = filePassword; filePassword = ""
+        if (uri != null) viewModel.exportIdentity(password) { raw ->
+            withContext(Dispatchers.IO) {
+                val stream = context.contentResolver.openOutputStream(uri, "wt") ?: error("Yedek dosyası açılamadı")
+                stream.use { it.write(raw.toByteArray(Charsets.UTF_8)) }
+            }
+        }
+    }
+    val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val password = filePassword; filePassword = ""
+        if (uri != null) viewModel.restoreIdentity(password) {
+            withContext(Dispatchers.IO) {
+                val stream = context.contentResolver.openInputStream(uri) ?: error("Yedek dosyası açılamadı")
+                stream.use { input ->
+                    val output = ByteArrayOutputStream(); val buffer = ByteArray(4096)
+                    while (true) {
+                        val count = input.read(buffer); if (count < 0) break
+                        require(output.size() + count <= 32768) { "Yedek dosyası çok büyük" }
+                        output.write(buffer, 0, count)
+                    }
+                    output.toString("UTF-8")
+                }
+            }
+        }
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         IdentityCodeCard(code, name)
         Text("Kodunuz uygulama yeniden açıldığında değişmez. Yalnızca siz yeni kod oluşturmayı seçerseniz değiştirilir.", fontSize = 12.sp)
         OutlinedButton(onClick = { showName = true }, modifier = Modifier.fillMaxWidth()) { Text("Görünen adı düzenle") }
         OutlinedButton(onClick = { showRotate = true }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("change_user_code")) { Text("Kullanıcı kodumu değiştir") }
+        Text("Uygulamayı silmeden veya cihaz değiştirmeden önce kimliğini yedekle. Parolalı yedeği geri yükleyerek aynı kodu kullanabilirsin.", fontSize = 12.sp)
+        OutlinedButton(onClick = { backupAction = "export" }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Kimliğimi yedekle") }
+        OutlinedButton(onClick = { backupAction = "restore" }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Kimlik yedeğini geri yükle") }
         com.example.features.security.SettingsScreen(securityViewModel, triggerVibration)
     }
     if (showRotate) AlertDialog(onDismissRequest = { showRotate = false }, title = { Text("Yeni kullanıcı kodu oluşturulsun mu?") },
         text = { Text("Yeni kişiler sizi yeni kodunuzla ekleyecek. Kimliğiniz, kayıtlı kişileriniz ve mesaj geçmişiniz korunur. Bu işlem yalnızca sizin isteğinizle yapılır.") },
         confirmButton = { Button(onClick = { showRotate = false; viewModel.rotateCode() }, enabled = !busy) { Text("Yeni kod oluştur") } },
         dismissButton = { TextButton(onClick = { showRotate = false }) { Text("Vazgeç") } })
+    if (backupAction != null) {
+        var password by remember { mutableStateOf("") }
+        val exporting = backupAction == "export"
+        AlertDialog(onDismissRequest = { backupAction = null }, title = { Text(if (exporting) "Kimliğini parola ile yedekle" else "Kimlik yedeğini aç") },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("En az 12 karakterli bir parola kullan. Parolan olmadan yedeğin açılamaz; kullanıcı kodun bu parolanın yerine geçmez.")
+                OutlinedTextField(password, { password = it.take(256) }, label = { Text("Yedek parolası") }, visualTransformation = PasswordVisualTransformation(), singleLine = true)
+            } },
+            confirmButton = { Button(onClick = {
+                filePassword = password; backupAction = null
+                if (exporting) exportLauncher.launch("LANU-kimlik-yedegi.lanu.json") else restoreLauncher.launch(arrayOf("*/*"))
+            }, enabled = password.length >= 12) { Text(if (exporting) "Dosyaya kaydet" else "Yedek dosyasını seç") } },
+            dismissButton = { TextButton(onClick = { backupAction = null }) { Text("Vazgeç") } })
+    }
     if (showName) {
         var input by remember { mutableStateOf(name) }
         AlertDialog(onDismissRequest = { showName = false }, title = { Text("Görünen ad") },

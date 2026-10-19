@@ -20,7 +20,7 @@ android {
     // CI releases advance monotonically; local builds remain installable.
     versionCode = providers.environmentVariable("LANU_VERSION_CODE").orNull?.toIntOrNull() ?: 1
     versionName = "1.0"
-    buildConfigField("String", "LANU_RELAY_URL", "\"${providers.environmentVariable("LANU_RELAY_URL").orNull ?: ""}\"")
+    buildConfigField("String", "LANU_RELAY_URL", "\"${providers.environmentVariable("LANU_RELAY_URL").orNull ?: "https://talhknjcjaijqiqwdyhf.supabase.co/functions/v1/lanu-relay"}\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
