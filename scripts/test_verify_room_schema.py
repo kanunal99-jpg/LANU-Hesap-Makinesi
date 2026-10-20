@@ -1,4 +1,5 @@
 """Unit tests for the schema CI guard: no Android SDK required."""
+import hashlib
 import json
 import tempfile
 import unittest
@@ -49,6 +50,16 @@ class RoomSchemaGateTest(unittest.TestCase):
         message["fields"] = [{"columnName": "id"}]
         with self.assertRaises(ValueError):
             self.check()
+
+    def test_pinned_hash_accepts_exact_schema_and_rejects_drift(self):
+        self.path.write_text(json.dumps(self.schema), encoding="utf-8")
+        pin = Path(self.tmp.name) / "baseline.sha256"
+        pin.write_text(hashlib.sha256(self.path.read_bytes()).hexdigest() + "\n", encoding="utf-8")
+        verify(self.path, pin)
+        self.schema["database"]["entities"][0]["fields"].append({"columnName": "silentChange"})
+        self.path.write_text(json.dumps(self.schema), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "schema drift"):
+            verify(self.path, pin)
 
     def test_missing_database_file_is_rejected(self):
         with self.assertRaises(ValueError):
