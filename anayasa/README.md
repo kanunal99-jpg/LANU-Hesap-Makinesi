@@ -19,7 +19,11 @@ Bu dizin, uygulamanın güvenlik standartlarını, mimari yapısını, tüm öze
 
 1.  **Gizlilik Birinci Sınıftır (Privacy First):** Uygulama hiçbir koşulda arka plandayken veya son uygulamalar listesindeyken şifresiz veri sızdıramaz (`FLAG_SECURE`).
 2.  **Kusursuz Kamuflaj (Flawless Camouflage):** Hesap makinesi ve birim dönüştürücü arayüzleri, normal bir application gibi tamamen çalışır durumda olmalıdır.
-3.  **Yerel Öncelikli Güvenlik (Local-First Secure):** Tüm veriler şifreli yerel veritabanında saklanır. Bulut eşitlemesi tamamen isteğe bağlıdır ve uçtan uca şifrelidir (E2EE).
+3.  **Yerel Öncelikli Güvenlik (Local-First Secure):** **Hedef:** Hassas yerel veriler şifreli tutulmalıdır. **Güncel açık risk:** Room dosyasının tamamı henüz şifreli değildir; E2EE de bağımsız protokol ve cihaz testlerini beklemektedir. Hedefi tamamlanmış kontrol gibi göstermeyin.
 4.  **Hatasız Derleme ve Lint Garantisi (Zero-Error Compilation):** Yapılan her kod değişikliği sıfır hata ile derlenmek ve Android Lint kurallarından başarıyla geçmek zorundadır.
 5.  **Her Yenilik APK Olarak Çıkarılacak (APK Release for Every Feature):** Eklenen her bir yenilik, güncelleme veya hata düzeltmesinden sonra uygulama APK formatında derlenip hazır hale getirilecektir.
 6.  **Hatalardan Ders Çıkarma (Failed Attempts Log):** Başarısız olan tüm işlemler, karşılaşılan derleme/mantık hataları ve yapılan yanlışlar işlem günlüğüne detaylıca işlenecektir. Böylelikle aynı tuzaklara tekrar düşülmesi engellenecektir.
+
+## 20.10.2026 — Kanıt bağlantısı
+
+Güncel P0/P1 yapılanlar, yapılacaklar, 60/100 mevcut puan ve koşullu 93/100 hedef [kök anayasaya](../PROJE_ANAYASASI_VE_DUZELTILECEKLER.md) işlenmiştir. CI başarısı gerçek cihaz onayı değildir.
