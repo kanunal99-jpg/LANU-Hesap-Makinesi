@@ -157,12 +157,30 @@ object SecureOtaUpdater {
     }
 
     fun parseSigner(text: String): String {
-        val fields = text.lineSequence().mapNotNull { line ->
+        // Never allow a forged/ambiguous sidecar to pick whichever duplicate wins.
+        // The release workflow publishes exactly these fields (legacy sidecars may
+        // omit the optional upgrade status).
+        require(text.length in 1..2048) { "Sürüm imza kaydı boyutu geçersiz." }
+        val allowed = setOf("apk", "signing_mode", "certificate_sha256", "upgrade_verified_on_device")
+        val fields = mutableMapOf<String, String>()
+        for (line in text.lineSequence().filter { it.isNotBlank() }) {
             val index = line.indexOf('=')
-            if (index <= 0) null else line.substring(0, index).trim() to line.substring(index + 1).trim()
-        }.toMap()
+            require(index > 0 && line.indexOf('=', index + 1) < 0) {
+                "Sürüm imza kaydı biçimi geçersiz."
+            }
+            val name = line.substring(0, index)
+            val value = line.substring(index + 1)
+            require(name in allowed && name !in fields && name == name.trim() &&
+                value == value.trim() && value.isNotEmpty()) {
+                "Sürüm imza kaydı eksik, belirsiz veya tekrarlı."
+            }
+            fields[name] = value
+        }
         require(fields["apk"] == APK_NAME && fields["signing_mode"] in setOf("stable", "ephemeral")) {
             "Sürüm imza bilgisi eksik."
+        }
+        require(fields["upgrade_verified_on_device"] in setOf(null, "true", "false")) {
+            "Cihaz güncelleme bilgisi geçersiz."
         }
         return fields["certificate_sha256"]?.lowercase(Locale.ROOT)?.takeIf(shaPattern::matches)
             ?: throw IllegalArgumentException("Sertifika parmak izi geçersiz.")
