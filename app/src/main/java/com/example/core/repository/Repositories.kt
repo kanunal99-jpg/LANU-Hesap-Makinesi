@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.UUID
+import java.math.BigDecimal
+import kotlinx.coroutines.flow.update
 
 class CalculatorRepository(private val historyDao: CalculationHistoryDao, private val settingsDao: SettingsDao) {
     val history: Flow<List<CalculationHistoryEntity>> = historyDao.getAllHistory()
@@ -28,7 +30,9 @@ class CalculatorRepository(private val historyDao: CalculationHistoryDao, privat
         return value?.toIntOrNull() ?: 6
     }
 
-    // Scientific Calculator memory registers
+    // Exact decimal is authoritative; Double is a compatibility view only.
+    private val _exactMemoryValue = MutableStateFlow(BigDecimal.ZERO)
+    val exactMemoryValue: StateFlow<BigDecimal> = _exactMemoryValue.asStateFlow()
     private val _memoryValue = MutableStateFlow(0.0)
     val memoryValue: StateFlow<Double> = _memoryValue.asStateFlow()
 
@@ -54,21 +58,18 @@ class CalculatorRepository(private val historyDao: CalculationHistoryDao, privat
         historyDao.deleteHistoryOlderThan(timestamp)
     }
 
-    fun setMemory(value: Double) {
-        _memoryValue.value = value
+    private fun publishMemory(value: BigDecimal) {
+        _exactMemoryValue.value = value
+        _memoryValue.value = value.toDouble() // Legacy UI projection, never used in arithmetic.
     }
 
-    fun addToMemory(value: Double) {
-        _memoryValue.value += value
-    }
-
-    fun subtractFromMemory(value: Double) {
-        _memoryValue.value -= value
-    }
-
-    fun clearMemory() {
-        _memoryValue.value = 0.0
-    }
+    fun setMemory(value: BigDecimal) = publishMemory(value)
+    fun addToMemory(value: BigDecimal) = publishMemory(_exactMemoryValue.value.add(value))
+    fun subtractFromMemory(value: BigDecimal) = publishMemory(_exactMemoryValue.value.subtract(value))
+    fun setMemory(value: Double) = setMemory(BigDecimal.valueOf(value))
+    fun addToMemory(value: Double) = addToMemory(BigDecimal.valueOf(value))
+    fun subtractFromMemory(value: Double) = subtractFromMemory(BigDecimal.valueOf(value))
+    fun clearMemory() = publishMemory(BigDecimal.ZERO)
 }
 
 class SecurityRepository(
