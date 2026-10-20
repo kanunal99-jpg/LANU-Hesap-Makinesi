@@ -516,3 +516,9 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 ### [20-10-2026] — MSG-SIZE-01 mesaj kapasitesi ve hafıza dayanıklılığı
 - Sunucunun 50.000 karakterlik şifreli içerik sınırı Android E2EE şifreleme/çözme koduna taşındı. Decode öncesi uzunluk ve alfabeye bakılır.
 - Test: sınır boyutunda roundtrip, Unicode, geçersiz/uzun/eksik çerçeve. CI doğrulaması bekleniyor.
+
+### 20.10.2026 — P0 Android otomatik yedekleme/aktarım sızıntısı CI bekçisi (BACKUP-GUARD-01)
+- **Risk:** Room v4 düz SQLite ve Keystore'a bağlı ayarlar otomatik bulut yedeklemeye veya cihazlar arası transfere dahil edilirse içerik sızıntısı ve kurtarılamayan Keystore anahtarı riski doğar.
+- **Kapsam:** Mevcut `allowBackup=false`, legacy backup full-root exclude, Android 12+ `cloud-backup`/`device-transfer` full-root exclude, OTA FileProvider `exported=false` değerlerinin her PR CI'da XML doğrulaması.
+- **Test:** Geliştirici yedeklemeyi yeniden açarsa, bulut/cihaz kısıtını kaldırırsa veya FileProvider'ı dışa açarsa CI başarısız olmalı.
+- **Sınır:** Bu kontrol Room v4'ün kendisini şifrelemez, mevcut fiziksel cihazdaki eski verileri temizlemez ve manuel parolalı yedek sistemi yerine geçmez.
