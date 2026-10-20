@@ -76,6 +76,11 @@ jobs:
       - name: Verify current Room v4 schema export
         run: python3 scripts/verify_room_schema.py app/schemas/com.example.core.database.AppDatabase/4.json docs/ROOM_V4_SCHEMA.sha256
 
+      - name: Verify Android Keystore privacy and backup controls
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_verify_android_privacy.py'
+          python3 scripts/verify_android_privacy.py
+
       - name: Run Android Lint
         run: ./gradlew :app:lintDebug --no-daemon --stacktrace
 
