@@ -74,14 +74,17 @@ class CalculatorRepository(private val historyDao: CalculationHistoryDao, privat
 class SecurityRepository(
     private val context: Context,
     private val settingsDao: SettingsDao,
+    // Test-only dependency seam. Production callers must use Android Keystore.
+    private val preferencesForTesting: SharedPreferences? = null,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
     private val authenticationMutex = Mutex()
     private var backgroundedAt: Long? = null
 
     
-    private val sharedPreferences: SharedPreferences by lazy {
-        try {
+    private val sharedPreferences: SharedPreferences? by lazy {
+        if (preferencesForTesting != null) preferencesForTesting
+        else try {
             val masterKey = MasterKey.Builder(context)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build()
@@ -92,9 +95,9 @@ class SecurityRepository(
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
-        } catch (e: Exception) {
-            // Safe fallback if KeyStore is not initialized or available (common on sandbox emulators)
-            context.getSharedPreferences("secure_settings_prefs_fallback", Context.MODE_PRIVATE)
+        } catch (_: Exception) {
+            // Never downgrade biometric authorization data to plain SharedPreferences.
+            null
         }
     }
 
@@ -233,11 +236,25 @@ class SecurityRepository(
     }
 
     suspend fun isBiometricEnabled(): Boolean {
-        return sharedPreferences.getBoolean("biometric_enabled", false)
+        // If Keystore cannot be used, biometric unlock is ALWAYS off.
+        return try { sharedPreferences?.getBoolean("biometric_enabled", false) == true }
+        catch (_: Exception) { false }
     }
 
     suspend fun setBiometricEnabled(enabled: Boolean) {
-        sharedPreferences.edit().putBoolean("biometric_enabled", enabled).apply()
+        val prefs = sharedPreferences
+        if (prefs == null) {
+            if (enabled) throw SecurityException("Biyometrik güvenli depolama kullanılamıyor; özellik açılmadı.")
+            return
+        }
+        try {
+            check(prefs.edit().putBoolean("biometric_enabled", enabled).commit()) {
+                "Biyometrik ayar güvenle kaydedilemedi."
+            }
+        } catch (e: Exception) {
+            if (enabled) throw SecurityException("Biyometrik ayar güvenli depoya yazılamadı.", e)
+            // Always leave unlock disabled for the current process.
+        }
     }
 
     suspend fun getThemePreference(): String {
