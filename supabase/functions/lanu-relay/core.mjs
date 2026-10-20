@@ -16,7 +16,7 @@ const insist = (condition, status, message) => { if (!condition) throw new Relay
 export async function readBoundedRequest(request, maxBytes = 100000) {
   const declared = request.headers.get('content-length');
   if (declared !== null) {
-    insist(/^\\d+$/.test(declared), 400, 'Geçersiz istek boyutu.');
+    insist(/^[0-9]+$/.test(declared), 400, 'Geçersiz istek boyutu.');
     insist(Number(declared) <= maxBytes, 413, 'İstek çok büyük.');
   }
   const reader = request.body?.getReader();
