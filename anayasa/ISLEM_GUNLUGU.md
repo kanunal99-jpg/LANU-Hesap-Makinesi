@@ -511,3 +511,8 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - Uzak sunucu hatasında mesajı kaybetmeme, yerel disk hatasında rollback ve pending otomatik koruma regresyonları eklendi.
 - CI ve ana dal/yayın kanıtı sonuçlanmadan kapanmaz.
 
+
+
+### [20-10-2026] — MSG-SIZE-01 mesaj kapasitesi ve hafıza dayanıklılığı
+- Sunucunun 50.000 karakterlik şifreli içerik sınırı Android E2EE şifreleme/çözme koduna taşındı. Decode öncesi uzunluk ve alfabeye bakılır.
+- Test: sınır boyutunda roundtrip, Unicode, geçersiz/uzun/eksik çerçeve. CI doğrulaması bekleniyor.
