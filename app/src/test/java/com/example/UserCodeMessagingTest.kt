@@ -36,9 +36,10 @@ class UserCodeMessagingTest {
     private fun repository(
         store: MessagingIdentityStore = vault,
         relay: MessagingRelay = offline,
-        conversationDao: ConversationDao = db.conversationDao()
+        conversationDao: ConversationDao = db.conversationDao(),
+        messageDao: MessageDao = db.messageDao()
     ) = CommunicationRepository(
-        db.contactDao(), conversationDao, db.messageDao(), db.settingsDao(),
+        db.contactDao(), conversationDao, messageDao, db.settingsDao(),
         db.userProfileDao(), db.callLogDao(), store, relay, db)
     @Before fun setup() {
         db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Context>(), AppDatabase::class.java).build()
@@ -439,5 +440,58 @@ class UserCodeMessagingTest {
         } catch (_: IllegalStateException) { }
         assertNull(vault.value)
         assertEquals(previous.code, db.userProfileDao().getUserProfile()?.phoneNumber)
+    }
+    @Test fun `deleting conversation removes local ciphertext queued messages and hides replay`() = runBlocking {
+        val repo = repository()
+        val conv = "conversation-to-erase"
+        db.conversationDao().insertConversation(ConversationEntity(
+            conv, "LANU-PEER", "Friend", lastMessageText = "secret", unreadCount = 4))
+        val messages = listOf(
+            MessageEntity("queued-to-erase", conv, "my-old-id", "Me", "lanu2:pending", status = "PENDING"),
+            MessageEntity("delivered-to-erase", conv, "peer-id", "Friend", "lanu2:received", status = "READ")
+        )
+        messages.forEach { db.messageDao().insertMessage(it) }
+        repo.deleteConversation(conv)
+        assertNull(db.conversationDao().getConversationById(conv))
+        messages.forEach { msg ->
+            assertNull("Deleting a conversation must also remove its ciphertext", db.messageDao().getMessage(msg.id))
+            assertEquals("true", db.settingsDao().getSettingValue("lanu_hidden_${msg.id}"))
+        }
+        assertTrue(db.messageDao().getPendingMessages().isEmpty())
+    }
+
+    @Test fun `failed deletion rolls back tombstones and preserves messages and conversation`() = runBlocking {
+        val conv = "conversation-failed-delete"
+        db.conversationDao().insertConversation(ConversationEntity(conv, "LANU-PEER", "Friend"))
+        db.messageDao().insertMessage(MessageEntity(
+            "still-on-disk", conv, "other-id", "Friend", "lanu2:stored", status = "READ"))
+        val broken = object : MessageDao by db.messageDao() {
+            override suspend fun deleteAllMessagesForConversation(convId: String) {
+                throw IllegalStateException("Simulated deletion failure")
+            }
+        }
+        try {
+            repository(messageDao = broken).deleteConversation(conv)
+            fail("Conversation deletion must fail atomically")
+        } catch (_: IllegalStateException) { }
+        assertNotNull(db.messageDao().getMessage("still-on-disk"))
+        assertNotNull(db.conversationDao().getConversationById(conv))
+        assertNull("Rollback must not hide undeleted messages",
+            db.settingsDao().getSettingValue("lanu_hidden_still-on-disk"))
+    }
+
+    @Test fun `clear conversation erases messages but keeps an empty unread-free thread`() = runBlocking {
+        val conv = "conversation-clear"
+        db.conversationDao().insertConversation(ConversationEntity(
+            conv, "LANU-PEER", "Friend", lastMessageText = "private", unreadCount = 3))
+        db.messageDao().insertMessage(MessageEntity(
+            "clear-me", conv, "other-id", "Friend", "lanu2:confidential", status = "READ"))
+        repository().clearConversationMessages(conv)
+        assertNull(db.messageDao().getMessage("clear-me"))
+        assertEquals("true", db.settingsDao().getSettingValue("lanu_hidden_clear-me"))
+        val thread = db.conversationDao().getConversationById(conv)
+        assertNotNull(thread)
+        assertEquals("", thread?.lastMessageText)
+        assertEquals(0, thread?.unreadCount)
     }
 }
