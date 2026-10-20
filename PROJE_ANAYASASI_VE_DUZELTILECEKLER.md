@@ -239,3 +239,10 @@ Bu puan bir sertifika değildir; yerinde ve bağımsız kanıtlar tamamlanmadan 
 - **Düzeltme:** Gelen veriyi Web ReadableStream parçaları halinde oku, toplam UTF-8 byte sayısını 100.000 ile sınırla; Content-Length üst sınırını okuma öncesi denetle, eksik/yanlış Content-Length olsa bile aktüel byte sınırını uygula. Limit aşımında HTTP 413, bozuk UTF-8/başlıkta 400 ve stream iptali.
 - **Test:** 100.000 bayt tam sınırı ve 100.001 reddi, chunked/eksik Content-Length, geçersiz başlık, çok baytlı UTF-8, bozuk UTF-8, normal JSON; Node sunucu testlerinde otomatik.
 - **Açık:** Üretim Supabase Edge Function yayınına ilişkin canlı endpoint kanıtı yoksa production düzeltmesi olarak ilan edilmez. Dış güvenlik değerlendirmesi, sunucu TTL ve gerçek iki cihazlı senaryolar ayrı P0.
+
+### 20.10.2026 — P0 silinmiş sohbetin sunucu olayıyla yeniden oluşmasının önlenmesi (CONV-REPLAY-01)
+- **Bulgu:** Sohbet silerken mevcut mesajların ID tombstone'ları vardı; ancak o anda cihazda olmayan eski uzaktan gelen mesajlar gelecekte `synchronize` sırasında sohbeti ve kayıtları yeniden oluşturabiliyordu.
+- **Çözüm:** `lanu_hidden_conv_<id>` kalıcı Room gizlilik işareti sohbet silme transaction'ında saklanır. Gelen olaylarda sohbet işareti kontrol edilip mesaj/sohbet depolanmaz ve yanlış okundu bildirimi gönderilmez; teslim olayı revizyonu kaydedilip ACK alabilir.
+- **Kurtarma/UX:** Kullanıcı `createConversation` ile bilerek tekrar sohbet başlatınca işaret atomik temizlenir. `deleteConversation` aynı `syncMutex` altında senkronizasyonla seri çalışır.
+- **Test:** Daha önce cihaza gelmemiş eski E2EE olayıyla yeniden oluşmama, açıkça yeniden başlatınca yeni mesaj alabilme, silme hatasında sohbet işareti rollback.
+- **Sınır:** SQLite WAL/serbest alan eski byte izleri, sunucu retention ve diğer cihazlarda sohbet silme bu yerel işaretin kapsamında değildir.
