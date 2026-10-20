@@ -493,7 +493,7 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - Merge kapısı: CI unit/Robolectric, lint, Room hash, APK sertifika ve SHA256 tamamlanmalı.
 
 
-### [20-10-2026] — OTA-META-01 sıkı imza metadata ayrıştırma
-- Yinelenen sertifika imzası / mode satırları, beklenmeyen metadata ve bozuk satırlar reddedilir.
-- Resmî GitHub Actions signer formatı ve eski opsiyonel alan desteği korunur.
-- Yeni saldırgan metadata regresyon testleri CI sonucu bekliyor.
+### [20-10-2026] — ID-PERSIST-01 şifreli kimlik kayıt geri-okuma doğrulaması
+- Sadece başarılı `commit` değil, şifreli kimlik değerinin birebir tekrar okunabilir olması da aranır.
+- Depolama reddi ve okuma bozukluğu testleri eklendi; eski kimliğin kaybolmaması temel kabul koşulu.
+- PR test/merge ve APK yayın kanıtları ayrıca gereklidir.
