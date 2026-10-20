@@ -56,6 +56,8 @@ object SecureOtaUpdater {
     private const val CHECKSUM_NAME = "app-debug.apk.sha256"
     private const val SIGNER_NAME = "app-debug.apk.signer.txt"
     private const val MAX_APK_BYTES = 90L * 1024 * 1024
+    // Keep no more than two full-sized packages; free space stays available for messages.
+    private const val MAX_CACHE_BYTES = 2 * MAX_APK_BYTES
     private const val MAX_REDIRECTS = 5
     private val approvedHosts = setOf(
         "api.github.com", "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"
@@ -199,10 +201,36 @@ object SecureOtaUpdater {
      * Strict HTTP resume validation. A server may ignore Range (HTTP 200), in which case
      * the caller MUST discard the existing prefix before writing new bytes.
      */
-    fun acceptedResumeOffset(existingBytes: Long, httpCode: Int, contentRange: String?): Long {
-        require(existingBytes >= 0L && existingBytes <= MAX_APK_BYTES) { "Kısmi indirme boyutu geçersiz." }
-        if (httpCode == 200) return 0L
-        require(existingBytes > 0L && httpCode == 206) { "Güvensiz veya beklenmeyen kısmi HTTP yanıtı." }
+    fun acceptedResumeOffset(existingBytes: Long, httpCode: Int, contentRange: String?): Long =
+        validateDownloadResponse(existingBytes, httpCode, contentRange, -1L, null)
+
+    /**
+     * Validate every byte-range claim before opening an output stream.
+     * A full-file SHA-256 remains compulsory, but malformed 206 responses are rejected
+     * immediately instead of wasting space, bandwidth, and battery.
+     */
+    fun validateDownloadResponse(
+        existingBytes: Long,
+        httpCode: Int,
+        contentRange: String?,
+        contentLength: Long,
+        encoding: String?
+    ): Long {
+        require(existingBytes in 0..MAX_APK_BYTES && contentLength >= -1L) {
+            "İndirme uzunluğu geçersiz."
+        }
+        require(encoding == null || encoding.equals("identity", ignoreCase = true)) {
+            "Sunucu sıkıştırılmış bir APK yanıtı verdi."
+        }
+        if (httpCode == 200) {
+            require(contentRange.isNullOrBlank() && contentLength <= MAX_APK_BYTES) {
+                "Tam indirme yanıltıcı aralık veya boyut bilgisi içeriyor."
+            }
+            return 0L // Server ignored Range: restart from the beginning.
+        }
+        require(existingBytes > 0L && httpCode == 206) {
+            "Güvensiz veya beklenmeyen kısmi HTTP yanıtı."
+        }
         val match = Regex("""bytes (\d+)-(\d+)/(\d+)""").matchEntire(contentRange.orEmpty())
             ?: throw IllegalArgumentException("Sunucu kısmi indirme aralığını doğrulamadı.")
         val start = match.groupValues[1].toLongOrNull() ?: error("Kısmi aralık başlangıcı geçersiz.")
@@ -211,13 +239,39 @@ object SecureOtaUpdater {
         require(start == existingBytes && end >= start && total > end && total <= MAX_APK_BYTES) {
             "Sunucu kısmi indirmeyi yanlış bayt aralığından başlattı."
         }
+        require(contentLength == -1L || contentLength == end - start + 1L) {
+            "Sunucu kısmi indirmede tutarsız Content-Length bildirdi."
+        }
         return start
     }
 
     /** A full certificate + checksum check is mandatory even for an already cached APK. */
     fun otaCacheName(version: Long, sha256: String): String {
         require(version > 0 && shaPattern.matches(sha256)) { "OTA önbellek kimliği geçersiz." }
-        return "lanu-$version-${sha256.take(16)}"
+        return "lanu-$version-$sha256"
+    }
+
+    /**
+     * Prune only updater-owned APK files, and never the current version's files.
+     * Cache quota bounds disk use even when many OTA versions are checked in a day.
+     * Invoked under downloadMutex, so no other OTA transfer is writing these files.
+     */
+    fun pruneOtaCache(directory: File, preserve: Set<String>, now: Long = System.currentTimeMillis()) {
+        val ownedName = Regex("""lanu-\d+-[a-f0-9]{16,64}(?:\.part)?\.apk""")
+        val candidates = directory.listFiles()?.filter {
+            it.isFile && it.canonicalFile.parentFile == directory.canonicalFile &&
+                ownedName.matches(it.name) && it.name !in preserve
+        }.orEmpty().sortedByDescending { it.lastModified() }
+        var retainedBytes = directory.listFiles()?.filter { it.isFile && it.name in preserve }
+            ?.sumOf { it.length() } ?: 0L
+        val expiry = now - TimeUnit.DAYS.toMillis(2)
+        for (file in candidates) {
+            if (file.lastModified() < expiry || retainedBytes + file.length() > MAX_CACHE_BYTES) {
+                file.delete()
+            } else {
+                retainedBytes += file.length()
+            }
+        }
     }
 
     /** Each execution independently checks file content AND Android's APK signing identity. */
@@ -286,12 +340,10 @@ object SecureOtaUpdater {
         }
         val expected = parseChecksum(readText(release.checksumUrl, 1_000))
         val directory = File(context.cacheDir, "ota").apply { require(isDirectory || mkdirs()) }
-        // Old untrusted cache entries are deleted; never delete another active download.
-        val expiry = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(2)
-        directory.listFiles()?.filter { it.isFile && it.lastModified() < expiry }?.forEach { it.delete() }
         val cacheName = otaCacheName(release.versionCode, expected)
         val partial = File(directory, "$cacheName.part.apk")
         val final = File(directory, "$cacheName.apk")
+        pruneOtaCache(directory, setOf(partial.name, final.name))
 
         if (final.isFile) {
             val reusable = runCatching {
@@ -310,8 +362,11 @@ object SecureOtaUpdater {
             if (partial.isFile && existing == 0L) partial.delete()
             trustedGet(release.apkUrl, "application/octet-stream", existing.takeIf { it > 0L }).use { response ->
                 val body = response.body ?: error("APK yanıtı boş.")
-                val offset = acceptedResumeOffset(existing, response.code, response.header("Content-Range"))
                 val declared = body.contentLength()
+                val offset = validateDownloadResponse(
+                    existing, response.code, response.header("Content-Range"),
+                    declared, response.header("Content-Encoding")
+                )
                 require(declared <= MAX_APK_BYTES - offset) { "APK boyutu sınırı aşıldı." }
                 val total = when {
                     offset > 0L -> response.header("Content-Range")!!
@@ -382,6 +437,7 @@ object SecureOtaUpdater {
             }
             verifyArchive(context, partial, release, expected)
             require(partial.renameTo(final)) { "Doğrulanmış APK hazırlanamıyor." }
+            pruneOtaCache(directory, setOf(final.name))
             return@withContext VerifiedUpdate(release, final, expected, pinned)
         } catch (e: CancellationException) {
             partial.delete()

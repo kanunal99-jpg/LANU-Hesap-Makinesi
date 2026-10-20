@@ -178,6 +178,71 @@ class SecureOtaUpdaterTest {
         assertFails { SecureOtaUpdater.otaCacheName(153L, "") }
     }
 
+    @Test fun `content range body length and encoding must agree before writing`() {
+        val accept = SecureOtaUpdater::validateDownloadResponse
+        assertEquals(512L, accept(512L, 206, "bytes 512-1023/2048", 512L, "identity"))
+        assertEquals(0L, accept(512L, 200, null, 2048L, null))
+        assertEquals(0L, accept(0L, 200, null, -1L, null))
+        assertFails { accept(512L, 206, "bytes 512-1023/2048", 511L, null) }
+        assertFails { accept(512L, 206, "bytes 512-1023/2048", 513L, null) }
+        assertFails { accept(512L, 206, "bytes 512-1023/2048", 512L, "gzip") }
+        assertFails { accept(0L, 200, "bytes 0-511/2048", 512L, null) }
+        assertFails { accept(0L, 200, null, 100L * 1024 * 1024, null) }
+        assertFails { accept(0L, 206, "bytes 0-511/2048", 512L, null) }
+        assertFails { accept(512L, 204, null, 0L, null) }
+    }
+
+    @Test fun `cache has full digest identity and purges expired owned files only`() {
+        val cache = java.io.File(ApplicationProvider.getApplicationContext<Context>().cacheDir,
+            "ota-prune-test-${System.nanoTime()}").apply { mkdirs() }
+        try {
+            val a = SecureOtaUpdater.otaCacheName(160L, "ab".repeat(32))
+            val b = SecureOtaUpdater.otaCacheName(161L, "cd".repeat(32))
+            val c = SecureOtaUpdater.otaCacheName(162L, "ef".repeat(32))
+            assertTrue(a.endsWith("ab".repeat(32)))
+            val stale = java.io.File(cache, "$a.part.apk").apply {
+                writeBytes(ByteArray(32))
+                setLastModified(1_000L)
+            }
+            val recent = java.io.File(cache, "$b.apk").apply {
+                writeBytes(ByteArray(64))
+                setLastModified(900_000L)
+            }
+            val protected = java.io.File(cache, "$c.apk").apply {
+                writeBytes(ByteArray(12))
+                setLastModified(1_000L)
+            }
+            val other = java.io.File(cache, "secret-not-ota.db").apply { writeText("retain") }
+            SecureOtaUpdater.pruneOtaCache(cache, setOf(protected.name), now = 1_000_000L +
+                java.util.concurrent.TimeUnit.DAYS.toMillis(3))
+            assertFalse(stale.exists())
+            assertFalse(recent.exists())
+            assertTrue(protected.exists())
+            assertTrue(other.exists())
+        } finally { cache.deleteRecursively() }
+    }
+
+    @Test fun `cache quota removes older large APKs while preserving current update`() {
+        val cache = java.io.File(ApplicationProvider.getApplicationContext<Context>().cacheDir,
+            "ota-quota-test-${System.nanoTime()}").apply { mkdirs() }
+        try {
+            fun sparse(version: Long, size: Long, timestamp: Long): java.io.File {
+                val name = SecureOtaUpdater.otaCacheName(version, "ab".repeat(32))
+                val file = java.io.File(cache, "$name.apk")
+                java.io.RandomAccessFile(file, "rw").use { it.setLength(size) }
+                file.setLastModified(timestamp)
+                return file
+            }
+            val oldest = sparse(170, 75L * 1024 * 1024, 10_000L)
+            val newer = sparse(171, 75L * 1024 * 1024, 20_000L)
+            val current = sparse(172, 75L * 1024 * 1024, 30_000L)
+            SecureOtaUpdater.pruneOtaCache(cache, setOf(current.name), now = 50_000L)
+            assertFalse(oldest.exists())
+            assertTrue(newer.exists())
+            assertTrue(current.exists())
+        } finally { cache.deleteRecursively() }
+    }
+
     private fun assertFails(block: () -> Unit) {
         try {
             block()

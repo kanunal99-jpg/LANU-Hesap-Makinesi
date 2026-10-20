@@ -6,8 +6,14 @@ on:
   pull_request:
     branches: [ "main", "master" ]
 
+# All tests/builds run with read-only repo access; only the dedicated
+# publish job can create a release and it never runs untrusted PR source code.
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: lanu-android-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-and-test:
@@ -202,30 +208,6 @@ jobs:
             app/build/reports/verification/app-debug.apk.signer.txt
           retention-days: 14
 
-      - name: Publish GitHub Release
-        if: github.event_name == 'push' && success()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SIGNING_MODE: ${{ steps.signing.outputs.mode }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ "$SIGNING_MODE" = "stable" ]; then
-            TAG="v1.1.0-signed.${{ github.run_number }}"
-            NOTES="Korunan anahtarla imzalanmış APK; sertifika SHA-256 CI'da sabit değere karşı doğrulandı. Eski debug sürümlerin sertifikası farklı olabilir; üzerlerine yükseltme GARANTİ DEĞİLDİR. İlk sürüm dahil gerçek cihaz kurulum/yükseltme testi ayrıca gereklidir."
-          else
-            TAG="v1.0.0-debug.${{ github.run_number }}"
-            NOTES="GEÇİCİ, her çalışmada farklı debug anahtarı kullanılmış olabilir. Bu APK eski kurulumun üzerine güvenli güncelleme değildir. Kurulu LANU uygulamasını silmeyin; önce verinizi yedekleyin."
-          fi
-          gh release create "$TAG" \
-            app/build/outputs/apk/debug/app-debug.apk \
-            app/build/reports/verification/app-debug.apk.sha256 \
-            app/build/reports/verification/app-debug.apk.signer.txt \
-            --target "${{ github.sha }}" \
-            --title "LANU CALCULATOR $TAG" \
-            --notes "Commit: ${{ github.sha }}. $NOTES" \
-            --prerelease
-
       - name: Upload Test Report Artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -236,39 +218,82 @@ jobs:
             app/build/reports/lint-results-debug.html
           retention-days: 14
 
-      - name: Update 'anayasa' Logs
-        if: always()
+
+  publish:
+    name: Publish verified APK
+    if: github.event_name == 'push'
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download verified APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: LANU-Calculator-Debug-APK
+          path: ${{ runner.temp }}/lanu-verified
+
+      - name: Verify published branch HEAD and artifact metadata
+        id: publish_guard
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "${{ job.status }}" = "success" ]; then
-            STATUS="BAŞARILI ✅"
-            DETAILS="Unit/Robolectric testleri, Debug Lint, Debug APK derlemesi ve GitHub Release adımları CI üzerinde tamamlandı."
-          else
-            STATUS="BAŞARISIZ ❌"
-            DETAILS="CI test, lint, derleme veya release adımlarından en az biri başarısız oldu. Gerçek CI günlükleri kanıt kabul edilir."
+          set -euo pipefail
+          # Avoid releasing stale APKs when another commit supersedes this build.
+          head="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$GITHUB_REF_NAME" --jq '.object.sha')"
+          if [ "$head" != "$GITHUB_SHA" ]; then
+            echo "::notice::Newer commit on $GITHUB_REF_NAME. Skipping stale APK release."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          dir="$RUNNER_TEMP/lanu-verified"
+          mapfile -t apk < <(find "$dir" -type f -name 'app-debug.apk')
+          mapfile -t checksum < <(find "$dir" -type f -name 'app-debug.apk.sha256')
+          mapfile -t signer < <(find "$dir" -type f -name 'app-debug.apk.signer.txt')
+          if [ "${#apk[@]}" -ne 1 ] || [ "${#checksum[@]}" -ne 1 ] || [ "${#signer[@]}" -ne 1 ]; then
+            echo "::error::Verified APK artifact is incomplete or ambiguous."
+            exit 1
+          fi
+          (cd "$(dirname "${apk[0]}")" && sha256sum -c "${checksum[0]}")
+          actual_sha="$(sha256sum "${apk[0]}" | cut -d' ' -f1)"
+          declared_sha="$(cut -c1-64 "${checksum[0]}")"
+          [ "$actual_sha" = "$declared_sha" ]
+          grep -qx 'apk=app-debug.apk' "${signer[0]}"
+          mode="$(sed -n 's/^signing_mode=//p' "${signer[0]}")"
+          if [ "$mode" != "stable" ] && [ "$mode" != "ephemeral" ]; then
+            echo "::error::Unknown APK signing mode."
+            exit 1
+          fi
+          echo "apk=${apk[0]}" >> "$GITHUB_OUTPUT"
+          echo "checksum=${checksum[0]}" >> "$GITHUB_OUTPUT"
+          echo "signer=${signer[0]}" >> "$GITHUB_OUTPUT"
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
 
-          TIMESTAMP=$(date +"%d-%m-%Y %H:%M")
-          COMMIT_HASH=$(git rev-parse --short HEAD)
-
-          mkdir -p anayasa
-          echo "" >> anayasa/ISLEM_GUNLUGU.md
-          echo "### [$TIMESTAMP] - CI/CD Otomatik Doğrulama ($COMMIT_HASH)" >> anayasa/ISLEM_GUNLUGU.md
-          echo "*   **İşlem:** GitHub Actions test + lint + APK derleme + release hattı çalıştırıldı." >> anayasa/ISLEM_GUNLUGU.md
-          echo "*   **Sonuç:** $STATUS" >> anayasa/ISLEM_GUNLUGU.md
-          echo "*   **Kanıt:** GitHub Actions run, artifact ve release kayıtları." >> anayasa/ISLEM_GUNLUGU.md
-          echo "*   **Açıklama:** $DETAILS" >> anayasa/ISLEM_GUNLUGU.md
-
-          echo "" >> anayasa/OZELLIK_TESTLERI_VE_SONUCLARI.md
-          echo "### 🤖 CI/CD Gerçek Doğrulaması ($TIMESTAMP)" >> anayasa/OZELLIK_TESTLERI_VE_SONUCLARI.md
-          echo "*   **Commit Hash:** $COMMIT_HASH" >> anayasa/OZELLIK_TESTLERI_VE_SONUCLARI.md
-          echo "*   **Durum:** $STATUS" >> anayasa/OZELLIK_TESTLERI_VE_SONUCLARI.md
-          echo "*   **Not:** Dokümantasyon, CI kanıtı olmadan 'başarılı' veya 'production ready' olarak işaretlenmemelidir." >> anayasa/OZELLIK_TESTLERI_VE_SONUCLARI.md
-
-      - name: Commit and Push 'anayasa' updates
-        if: github.event_name == 'push' && always()
+      - name: Create GitHub Release from verified artifact
+        if: steps.publish_guard.outputs.publish == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNING_MODE: ${{ steps.publish_guard.outputs.mode }}
+          APK_PATH: ${{ steps.publish_guard.outputs.apk }}
+          CHECKSUM_PATH: ${{ steps.publish_guard.outputs.checksum }}
+          SIGNER_PATH: ${{ steps.publish_guard.outputs.signer }}
         run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git add anayasa/ISLEM_GUNLUGU.md anayasa/OZELLIK_TESTLERI_VE_SONUCLARI.md
-          git commit -m "chore: anayasa güncelleme - CI gerçek doğrulama (${{ job.status }})" || echo "No changes to commit"
-          git push origin HEAD:${{ github.ref }} || echo "Push failed, skipping"
+          set -euo pipefail
+          if [ "$SIGNING_MODE" = "stable" ]; then
+            TAG="v1.1.0-signed.${{ github.run_number }}"
+            NOTES="Korunan anahtarla imzalanmış APK. Önceki rastgele debug imzalı kurulumların üzerine güvenli yükseltme garanti değildir; gerçek cihaz testi gerekir."
+          else
+            TAG="v1.0.0-debug.${{ github.run_number }}"
+            NOTES="GEÇİCİ DEBUG SERTİFİKASI. Bu APK eski kurulumun üzerine veri kayıpsız güncelleme garantisi vermez. Kurulu LANU uygulamasını kaldırmayın."
+          fi
+          gh release create "$TAG" \
+            "$APK_PATH" "$CHECKSUM_PATH" "$SIGNER_PATH" \
+            --target "$GITHUB_SHA" \
+            --title "LANU CALCULATOR $TAG" \
+            --notes "Commit: $GITHUB_SHA. $NOTES" \
+            --prerelease

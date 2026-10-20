@@ -39,6 +39,14 @@ Uygulama eski LANU'yu kaldırmayı **asla** teklif etmez veya gizli verileri oto
 - Bir sürümün doğrulanmış APK'sı cache'de mevcutsa **yeniden SHA-256 / paket / sertifika kontrolüyle** kullanılabilir; doğrulama başarısızsa silinir.
 - Boş depolama alanı indirme başlamadan değerlendirilir; düşük alanda açık hata verilir. Aynı işlemde iki indirme ekranı birbirinin dosyasını değiştiremez: OTA aktarımı süreç başına seri yürütülür.
 
+## Üretim seviyesi ek dayanıklılık (20.10.2026)
+
+- **Sıkı HTTP kısmi indirme sözleşmesi:** `206 Partial Content` yanıtının `Content-Length` değeri ilan ettiği `Content-Range` boyutuyla kesin eşleşmelidir. `gzip` gibi beklenmeyen sıkıştırılmış APK yanıtları reddedilir. `200 OK` yanıtında yanlışlıkla `Content-Range` dönülürse sistem fail-closed davranır. Hiçbir sunucu beyanı tek başına kurulum izni vermez: nihai SHA-256 + kurulu paket imzası kontrolü zorunlu.
+- **Tam SHA-256 cache kimliği:** Daha önce yalnız checksum'un ilk 16 hex karakteri kullanılmaktaydı. Artık sürüm kodu ve checksum'un tamamı kullanılır, böylece cache dosyası çakışma ihtimali minimize edilir.
+- **Sınırlı disk kullanımı:** OTA dosyaları 2 günlük yaş filtresi ve toplam 180 MiB sınırı altında tutulur. Yalnız LANU'nun `lanu-<sürüm>-<hash>.apk` biçimindeki kendi dosyaları temizlenir; gizli alan verisi, sohbetler ve uygulama veritabanı asla OTA önbellek temizliğiyle silinmez.
+- **CI en az yetki:** GitHub Actions test ve APK derleme işi `contents: read` ile çalışır; GitHub Release yazma yetkisi ayrı bir yayın işinde bulunur. Release yayın işi eski `main` commit'lerinden gelen paketleri yayımlamaz; indirilen artifact'in SHA-256 değerini yeniden doğrular. Bir PR'ın CI testinde yayın yetkisi yoktur.
+- **Kanıt:** Android/Robolectric testleri, Android lint, APK sertifika raporu, indirilebilir Release APK ve SHA-256 dosyasıyla yayımlanır. Fiziksel telefonda kesintili ağ ve sistem kurulum testleri halen ayrıca gereklidir.
+
 ## Mevcut eski debug sürüm kullanıcıları
 
 CI, v145 ve v148 gibi önceki debug APK'lerde **rastgele ve farklı** sertifikalar üretmiş olabilir. Aynı `applicationId` ile farklı sertifika yerinde güncellemeyi engeller. Bu sürümlerde OTA ekranı doğru şekilde **İmza uyumsuz** uyarısı gösterebilir. Bu hata değil, veri kaybı önleyen güvenlik kontrolüdür.
