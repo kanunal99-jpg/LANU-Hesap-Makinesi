@@ -552,4 +552,87 @@ class UserCodeMessagingTest {
         assertEquals(msg, db.messageDao().getMessage(id))
         assertNull(db.settingsDao().getSettingValue("lanu_hidden_$id"))
     }
+
+    @Test fun `deleted conversation never reappears after an unseen remote message`() = runBlocking {
+        val receiver = UserCodes.create()
+        val sender = UserCodes.create()
+        vault.save(receiver)
+        val conversationId = UserCodes.conversationId(receiver.id, sender.id)
+        val firstId = java.util.UUID.randomUUID().toString()
+        val laterId = java.util.UUID.randomUUID().toString()
+        var currentId = firstId
+        var readCount = 0
+        var acks = 0
+        val relay = object : MessagingRelay {
+            override val configured = true
+            override suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject): JSONObject =
+                when (action) {
+                    "register" -> JSONObject().put("code", receiver.code).put("nonce", receiver.nonce)
+                    "sync" -> JSONObject()
+                        .put("contacts", org.json.JSONArray().put(JSONObject()
+                            .put("id", sender.id).put("code", sender.code)
+                            .put("nonce", sender.nonce).put("publicKey", sender.publicKey)
+                            .put("codeAtAdd", sender.code).put("mutual", true)))
+                        .put("events", org.json.JSONArray().put(JSONObject()
+                            .put("id", java.util.UUID.randomUUID().toString())
+                            .put("message", JSONObject()
+                                .put("id", currentId).put("senderId", sender.id)
+                                .put("recipientId", receiver.id).put("revision", 1)
+                                .put("status", "SENT").put("deleted", false)
+                                .put("createdAt", System.currentTimeMillis())
+                                .put("content", PeerMessageCrypto.encrypt(
+                                    sender, receiver.id, receiver.publicKey, currentId, "Remote old message")))))
+                    "ack" -> JSONObject().put("acknowledged", true).also {
+                        acks++
+                        readCount += data.optJSONArray("readIds")?.length() ?: 0
+                    }
+                    else -> error("Unexpected $action")
+                }
+        }
+        val repo = repository(relay = relay)
+        repo.synchronize()
+        assertNotNull(db.conversationDao().getConversationById(conversationId))
+        assertNotNull(db.messageDao().getMessage(firstId))
+
+        repo.deleteConversation(conversationId)
+        assertNull(db.conversationDao().getConversationById(conversationId))
+        assertEquals("true", db.settingsDao().getSettingValue("lanu_hidden_conv_$conversationId"))
+
+        currentId = laterId // A message that was NOT on the phone at deletion time.
+        repo.synchronize(conversationId)
+        assertNull("Unseen replay must not reconstruct a deleted thread",
+            db.conversationDao().getConversationById(conversationId))
+        assertNull("Unseen replay must not be stored on disk", db.messageDao().getMessage(laterId))
+        assertEquals("1", db.settingsDao().getSettingValue("lanu_message_revision_$laterId"))
+        assertTrue("A hidden message can still be acknowledged without persisting", acks >= 2)
+        assertEquals("Deleted threads must not be marked READ", 0, readCount)
+
+        repo.createConversation(sender.code, "Explicitly reopened")
+        assertNull(db.settingsDao().getSettingValue("lanu_hidden_conv_$conversationId"))
+        assertNotNull(db.conversationDao().getConversationById(conversationId))
+        // Old already-acknowledged event stays hidden, new events can now arrive.
+        val reopenedMessageId = java.util.UUID.randomUUID().toString()
+        currentId = reopenedMessageId
+        repo.synchronize()
+        assertNotNull(db.messageDao().getMessage(reopenedMessageId))
+    }
+
+    @Test fun `failed conversation delete rolls back thread tombstone as well`() = runBlocking {
+        val id = "thread-delete-db-failure"
+        db.conversationDao().insertConversation(ConversationEntity(id, "LANU-PEER", "Friend"))
+        db.messageDao().insertMessage(MessageEntity("msg-rollback", id, "peer",
+            "Friend", "lanu2:cipher", status = "SENT"))
+        val failing = object : MessageDao by db.messageDao() {
+            override suspend fun deleteAllMessagesForConversation(convId: String) {
+                throw IllegalStateException("Injected SQL delete failure")
+            }
+        }
+        try {
+            repository(messageDao = failing).deleteConversation(id)
+            fail("A partial deletion cannot leave the thread permanently hidden")
+        } catch (_: IllegalStateException) { }
+        assertNotNull(db.conversationDao().getConversationById(id))
+        assertNotNull(db.messageDao().getMessage("msg-rollback"))
+        assertNull(db.settingsDao().getSettingValue("lanu_hidden_conv_$id"))
+    }
 }
