@@ -47,6 +47,16 @@ Uygulama eski LANU'yu kaldırmayı **asla** teklif etmez veya gizli verileri oto
 - **CI en az yetki:** GitHub Actions test ve APK derleme işi `contents: read` ile çalışır; GitHub Release yazma yetkisi ayrı bir yayın işinde bulunur. Release yayın işi eski `main` commit'lerinden gelen paketleri yayımlamaz; indirilen artifact'in SHA-256 değerini yeniden doğrular. Bir PR'ın CI testinde yayın yetkisi yoktur.
 - **Kanıt:** Android/Robolectric testleri, Android lint, APK sertifika raporu, indirilebilir Release APK ve SHA-256 dosyasıyla yayımlanır. Fiziksel telefonda kesintili ağ ve sistem kurulum testleri halen ayrıca gereklidir.
 
+## OTA v3 — bağlantı iptali ve ayrı kurulum kopyası
+
+- Kullanıcı indirmeyi iptal ettiğinde HTTP isteği de **OkHttp üzerinden iptal edilmeye çalışılır**; sonlandırma ağın/işletim sisteminin soket durumuna bağlı olarak kısa süre alabilir. Kısmi dosya iptal durumunda temizlenir.
+- ZIP/APK kaynağı `cache/ota/` içinde indirilir ve SHA-256, imza, sürüm/paket kontrollerinden geçer.
+- Kullanıcı **Android üzerinden güncelle** dediğinde uygulama aynı APK'yi **yeniden doğrular**, ardından `cache/ota/install/` altında ayrı bir kurulum kopyası oluşturur.
+- Kopya da **yeniden SHA-256 ve APK sertifikasıyla doğrulanır**. Android FileProvider artık sadece `install/` klasöründeki biçimi doğru, mevcut dosyayı yükleyiciye devredebilir.
+- Diğer OTA indirmeleri ve yükleyici için kopya hazırlama aynı `downloadMutex` ile sıralanır. İndirme önbelleği temizliği kurulum kopyası klasörünü taramaz.
+- Android yükleyici hâlâ sistem onayı ister. Kurulum kopyası, güncelleme denemesinden sonra hemen silinmez; sistem paket yükleyicisinin okumaya devam edebilmesi gerekir. Yeni yükleme isteğinde iki günden eski kopyalar temizlenir.
+- Kurulum esnasında dış Android PackageInstaller süreçlerinin davranışı yalnızca fiziksel cihaz/emülatör testiyle kesin doğrulanabilir. Bu korumalar rootlu cihazda, değiştirilmiş ROM'da veya işletim sistemi arızasında mutlak bütünlük garantisi değildir.
+
 ## Mevcut eski debug sürüm kullanıcıları
 
 CI, v145 ve v148 gibi önceki debug APK'lerde **rastgele ve farklı** sertifikalar üretmiş olabilir. Aynı `applicationId` ile farklı sertifika yerinde güncellemeyi engeller. Bu sürümlerde OTA ekranı doğru şekilde **İmza uyumsuz** uyarısı gösterebilir. Bu hata değil, veri kaybı önleyen güvenlik kontrolüdür.

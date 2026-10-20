@@ -127,12 +127,14 @@ fun UpdateCheckScreen(modifier: Modifier = Modifier) {
                                 modifier = Modifier.fillMaxWidth().testTag("ota_install"),
                                 onClick = {
                                     busy = true
-                                    operation = "Kurulum öncesi APK tekrar doğrulanıyor…"
+                                    operation = "APK doğrulanıyor ve güvenli kurulum kopyası hazırlanıyor…"
                                     notice = null
                                     scope.launch {
                                         try {
-                                            SecureOtaUpdater.verifyBeforeInstall(context, checked)
-                                            if (!SecureOtaUpdater.launchInstaller(context, checked.file)) {
+                                            // Keep the verified installer snapshot independent of the
+                                            // resumable OTA download cache and its eviction policy.
+                                            val installSnapshot = SecureOtaUpdater.stageForInstaller(context, checked)
+                                            if (!SecureOtaUpdater.launchInstaller(context, installSnapshot)) {
                                                 notice = "Android ayarlarında LANU için bilinmeyen uygulama yükleme iznini onaylayın. Ardından buraya dönerek Kur düğmesine yeniden dokunun."
                                             } else {
                                                 notice = "Android sistem yükleyicisi açıldı. Kurulum için ekrandaki onayı verin."
