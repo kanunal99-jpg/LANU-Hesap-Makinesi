@@ -259,7 +259,7 @@ object SecureOtaUpdater {
     fun pruneOtaCache(directory: File, preserve: Set<String>, now: Long = System.currentTimeMillis()) {
         val ownedName = Regex("""lanu-\d+-[a-f0-9]{16,64}(?:\.part)?\.apk""")
         val candidates = directory.listFiles()?.filter {
-            it.isFile && it.canonicalFile == it.absoluteFile &&
+            it.isFile && it.canonicalFile.parentFile == directory.canonicalFile &&
                 ownedName.matches(it.name) && it.name !in preserve
         }.orEmpty().sortedByDescending { it.lastModified() }
         var retainedBytes = directory.listFiles()?.filter { it.isFile && it.name in preserve }
