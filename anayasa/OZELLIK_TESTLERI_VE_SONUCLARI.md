@@ -458,3 +458,10 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] Son main run ve GitHub Release son APK doğrulama; debug sertifikası production güncelleme garantisi vermez.
 - [ ] Gerçek A55 ve ikinci üretici cihazda eski APK üzerine veri kayıpsız güncelleme.
 - [ ] Gerçek Room v1-v3 fixture migration, şifreli DB, tam geri yükleme, KVKK/TTL.
+
+
+### [20-10-2026] — OTA imza sidecar ayrıştırma
+- [ ] Yinelenen farklı sertifika parmak izi ve iki signing_mode güvenli reddedilir.
+- [ ] Eksik/kırık/bilinmeyen satır, istenmeyen alan, çok büyük dosya reddedilir.
+- [ ] Resmî üç/zamanla dört satırlık SHA-256 signer raporu kabul edilir.
+- [ ] Room v4, unit/Robolectric, lint, APK ve doğrulama CI başarı kanıtı.
