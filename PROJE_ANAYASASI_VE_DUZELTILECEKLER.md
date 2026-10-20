@@ -198,8 +198,9 @@ Bu puan bir sertifika değildir; yerinde ve bağımsız kanıtlar tamamlanmadan 
 - **Durum:** GitHub PR + CI bağımsız testleri bitmeden üretim/başarı etiketi yok. Room v4 şeması sabit.
 
 
-### 20.10.2026 — P0 OTA imza raporu belirsizliği (OTA-META-01)
-- Önceki `parseSigner` aynı imza alanının birden fazla satırda tanımlanmasını `toMap` ile son satır lehine kabul ediyordu. Bozuk veya ek tanımlı metadata da atlanıyordu.
-- İzin verilen alanlar `apk`, `signing_mode`, `certificate_sha256` ve isteğe bağlı `upgrade_verified_on_device`; her alan en fazla bir kez bulunur. Yanlış/tekrar alan, fazladan eşitlik, belirsiz boşluk ve 2048 karakterden büyük rapor güvenli biçimde reddedilir.
-- İlk CI kapıları: çoklu fingerprint, iki imza modu, beklenmeyen alan, bozuk satır, çok büyük rapor için test; mevcut gerçek CI signer.txt formatını koruma.
-- Sertifika pin kontrolü hâlâ gerçek kurulu sertifika ile yapılır. Kalıcı imzalı iki APK aynı sertifika ile üretilemiyorsa OTA güvenli yerinde yükseltme üretim kapısı kapanmaz.
+### 20.10.2026 — P0 Kimlik kayıt kalıcılığının geri okunarak doğrulanması (ID-PERSIST-01)
+- Mevcut Keystore korumalı kimlik `save`, şifreli `commit=true` ise geri okunabilirliği kontrol etmeden kaydı başarılı sayıyordu. Kaydedilemeyen/okunamayan kimlik, kullanıcıya kurtarma tamamlanmış gibi gösterilememeli.
+- Şifreli `identity` verisi başarıyla commit edildikten hemen sonra tekrar okunup kodlanan içerikle birebir karşılaştırılır. Uyuşmazlıkta işlem fail-closed; eski kayıtlar otomatik temizlenmez veya yeni kimlik üretilmez.
+- Android Robolectric: `commit=false` olduğunda önceki kimlik korunur; veri yazılsa bile getString başarısızsa yedekleme/restore yanlış başarılı bildirilmez. Testte sahte preferences üretimde kullanılmaz.
+- Kapsam: kimlik depolama dayanıklılığı, **tam Room veri şifrelemesi veya fiziksel cihaz Keystore kurtarma garantisi değil**.
+- Durum: PR + CI test sonucu olmadan tamamlandı sayılmaz.
