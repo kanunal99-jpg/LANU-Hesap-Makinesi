@@ -205,13 +205,19 @@ class CommunicationRepository(
         savePeer(peer, code)
         return peer
     }
-    suspend fun createConversation(partnerPhone: String, partnerName: String): String {
+    suspend fun createConversation(partnerPhone: String, partnerName: String): String = syncMutex.withLock {
         val code = UserCodes.normalize(partnerPhone)
         require(code.isNotBlank()) { "Bu eski kişi için yeni LANU kodunu kaydedin." }
         val peer = savedPeer(code) ?: resolveContact(code)
         val id = UserCodes.conversationId(ensureIdentity().id, peer.getString("id"))
-        if (conversationDao.getConversationById(id) == null) conversationDao.insertConversation(ConversationEntity(id, peer.getString("code"), partnerName))
-        return id
+        database.withTransaction {
+            // Only an explicit user action can reopen a previously deleted thread.
+            settingsDao.deleteSetting("lanu_hidden_conv_$id")
+            if (conversationDao.getConversationById(id) == null) {
+                conversationDao.insertConversation(ConversationEntity(id, peer.getString("code"), partnerName))
+            }
+        }
+        id
     }
 
     fun getMessages(conversationId: String): Flow<List<MessageEntity>> = messageDao.getMessagesForConversation(conversationId).map { list ->
@@ -268,6 +274,9 @@ class CommunicationRepository(
             val senderId = message.getString("senderId")
             val peerId = if (senderId == own.id) message.getString("recipientId") else senderId
             val convId = UserCodes.conversationId(own.id, peerId)
+            // The original thread may have been deleted before this event was downloaded.
+            // A messageId tombstone only protects messages that were already on disk.
+            val threadDeleted = settingsDao.getSettingValue("lanu_hidden_conv_$convId") == "true"
             // Message, unread count and replay revision are one durable unit.
             // A crash before commit must not leave a message without its unread badge.
             database.withTransaction {
@@ -275,7 +284,7 @@ class CommunicationRepository(
                 val previous = settingsDao.getSettingValue("lanu_message_revision_$id")?.toLongOrNull() ?: 0L
                 val hidden = settingsDao.getSettingValue("lanu_hidden_$id") == "true"
                 if (revision > previous) {
-                    if (message.optBoolean("deleted") || hidden) messageDao.deleteMessage(id)
+                    if (message.optBoolean("deleted") || hidden || threadDeleted) messageDao.deleteMessage(id)
                     else {
                         val peer = settingsDao.getSettingValue("lanu_peer_id_$peerId")?.let(::JSONObject) ?: throw IllegalStateException("Gönderenin anahtarı bulunamadı")
                         // Never persist or acknowledge an unreadable/tampered encrypted message.
@@ -303,7 +312,8 @@ class CommunicationRepository(
                 }
             }
             ack.put(event.getString("id"))
-            if (senderId != own.id && activeConversationId == convId && !message.optBoolean("deleted")) read.put(id)
+            if (senderId != own.id && activeConversationId == convId &&
+                !message.optBoolean("deleted") && !threadDeleted) read.put(id)
         }
         if (ack.length() > 0 || read.length() > 0) relay.request(own, "ack", JSONObject().put("eventIds", ack).put("readIds", read))
         // Also mark previously delivered messages when their conversation is opened later.
@@ -364,10 +374,11 @@ class CommunicationRepository(
         }
     }
 
-    suspend fun deleteConversation(id: String) {
+    suspend fun deleteConversation(id: String) = syncMutex.withLock {
         database.withTransaction {
-            // A conversation row is only metadata; deleting it alone leaves all
-            // message ciphertext (and queued messages) on disk.
+            // This tombstone must precede deleting the metadata, so an unseen old
+            // relay event cannot silently recreate the user-deleted thread.
+            settingsDao.insertSetting(SettingsEntity("lanu_hidden_conv_$id", "true"))
             for (message in messageDao.getMessagesForConversation(id).first()) {
                 settingsDao.insertSetting(SettingsEntity("lanu_hidden_${message.id}", "true"))
             }
