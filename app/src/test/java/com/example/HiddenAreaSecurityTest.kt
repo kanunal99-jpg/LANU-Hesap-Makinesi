@@ -280,4 +280,41 @@ class HiddenAreaSecurityTest {
         assertEquals("5", database.settingsDao().getSettingValue("pin_lockout_strikes"))
         assertFalse(repository.verifyPin("1234"))
     }
+
+    @Test fun `failed PIN escalation commits neither deadline nor tier and can recover`() = runBlocking {
+        assertTrue(repository.setupPin("1234"))
+        repeat(4) { assertFalse(repository.verifyPin("0000")) }
+        assertEquals(4, repository.getPinAttemptStatus().failedAttempts)
+        val sql = database.openHelper.writableDatabase
+        sql.execSQL(
+            """CREATE TRIGGER fail_strike_write BEFORE INSERT ON app_settings
+                WHEN NEW.`key` = 'pin_lockout_strikes'
+                BEGIN SELECT RAISE(ABORT, 'simulated storage failure'); END"""
+        )
+        try {
+            repository.verifyPin("0000")
+            fail("Partial escalation must roll back instead of persisting one row")
+        } catch (_: Exception) {
+            // This test deliberately injects SQLite failure in the second write.
+        } finally {
+            sql.execSQL("DROP TRIGGER IF EXISTS fail_strike_write")
+        }
+        assertEquals("Four earlier failures must survive a rejected transaction",
+            "4:0", database.settingsDao().getSettingValue("pin_attempt_state"))
+        assertEquals("0", database.settingsDao().getSettingValue("pin_lockout_strikes"))
+        val restarted = newRepository()
+        assertFalse(restarted.verifyPin("0000"))
+        assertEquals(30, restarted.getPinAttemptStatus().remainingSeconds)
+        assertEquals("1", database.settingsDao().getSettingValue("pin_lockout_strikes"))
+    }
+
+    @Test fun `successful biometric unlock clears lockout and strike in one transaction`() = runBlocking {
+        assertTrue(repository.setupPin("1234"))
+        repository.setBiometricEnabled(true)
+        repeat(4) { assertFalse(repository.verifyPin("0000")) }
+        assertTrue(repository.completeBiometricUnlock())
+        assertEquals("0:0", database.settingsDao().getSettingValue("pin_attempt_state"))
+        assertEquals("0", database.settingsDao().getSettingValue("pin_lockout_strikes"))
+        assertEquals(0, newRepository().getPinAttemptStatus().failedAttempts)
+    }
 }
