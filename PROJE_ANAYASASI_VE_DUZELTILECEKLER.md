@@ -227,3 +227,8 @@ Bu puan bir sertifika değildir; yerinde ve bağımsız kanıtlar tamamlanmadan 
 - **Düzeltme:** UTF-8 metnin en fazla 37.467 bayt olması; gelen `lanu2:` çerçevesinin 44–50.000 karakter ve yalnız URL-güvenli Base64 karakterlerinden oluşması decode öncesinde doğrulanır. 12 bayt IV ve 16 bayt GCM etiketi korunur.
 - **Test:** sınırdaki mesaj, Türkçe/Unicode, boş mesaj, aşırı büyük çerçeve ve bozuk Base64 reddi; CI yeşil olmadan kapanmış sayılmaz.
 - **Sınır:** Tam SQLCipher/veri tabanı şifrelemesi, kullanıcı cihazında kötü niyetli relaya karşı kapsamlı güvenlik denetimi ve iki cihaz testleri ayrı P0.
+
+### 20.10.2026 — P1 hassas bilimsel hesap makinesi belleği (CALC-MEM-01)
+- **Bulgu:** Bilimsel hesap makinesi `highPrecisionMemory` için BigDecimal kullanmasına rağmen `CalculatorRepository` M+, M-, MS değerlerini Double'a indiriyordu; 0,1 + 0,2 gibi işlemler bellek API'sinde yuvarlama hatası oluşturuyordu.
+- **Düzeltme:** Repo içinde `exactMemoryValue` BigDecimal tek aritmetik kaynak; eski Double `memoryValue` salt geriye dönük UI gösterimi. ViewModel BigDecimal değerleri dönüştürmeden aktarır. Eski Double overload'ları korunur.
+- **Test:** 0.1+0.2=0.3, çok basamaklı sayı, legacy Double API ve temizlemenin tutarlılığı; CI ve UI kabul bekliyor.

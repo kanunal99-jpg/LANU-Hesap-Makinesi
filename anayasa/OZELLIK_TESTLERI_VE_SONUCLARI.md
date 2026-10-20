@@ -495,3 +495,8 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] Daha büyük veya bozuk çerçeve Base64 decode öncesi reddedilir.
 - [ ] UTF-8 Türkçe/emoji ve boş AES-GCM mesajları doğru okunur.
 - [ ] CI Android unit/Robolectric, lint, APK, Room schema hash, sertifika ve SHA256 başarılı.
+
+### [20-10-2026] — CALC-MEM-01 ondalık bellek testleri
+- [ ] M+/M- işlemleri 0,1+0,2 gibi ondalıklar için tam sonuç verir.
+- [ ] Çok basamaklı değer Double'a aritmetik için dönüştürülmez, MS/MC API geriye uyumludur.
+- [ ] Android JVM/Robolectric + lint + APK ve Room hash CI başarılı.
