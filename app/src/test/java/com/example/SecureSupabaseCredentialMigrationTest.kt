@@ -65,6 +65,7 @@ class SecureSupabaseCredentialMigrationTest {
             override fun edit(): SharedPreferences.Editor {
                 val delegate = preferences.edit()
                 return object : SharedPreferences.Editor by delegate {
+                    override fun putString(key: String?, value: String?): SharedPreferences.Editor = this
                     override fun commit(): Boolean = false
                 }
             }
@@ -82,6 +83,7 @@ class SecureSupabaseCredentialMigrationTest {
             override fun edit(): SharedPreferences.Editor {
                 val delegate = preferences.edit()
                 return object : SharedPreferences.Editor by delegate {
+                    override fun putString(key: String?, value: String?): SharedPreferences.Editor = this
                     override fun commit(): Boolean = false
                 }
             }
