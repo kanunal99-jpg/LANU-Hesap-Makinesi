@@ -116,6 +116,7 @@ class SecurityRepository(
         val verifier = withContext(Dispatchers.Default) { PinCredentialCodec.create(pin) }
         settingsDao.insertSetting(SettingsEntity("pin_hash", verifier))
         saveAttemptState(0, 0L)
+        settingsDao.insertSetting(SettingsEntity("pin_lockout_strikes", "0"))
         _isLockedState.value = false
         true
     }
@@ -135,7 +136,7 @@ class SecurityRepository(
             return PinAttemptStatus(remainingSeconds = 30)
         }
         if (until == 0L) return PinAttemptStatus(failedAttempts = failures)
-        val remaining = (until - clock()).coerceIn(0L, PinPolicy.LOCKOUT_MS)
+        val remaining = (until - clock()).coerceIn(0L, PinPolicy.MAX_LOCKOUT_MS)
         if (remaining == 0L) {
             saveAttemptState(0, 0L)
             return PinAttemptStatus()
@@ -146,6 +147,18 @@ class SecurityRepository(
     private suspend fun saveAttemptState(failures: Int, until: Long) {
         // One Room row keeps the counter and deadline atomic across process restarts.
         settingsDao.insertSetting(SettingsEntity("pin_attempt_state", "$failures:$until"))
+    }
+
+    private suspend fun nextLockoutDuration(): Long {
+        val stored = settingsDao.getSettingValue("pin_lockout_strikes")
+        val previous = when {
+            stored == null -> 0
+            else -> stored.toIntOrNull()?.takeIf { it in 0..PinPolicy.MAX_LOCKOUT_STRIKES }
+                ?: PinPolicy.MAX_LOCKOUT_STRIKES // Corrupt counters cannot reset brute-force protection.
+        }
+        val strike = (previous + 1).coerceAtMost(PinPolicy.MAX_LOCKOUT_STRIKES)
+        settingsDao.insertSetting(SettingsEntity("pin_lockout_strikes", strike.toString()))
+        return PinPolicy.lockoutForStrike(strike)
     }
 
     private suspend fun checkPin(pin: String): Boolean {
@@ -160,10 +173,11 @@ class SecurityRepository(
                 settingsDao.insertSetting(SettingsEntity("pin_hash", upgraded))
             }
             saveAttemptState(0, 0L)
+            settingsDao.insertSetting(SettingsEntity("pin_lockout_strikes", "0"))
         } else {
             val failures = status.failedAttempts + 1
             if (failures >= PinPolicy.MAX_ATTEMPTS) {
-                saveAttemptState(0, clock() + PinPolicy.LOCKOUT_MS)
+                saveAttemptState(0, clock() + nextLockoutDuration())
             } else {
                 saveAttemptState(failures, 0L)
             }
@@ -193,6 +207,7 @@ class SecurityRepository(
             return@withLock false
         }
         saveAttemptState(0, 0L)
+        settingsDao.insertSetting(SettingsEntity("pin_lockout_strikes", "0"))
         updateLastActiveTime()
         _isLockedState.value = false
         true
