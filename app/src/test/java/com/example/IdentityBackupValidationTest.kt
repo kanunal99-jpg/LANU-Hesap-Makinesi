@@ -4,7 +4,12 @@ import com.example.core.messaging.IdentityBackup
 import com.example.core.messaging.UserCodes
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class IdentityBackupValidationTest {
     @Test fun `healthy identity backup is usable after explicit password decryption`() {
         val identity = UserCodes.create()
