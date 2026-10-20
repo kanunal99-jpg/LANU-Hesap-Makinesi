@@ -491,3 +491,9 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - PIN kilitleme son tarihi ile artan kilitleme kademe sayacı tek SQLite transaction olarak bağlandı.
 - SQLite trigger ile ikinci yazmada hata enjekte eden regresyon ve biyometrik sıfırlama testi eklendi.
 - Merge kapısı: CI unit/Robolectric, lint, Room hash, APK sertifika ve SHA256 tamamlanmalı.
+
+
+### [20-10-2026] — ID-PERSIST-01 şifreli kimlik kayıt geri-okuma doğrulaması
+- Sadece başarılı `commit` değil, şifreli kimlik değerinin birebir tekrar okunabilir olması da aranır.
+- Depolama reddi ve okuma bozukluğu testleri eklendi; eski kimliğin kaybolmaması temel kabul koşulu.
+- PR test/merge ve APK yayın kanıtları ayrıca gereklidir.
