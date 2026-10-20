@@ -440,3 +440,10 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] Bozuk özel anahtar veya başka hesaptan kod, mevcut kimliğin üzerine yazılamaz.
 - [ ] Unit/Robolectric, Room şema hash, lint, APK, imza ve SHA256 CI doğrulaması.
 - [ ] Fiziksel cihaz Keystore anahtar kaybı ve manuel şifreli kimlik yedeğinden geri yükleme (ayrı P0).
+
+
+### [20-10-2026] — P0 BACKUP-01 kimlik yedeği geçerliliği
+- [ ] Geçerli anahtar çifti parolayla AES-GCM yedeklenir ve birebir geri yüklenir.
+- [ ] Yanlış private key, bozuk private key, yanlış ID veya kullanıcı kodu için yedek üretimi engellenir.
+- [ ] Mevcut backup formatı, şifreleme algoritması veya Room v4 şeması değiştirilmez.
+- [ ] GitHub CI Android test, Room hash, lint, APK ve sertifika/SHA256 doğrulaması.

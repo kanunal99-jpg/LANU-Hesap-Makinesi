@@ -150,3 +150,12 @@ Puanlar planlama amaçlı ön değerlendirmedir, bağımsız sertifikasyon deği
 - **Kabul:** Geçerli kimlik roundtrip; özel anahtarı başka hesaba ait/bozuk kaydın okunmasının reddi; yeni tutarsız kaydın önceki geçerli kimliğin üzerine yazılamaması; Room v4 şema ve tüm Android CI kapıları yeşil.
 - **Açık:** Uyuşmazlık varsa otomatik anahtar sıfırlamak yasak. Kullanıcı, varsa önceden oluşturduğu parolalı kimlik yedeği üzerinden bilinçli kurtarma yapabilir; gerçek cihaz/anahtar kaybı kurtarma hâlâ açık P0.
 - **Durum:** PR CI ve APK kanıtı bekleniyor; genel hedef puan bağımsız test kanıtı olmadan yükseltilmez.
+
+
+### 20.10.2026 — P0-09 Kimlik yedeklenebilirlik kapısı (BACKUP-01)
+
+- **Bulgu:** `IdentityBackup.export` hatalı eşleştirilmiş özel ve açık anahtarla bile parolalı yedek oluşturabiliyordu. Böyle bir yedek açılmaya çalışıldığında geçersiz sayılır; kullanıcı yedeğe güvenerek hesabını riske atabilir.
+- **Düzeltme:** Yedek şifrelenmeden önce açık/özel anahtar ve kullanıcı kodu matematiksel doğrulanır. Geçersiz kimliğin yedeği üretilmez; import işlemi de aynı ortak doğrulayıcıyı kullanır.
+- **Kabul:** Geçerli kimlik şifreli yedek/parola/geri yükleme eşitliği; farklı özel anahtar, bozuk özel anahtar, yanlış kod veya ID için yedek oluşturma reddi; unit + lint + APK imza/SHA256 CI başarılı.
+- **Sınır:** Geçerli kimlik yedeği yalnız kimlik anahtarlarını içerir; tam sohbet/rehber/finans verisi taşımaz. Geçersiz mevcut kimlik otomatik sıfırlanmaz. Fiziksel cihaz restore ve tam veri kurtarma ayrı P0'dır.
+- **Durum:** Kod/test GitHub geliştirme dalında; CI sonuçlanmadan birleştirildi/başarılı ilan etme.
