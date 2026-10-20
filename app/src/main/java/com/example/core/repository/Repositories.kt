@@ -283,14 +283,51 @@ class SecurityRepository(
         settingsDao.insertSetting(SettingsEntity("decimal_precision", precision.toString()))
     }
 
+    /**
+     * Historical builds stored Supabase connection details in the unencrypted Room settings
+     * table. Copy them to Keystore-backed preferences *before* removing either old row.
+     * An unavailable/corrupted Keystore must never cause a plaintext fallback or data loss.
+     */
     suspend fun getSupabaseCredentials(): Pair<String?, String?> {
-        val url = settingsDao.getSettingValue("supabase_url")
-        val key = settingsDao.getSettingValue("supabase_key")
-        return Pair(url, key)
+        val legacyUrl = settingsDao.getSettingValue("supabase_url")
+        val legacyKey = settingsDao.getSettingValue("supabase_key")
+        val prefs = sharedPreferences
+        if (prefs == null) {
+            if (legacyUrl != null || legacyKey != null) {
+                throw SecurityException("Güvenli depolama açılamadı. Eski bağlantı bilgileri korunuyor.")
+            }
+            return null to null
+        }
+        try {
+            val hasProtectedEntry = prefs.contains("supabase_url") || prefs.contains("supabase_key")
+            if (!hasProtectedEntry && (legacyUrl != null || legacyKey != null)) {
+                check(prefs.edit()
+                    .putString("supabase_url", legacyUrl)
+                    .putString("supabase_key", legacyKey)
+                    .commit()) { "Güvenli bağlantı bilgileri kaydedilemedi." }
+            }
+            // Removing a legacy row is safe only after a durable encrypted copy exists.
+            if (legacyUrl != null) settingsDao.deleteSetting("supabase_url")
+            if (legacyKey != null) settingsDao.deleteSetting("supabase_key")
+            return prefs.getString("supabase_url", null) to prefs.getString("supabase_key", null)
+        } catch (e: Exception) {
+            throw SecurityException("Bağlantı bilgileri güvenli depodan okunamadı.", e)
+        }
     }
 
     suspend fun saveSupabaseCredentials(url: String, key: String) {
-        settingsDao.insertSetting(SettingsEntity("supabase_url", url))
-        settingsDao.insertSetting(SettingsEntity("supabase_key", key))
+        val prefs = sharedPreferences
+            ?: throw SecurityException("Güvenli depolama açılamadı. Bağlantı bilgileri kaydedilmedi.")
+        try {
+            check(prefs.edit()
+                .putString("supabase_url", url)
+                .putString("supabase_key", key)
+                .commit()) { "Güvenli bağlantı bilgileri kaydedilemedi." }
+        } catch (e: Exception) {
+            throw SecurityException("Bağlantı bilgileri güvenli depoya yazılamadı.", e)
+        }
+        // Do not delete old plaintext copies until the encrypted write commits.
+        settingsDao.deleteSetting("supabase_url")
+        settingsDao.deleteSetting("supabase_key")
     }
 }
