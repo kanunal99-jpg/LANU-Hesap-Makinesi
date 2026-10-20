@@ -488,3 +488,9 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] Relay 503 remote delete hatasında yerel mesaj ve kayıt korunur; yanlış başarılı silme bildirimi yok.
 - [ ] Room hash, Android unit/Robolectric, lint, APK imza ve SHA256 CI kanıtı.
 
+
+
+### [20-10-2026] — CALC-MEM-01 ondalık bellek testleri
+- [ ] M+/M- işlemleri 0,1+0,2 gibi ondalıklar için tam sonuç verir.
+- [ ] Çok basamaklı değer Double'a aritmetik için dönüştürülmez, MS/MC API geriye uyumludur.
+- [ ] Android JVM/Robolectric + lint + APK ve Room hash CI başarılı.
