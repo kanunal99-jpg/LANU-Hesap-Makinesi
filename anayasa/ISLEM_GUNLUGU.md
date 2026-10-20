@@ -435,3 +435,10 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - **Risk:** Mesaj kaydı ile okunmamış/revizyon arasında çökme, yinelenen olayın sayılamamasına yol açabiliyordu.
 - **Geliştirme:** `CommunicationRepository` olayları `Room.withTransaction` içinde işler; `AppContainer` aynı veritabanını enjekte eder. Hata enjeksiyonuyla rollback ve tekrar işleme testi eklendi.
 - **Durum:** Geliştirme dalında; yeni Android CI tamamlanmadan ana dala alma / ürün hazır ilan etme yok.
+
+
+### [20-10-2026] — Room v4 tüm tablo içerikleri için kapanış/açılış testi
+- Test: `RoomDataPreservationTest` içinde yedi tablonun kalıcı veritabanına yazımı, kapatılıp açılması ve önemli alanlarının eşitliğinin doğrulanması.
+- Koruma: PIN, kimlik, sohbet, rehber, mesaj gönderim kuyruğu, finans geçmişi ve çağrı kayıtları.
+- Açık: tarihî v1-v3 sürüm geçişi ve gerçek telefonda veri koruma testleri.
+- Durum: CI sonucuna bağlı; PR tamamlanmadan başarılı ilan edilemez.

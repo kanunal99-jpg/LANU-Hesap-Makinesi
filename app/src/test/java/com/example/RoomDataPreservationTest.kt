@@ -6,6 +6,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.core.database.AppDatabase
 import com.example.core.database.SettingsEntity
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
@@ -60,6 +61,60 @@ class RoomDataPreservationTest {
                     assertEquals("KEEP_ME", it.getString(0))
                 }
             } finally { inspect.close() }
+        } finally { context.deleteDatabase(name) }
+    }
+
+    @Test fun `seven tables including queued messages survive database reopening`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "lanu_complete_reopen_test.db"
+        context.deleteDatabase(name)
+        try {
+            val first = Room.databaseBuilder(context, AppDatabase::class.java, name).build()
+            try {
+                first.settingsDao().insertSetting(SettingsEntity("pin_hash", "keep-pin-verifier"))
+                first.settingsDao().insertSetting(SettingsEntity("lanu_message_revision_msg-1", "7"))
+                first.userProfileDao().insertProfile(
+                    com.example.core.database.UserProfileEntity("LANU-OWNER", "Me", registeredAt = 111L))
+                first.contactDao().insertContact(
+                    com.example.core.database.ContactEntity("LANU-PEER", "Friend", isBlocked = true))
+                first.conversationDao().insertConversation(
+                    com.example.core.database.ConversationEntity(
+                        id = "conversation-1", partnerPhone = "LANU-PEER", partnerName = "Friend",
+                        lastMessageText = "Şifreli mesaj", lastMessageTime = 222L, unreadCount = 2))
+                first.messageDao().insertMessage(
+                    com.example.core.database.MessageEntity(
+                        id = "msg-1", conversationId = "conversation-1", senderPhone = "LANU-OWNER",
+                        senderName = "Me", content = "lanu2:encrypted-record", timestamp = 333L,
+                        status = "PENDING"))
+                first.calculationHistoryDao().insertHistory(
+                    com.example.core.database.CalculationHistoryEntity(
+                        id = 44L, expression = "2+2", result = "4", timestamp = 444L))
+                first.callLogDao().insertCallLog(
+                    com.example.core.database.CallLogEntity(
+                        id = 55L, partnerName = "Friend", partnerPhone = "LANU-PEER",
+                        isVideo = false, durationSeconds = 18, isOutgoing = true, timestamp = 555L))
+            } finally { first.close() }
+
+            val reopened = Room.databaseBuilder(context, AppDatabase::class.java, name).build()
+            try {
+                assertEquals("keep-pin-verifier", reopened.settingsDao().getSettingValue("pin_hash"))
+                assertEquals("7", reopened.settingsDao().getSettingValue("lanu_message_revision_msg-1"))
+                assertEquals("LANU-OWNER", reopened.userProfileDao().getUserProfile()?.phoneNumber)
+                assertEquals("Me", reopened.userProfileDao().getUserProfile()?.displayName)
+                assertTrue(reopened.contactDao().getContactByPhone("LANU-PEER")!!.isBlocked)
+                assertEquals(2, reopened.conversationDao().getConversationById("conversation-1")?.unreadCount)
+                val message = reopened.messageDao().getPendingMessages().single()
+                assertEquals("msg-1", message.id)
+                assertEquals("lanu2:encrypted-record", message.content)
+                assertEquals("PENDING", message.status)
+                val history = reopened.calculationHistoryDao().getAllHistory().first().single()
+                assertEquals(44L, history.id)
+                assertEquals("2+2", history.expression)
+                assertEquals("4", history.result)
+                val call = reopened.callLogDao().getAllCallLogs().first().single()
+                assertEquals(55L, call.id)
+                assertEquals(18, call.durationSeconds)
+            } finally { reopened.close() }
         } finally { context.deleteDatabase(name) }
     }
 }
