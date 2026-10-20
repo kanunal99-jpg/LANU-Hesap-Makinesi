@@ -7,6 +7,44 @@ const codePattern = /^LANU(?:-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{4}){5}$/;
 const noncePattern = /^[A-Za-z0-9_-]{22}$/;
 export class RelayError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const insist = (condition, status, message) => { if (!condition) throw new RelayError(status, message); };
+
+/**
+ * Stream and count raw bytes BEFORE decoding a request. request.text() reads the
+ * entire attacker-controlled body, so checking its length afterwards is too late.
+ * Enforce the cap even if Content-Length is missing or deliberately understated.
+ */
+export async function readBoundedRequest(request, maxBytes = 100000) {
+  const declared = request.headers.get('content-length');
+  if (declared !== null) {
+    insist(/^[0-9]+$/.test(declared), 400, 'Geçersiz istek boyutu.');
+    insist(Number(declared) <= maxBytes, 413, 'İstek çok büyük.');
+  }
+  const reader = request.body?.getReader();
+  if (!reader) return '';
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  let bytes = 0, complete = false;
+  const parts = [];
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      insist(value instanceof Uint8Array, 400, 'Geçersiz istek verisi.');
+      bytes += value.byteLength;
+      insist(bytes <= maxBytes, 413, 'İstek çok büyük.');
+      try { parts.push(decoder.decode(value, { stream: true })); }
+      catch { throw new RelayError(400, 'İstek UTF-8 metni geçersiz.'); }
+    }
+    try { parts.push(decoder.decode()); }
+    catch { throw new RelayError(400, 'İstek UTF-8 metni geçersiz.'); }
+    complete = true;
+    return parts.join('');
+  } finally {
+    if (!complete) {
+      try { await reader.cancel(); } catch { /* connection already terminated */ }
+    }
+    reader.releaseLock();
+  }
+}
 function decode(value) { return Uint8Array.from(atob(value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=')), c => c.charCodeAt(0)); }
 async function digest(value) { return new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(value))); }
 export async function publicId(publicKey) { return [...await digest(publicKey)].map(v => v.toString(16).padStart(2, '0')).join(''); }

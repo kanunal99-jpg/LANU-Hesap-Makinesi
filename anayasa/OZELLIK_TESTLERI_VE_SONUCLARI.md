@@ -500,3 +500,11 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] M+/M- işlemleri 0,1+0,2 gibi ondalıklar için tam sonuç verir.
 - [ ] Çok basamaklı değer Double'a aritmetik için dönüştürülmez, MS/MC API geriye uyumludur.
 - [ ] Android JVM/Robolectric + lint + APK ve Room hash CI başarılı.
+
+
+### [20-10-2026] — RELAY-BODY-01 güvenli streaming request
+- [ ] 100.000 byte istek kabul, 100.001 byte ve eksik Content-Length olsa bile 413.
+- [ ] Chunked saldırı gövdesi sınır aşıldığında iptal edilir.
+- [ ] UTF-8 bayt sayısı kullanılır; hatalı UTF-8/Content-Length 400 ile reddedilir.
+- [ ] Sunucu Node unit/Postgres, Android Robolectric/lint/Room hash ve APK signer CI yeşil.
+- [ ] Canlı Supabase Edge dağıtımı ve iki cihaz ile ağ/kesinti testi (ayrı üretim kabulü).

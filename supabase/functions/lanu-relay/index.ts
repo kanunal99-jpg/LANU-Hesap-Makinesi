@@ -1,11 +1,11 @@
-import { createRelay, RestStore, RelayError } from './core.mjs';
+import { createRelay, RestStore, RelayError, readBoundedRequest } from './core.mjs';
 
 const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 Deno.serve(async (request: Request) => {
   if (request.method !== 'POST') return new Response(JSON.stringify({ error: 'Yalnızca POST desteklenir.' }), { status: 405, headers });
   try {
-    const raw = await request.text();
-    if (raw.length > 100000) return new Response(JSON.stringify({ error: 'İstek çok büyük.' }), { status: 413, headers });
+    // Reject excess bytes while streaming, never after request.text() buffers the full body.
+    const raw = await readBoundedRequest(request);
     const url = Deno.env.get('SUPABASE_URL');
     const modernKeys = JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS') ?? '{}');
     const key = modernKeys.default ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
