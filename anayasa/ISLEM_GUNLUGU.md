@@ -497,3 +497,17 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - Sadece başarılı `commit` değil, şifreli kimlik değerinin birebir tekrar okunabilir olması da aranır.
 - Depolama reddi ve okuma bozukluğu testleri eklendi; eski kimliğin kaybolmaması temel kabul koşulu.
 - PR test/merge ve APK yayın kanıtları ayrıca gereklidir.
+
+
+### [20-10-2026] — OTA-META-01 sıkı imza metadata ayrıştırma
+- Yinelenen sertifika imzası / mode satırları, beklenmeyen metadata ve bozuk satırlar reddedilir.
+- Resmî GitHub Actions signer formatı ve eski opsiyonel alan desteği korunur.
+- Yeni saldırgan metadata regresyon testleri CI sonucu bekliyor.
+
+
+
+### [20-10-2026] — MSG-DELETE-01 tekil mesaj silme atomiklik düzeltmesi
+- Timer yerel gizleme ve kullanıcı açık silme işlemi, senkronizasyon kilidi ve veritabanı atomik tombstone+silme olarak düzenlendi.
+- Uzak sunucu hatasında mesajı kaybetmeme, yerel disk hatasında rollback ve pending otomatik koruma regresyonları eklendi.
+- CI ve ana dal/yayın kanıtı sonuçlanmadan kapanmaz.
+

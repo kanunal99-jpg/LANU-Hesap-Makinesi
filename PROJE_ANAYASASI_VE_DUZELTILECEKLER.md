@@ -204,3 +204,19 @@ Bu puan bir sertifika değildir; yerinde ve bağımsız kanıtlar tamamlanmadan 
 - Android Robolectric: `commit=false` olduğunda önceki kimlik korunur; veri yazılsa bile getString başarısızsa yedekleme/restore yanlış başarılı bildirilmez. Testte sahte preferences üretimde kullanılmaz.
 - Kapsam: kimlik depolama dayanıklılığı, **tam Room veri şifrelemesi veya fiziksel cihaz Keystore kurtarma garantisi değil**.
 - Durum: PR + CI test sonucu olmadan tamamlandı sayılmaz.
+
+
+### 20.10.2026 — P0 OTA imza raporu belirsizliği (OTA-META-01)
+- Önceki `parseSigner` aynı imza alanının birden fazla satırda tanımlanmasını `toMap` ile son satır lehine kabul ediyordu. Bozuk veya ek tanımlı metadata da atlanıyordu.
+- İzin verilen alanlar `apk`, `signing_mode`, `certificate_sha256` ve isteğe bağlı `upgrade_verified_on_device`; her alan en fazla bir kez bulunur. Yanlış/tekrar alan, fazladan eşitlik, belirsiz boşluk ve 2048 karakterden büyük rapor güvenli biçimde reddedilir.
+- İlk CI kapıları: çoklu fingerprint, iki imza modu, beklenmeyen alan, bozuk satır, çok büyük rapor için test; mevcut gerçek CI signer.txt formatını koruma.
+- Sertifika pin kontrolü hâlâ gerçek kurulu sertifika ile yapılır. Kalıcı imzalı iki APK aynı sertifika ile üretilemiyorsa OTA güvenli yerinde yükseltme üretim kapısı kapanmaz.
+
+
+
+### 20.10.2026 — P0 tekil mesaj silme güvenliği (MSG-DELETE-01)
+- **Bulgu:** `hideMessageLocally` ve `deleteMessage` için `lanu_hidden_<id>` tombstone kaydı ve `messages` satır silme ayrı işlemlerdi; gönderilmiş mesajda sunucudan silme onayı alındıktan sonra yerel tombstone yoktu. Gecikmiş relay olayları silinen içeriği tekrar yazabilir, yarım DB işleminde gizlilik bozulabilirdi.
+- **Düzeltme:** `syncMutex` altında tek `Room.withTransaction` içinde tombstone ve mesaj silme. `PENDING/WAITING/SENDING` mesajlar otomatik zamanlayıcıda korunur; kullanıcı açıkça iptal ederse kalıcı yerel tombstone ile kuyruktan çıkarılır. Uzaktaki silme başarısızsa yerel veri erken silinmez.
+- **Kabul:** tekil zaman aşımı/silme tombstone, pendings korunma, SQLite silme hata enjeksiyonunda tüm durumun geri alınması, uzaktaki 503 hatasında yerel kopyanın korunması.
+- **Sınır:** Bu yerel silme garantisi, sunucudaki kayıtların KVKK/TTL uyumu veya SQLite WAL'daki eski byte izleri için silme sertifikası değildir.
+

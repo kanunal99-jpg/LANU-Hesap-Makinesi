@@ -472,3 +472,19 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] `commit=true` fakat şifreli readback hatalı: işlem başarılı sayılmaz, kayıt güvenle geri alınabilir.
 - [ ] Gerçek cihaz Keystore + yeniden başlatma doğrulaması (bu PR dışında).
 - [ ] GitHub Unit/Robolectric, Room v4 hash, lint, APK imza/SHA256 doğrulaması.
+
+
+### [20-10-2026] — OTA imza sidecar ayrıştırma
+- [ ] Yinelenen farklı sertifika parmak izi ve iki signing_mode güvenli reddedilir.
+- [ ] Eksik/kırık/bilinmeyen satır, istenmeyen alan, çok büyük dosya reddedilir.
+- [ ] Resmî üç/zamanla dört satırlık SHA-256 signer raporu kabul edilir.
+- [ ] Room v4, unit/Robolectric, lint, APK ve doğrulama CI başarı kanıtı.
+
+
+
+### [20-10-2026] — MSG-DELETE-01 silme güvenliği regresyonları
+- [ ] Başarılı timer silmesi ve kullanıcı kuyruğu iptalinde mesaj kaldırılır, tombstone korunur; PENDING/WAITING otomatik korunur.
+- [ ] Mesaj DELETE DAO hata enjeksiyonunda tombstone ve asıl mesaj birlikte rollback.
+- [ ] Relay 503 remote delete hatasında yerel mesaj ve kayıt korunur; yanlış başarılı silme bildirimi yok.
+- [ ] Room hash, Android unit/Robolectric, lint, APK imza ve SHA256 CI kanıtı.
+
