@@ -494,4 +494,62 @@ class UserCodeMessagingTest {
         assertEquals("", thread?.lastMessageText)
         assertEquals(0, thread?.unreadCount)
     }
+
+    @Test fun `single message expiration and user cancellation persist replay tombstones`() = runBlocking {
+        val repo = repository()
+        val own = repo.ensureIdentity()
+        db.messageDao().insertMessage(MessageEntity(
+            "expired-single", "c1", own.id, "Me", "lanu2:encrypted", status = "SENT"))
+        repo.hideMessageLocally("expired-single")
+        assertNull(db.messageDao().getMessage("expired-single"))
+        assertEquals("true", db.settingsDao().getSettingValue("lanu_hidden_expired-single"))
+        db.messageDao().insertMessage(MessageEntity(
+            "queued-single", "c1", own.id, "Me", "lanu2:encrypted", status = "PENDING"))
+        repo.hideMessageLocally("queued-single")
+        assertNotNull(db.messageDao().getMessage("queued-single"))
+        assertNull(db.settingsDao().getSettingValue("lanu_hidden_queued-single"))
+        repo.deleteMessage("queued-single")
+        assertNull(db.messageDao().getMessage("queued-single"))
+        assertEquals("true", db.settingsDao().getSettingValue("lanu_hidden_queued-single"))
+    }
+
+    @Test fun `failed message erase rolls back its tombstone and leaves recoverable content`() = runBlocking {
+        val own = repository().ensureIdentity()
+        val id = "rollback-single"
+        val msg = MessageEntity(id, "c2", own.id, "Me", "lanu2:protected", status = "SENT")
+        db.messageDao().insertMessage(msg)
+        val failDao = object : MessageDao by db.messageDao() {
+            override suspend fun deleteMessage(id: String) {
+                throw IllegalStateException("Simulated disk erase failure")
+            }
+        }
+        try {
+            repository(messageDao = failDao).hideMessageLocally(id)
+            fail("Failed delete must be atomic")
+        } catch (_: IllegalStateException) { }
+        assertEquals(msg, db.messageDao().getMessage(id))
+        assertNull(db.settingsDao().getSettingValue("lanu_hidden_$id"))
+    }
+
+    @Test fun `remote delete error never erases or hides local sent message`() = runBlocking {
+        val own = repository().ensureIdentity()
+        val id = "remote-delete-failure"
+        val msg = MessageEntity(id, "c3", own.id, "Me", "lanu2:encrypted", status = "SENT")
+        db.messageDao().insertMessage(msg)
+        val relay = object : MessagingRelay {
+            override val configured = true
+            override suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject): JSONObject =
+                when (action) {
+                    "register" -> JSONObject().put("code", own.code).put("nonce", own.nonce)
+                    "delete" -> throw RelayException(503, "Simulated remote outage")
+                    else -> error("Unexpected $action")
+                }
+        }
+        try {
+            repository(relay = relay).deleteMessage(id)
+            fail("Remote failure must not report deletion success")
+        } catch (_: RelayException) { }
+        assertEquals(msg, db.messageDao().getMessage(id))
+        assertNull(db.settingsDao().getSettingValue("lanu_hidden_$id"))
+    }
 }

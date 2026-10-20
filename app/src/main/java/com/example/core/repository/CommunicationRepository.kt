@@ -317,22 +317,31 @@ class CommunicationRepository(
     suspend fun addReaction(messageId: String, emoji: String) {
         relay.request(registerRemote(), "react", JSONObject().put("messageId", messageId).put("reaction", emoji))
     }
-    suspend fun hideMessageLocally(messageId: String) {
-        val message = messageDao.getMessage(messageId) ?: return
-        // Hiding an unsent queued message would silently cancel delivery.
-        // The local timer may hide only after the relay has accepted it.
-        if (message.status in setOf("PENDING", "WAITING", "SENDING")) return
-        settingsDao.insertSetting(SettingsEntity("lanu_hidden_$messageId", "true"))
-        messageDao.deleteMessage(messageId)
+    suspend fun hideMessageLocally(messageId: String) = syncMutex.withLock {
+        val message = messageDao.getMessage(messageId) ?: return@withLock
+        // Timer hides only messages accepted by the relay. Pending sends survive.
+        if (message.status in setOf("PENDING", "WAITING", "SENDING")) return@withLock
+        database.withTransaction {
+            settingsDao.insertSetting(SettingsEntity("lanu_hidden_$messageId", "true"))
+            messageDao.deleteMessage(messageId)
+        }
     }
-    suspend fun deleteMessage(messageId: String) {
+
+    suspend fun deleteMessage(messageId: String) = syncMutex.withLock {
         val own = ensureIdentity()
-        val message = messageDao.getMessage(messageId) ?: return
+        val message = messageDao.getMessage(messageId) ?: return@withLock
         if (message.senderPhone == own.id && message.content.startsWith("lanu2:") &&
             message.status !in setOf("PENDING", "WAITING", "SENDING")
-        ) relay.request(registerRemote(), "delete", JSONObject().put("messageId", messageId))
-        else settingsDao.insertSetting(SettingsEntity("lanu_hidden_$messageId", "true"))
-        messageDao.deleteMessage(messageId)
+        ) {
+            // The server request must succeed before the local copy disappears.
+            relay.request(registerRemote(), "delete", JSONObject().put("messageId", messageId))
+        }
+        database.withTransaction {
+            // Always preserve the local tombstone. Server acknowledgements and
+            // delayed sync/revision events must never resurrect manually erased content.
+            settingsDao.insertSetting(SettingsEntity("lanu_hidden_$messageId", "true"))
+            messageDao.deleteMessage(messageId)
+        }
     }
     suspend fun editMessage(messageId: String, conversationId: String, newText: String) {
         require(newText.isNotBlank() && newText.length <= 8000)
