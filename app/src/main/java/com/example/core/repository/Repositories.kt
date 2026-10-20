@@ -20,7 +20,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.UUID
 import java.math.BigDecimal
-import kotlinx.coroutines.flow.update
 
 class CalculatorRepository(private val historyDao: CalculationHistoryDao, private val settingsDao: SettingsDao) {
     val history: Flow<List<CalculationHistoryEntity>> = historyDao.getAllHistory()
@@ -63,13 +62,13 @@ class CalculatorRepository(private val historyDao: CalculationHistoryDao, privat
         _memoryValue.value = value.toDouble() // Legacy UI projection, never used in arithmetic.
     }
 
-    fun setMemory(value: BigDecimal) = publishMemory(value)
-    fun addToMemory(value: BigDecimal) = publishMemory(_exactMemoryValue.value.add(value))
-    fun subtractFromMemory(value: BigDecimal) = publishMemory(_exactMemoryValue.value.subtract(value))
+    @Synchronized fun setMemory(value: BigDecimal) = publishMemory(value)
+    @Synchronized fun addToMemory(value: BigDecimal) = publishMemory(_exactMemoryValue.value.add(value))
+    @Synchronized fun subtractFromMemory(value: BigDecimal) = publishMemory(_exactMemoryValue.value.subtract(value))
     fun setMemory(value: Double) = setMemory(BigDecimal.valueOf(value))
     fun addToMemory(value: Double) = addToMemory(BigDecimal.valueOf(value))
     fun subtractFromMemory(value: Double) = subtractFromMemory(BigDecimal.valueOf(value))
-    fun clearMemory() = publishMemory(BigDecimal.ZERO)
+    @Synchronized fun clearMemory() = publishMemory(BigDecimal.ZERO)
 }
 
 class SecurityRepository(
