@@ -465,3 +465,10 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] Hata kaldırıldıktan sonra kalan 5. deneme doğru kademeyi saklar ve restart sonrası görünür.
 - [ ] Doğru biyometri, giriş kilidi ve strike sayaçlarını atomik sıfırlar.
 - [ ] Android test, Room v4 hash, lint, APK signer ve SHA256 CI başarılı.
+
+
+### [20-10-2026] — ID-PERSIST-01 güvenli kimlik saklama dayanıklılığı
+- [ ] SharedPreferences `commit=false`: önceki kimlik yerinde; hata yutulmaz.
+- [ ] `commit=true` fakat şifreli readback hatalı: işlem başarılı sayılmaz, kayıt güvenle geri alınabilir.
+- [ ] Gerçek cihaz Keystore + yeniden başlatma doğrulaması (bu PR dışında).
+- [ ] GitHub Unit/Robolectric, Room v4 hash, lint, APK imza/SHA256 doğrulaması.
