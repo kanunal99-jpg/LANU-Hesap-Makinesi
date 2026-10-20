@@ -372,3 +372,16 @@ Uygulamanın şifreleme motoru, veri mimarisi, güvenlik politikaları ve kamufl
 *   **Commit Hash:** bb52ad4
 *   **Durum:** BAŞARILI ✅
 *   **Not:** Dokümantasyon, CI kanıtı olmadan 'başarılı' veya 'production ready' olarak işaretlenmemelidir.
+
+
+## 20.10.2026 — P0/P1 yenilenen doğrulama durumu
+- [x] PR #37 birleştirildi: PIN ve biyometrik güvensiz fallback düzeltmelerinin otomasyon kapsamı.
+- [x] Main CI #39411770120: birim/Robolectric, lint, debug APK, imza ve SHA256 denetimi, Release job başarılı.
+- [ ] Yeni PR: KSP Room v4 şema JSON üretimi ve CI tablo/sütun sözleşmesi (PR çalışması tamamlanmadan başarı ilan edilmez).
+- [ ] v1-v3 gerçek veritabanı fixture'larıyla kayıpsız migration.
+- [ ] İki ardışık APK'de sabit imza, gerçek cihazda yerinde yükseltme.
+- [ ] Room dosyası şifreleme, anahtar kaybı ve restore testleri.
+- [ ] İki gerçek cihaz mesaj, offline/tekrar/okundu ve ağ kesintisi testi.
+- [ ] Samsung A55 + farklı cihaz erişilebilirlik/performans, Firebase gizlilik kontrolleri.
+
+Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyon kanıtı sayılmaz.
