@@ -1,10 +1,7 @@
 package com.example.core.messaging
 
 import org.json.JSONObject
-import java.security.KeyFactory
 import java.security.SecureRandom
-import java.security.Signature
-import java.security.spec.X509EncodedKeySpec
 import javax.crypto.Cipher
 import javax.crypto.Mac
 import javax.crypto.SecretKeyFactory
@@ -36,6 +33,9 @@ object IdentityBackup {
     }
     fun export(identity: MessagingIdentity, password: String): String {
         require(password.length in 12..256) { "Yedek parolası en az 12 karakter olmalıdır." }
+        require(UserCodes.isConsistentIdentity(identity)) {
+            "Kimlik anahtarları uyuşmuyor. Geçersiz yedek oluşturulmadı."
+        }
         val salt = ByteArray(16).also(SecureRandom()::nextBytes)
         val iv = ByteArray(12).also(SecureRandom()::nextBytes)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -57,12 +57,9 @@ object IdentityBackup {
             cipher.init(Cipher.DECRYPT_MODE, key(password, salt), GCMParameterSpec(128, iv)); cipher.updateAAD(aad)
             val value = JSONObject(String(cipher.doFinal(UserCodes.decode(envelope.getString("data"))), Charsets.UTF_8))
             val identity = MessagingIdentity(value.getString("id"), value.getString("code"), value.getString("nonce"), value.getString("publicKey"), value.getString("privateKey"))
-            require(identity.id == UserCodes.id(identity.publicKey) && UserCodes.matches(identity.code, identity.publicKey, identity.nonce))
-            val challenge = "LANU-key-pair-check"
-            val publicKey = KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(UserCodes.decode(identity.publicKey)))
-            val verifier = Signature.getInstance("SHA256withECDSA")
-            verifier.initVerify(publicKey); verifier.update(challenge.toByteArray())
-            require(verifier.verify(UserCodes.decode(UserCodes.sign(identity, challenge))))
+            require(UserCodes.isConsistentIdentity(identity)) {
+                "Yedek içindeki kimlik anahtarları uyuşmuyor."
+            }
             identity
         } catch (_: Exception) { throw IllegalArgumentException("Kimlik yedeği açılamadı. Dosyayı ve parolanızı kontrol edin.") }
     }
