@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from verify_room_schema import verify
+from test_verify_room_nondestructive import RoomNondestructiveRegressionTest
 
 
 class RoomSchemaGateTest(unittest.TestCase):
