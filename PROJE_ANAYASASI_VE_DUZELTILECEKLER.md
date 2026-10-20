@@ -220,3 +220,10 @@ Bu puan bir sertifika değildir; yerinde ve bağımsız kanıtlar tamamlanmadan 
 - **Kabul:** tekil zaman aşımı/silme tombstone, pendings korunma, SQLite silme hata enjeksiyonunda tüm durumun geri alınması, uzaktaki 503 hatasında yerel kopyanın korunması.
 - **Sınır:** Bu yerel silme garantisi, sunucudaki kayıtların KVKK/TTL uyumu veya SQLite WAL'daki eski byte izleri için silme sertifikası değildir.
 
+
+
+### 20.10.2026 — P0 E2EE mesaj boyutu sözleşmesi (MSG-SIZE-01)
+- **Bulgu:** Sunucu şifreli mesajı en fazla 50.000 karakter kabul ederken Android `PeerMessageCrypto` şifresiz/şifreli boyutu sınırlandırmadan Base64 decode ve AES işlemleri yapabiliyordu. Bu durum kaynak tüketimi ve istemci/sunucu sözleşme uyuşmazlığı riskiydi.
+- **Düzeltme:** UTF-8 metnin en fazla 37.467 bayt olması; gelen `lanu2:` çerçevesinin 44–50.000 karakter ve yalnız URL-güvenli Base64 karakterlerinden oluşması decode öncesinde doğrulanır. 12 bayt IV ve 16 bayt GCM etiketi korunur.
+- **Test:** sınırdaki mesaj, Türkçe/Unicode, boş mesaj, aşırı büyük çerçeve ve bozuk Base64 reddi; CI yeşil olmadan kapanmış sayılmaz.
+- **Sınır:** Tam SQLCipher/veri tabanı şifrelemesi, kullanıcı cihazında kötü niyetli relaya karşı kapsamlı güvenlik denetimi ve iki cihaz testleri ayrı P0.
