@@ -6,6 +6,9 @@ import unittest
 from pathlib import Path
 
 from verify_room_schema import verify
+# Existing workflow discovers this filename explicitly; include the
+# non-destructive Room policy tests in the same required CI invocation.
+from test_verify_room_nondestructive import RoomNondestructiveRegressionTest
 
 
 class RoomSchemaGateTest(unittest.TestCase):
