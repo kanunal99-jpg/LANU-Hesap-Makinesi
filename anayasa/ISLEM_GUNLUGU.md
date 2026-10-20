@@ -442,3 +442,10 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - Koruma: PIN, kimlik, sohbet, rehber, mesaj gönderim kuyruğu, finans geçmişi ve çağrı kayıtları.
 - Açık: tarihî v1-v3 sürüm geçişi ve gerçek telefonda veri koruma testleri.
 - Durum: CI sonucuna bağlı; PR tamamlanmadan başarılı ilan edilemez.
+
+
+### [20-10-2026] — P0 CRED-01 Supabase bağlantı sırrı taşıma
+- **Eski durum:** `SecurityRepository` `supabase_key` değerini şifresiz Room ayarlarına kaydediyordu.
+- **Değişiklik:** Yeni kayıtlar Keystore destekli şifreli ayarlara; mevcut satırlar güvenli ve doğrulanabilir taşıma sonrasında seçici silmeye. Başlangıçta IO coroutine ile taşıma denenir, hata düz metin fallback oluşturmaz.
+- **Testler:** Yeni yazım, eski veriyi kayıpsız taşıma, başarısız commit, kısmi şifreli kayıt, korunmuş önceki değerin önceliği.
+- **Durum:** PR CI doğrulaması bekliyor; gerçek kullanıcı cihazı kanıtı henüz yok.
