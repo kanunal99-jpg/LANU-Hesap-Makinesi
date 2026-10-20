@@ -429,3 +429,9 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - Kod incelemesi: `CryptoUtils` tam 28 baytlık geçerli AES-GCM şifreli boş değeri yanlışlıkla legacy çözücüye gönderiyordu.
 - Değişiklik: `>` yerine `>=` ve dört regresyon testi. Önceki şifreli kayıtların okunması korunur.
 - Test sonucu: Yeni CI tamamlanana kadar BEKLEMEDE. Release ve gerçek cihaz doğrulaması ayrıca gereklidir.
+
+
+### [20-10-2026] — P0-05 mesaj alımında çökme sonrası tutarlılık
+- **Risk:** Mesaj kaydı ile okunmamış/revizyon arasında çökme, yinelenen olayın sayılamamasına yol açabiliyordu.
+- **Geliştirme:** `CommunicationRepository` olayları `Room.withTransaction` içinde işler; `AppContainer` aynı veritabanını enjekte eder. Hata enjeksiyonuyla rollback ve tekrar işleme testi eklendi.
+- **Durum:** Geliştirme dalında; yeni Android CI tamamlanmadan ana dala alma / ürün hazır ilan etme yok.

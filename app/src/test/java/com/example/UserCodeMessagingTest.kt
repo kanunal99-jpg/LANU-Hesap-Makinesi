@@ -33,8 +33,13 @@ class UserCodeMessagingTest {
         override val configured = false
         override suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject): JSONObject = throw RelayException(0, "offline")
     }
-    private fun repository(store: MessagingIdentityStore = vault, relay: MessagingRelay = offline) = CommunicationRepository(
-        db.contactDao(), db.conversationDao(), db.messageDao(), db.settingsDao(), db.userProfileDao(), db.callLogDao(), store, relay)
+    private fun repository(
+        store: MessagingIdentityStore = vault,
+        relay: MessagingRelay = offline,
+        conversationDao: ConversationDao = db.conversationDao()
+    ) = CommunicationRepository(
+        db.contactDao(), conversationDao, db.messageDao(), db.settingsDao(),
+        db.userProfileDao(), db.callLogDao(), store, relay, db)
     @Before fun setup() {
         db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Context>(), AppDatabase::class.java).build()
         vault.value = null
@@ -306,5 +311,60 @@ class UserCodeMessagingTest {
         ))
         repo.deleteMessage(cancelledId)
         assertNull("An offline queued message can be cancelled without calling the relay", db.messageDao().getMessage(cancelledId))
+    }
+
+    @Test fun `failed unread increment rolls back received message and replay revision`() = runBlocking {
+        val alice = UserCodes.create()
+        val bob = UserCodes.create()
+        vault.save(bob)
+        val conversationId = UserCodes.conversationId(alice.id, bob.id)
+        val messageId = java.util.UUID.randomUUID().toString()
+        val eventId = java.util.UUID.randomUUID().toString()
+        val ciphertext = PeerMessageCrypto.encrypt(alice, bob.id, bob.publicKey, messageId, "Kesintiden sonra da görünmeli")
+        var ackCount = 0
+        val relay = object : MessagingRelay {
+            override val configured = true
+            override suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject): JSONObject = when (action) {
+                "register" -> JSONObject().put("code", bob.code).put("nonce", bob.nonce)
+                "sync" -> JSONObject()
+                    .put("contacts", org.json.JSONArray().put(JSONObject()
+                        .put("id", alice.id).put("code", alice.code)
+                        .put("nonce", alice.nonce).put("publicKey", alice.publicKey)
+                        .put("codeAtAdd", alice.code).put("mutual", true)))
+                    .put("events", org.json.JSONArray().put(JSONObject()
+                        .put("id", eventId)
+                        .put("message", JSONObject()
+                            .put("id", messageId).put("senderId", alice.id)
+                            .put("recipientId", bob.id).put("revision", 1)
+                            .put("status", "SENT").put("createdAt", System.currentTimeMillis())
+                            .put("content", ciphertext))))
+                "ack" -> JSONObject().put("acknowledged", true).also { ackCount++ }
+                else -> error("Unexpected request: $action")
+            }
+        }
+        val crashingDao = object : ConversationDao by db.conversationDao() {
+            override suspend fun incrementUnreadCount(id: String) {
+                throw IllegalStateException("Simulated crash between message storage and unread increment")
+            }
+        }
+        try {
+            repository(relay = relay, conversationDao = crashingDao).synchronize()
+            fail("Unread-count failure must stop the transaction")
+        } catch (e: IllegalStateException) {
+            assertTrue(e.message.orEmpty().contains("Simulated crash"))
+        }
+        assertNull("Message insert must roll back", db.messageDao().getMessage(messageId))
+        assertNull("Replay revision must roll back", db.settingsDao().getSettingValue("lanu_message_revision_$messageId"))
+        assertNull("Conversation creation must roll back", db.conversationDao().getConversationById(conversationId))
+        assertEquals("No receipt may be acknowledged before committing", 0, ackCount)
+
+        repository(relay = relay).synchronize()
+        assertNotNull(db.messageDao().getMessage(messageId))
+        assertEquals(1, db.conversationDao().getConversationById(conversationId)?.unreadCount)
+        assertEquals("1", db.settingsDao().getSettingValue("lanu_message_revision_$messageId"))
+        assertEquals(1, ackCount)
+        repository(relay = relay).synchronize()
+        assertEquals("Repeated event must not increase unread", 1,
+            db.conversationDao().getConversationById(conversationId)?.unreadCount)
     }
 }

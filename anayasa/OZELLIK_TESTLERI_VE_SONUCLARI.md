@@ -392,3 +392,11 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] Şifreli çerçevede IV değişimi reddi, auth-tag eksikliği reddi.
 - [ ] Legacy deterministik IV verisinin geriye uyumluluk çözme testi.
 - Test adımı: `./gradlew :app:testDebugUnitTest :app:lintDebug assembleDebug`; PR CI tamamlanana kadar başarılı sayılmaz.
+
+
+### [20-10-2026] — Gelen mesaj olayında atomik kayıt
+- [ ] `UserCodeMessagingTest`: okunmamış sayacı adımında hata olduğunda mesaj, sohbet ve revizyonun birlikte rollback edilmesi.
+- [ ] Başarısız işlem için sunucuya `ack` gitmemesi.
+- [ ] Tekrar senkronizasyonda mesajın tek defa okunmamış sayılması; yinelenen olayda artmaması.
+- [ ] Android unit/Robolectric + Room şema kontrolü + lint + APK imzası ve SHA256 ile CI doğrulaması.
+- [ ] Gerçek iki cihaz / kesintili ağ testleri (ayrı üretim kapısı).

@@ -36,7 +36,8 @@ class AppContainer(context: Context) {
             database.userProfileDao(),
             database.callLogDao(),
             EncryptedMessagingIdentityStore(context),
-            HttpMessagingRelay(BuildConfig.LANU_RELAY_URL)
+            HttpMessagingRelay(BuildConfig.LANU_RELAY_URL),
+            database
         )
     }
 }

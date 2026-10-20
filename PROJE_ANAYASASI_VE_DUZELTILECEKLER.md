@@ -101,3 +101,11 @@ Puanlar planlama amaçlı ön değerlendirmedir, bağımsız sertifikasyon deği
 - **Düzeltme:** Modern çerçevenin minimum uzunluğu `>= 28` olarak belirlenir. Var olan eski deterministik IV okuma yolu yalnız geriye uyumluluk içindir; yeni şifrelemede kullanılmaz.
 - **Kabul testleri:** boş değer roundtrip, tag/IV oynama reddi, kesilmiş çerçeve reddi, eski verinin şifre çözülebilmesi.
 - **Durum:** Değişiklik ve testler ayrı geliştirme dalına işlendi; yeni PR CI tamamen geçmeden BAŞARILI/TAMAMLANDI etiketlenemez.
+
+
+### 20.10.2026 — P0-05 gelen mesaj kaydında atomiklik
+
+- **Bulgu MSG-ATOMIC-01 (kaynak kod incelemesi):** `CommunicationRepository.synchronize()` mesajı ve güncellemeyi ayrı Room DAO çağrılarıyla yazıyordu. Mesaj kaydından sonra, okunmamış sayacını güncellemeden veya replay revizyonunu saklamadan oluşan kesinti; bir sonraki tekrarda ilk kayıt sanılmadığı için okunmamış sayısının eksik kalmasına neden olabilir.
+- **Düzeltme:** Tek gelen mesaj olayında sohbet oluşturma, doğrulanmış şifreli mesaj, okunmamış sayaç ve olay revizyonu `AppDatabase.withTransaction` ile atomik yürütülür. Sunucu teslim/okundu onayı yalnız işlem tamamlandıktan sonra gönderilir; tamper edilen içerik yine reddedilir.
+- **Regresyon:** Sahte bir DAO ile okunmamış sayacı adımında hata enjekte et; mesajın, sohbetin ve revizyonun geri alındığını ve sunucu onayı verilmediğini kanıtla. Ardından aynı olayı yeniden işle; okunmamış 1 olsun, tekrar oynatma 2 yapmasın.
+- **Kapsam ve sınır:** Room v4 şeması ve kullanıcı verileri değişmez. Kod, test ve CI doğrulaması bitmeden başarı ilan edilmez. Gerçek iki cihaz/çevrimdışı sunucu senaryoları hâlâ P0-05 kapısıdır.
