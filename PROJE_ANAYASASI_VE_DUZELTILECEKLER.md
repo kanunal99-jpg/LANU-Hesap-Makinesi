@@ -133,3 +133,11 @@ Puanlar planlama amaçlı ön değerlendirmedir, bağımsız sertifikasyon deği
 - **Kabul:** Yeni gizli değer Room'a düşmez; eski değerler başarılı geçişte temizlenir; şifreli yazma hatasında eski kaynak korunur; bozuk/kısmi kayıt reddedilir. Android Unit/Robolectric, lint, APK, sertifika/SHA256 yeşil olmadan merge yok.
 - **Sınırlama:** Room dosyasının tamamı hâlâ şifreli değildir; eski dosya sayfalarında WAL/serbest alan izleri kalmış olabilir. Bu adım geçmiş düz metin kalıntılarını veya önceki sızıntıları geriye dönük yok ettiğini iddia etmez. Gerçek cihaz, eski sürüm yükseltme ve bütünsel veri şifreleme P0 olmaya devam eder.
 - **Durum:** Geliştirme dalında; CI doğrulama bekleniyor. Puan bağımsız doğrulama olmadan otomatik yükseltilmez.
+
+
+### 20.10.2026 — P1 güvenlik günlüğü kurtarma (AUDIT-01)
+
+- **Bulgu:** Şifreli tercih deposu okunabiliyor ancak yazma işlemi başarısız oluyorsa olaylar RAM'e aktarılıyordu; `getLoggedEvents` diskteki eski olayları döndürüp RAM'deki yeni güvenlik olaylarını gizliyordu.
+- **Düzeltme:** Görüntüleme sırasında şifreli kalıcı ve geçici RAM olaylarını birlikte göster. Sonraki başarılı korumalı yazımda RAM'deki olayları şifreli depoya aktar, yalnız başarılı `commit` sonrasında RAM kuyruğunu temizle.
+- **Kabul:** Şifreli commit başarısızken RAM olayları görünür ama diske düz metinle yazılmaz; depo toparlanınca olaylar şifreli kayıt halinde yeniden açılışta görünür; en fazla 50 kayıt tutulur. Android CI, lint, APK ve imza doğrulanmadan birleştirme yok.
+- **Sınır:** Çalışma sırasında cihaz yeniden başlatılırsa yalnız RAM'deki kurtarılamamış olaylar kaybolabilir. Tamamen yeniden başlayan süreçten RAM kurtarma vaadi verilmez.
