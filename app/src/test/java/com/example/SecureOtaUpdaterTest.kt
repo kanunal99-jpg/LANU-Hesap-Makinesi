@@ -243,6 +243,51 @@ class SecureOtaUpdaterTest {
         } finally { cache.deleteRecursively() }
     }
 
+    @Test fun `installer only accepts its dedicated staged APK path`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val expectedDigest = "ca".repeat(32)
+        val ota = java.io.File(context.cacheDir, "ota").apply { mkdirs() }
+        val installer = java.io.File(ota, "install").apply { mkdirs() }
+        val staged = java.io.File(installer, "lanu-259-$expectedDigest.apk")
+        val download = java.io.File(ota, "lanu-259-$expectedDigest.apk")
+        val incomplete = java.io.File(installer, "lanu-259-$expectedDigest.copying.apk")
+        val spoof = java.io.File(installer, "totally-unverified.apk")
+        try {
+            staged.writeText("test")
+            download.writeText("test")
+            incomplete.writeText("test")
+            spoof.writeText("test")
+            assertTrue(SecureOtaUpdater.isStagedInstallerFile(context, staged))
+            assertFalse("Download cache must never go directly to Android installer",
+                SecureOtaUpdater.isStagedInstallerFile(context, download))
+            assertFalse("Incomplete staging copy must never reach Android installer",
+                SecureOtaUpdater.isStagedInstallerFile(context, incomplete))
+            assertFalse("Unrecognised filenames must be rejected",
+                SecureOtaUpdater.isStagedInstallerFile(context, spoof))
+            val outside = java.io.File(context.cacheDir, "lanu-259-$expectedDigest.apk").apply { writeText("test") }
+            try {
+                assertFalse(SecureOtaUpdater.isStagedInstallerFile(context, outside))
+            } finally { outside.delete() }
+        } finally {
+            staged.delete()
+            download.delete()
+            incomplete.delete()
+            spoof.delete()
+            installer.delete()
+        }
+    }
+
+    @Test fun `installer refuses an unstaged partial file without opening Android settings`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val ota = java.io.File(context.cacheDir, "ota").apply { mkdirs() }
+        val checksum = "ff".repeat(32)
+        val file = java.io.File(ota, "lanu-260-$checksum.part.apk")
+        try {
+            file.writeText("test")
+            assertFails { SecureOtaUpdater.launchInstaller(context, file) }
+        } finally { file.delete() }
+    }
+
     private fun assertFails(block: () -> Unit) {
         try {
             block()
