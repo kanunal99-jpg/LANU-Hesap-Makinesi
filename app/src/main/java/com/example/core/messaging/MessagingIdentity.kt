@@ -1,6 +1,7 @@
 package com.example.core.messaging
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.util.Base64
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
@@ -26,22 +27,33 @@ interface MessagingIdentityStore {
 }
 
 /** Never replace an unreadable identity or fall back to plaintext storage. */
-class EncryptedMessagingIdentityStore(context: Context) : MessagingIdentityStore {
+class EncryptedMessagingIdentityStore(
+    context: Context,
+    // Test-only seam; production uses the protected Keystore-backed store.
+    private val preferencesForTesting: SharedPreferences? = null
+) : MessagingIdentityStore {
     private val prefs by lazy {
-        val key = MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
-        EncryptedSharedPreferences.create(context, "lanu_messaging_identity", key,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM)
+        preferencesForTesting ?: run {
+            val key = MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
+            EncryptedSharedPreferences.create(context, "lanu_messaging_identity", key,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM)
+        }
     }
     override fun read(): MessagingIdentity? {
         val raw = prefs.getString("identity", null) ?: return null
         val obj = JSONObject(raw)
         return MessagingIdentity(obj.getString("id"), obj.getString("code"), obj.getString("nonce"),
             obj.getString("publicKey"), obj.getString("privateKey")).also {
-            require(UserCodes.matches(it.code, it.publicKey, it.nonce) && it.id == UserCodes.id(it.publicKey))
+            require(UserCodes.isConsistentIdentity(it)) {
+                "Şifreli kimlikte açık/özel anahtar uyuşmazlığı. Kayıt değiştirilmedi."
+            }
         }
     }
     override fun save(identity: MessagingIdentity) {
+        require(UserCodes.isConsistentIdentity(identity)) {
+            "Uyumsuz kimlik anahtarı kaydedilmedi; mevcut kimlik korundu."
+        }
         val value = JSONObject().put("id", identity.id).put("code", identity.code).put("nonce", identity.nonce)
             .put("publicKey", identity.publicKey).put("privateKey", identity.privateKey)
         check(prefs.edit().putString("identity", value.toString()).commit()) { "Kimlik güvenle kaydedilemedi" }
@@ -71,6 +83,26 @@ object UserCodes {
         return "LANU-" + chars.toString().chunked(4).joinToString("-")
     }
     fun matches(value: String, publicKey: String, nonce: String) = normalize(value) == code(publicKey, nonce)
+    /**
+     * An encrypted JSON record can still contain a mismatched key pair after a bad
+     * import or storage failure. A plausible code and public-key digest alone do
+     * not prove that the private key can sign as the advertised account.
+     */
+    fun isConsistentIdentity(identity: MessagingIdentity): Boolean = runCatching {
+        if (identity.id != id(identity.publicKey) ||
+            !matches(identity.code, identity.publicKey, identity.nonce)) {
+            false
+        } else {
+            val challenge = "LANU-identity-keypair-integrity-v1"
+            val publicKey = KeyFactory.getInstance("EC")
+                .generatePublic(X509EncodedKeySpec(decode(identity.publicKey)))
+            val verifier = Signature.getInstance("SHA256withECDSA")
+            verifier.initVerify(publicKey)
+            verifier.update(challenge.toByteArray(Charsets.UTF_8))
+            verifier.verify(decode(sign(identity, challenge)))
+        }
+    }.getOrDefault(false)
+
     fun newNonce(): String = ByteArray(16).also(SecureRandom()::nextBytes).let(::encode)
     fun create(): MessagingIdentity {
         val pair = KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec("secp256r1")) }.generateKeyPair()

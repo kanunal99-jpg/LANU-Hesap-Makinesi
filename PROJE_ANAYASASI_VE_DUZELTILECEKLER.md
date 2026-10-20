@@ -141,3 +141,12 @@ Puanlar planlama amaçlı ön değerlendirmedir, bağımsız sertifikasyon deği
 - **Düzeltme:** Görüntüleme sırasında şifreli kalıcı ve geçici RAM olaylarını birlikte göster. Sonraki başarılı korumalı yazımda RAM'deki olayları şifreli depoya aktar, yalnız başarılı `commit` sonrasında RAM kuyruğunu temizle.
 - **Kabul:** Şifreli commit başarısızken RAM olayları görünür ama diske düz metinle yazılmaz; depo toparlanınca olaylar şifreli kayıt halinde yeniden açılışta görünür; en fazla 50 kayıt tutulur. Android CI, lint, APK ve imza doğrulanmadan birleştirme yok.
 - **Sınır:** Çalışma sırasında cihaz yeniden başlatılırsa yalnız RAM'deki kurtarılamamış olaylar kaybolabilir. Tamamen yeniden başlayan süreçten RAM kurtarma vaadi verilmez.
+
+
+### 20.10.2026 — P0-08 Kimlik anahtar çifti bütünlüğü (ID-KEY-01)
+
+- **Bulgu:** Şifreli kimlik dosyası okunurken kullanıcı kodu ve açık anahtar denetleniyordu; özel anahtarın bu açık anahtar çiftine gerçekten ait olduğu kanıtlanmıyordu. Bozuk veya tutarsız kimlik okunmuş gibi görünüp ağ istek imzası/iletişim arızasına yol açabilir.
+- **Düzeltme:** `UserCodes.isConsistentIdentity` kod + public ID + özel anahtarla ECDSA challenge imzasını aynı anda doğrular. `EncryptedMessagingIdentityStore.read/save` uyuşmazlıkta **fail-closed**: eski kaydı silmeden hata, yeni bozuk kaydı yazmayı reddetme.
+- **Kabul:** Geçerli kimlik roundtrip; özel anahtarı başka hesaba ait/bozuk kaydın okunmasının reddi; yeni tutarsız kaydın önceki geçerli kimliğin üzerine yazılamaması; Room v4 şema ve tüm Android CI kapıları yeşil.
+- **Açık:** Uyuşmazlık varsa otomatik anahtar sıfırlamak yasak. Kullanıcı, varsa önceden oluşturduğu parolalı kimlik yedeği üzerinden bilinçli kurtarma yapabilir; gerçek cihaz/anahtar kaybı kurtarma hâlâ açık P0.
+- **Durum:** PR CI ve APK kanıtı bekleniyor; genel hedef puan bağımsız test kanıtı olmadan yükseltilmez.
