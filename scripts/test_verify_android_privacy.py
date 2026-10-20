@@ -34,11 +34,10 @@ class AndroidPrivacyManifestContractTest(unittest.TestCase):
                 '<exclude domain="root" path="." />', '<include domain="database" path="." />', 1))
 
     def test_device_transfer_cannot_copy_keystore_bound_identity(self):
-        target = '<device-transfer>'
-        replacement = '<device-transfer><include domain="sharedpref" path="." />'
-        # Remove the actual deny rule, not merely add an overlapping include.
-        updated = self.extraction.replace(target, replacement).replace(
-            '<exclude domain="root" path="." />', "", 2)
+        left, right = self.extraction.split("<device-transfer>", 1)
+        # Delete just the device-transfer deny rule, leaving cloud-backup intact.
+        updated = left + "<device-transfer>" + right.replace(
+            '<exclude domain="root" path="." />', "", 1)
         with self.assertRaisesRegex(ValueError, "device-transfer"):
             self.verify(extraction=updated)
 
