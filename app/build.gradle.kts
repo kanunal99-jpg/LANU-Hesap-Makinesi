@@ -9,6 +9,12 @@ plugins {
   alias(libs.plugins.google.services)
 }
 
+// Preserve the current Room schema as compiler-generated evidence. Historical
+// schemas must be recovered from real prior versions, never reconstructed.
+ksp {
+  arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
