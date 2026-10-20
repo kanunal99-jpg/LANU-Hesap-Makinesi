@@ -239,3 +239,9 @@ Bu puan bir sertifika değildir; yerinde ve bağımsız kanıtlar tamamlanmadan 
 - **Düzeltme:** Gelen veriyi Web ReadableStream parçaları halinde oku, toplam UTF-8 byte sayısını 100.000 ile sınırla; Content-Length üst sınırını okuma öncesi denetle, eksik/yanlış Content-Length olsa bile aktüel byte sınırını uygula. Limit aşımında HTTP 413, bozuk UTF-8/başlıkta 400 ve stream iptali.
 - **Test:** 100.000 bayt tam sınırı ve 100.001 reddi, chunked/eksik Content-Length, geçersiz başlık, çok baytlı UTF-8, bozuk UTF-8, normal JSON; Node sunucu testlerinde otomatik.
 - **Açık:** Üretim Supabase Edge Function yayınına ilişkin canlı endpoint kanıtı yoksa production düzeltmesi olarak ilan edilmez. Dış güvenlik değerlendirmesi, sunucu TTL ve gerçek iki cihazlı senaryolar ayrı P0.
+
+### 20.10.2026 — P0 sunucu yanıtı bellek sınırı (RELAY-RESP-01)
+- **Bulgu:** Edge Function istek gövdesinde streaming boyut sınırı olmasına rağmen, PostgREST yanıtları `response.text()` ile kısıt olmaksızın belleğe alınıyordu. Çok büyük `sync`/olay yanıtı DoS ve kaynak tüketimi riski yaratır.
+- **Düzeltme:** `RestStore.query` PostgREST gövdesini akış sırasında (en fazla 16 MiB, dekompresyon sonrası) denetleyerek okur; Content-Length yalanı, UTF-8 bozulması veya sınır aşımı güvenli 503 hatasıyla reddedilir. Ham PostgREST hata/verisi sızdırılmaz.
+- **Test:** gerçek JSON, büyük Content-Length, chunked aşımda stream cancel, geçersiz UTF-8, PostgREST 403 hata redaksiyonu ve `RestStore` doğrudan sınır testi.
+- **Açık:** İki farklı fiziksel cihazla ağ/latency, üretim sunucu gözlemi, saklama/TTL ve genel oran sınırları ayrı kabul kapısıdır.
