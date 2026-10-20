@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Least-privilege: only verified OTA APK files in internal cache. -->
+    <cache-path name="ota_verified_apks" path="ota/" />
+</paths>
