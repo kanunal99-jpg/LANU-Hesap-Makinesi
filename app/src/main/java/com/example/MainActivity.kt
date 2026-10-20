@@ -19,13 +19,14 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Surface
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModelProvider
 import com.example.core.security.AppLifecycleObserver
 import com.example.features.calculator.CalculatorScreen
+import com.example.features.update.UpdateCheckScreen
 import com.example.features.calculator.CalculatorViewModel
 import com.example.features.calculator.UnitConverterScreen
 import com.example.features.calculator.FinanceScreen
@@ -201,6 +202,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                     onNavigateToFinance = {
                                         navigateTo(Screen.Finance)
                                     },
+                                    onNavigateToUpdates = {
+                                        navigateTo(Screen.Updates)
+                                    },
                                     themePreference = themePreference,
                                     buttonColorTheme = buttonColorTheme,
                                     onToggleTheme = {
@@ -227,6 +231,12 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                         navigateBack()
                                     }
                                 )
+                            }
+                            is Screen.Updates -> {
+                                Column {
+                                    TextButton(onClick = { navigateBack() }) { Text("← Hesap makinesine dön") }
+                                    UpdateCheckScreen(modifier = Modifier.weight(1f))
+                                }
                             }
                             is Screen.Security -> {
                                 SecurityScreen(
@@ -389,6 +399,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         object Calculator : Screen()
         data class UnitConverter(val initialValue: String? = null) : Screen()
         object Finance : Screen()
+        object Updates : Screen()
         data class Security(val directUnlockPin: String? = null) : Screen()
         object Communication : Screen()
         data class ChatDetail(val conversationId: String) : Screen()

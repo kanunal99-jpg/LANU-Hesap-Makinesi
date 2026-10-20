@@ -63,6 +63,7 @@ fun CalculatorScreen(
     onNavigateToLock: () -> Unit,
     onNavigateToUnitConverter: (String?) -> Unit,
     onNavigateToFinance: () -> Unit,
+    onNavigateToUpdates: () -> Unit,
     themePreference: String = "system",
     buttonColorTheme: String = "emerald",
     onToggleTheme: () -> Unit = {}
@@ -236,6 +237,15 @@ fun CalculatorScreen(
                                     toolsMenuExpanded = false
                                     triggerVibration()
                                     onNavigateToFinance()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Güncelleme Kontrol") },
+                                leadingIcon = { Icon(Icons.Default.SystemUpdateAlt, contentDescription = null) },
+                                onClick = {
+                                    toolsMenuExpanded = false
+                                    triggerVibration()
+                                    onNavigateToUpdates()
                                 }
                             )
                             DropdownMenuItem(

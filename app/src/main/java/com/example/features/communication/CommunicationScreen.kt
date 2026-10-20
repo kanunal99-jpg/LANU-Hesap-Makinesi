@@ -45,6 +45,7 @@ import com.example.core.database.ContactEntity
 import com.example.core.database.ConversationEntity
 import com.example.core.database.CallLogEntity
 import com.example.features.security.SecurityViewModel
+import com.example.features.update.UpdateCheckScreen
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -90,9 +91,9 @@ fun CommunicationScreen(
         },
         bottomBar = {
             NavigationBar {
-                listOf("Sohbetler", "Kişiler", "Ayarlar").forEachIndexed { index, label ->
+                listOf("Sohbetler", "Kişiler", "Ayarlar", "Güncelleme").forEachIndexed { index, label ->
                     NavigationBarItem(selected = tab == index, onClick = { tab = index },
-                        icon = { Icon(when (index) { 0 -> Icons.Default.ChatBubble; 1 -> Icons.Default.Contacts; 2 -> Icons.Default.Settings; else -> Icons.Default.Settings }, label) },
+                        icon = { Icon(when (index) { 0 -> Icons.Default.ChatBubble; 1 -> Icons.Default.Contacts; 2 -> Icons.Default.Settings; else -> Icons.Default.SystemUpdateAlt }, label) },
                         label = { Text(label) })
                 }
             }
@@ -110,7 +111,7 @@ fun CommunicationScreen(
                     }
                 }
             }
-            if (code.isBlank()) {
+            if (code.isBlank() && tab != 3) {
                 Text("Kimliğiniz hazırlanıyor. Açılamazsa yeniden deneyin.", Modifier.padding(16.dp))
                 TextButton(onClick = { viewModel.checkRegistration() }) { Text("Yeniden dene") }
             } else {
@@ -120,6 +121,7 @@ fun CommunicationScreen(
                         0 -> ChatsTab(viewModel, vibrate, onNavigateToChat)
                         1 -> ContactsTab(viewModel, vibrate, onNavigateToChat)
                         2 -> SettingsTab(viewModel, securityViewModel, vibrate)
+                        3 -> UpdateCheckScreen()
                     }
                 }
             }
