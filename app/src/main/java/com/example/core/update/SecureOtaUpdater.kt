@@ -339,10 +339,10 @@ object SecureOtaUpdater {
                 var downloadedNow = 0L
                 var lastReported = offset
                 body.byteStream().use { input ->
-                    partial.outputStream().buffered().let { output ->
-                        // FileOutputStream append=true is essential on HTTP 206.
-                        if (offset > 0L) java.io.FileOutputStream(partial, true).buffered() else output
-                    }.use { output ->
+                    // Opening outputStream() before deciding to append would truncate
+                    // the resumable prefix. Open only the chosen stream.
+                    (if (offset > 0L) java.io.FileOutputStream(partial, true).buffered()
+                    else partial.outputStream().buffered()).use { output ->
                         val buffer = ByteArray(32 * 1024)
                         while (true) {
                             currentCoroutineContext().ensureActive()
@@ -362,11 +362,10 @@ object SecureOtaUpdater {
                         }
                     }
                 }
-                require(received > 0L && (declared < 0L || downloadedNow == declared)) {
-                    "İndirme eksik geldi; kaldığı yerden yeniden denenecek."
-                }
-                require(total < 0L || received == total) {
-                    "Güncelleme dosyası tamamlanmadı; kaldığı yerden yeniden denenecek."
+                if (received == 0L || (declared >= 0L && downloadedNow != declared) ||
+                    (total >= 0L && received != total)
+                ) {
+                    throw IOException("Bağlantı kesildi veya APK dosyası eksik geldi; yeniden denendiğinde kaldığı yerden devam edilecek.")
                 }
                 val actual = digest.digest().joinToString("") { "%02x".format(it) }
                 require(sameCertificate(actual, expected)) {
