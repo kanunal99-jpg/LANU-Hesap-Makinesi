@@ -220,3 +220,9 @@ Bu puan bir sertifika değildir; yerinde ve bağımsız kanıtlar tamamlanmadan 
 - **Kabul:** tekil zaman aşımı/silme tombstone, pendings korunma, SQLite silme hata enjeksiyonunda tüm durumun geri alınması, uzaktaki 503 hatasında yerel kopyanın korunması.
 - **Sınır:** Bu yerel silme garantisi, sunucudaki kayıtların KVKK/TTL uyumu veya SQLite WAL'daki eski byte izleri için silme sertifikası değildir.
 
+
+### 20.10.2026 — P0 Android otomatik yedekleme/aktarım sızıntısı CI bekçisi (BACKUP-GUARD-01)
+- **Risk:** Room v4 düz SQLite ve Keystore'a bağlı ayarlar otomatik bulut yedeklemeye veya cihazlar arası transfere dahil edilirse içerik sızıntısı ve kurtarılamayan Keystore anahtarı riski doğar.
+- **Kapsam:** Mevcut `allowBackup=false`, legacy backup full-root exclude, Android 12+ `cloud-backup`/`device-transfer` full-root exclude, OTA FileProvider `exported=false` değerlerinin her PR CI'da XML doğrulaması.
+- **Test:** Geliştirici yedeklemeyi yeniden açarsa, bulut/cihaz kısıtını kaldırırsa veya FileProvider'ı dışa açarsa CI başarısız olmalı.
+- **Sınır:** Bu kontrol Room v4'ün kendisini şifrelemez, mevcut fiziksel cihazdaki eski verileri temizlemez ve manuel parolalı yedek sistemi yerine geçmez.
