@@ -16,7 +16,7 @@ import androidx.room.RoomDatabase
         CallLogEntity::class
     ],
     version = 4,
-    exportSchema = false
+    exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun calculationHistoryDao(): CalculationHistoryDao
