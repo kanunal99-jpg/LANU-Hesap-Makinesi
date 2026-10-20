@@ -171,7 +171,7 @@ object SecureOtaUpdater {
         }
         val expected = parseChecksum(readText(release.checksumUrl, 1_000))
         val directory = File(context.cacheDir, "ota").apply { mkdirs() }
-        val partial = File(directory, "pending.apk.part")
+        val partial = File(directory, "pending.apk")
         val final = File(directory, "lanu-update.apk")
         partial.delete()
         final.delete()
