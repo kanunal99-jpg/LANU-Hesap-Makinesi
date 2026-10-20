@@ -293,10 +293,8 @@ class SecurityRepository(
         val legacyKey = settingsDao.getSettingValue("supabase_key")
         val prefs = sharedPreferences
         if (prefs == null) {
-            if (legacyUrl != null || legacyKey != null) {
-                throw SecurityException("Güvenli depolama açılamadı. Eski bağlantı bilgileri korunuyor.")
-            }
-            return null to null
+            // Unknown secure-store state is not proof that no credentials exist.
+            throw SecurityException("Güvenli depolama açılamadı. Bağlantı bilgileri korunuyor.")
         }
         try {
             val hasProtectedEntry = prefs.contains("supabase_url") || prefs.contains("supabase_key")
