@@ -68,6 +68,36 @@ class SecureOtaUpdaterTest {
         assertFails { SecureOtaUpdater.parseChecksum("$expected ../app-debug.apk") }
     }
 
+    @Test fun `signer sidecar rejects duplicate and ambiguous certificate fields`() {
+        val pin = "a1".repeat(32)
+        val evil = "b2".repeat(32)
+        val original = "apk=app-debug.apk\nsigning_mode=stable\ncertificate_sha256=$pin\n"
+        assertEquals(pin, SecureOtaUpdater.parseSigner(original))
+        assertEquals(pin, SecureOtaUpdater.parseSigner(
+            original + "upgrade_verified_on_device=false\n"))
+        assertFails { SecureOtaUpdater.parseSigner(
+            original + "certificate_sha256=$evil\n") }
+        assertFails { SecureOtaUpdater.parseSigner(
+            "certificate_sha256=$evil\n" + original) }
+        assertFails { SecureOtaUpdater.parseSigner(
+            original.replace("signing_mode=stable", "signing_mode=stable\nsigning_mode=ephemeral")) }
+        assertFails { SecureOtaUpdater.parseSigner(
+            original + "apk=https://attacker.example/app-debug.apk\n") }
+    }
+
+    @Test fun `signer sidecar rejects unexpected fields broken rows and excessive metadata`() {
+        val pin = "aa".repeat(32)
+        val valid = "apk=app-debug.apk\nsigning_mode=ephemeral\ncertificate_sha256=$pin\n"
+        assertFails { SecureOtaUpdater.parseSigner(valid + "dangerous=untrusted\n") }
+        assertFails { SecureOtaUpdater.parseSigner(valid + "injected-malformed-line\n") }
+        assertFails { SecureOtaUpdater.parseSigner(valid + "upgrade_verified_on_device=unknown\n") }
+        assertFails { SecureOtaUpdater.parseSigner(valid.replace(
+            "certificate_sha256=$pin", "certificate_sha256= $pin")) }
+        assertFails { SecureOtaUpdater.parseSigner(valid + " ".repeat(2049)) }
+        assertFails { SecureOtaUpdater.parseSigner(valid.replace(
+            "apk=app-debug.apk", "apk=app-debug.apk=extra")) }
+    }
+
     @Test fun `manifest grants only required installer permission and scoped provider`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val pkg = context.packageManager.getPackageInfo(context.packageName, PackageManager.GET_PERMISSIONS or PackageManager.GET_PROVIDERS)
