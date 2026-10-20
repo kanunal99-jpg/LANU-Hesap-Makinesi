@@ -94,3 +94,10 @@ Puanlar planlama amaçlı ön değerlendirmedir, bağımsız sertifikasyon deği
 
 ### Geçiş kapısı
 Önce Room v4 şema ihracı ve CI şema kontratı. Tarihî migration uydurulmaz; veritabanı sürümü değiştirilmez; veri silinmez. Kod ancak test, lint, build ve yayın önkoşulları doğrulandıktan sonra birleştirilir. Geçici debug imzalı APK, cihaz üstü güvenli güncelleme garantisi vermez.
+
+
+### 20.10.2026 — P0 kriptografi sınır durumları (PR incelemesi)
+- **Bulgu CRYPTO-01:** `CryptoUtils.encrypt("")` sonucu AES-GCM formatında tam 28 bayttır (12 IV + 16 tag). Eski decrypt kodu yalnız 28 bayttan büyük çerçeveyi yeni format saydığından boş metin doğru anahtarla bile açılamıyordu.
+- **Düzeltme:** Modern çerçevenin minimum uzunluğu `>= 28` olarak belirlenir. Var olan eski deterministik IV okuma yolu yalnız geriye uyumluluk içindir; yeni şifrelemede kullanılmaz.
+- **Kabul testleri:** boş değer roundtrip, tag/IV oynama reddi, kesilmiş çerçeve reddi, eski verinin şifre çözülebilmesi.
+- **Durum:** Değişiklik ve testler ayrı geliştirme dalına işlendi; yeni PR CI tamamen geçmeden BAŞARILI/TAMAMLANDI etiketlenemez.
