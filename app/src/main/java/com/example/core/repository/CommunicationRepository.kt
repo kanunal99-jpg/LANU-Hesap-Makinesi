@@ -292,11 +292,30 @@ class CommunicationRepository(
         relay.request(registerRemote(), "edit", JSONObject().put("messageId", messageId).put("content", encrypted))
     }
     suspend fun clearConversationMessages(conversationId: String) {
-        messageDao.getMessagesForConversation(conversationId).first().forEach { settingsDao.insertSetting(SettingsEntity("lanu_hidden_${it.id}", "true")) }
-        messageDao.deleteAllMessagesForConversation(conversationId)
-        conversationDao.getConversationById(conversationId)?.let { conversationDao.insertConversation(it.copy(lastMessageText = "")) }
+        database.withTransaction {
+            val messages = messageDao.getMessagesForConversation(conversationId).first()
+            for (message in messages) {
+                // Keep tombstones: a delayed relay event must never resurrect an erased message.
+                settingsDao.insertSetting(SettingsEntity("lanu_hidden_${message.id}", "true"))
+            }
+            messageDao.deleteAllMessagesForConversation(conversationId)
+            conversationDao.getConversationById(conversationId)?.let {
+                conversationDao.insertConversation(it.copy(lastMessageText = "", unreadCount = 0))
+            }
+        }
     }
-    suspend fun deleteConversation(id: String) { conversationDao.deleteConversation(id) }
+
+    suspend fun deleteConversation(id: String) {
+        database.withTransaction {
+            // A conversation row is only metadata; deleting it alone leaves all
+            // message ciphertext (and queued messages) on disk.
+            for (message in messageDao.getMessagesForConversation(id).first()) {
+                settingsDao.insertSetting(SettingsEntity("lanu_hidden_${message.id}", "true"))
+            }
+            messageDao.deleteAllMessagesForConversation(id)
+            conversationDao.deleteConversation(id)
+        }
+    }
     suspend fun addCallLog(partnerName: String, partnerPhone: String, isVideo: Boolean, durationSeconds: Int, isOutgoing: Boolean) {
         callLogDao.insertCallLog(CallLogEntity(partnerName = partnerName, partnerPhone = partnerPhone, isVideo = isVideo, durationSeconds = durationSeconds, isOutgoing = isOutgoing))
     }
