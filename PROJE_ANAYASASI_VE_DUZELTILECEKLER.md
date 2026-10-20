@@ -239,3 +239,9 @@ Bu puan bir sertifika değildir; yerinde ve bağımsız kanıtlar tamamlanmadan 
 - **Düzeltme:** Gelen veriyi Web ReadableStream parçaları halinde oku, toplam UTF-8 byte sayısını 100.000 ile sınırla; Content-Length üst sınırını okuma öncesi denetle, eksik/yanlış Content-Length olsa bile aktüel byte sınırını uygula. Limit aşımında HTTP 413, bozuk UTF-8/başlıkta 400 ve stream iptali.
 - **Test:** 100.000 bayt tam sınırı ve 100.001 reddi, chunked/eksik Content-Length, geçersiz başlık, çok baytlı UTF-8, bozuk UTF-8, normal JSON; Node sunucu testlerinde otomatik.
 - **Açık:** Üretim Supabase Edge Function yayınına ilişkin canlı endpoint kanıtı yoksa production düzeltmesi olarak ilan edilmez. Dış güvenlik değerlendirmesi, sunucu TTL ve gerçek iki cihazlı senaryolar ayrı P0.
+
+### 20.10.2026 — P0 PIN başarılı girişte atomik sıfırlama (PIN-TX-02)
+- **Bulgu:** Yanlış PIN kilitleme kademesi önceki PR ile transaction olmuştu ancak doğru PIN `pin_attempt_state` ve `pin_lockout_strikes` kayıtlarını ayrı yazıyordu. İkinci yazma hatasında sahte veya tutarsız sıfırlanma oluşabilir.
+- **Düzeltme:** Başarılı PIN kontrolü, biyometriyle aynı `SettingsDao.persistPinGuard(0,0,0)` transaction yolunu kullanır; yalnız başarılı commit sonrasında UI kilidi açılır.
+- **Kanıt kapısı:** SQLite trigger ile ikinci satırda hata: ilk satır rollback, kullanıcı oturumu kilitli kalır; hata kalkınca doğru PIN guardı birlikte sıfırlar; 5 yeni yanlış deneme ilk 30s kademesidir.
+- **Sınır:** PIN gerçek cihaz donanım güvenliğine bağlanmış değildir, Room şifreli değildir; tarihî migration ve stable APK imzası P0.
