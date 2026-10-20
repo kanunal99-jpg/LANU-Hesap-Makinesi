@@ -522,3 +522,10 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - **Kapsam:** Mevcut `allowBackup=false`, legacy backup full-root exclude, Android 12+ `cloud-backup`/`device-transfer` full-root exclude, OTA FileProvider `exported=false` değerlerinin her PR CI'da XML doğrulaması.
 - **Test:** Geliştirici yedeklemeyi yeniden açarsa, bulut/cihaz kısıtını kaldırırsa veya FileProvider'ı dışa açarsa CI başarısız olmalı.
 - **Sınır:** Bu kontrol Room v4'ün kendisini şifrelemez, mevcut fiziksel cihazdaki eski verileri temizlemez ve manuel parolalı yedek sistemi yerine geçmez.
+
+### 20.10.2026 — P0 silinmiş sohbetin sunucu olayıyla yeniden oluşmasının önlenmesi (CONV-REPLAY-01)
+- **Bulgu:** Sohbet silerken mevcut mesajların ID tombstone'ları vardı; ancak o anda cihazda olmayan eski uzaktan gelen mesajlar gelecekte `synchronize` sırasında sohbeti ve kayıtları yeniden oluşturabiliyordu.
+- **Çözüm:** `lanu_hidden_conv_<id>` kalıcı Room gizlilik işareti sohbet silme transaction'ında saklanır. Gelen olaylarda sohbet işareti kontrol edilip mesaj/sohbet depolanmaz ve yanlış okundu bildirimi gönderilmez; teslim olayı revizyonu kaydedilip ACK alabilir.
+- **Kurtarma/UX:** Kullanıcı `createConversation` ile bilerek tekrar sohbet başlatınca işaret atomik temizlenir. `deleteConversation` aynı `syncMutex` altında senkronizasyonla seri çalışır.
+- **Test:** Daha önce cihaza gelmemiş eski E2EE olayıyla yeniden oluşmama, açıkça yeniden başlatınca yeni mesaj alabilme, silme hatasında sohbet işareti rollback.
+- **Sınır:** SQLite WAL/serbest alan eski byte izleri, sunucu retention ve diğer cihazlarda sohbet silme bu yerel işaretin kapsamında değildir.
