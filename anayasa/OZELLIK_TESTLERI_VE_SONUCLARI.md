@@ -416,3 +416,12 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] Yarım/bozuk korumalı kayıt eski düz metni silemez.
 - [ ] Android unit/Robolectric, Room şema hash, lint, APK, SHA-256 ve imza CI kapıları başarılı.
 - [ ] Fiziksel cihazda gerçek Keystore ile eski veri yükseltme testi (otomatik testlerin kapsamı dışı).
+
+
+### [20-10-2026] — P0 Supabase bağlantı anahtarı depolama testleri
+- [ ] Yeni bağlantı anahtarı sadece şifreli preference alanına yazılır; Room'da `supabase_key` / `supabase_url` kalmaz.
+- [ ] Eski kayıt başarılı korumalı aktarım ve okunabilirlik kontrolünden sonra temizlenir.
+- [ ] Korumalı yazma/commit hatasında eski kayıt yerinde kalır ve yeni gizli değer Room'a yazılmaz.
+- [ ] Eski ve güncel kayıt eşzamanlıysa korumalı kayıt korunur; kısmi korumalı kayıt fail-closed.
+- [ ] Android JVM/Robolectric, lint, APK + fingerprint + SHA256 ve GitHub Release kanıtları.
+- [ ] Gerçek cihaz Keystore ve geçmiş SQLite WAL/serbest alan sızıntısı incelenmesi (ayrı P0 kapısı).
