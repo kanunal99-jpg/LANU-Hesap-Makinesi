@@ -189,3 +189,10 @@ Bu puan bir sertifika değildir; yerinde ve bağımsız kanıtlar tamamlanmadan 
 5. Sunucu retention/TTL/KVKK, kriptografi bağımsız denetim; Hilt/Compose erişilebilirlik, gizlilik kontrollü Crashlytics ve performans.
 
 **Önemli:** PR CI başarılı olması production/cihaz onayı değildir. Son APK sürümü ancak main workflow Release işi tamamlanıp APK asset indirilebilirliği doğrulanınca ilan edilir.
+
+
+### 20.10.2026 — P0 tekil mesaj silme güvenliği (MSG-DELETE-01)
+- **Bulgu:** `hideMessageLocally` ve `deleteMessage` için `lanu_hidden_<id>` tombstone kaydı ve `messages` satır silme ayrı işlemlerdi; gönderilmiş mesajda sunucudan silme onayı alındıktan sonra yerel tombstone yoktu. Gecikmiş relay olayları silinen içeriği tekrar yazabilir, yarım DB işleminde gizlilik bozulabilirdi.
+- **Düzeltme:** `syncMutex` altında tek `Room.withTransaction` içinde tombstone ve mesaj silme. `PENDING/WAITING/SENDING` mesajlar otomatik zamanlayıcıda korunur; kullanıcı açıkça iptal ederse kalıcı yerel tombstone ile kuyruktan çıkarılır. Uzaktaki silme başarısızsa yerel veri erken silinmez.
+- **Kabul:** tekil zaman aşımı/silme tombstone, pendings korunma, SQLite silme hata enjeksiyonunda tüm durumun geri alınması, uzaktaki 503 hatasında yerel kopyanın korunması.
+- **Sınır:** Bu yerel silme garantisi, sunucudaki kayıtların KVKK/TTL uyumu veya SQLite WAL'daki eski byte izleri için silme sertifikası değildir.
