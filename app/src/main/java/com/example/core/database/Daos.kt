@@ -55,6 +55,13 @@ interface SettingsDao {
 
     @Query("DELETE FROM app_settings WHERE `key` = :key")
     suspend fun deleteSetting(key: String)
+
+    @Transaction
+    suspend fun persistPinGuard(failures: Int, until: Long, strike: Int) {
+        // The deadline and its escalation tier must commit or roll back together.
+        insertSetting(SettingsEntity("pin_attempt_state", "$failures:$until"))
+        insertSetting(SettingsEntity("pin_lockout_strikes", strike.toString()))
+    }
 }
 
 @Dao

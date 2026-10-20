@@ -485,3 +485,9 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - PR #46: Yetim E2EE veride yanlışlıkla yeni kimlik oluşturma engellendi, eski telefon profili geçişi ve eşleşen yedek kurtarma korunarak testler düzeltildi; yeşil CI ve merge.
 - PR #49: Tam sohbet silme ve senkronizasyon tombstone güvenliği; ilk PR #48 paralel merge çakışması nedeniyle güncel main tabanında yeniden düzenlendi; yeşil CI ve merge.
 - Geçici tartılı puan 61/100 -> 66/100. Hedef 93/100. Sabit imza, tarihî migration, şifreli tüm DB, iki cihaz ve sunucu TTL açık P0.
+
+
+### [20-10-2026] — PIN-TX-01 atomik PIN koruma durumunu kalıcılaştırma
+- PIN kilitleme son tarihi ile artan kilitleme kademe sayacı tek SQLite transaction olarak bağlandı.
+- SQLite trigger ile ikinci yazmada hata enjekte eden regresyon ve biyometrik sıfırlama testi eklendi.
+- Merge kapısı: CI unit/Robolectric, lint, Room hash, APK sertifika ve SHA256 tamamlanmalı.

@@ -458,3 +458,10 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] Son main run ve GitHub Release son APK doğrulama; debug sertifikası production güncelleme garantisi vermez.
 - [ ] Gerçek A55 ve ikinci üretici cihazda eski APK üzerine veri kayıpsız güncelleme.
 - [ ] Gerçek Room v1-v3 fixture migration, şifreli DB, tam geri yükleme, KVKK/TTL.
+
+
+### [20-10-2026] — PIN-TX-01 fault-injection kabul kriterleri
+- [ ] 4 yanlış PIN + ikinci DB yazmada hata: strike/deadline tamamen rollback.
+- [ ] Hata kaldırıldıktan sonra kalan 5. deneme doğru kademeyi saklar ve restart sonrası görünür.
+- [ ] Doğru biyometri, giriş kilidi ve strike sayaçlarını atomik sıfırlar.
+- [ ] Android test, Room v4 hash, lint, APK signer ve SHA256 CI başarılı.

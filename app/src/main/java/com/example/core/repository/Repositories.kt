@@ -115,8 +115,7 @@ class SecurityRepository(
         if (!PinPolicy.isValid(pin) || hasPin()) return@withLock false
         val verifier = withContext(Dispatchers.Default) { PinCredentialCodec.create(pin) }
         settingsDao.insertSetting(SettingsEntity("pin_hash", verifier))
-        saveAttemptState(0, 0L)
-        settingsDao.insertSetting(SettingsEntity("pin_lockout_strikes", "0"))
+        settingsDao.persistPinGuard(0, 0L, 0)
         _isLockedState.value = false
         true
     }
@@ -149,7 +148,7 @@ class SecurityRepository(
         settingsDao.insertSetting(SettingsEntity("pin_attempt_state", "$failures:$until"))
     }
 
-    private suspend fun nextLockoutDuration(): Long {
+    private suspend fun nextLockout(): Pair<Int, Long> {
         val stored = settingsDao.getSettingValue("pin_lockout_strikes")
         val previous = when {
             stored == null -> 0
@@ -157,8 +156,7 @@ class SecurityRepository(
                 ?: PinPolicy.MAX_LOCKOUT_STRIKES // Corrupt counters cannot reset brute-force protection.
         }
         val strike = (previous + 1).coerceAtMost(PinPolicy.MAX_LOCKOUT_STRIKES)
-        settingsDao.insertSetting(SettingsEntity("pin_lockout_strikes", strike.toString()))
-        return PinPolicy.lockoutForStrike(strike)
+        return strike to PinPolicy.lockoutForStrike(strike)
     }
 
     private suspend fun checkPin(pin: String): Boolean {
@@ -177,7 +175,8 @@ class SecurityRepository(
         } else {
             val failures = status.failedAttempts + 1
             if (failures >= PinPolicy.MAX_ATTEMPTS) {
-                saveAttemptState(0, clock() + nextLockoutDuration())
+                val (strike, duration) = nextLockout()
+                settingsDao.persistPinGuard(0, clock() + duration, strike)
             } else {
                 saveAttemptState(failures, 0L)
             }
@@ -206,8 +205,7 @@ class SecurityRepository(
         if (!hasPin() || !isBiometricEnabled() || readAttemptStatus().remainingSeconds > 0) {
             return@withLock false
         }
-        saveAttemptState(0, 0L)
-        settingsDao.insertSetting(SettingsEntity("pin_lockout_strikes", "0"))
+        settingsDao.persistPinGuard(0, 0L, 0)
         updateLastActiveTime()
         _isLockedState.value = false
         true
