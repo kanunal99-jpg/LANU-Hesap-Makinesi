@@ -166,8 +166,8 @@ class SecurityRepository(
                 val upgraded = withContext(Dispatchers.Default) { PinCredentialCodec.create(pin) }
                 settingsDao.insertSetting(SettingsEntity("pin_hash", upgraded))
             }
-            saveAttemptState(0, 0L)
-            settingsDao.insertSetting(SettingsEntity("pin_lockout_strikes", "0"))
+            // Unlock must not clear its deadline while leaving the attack tier stale.
+            settingsDao.persistPinGuard(0, 0L, 0)
         } else {
             val failures = status.failedAttempts + 1
             if (failures >= PinPolicy.MAX_ATTEMPTS) {
