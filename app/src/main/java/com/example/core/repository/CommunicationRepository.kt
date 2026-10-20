@@ -37,18 +37,35 @@ class CommunicationRepository(
      * A missing Keystore identity with existing communication data is NOT a fresh
      * install: minting a new identity would silently orphan encrypted messages.
      */
-    private suspend fun hasExistingAccountEvidence(): Boolean =
+    private suspend fun hasLinkedCommunicationData(): Boolean =
         conversationDao.getAllConversations().first().isNotEmpty() ||
             contactDao.getAllContacts().first().isNotEmpty() ||
             messageDao.countMessages() > 0 ||
             callLogDao.countCallLogs() > 0 ||
-            settingsDao.getSettingValue("lanu_remote_registered") != null ||
+            settingsDao.getSettingValue("lanu_remote_registered") != null
+
+    private suspend fun hasExistingAccountEvidence(): Boolean =
+        hasLinkedCommunicationData() ||
             userProfileDao.getUserProfile()?.let { UserCodes.normalize(it.phoneNumber).isNotBlank() } == true
+
+    /** Phone-number profile from pre-E2EE builds may have plaintext legacy history.
+     * Only that narrowly identifiable migration is permitted to create new keys.
+     * Modern LANU contacts, conversations, or E2EE messages must not be rebound.
+     */
+    private suspend fun canMigrateLegacyPhoneProfile(): Boolean {
+        val profile = userProfileDao.getUserProfile() ?: return false
+        if (UserCodes.normalize(profile.phoneNumber).isNotBlank() ||
+            settingsDao.getSettingValue("lanu_remote_registered") != null ||
+            messageDao.countModernEncryptedMessages() > 0) return false
+        if (contactDao.getAllContacts().first().any { UserCodes.normalize(it.phoneNumber).isNotBlank() }) return false
+        if (conversationDao.getAllConversations().first().any { UserCodes.normalize(it.partnerPhone).isNotBlank() }) return false
+        return true
+    }
 
     suspend fun ensureIdentity(): MessagingIdentity = identityMutex.withLock {
         val current = _identity.value ?: withContext(Dispatchers.IO) {
             identityStore.read() ?: run {
-                check(!hasExistingAccountEvidence()) {
+                check(!hasExistingAccountEvidence() || canMigrateLegacyPhoneProfile()) {
                     "Önceki LANU kimliği bulunamadı. Sohbetler ve kayıtlar korunuyor; kimlik yedeğini geri yükleyin."
                 }
                 UserCodes.create().also(identityStore::save)
@@ -115,7 +132,9 @@ class CommunicationRepository(
         identityMutex.withLock {
             // A missing identity must not be auto-generated during explicit recovery.
             val previous = _identity.value ?: withContext(Dispatchers.IO) { identityStore.read() }
-            val hasData = hasExistingAccountEvidence()
+            // Explicit user backup restore may replace an empty account profile;
+            // bound messages/contacts/conversations/calls are never crossed.
+            val hasData = hasLinkedCommunicationData()
             val currentProfile = userProfileDao.getUserProfile()
             if (previous != null) {
                 require(previous.id == restored.id || !hasData) {
