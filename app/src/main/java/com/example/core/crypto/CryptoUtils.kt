@@ -45,9 +45,8 @@ object CryptoUtils {
             
             Base64.encodeToString(combined, Base64.NO_WRAP)
         } catch (e: Exception) {
-            e.printStackTrace()
-            // Graceful degradation: return original content if encryption fails
-            plainText
+            // Encryption failure must NEVER disclose the plaintext as a "ciphertext".
+            throw IllegalStateException("Şifreleme tamamlanamadı.", e)
         }
     }
 
@@ -81,8 +80,7 @@ object CryptoUtils {
             val plainTextBytes = cipher.doFinal(decodedBytes)
             String(plainTextBytes, Charsets.UTF_8)
         } catch (e: Exception) {
-            // If it's not encrypted or decryption fails, return the ciphertext gracefully
-            cipherText
+            throw SecurityException("Şifreli içerik doğrulanamadı.", e)
         }
     }
 
@@ -95,7 +93,7 @@ object CryptoUtils {
             val hashBytes = digest.digest((pin + salt).toByteArray(Charsets.UTF_8))
             Base64.encodeToString(hashBytes, Base64.NO_WRAP)
         } catch (e: Exception) {
-            pin
+            throw IllegalStateException("PIN doğrulama özeti üretilemedi.", e)
         }
     }
 }
