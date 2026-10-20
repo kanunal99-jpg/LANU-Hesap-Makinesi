@@ -13,9 +13,15 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import okhttp3.Call
+import okhttp3.Callback
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.IOException
@@ -59,6 +65,8 @@ object SecureOtaUpdater {
     // Keep no more than two full-sized packages; free space stays available for messages.
     private const val MAX_CACHE_BYTES = 2 * MAX_APK_BYTES
     private const val MAX_REDIRECTS = 5
+    private const val INSTALL_STAGE = "install"
+    private const val INSTALL_MIN_FREE_BYTES = 2L * 1024 * 1024
     private val approvedHosts = setOf(
         "api.github.com", "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"
     )
@@ -443,8 +451,13 @@ object SecureOtaUpdater {
             partial.delete()
             throw e
         } catch (e: IOException) {
-            // Retain only verified-length partial bytes after a recoverable connection/storage
-            // interruption. We NEVER install cached partial files before a full SHA-256 match.
+            // A cancelled in-flight OkHttp request can surface as an IOException.
+            // Convert it to cancellation and remove the abandoned prefix.
+            if (!currentCoroutineContext().isActive) {
+                partial.delete()
+                throw CancellationException("OTA indirmesi iptal edildi.")
+            }
+            // Recoverable network failure: retain only bounded partial bytes for Range resume.
             if (partial.length() > MAX_APK_BYTES) partial.delete()
             throw e
         } catch (e: Exception) {
@@ -454,7 +467,7 @@ object SecureOtaUpdater {
         }
     }
 
-    /** Recheck at the moment the user requests installation, not only at download time. */
+    /** Recheck at install time; never trust a remembered button state. */
     suspend fun verifyBeforeInstall(context: Context, ready: VerifiedUpdate) = withContext(Dispatchers.IO) {
         val otaDir = File(context.cacheDir, "ota").canonicalFile
         val file = ready.file.canonicalFile
@@ -465,11 +478,88 @@ object SecureOtaUpdater {
         verifyArchive(context, file, ready.release, ready.sha256)
     }
 
+    /** Package Installer gets its own validated snapshot, not the mutable download cache. */
+    suspend fun stageForInstaller(context: Context, ready: VerifiedUpdate): File =
+        downloadMutex.withLock {
+            withContext(Dispatchers.IO) {
+                verifyBeforeInstall(context, ready)
+                val otaDir = File(context.cacheDir, "ota").canonicalFile
+                val stageDir = File(otaDir, INSTALL_STAGE).apply {
+                    require(isDirectory || mkdirs()) { "Kurulum dosyası için alan oluşturulamadı." }
+                }.canonicalFile
+                val versionName = otaCacheName(ready.release.versionCode, ready.sha256)
+                val staged = File(stageDir, "$versionName.apk")
+                val existingValid = staged.isFile && runCatching {
+                    verifyArchive(context, staged, ready.release, ready.sha256)
+                    true
+                }.getOrDefault(false)
+                if (existingValid) return@withContext staged
+
+                require(stageDir.usableSpace >= ready.file.length() + INSTALL_MIN_FREE_BYTES) {
+                    "Kurulum kopyası için depolama alanı yetersiz."
+                }
+                val partial = File(stageDir, "$versionName.copying")
+                // Stale snapshots are removed only on a new explicit installer request.
+                stageDir.listFiles()?.filter { candidate ->
+                    candidate.isFile && candidate != staged &&
+                        candidate.lastModified() < System.currentTimeMillis() - TimeUnit.DAYS.toMillis(2)
+                }?.forEach { it.delete() }
+                partial.delete()
+                staged.delete()
+                try {
+                    ready.file.inputStream().buffered().use { input ->
+                        partial.outputStream().buffered().use { output ->
+                            val buffer = ByteArray(32 * 1024)
+                            while (true) {
+                                currentCoroutineContext().ensureActive()
+                                val count = input.read(buffer)
+                                if (count < 0) break
+                                output.write(buffer, 0, count)
+                            }
+                        }
+                    }
+                    // Critical: validate the byte-for-byte snapshot, not only its source.
+                    verifyArchive(context, partial, ready.release, ready.sha256)
+                    require(partial.renameTo(staged)) { "Kurulum için APK kopyalanamadı." }
+                    staged
+                } catch (e: Exception) {
+                    partial.delete()
+                    throw e
+                }
+            }
+        }
+
+    /** Installer only receives staged APKs within the dedicated FileProvider subtree. */
+    fun isStagedInstallerFile(context: Context, apk: File): Boolean {
+        val stageDir = File(File(context.cacheDir, "ota"), INSTALL_STAGE).canonicalFile
+        val canonical = apk.canonicalFile
+        return apk.isFile && canonical.parentFile == stageDir &&
+            Regex("""lanu-\\d+-[a-f0-9]{64}\\.apk""").matches(canonical.name)
+    }
+
+    /**
+     * Cancellable HTTP exchanges: closing the screen/cancelling a download immediately
+     * cancels its in-flight socket operation (not just the next file-read iteration).
+     */
+    private suspend fun executeCancellable(request: Request): Response = suspendCancellableCoroutine { cont ->
+        val call = http.newCall(request)
+        cont.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (cont.isActive) cont.resumeWithException(e)
+            }
+            override fun onResponse(call: Call, response: Response) {
+                if (cont.isActive) cont.resume(response) { response.close() }
+                else response.close()
+            }
+        })
+    }
+
     /**
      * Pin all redirect destinations before making follow-on HTTP requests.
      * GitHub assets legitimately redirect to its public release CDN.
      */
-    private fun trustedGet(url: String, accept: String, rangeStart: Long? = null): Response {
+    private suspend fun trustedGet(url: String, accept: String, rangeStart: Long? = null): Response {
         var next = Request.Builder().url(url).build().url
         repeat(MAX_REDIRECTS + 1) { hop ->
             require(isApprovedEndpoint(next.scheme, next.host)) {
@@ -482,7 +572,7 @@ object SecureOtaUpdater {
                 .header("Cache-Control", "no-cache")
             if (rangeStart != null && rangeStart > 0L) builder.header("Range", "bytes=$rangeStart-")
             val request = builder.build()
-            val response = http.newCall(request).execute()
+            val response = executeCancellable(request)
             if (rangeStart != null && rangeStart > 0L && response.code == 416) {
                 response.close()
                 // The previous prefix no longer matches the server size; restart safely.
@@ -506,7 +596,7 @@ object SecureOtaUpdater {
         error("Güncelleme yönlendirmesi doğrulanamadı.")
     }
 
-    private fun readText(url: String, limit: Int): String {
+    private suspend fun readText(url: String, limit: Int): String {
         trustedGet(url, "application/vnd.github+json").use { response ->
             val body = response.body ?: error("Sunucu yanıtı boş.")
             require(body.contentLength() <= limit) { "Beklenmeyen büyük yanıt." }
@@ -525,8 +615,8 @@ object SecureOtaUpdater {
     }
 
     fun launchInstaller(context: Context, apk: File): Boolean {
-        require(apk.isFile && apk.canonicalFile.parentFile == File(context.cacheDir, "ota").canonicalFile) {
-            "Geçersiz indirme dosyası."
+        require(isStagedInstallerFile(context, apk)) {
+            "Yalnızca doğrulanmış OTA kurulum kopyası açılabilir."
         }
         if (Build.VERSION.SDK_INT >= 26 && !context.packageManager.canRequestPackageInstalls()) {
             val settings = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
