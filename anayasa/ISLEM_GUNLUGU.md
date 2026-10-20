@@ -491,3 +491,9 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - PIN kilitleme son tarihi ile artan kilitleme kademe sayacı tek SQLite transaction olarak bağlandı.
 - SQLite trigger ile ikinci yazmada hata enjekte eden regresyon ve biyometrik sıfırlama testi eklendi.
 - Merge kapısı: CI unit/Robolectric, lint, Room hash, APK sertifika ve SHA256 tamamlanmalı.
+
+
+### [20-10-2026] — OTA-META-01 sıkı imza metadata ayrıştırma
+- Yinelenen sertifika imzası / mode satırları, beklenmeyen metadata ve bozuk satırlar reddedilir.
+- Resmî GitHub Actions signer formatı ve eski opsiyonel alan desteği korunur.
+- Yeni saldırgan metadata regresyon testleri CI sonucu bekliyor.
