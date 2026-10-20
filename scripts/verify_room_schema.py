@@ -58,6 +58,8 @@ def verify(path: Path, pinned_sha: Path | None = None) -> None:
 if __name__ == "__main__":
     try:
         verify(Path(sys.argv[1]), Path(sys.argv[2]) if len(sys.argv) > 2 else None)
+        from verify_room_nondestructive import main as check_nondestructive
+        check_nondestructive()
     except (IndexError, OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         print(f"Room schema CI gate failed: {exc}", file=sys.stderr)
         sys.exit(1)
