@@ -79,6 +79,8 @@ class SecurityRepository(
     private val clock: () -> Long = System::currentTimeMillis
 ) {
     private val authenticationMutex = Mutex()
+    // Startup legacy migration and user-initiated updates must not race.
+    private val credentialsMutex = Mutex()
     private var backgroundedAt: Long? = null
 
     
@@ -288,7 +290,7 @@ class SecurityRepository(
      * table. Copy them to Keystore-backed preferences *before* removing either old row.
      * An unavailable/corrupted Keystore must never cause a plaintext fallback or data loss.
      */
-    suspend fun getSupabaseCredentials(): Pair<String?, String?> {
+    suspend fun getSupabaseCredentials(): Pair<String?, String?> = credentialsMutex.withLock {
         val legacyUrl = settingsDao.getSettingValue("supabase_url")
         val legacyKey = settingsDao.getSettingValue("supabase_key")
         val prefs = sharedPreferences
@@ -325,7 +327,7 @@ class SecurityRepository(
         }
     }
 
-    suspend fun saveSupabaseCredentials(url: String, key: String) {
+    suspend fun saveSupabaseCredentials(url: String, key: String) = credentialsMutex.withLock {
         val prefs = sharedPreferences
             ?: throw SecurityException("Güvenli depolama açılamadı. Bağlantı bilgileri kaydedilmedi.")
         try {
