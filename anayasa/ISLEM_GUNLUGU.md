@@ -457,3 +457,9 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - **Test kapsamı:** başarılı yeni yazım, eski kaydı göç ettirme, başarısız `commit`, korumalı/veri önceliği ve kısmi korumalı kayıt için altı otomasyon testi.
 - **Uyarı:** DB/WAL'daki geçmiş düz metin kalıntıları bu işlemle garanti edilerek silinmez. Fiziksel cihaz kanıtı eksik.
 - **Durum:** PR ve CI doğrulaması bekliyor.
+
+
+### [20-10-2026] — Güvenlik olay günlüğü RAM failover görünürlüğü
+- Şifreli depo okunur/yazılamaz durumdayken RAM'deki yeni olaylar ekran sorgusundan gizlenebiliyordu.
+- Kayıt görüntüleme iki güvenilir kaynağı birleştirir; başarılı korumalı kayıttan sonra RAM kuyruğu temizlenir.
+- Yazma hatası ve yeniden başarı, 50 olay limiti ile test ediliyor; CI sonuçlanana kadar BEKLEMEDE.
