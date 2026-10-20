@@ -124,3 +124,12 @@ Puanlar planlama amaçlı ön değerlendirmedir, bağımsız sertifikasyon deği
 - **Düzeltme:** Yeni URL ve anahtar yalnız Keystore destekli `EncryptedSharedPreferences` kaydına yazılır. Uygulama başlangıcında eski `supabase_url` / `supabase_key` Room kayıtları, şifreli kopyanın dayanıklı biçimde yazıldığı ve yeniden okunduğu doğrulanmadan silinmez. Korunan kaydın eksik olduğu durumda veya Keystore/commit hatasında işlem durur; eski veriler korunur; düz metne dönüş yapılmaz.
 - **Test kapıları:** Şifreli yeni kayıt, doğru eski kayıt geçişi, commit hatasında geri alınabilirlik, bozuk/eksik korumalı kayıt, önceki şifreli kaydın eski satırdan öncelikli tutulması; CI test, lint, APK, imza/SHA256.
 - **Sınırlar:** Testlerde enjekte edilen düz `SharedPreferences` yalnız sahte depodur; üretimde Keystore şifreli depolama kullanılır. Bu geliştirme tüm Room veritabanını şifrelemez; eski veriler taşınamıyorsa kullanıcıdan habersiz silinmez. PR CI ve gerçek cihaz kontrolü tamamlanmadan üretim güvenliği iddiası yok.
+
+
+### 20.10.2026 — P0-07 Supabase bağlantı anahtarlarının güvenli saklanması
+
+- **Bulgu CRED-01:** Eski `SecurityRepository.saveSupabaseCredentials`, `supabase_key` değerini şifrelenmemiş Room `app_settings` tablosuna yazıyordu. Sunucu tarafı gerçek yüksek ayrıcalıklı service-role anahtarı Android istemciye hiç konmamalıdır.
+- **Kod düzeltmesi:** Yeni bağlantı bilgilerinin kalıcı saklandığı konum Android Keystore'a bağlı `EncryptedSharedPreferences` olur; şifreli depo kullanılamazsa fail-closed. Başlangıçta eski URL/anahtar çiftinin güvenli depoya kopyalanması denenir; yeni kayıt kalıcı biçimde yazılıp geri okunmadıkça eski veriler silinmez. Kısmi/kırık güvenli kayıtlar düzeltildi sayılmaz.
+- **Kabul:** Yeni gizli değer Room'a düşmez; eski değerler başarılı geçişte temizlenir; şifreli yazma hatasında eski kaynak korunur; bozuk/kısmi kayıt reddedilir. Android Unit/Robolectric, lint, APK, sertifika/SHA256 yeşil olmadan merge yok.
+- **Sınırlama:** Room dosyasının tamamı hâlâ şifreli değildir; eski dosya sayfalarında WAL/serbest alan izleri kalmış olabilir. Bu adım geçmiş düz metin kalıntılarını veya önceki sızıntıları geriye dönük yok ettiğini iddia etmez. Gerçek cihaz, eski sürüm yükseltme ve bütünsel veri şifreleme P0 olmaya devam eder.
+- **Durum:** Geliştirme dalında; CI doğrulama bekleniyor. Puan bağımsız doğrulama olmadan otomatik yükseltilmez.
