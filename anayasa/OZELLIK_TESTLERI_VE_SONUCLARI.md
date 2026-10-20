@@ -465,3 +465,10 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] Hata kaldırıldıktan sonra kalan 5. deneme doğru kademeyi saklar ve restart sonrası görünür.
 - [ ] Doğru biyometri, giriş kilidi ve strike sayaçlarını atomik sıfırlar.
 - [ ] Android test, Room v4 hash, lint, APK signer ve SHA256 CI başarılı.
+
+
+### [20-10-2026] — OTA imza sidecar ayrıştırma
+- [ ] Yinelenen farklı sertifika parmak izi ve iki signing_mode güvenli reddedilir.
+- [ ] Eksik/kırık/bilinmeyen satır, istenmeyen alan, çok büyük dosya reddedilir.
+- [ ] Resmî üç/zamanla dört satırlık SHA-256 signer raporu kabul edilir.
+- [ ] Room v4, unit/Robolectric, lint, APK ve doğrulama CI başarı kanıtı.
