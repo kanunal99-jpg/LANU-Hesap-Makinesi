@@ -423,3 +423,9 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - PR #38'in ilk CI #166 koşusunda derleyici üretimi v4 JSON, birim test, lint ve APK kontrolleri başarılı oldu.
 - Gerçek artifact SHA-256 değeri `docs/ROOM_V4_SCHEMA.sha256` dosyasına sabitlendi; CI artık aynı Room sürümü altında sessiz şema değişikliğini reddeder.
 - **Durum:** Hash sabitlemesinden sonraki tekrar CI sonucu bekleniyor; üretim ve gerçek cihaz onayı hâlâ açık.
+
+
+### [20-10-2026] — AES-GCM minimum geçerli çerçeve sınırı
+- Kod incelemesi: `CryptoUtils` tam 28 baytlık geçerli AES-GCM şifreli boş değeri yanlışlıkla legacy çözücüye gönderiyordu.
+- Değişiklik: `>` yerine `>=` ve dört regresyon testi. Önceki şifreli kayıtların okunması korunur.
+- Test sonucu: Yeni CI tamamlanana kadar BEKLEMEDE. Release ve gerçek cihaz doğrulaması ayrıca gereklidir.
