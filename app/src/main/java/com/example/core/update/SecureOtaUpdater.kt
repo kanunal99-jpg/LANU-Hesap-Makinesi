@@ -13,7 +13,6 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
-import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
 import java.util.Locale
@@ -222,9 +221,15 @@ object SecureOtaUpdater {
             val body = response.body ?: error("Sunucu yanıtı boş.")
             require(body.contentLength() <= limit) { "Beklenmeyen büyük yanıt." }
             return body.byteStream().use { input ->
-                val bytes = input.readNBytes(limit + 1)
-                require(bytes.size <= limit) { "Sunucu yanıtı çok büyük." }
-                String(bytes, Charsets.UTF_8)
+                val output = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count == -1) break
+                    require(output.size() + count <= limit) { "Sunucu yanıtı çok büyük." }
+                    output.write(buffer, 0, count)
+                }
+                output.toString(Charsets.UTF_8.name())
             }
         }
     }
