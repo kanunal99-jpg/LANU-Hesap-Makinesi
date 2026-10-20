@@ -33,9 +33,26 @@ class CommunicationRepository(
     val identity: StateFlow<MessagingIdentity?> = _identity.asStateFlow()
     val relayConfigured get() = relay.configured
 
+    /**
+     * A missing Keystore identity with existing communication data is NOT a fresh
+     * install: minting a new identity would silently orphan encrypted messages.
+     */
+    private suspend fun hasExistingAccountEvidence(): Boolean =
+        conversationDao.getAllConversations().first().isNotEmpty() ||
+            contactDao.getAllContacts().first().isNotEmpty() ||
+            messageDao.countMessages() > 0 ||
+            callLogDao.countCallLogs() > 0 ||
+            settingsDao.getSettingValue("lanu_remote_registered") != null ||
+            userProfileDao.getUserProfile()?.let { UserCodes.normalize(it.phoneNumber).isNotBlank() } == true
+
     suspend fun ensureIdentity(): MessagingIdentity = identityMutex.withLock {
         val current = _identity.value ?: withContext(Dispatchers.IO) {
-            identityStore.read() ?: UserCodes.create().also(identityStore::save)
+            identityStore.read() ?: run {
+                check(!hasExistingAccountEvidence()) {
+                    "Önceki LANU kimliği bulunamadı. Sohbetler ve kayıtlar korunuyor; kimlik yedeğini geri yükleyin."
+                }
+                UserCodes.create().also(identityStore::save)
+            }
         }
         val old = userProfileDao.getUserProfile()
         if (old?.phoneNumber != current.code) {
@@ -95,14 +112,28 @@ class CommunicationRepository(
     }
     suspend fun restoreIdentity(backup: String, password: String): MessagingIdentity = syncMutex.withLock {
         val restored = withContext(Dispatchers.Default) { IdentityBackup.restore(backup, password) }
-        val own = ensureIdentity()
-        require(own.id == restored.id || (conversations.first().isEmpty() && contacts.first().isEmpty())) {
-            "Bu cihazda başka kimliğe ait kayıtlar var. Kimlikler birbirinin üzerine yazılamaz."
+        identityMutex.withLock {
+            // A missing identity must not be auto-generated during explicit recovery.
+            val previous = _identity.value ?: withContext(Dispatchers.IO) { identityStore.read() }
+            val hasData = hasExistingAccountEvidence()
+            val currentProfile = userProfileDao.getUserProfile()
+            if (previous != null) {
+                require(previous.id == restored.id || !hasData) {
+                    "Bu cihazda başka kimliğe ait kayıtlar var. Kimlikler birbirinin üzerine yazılamaz."
+                }
+            } else if (hasData) {
+                // Without the original private key we cannot prove ownership from an
+                // anonymous conversation row. A matching saved LANU code is required.
+                require(currentProfile != null && currentProfile.phoneNumber == restored.code) {
+                    "Mevcut veriler farklı veya belirsiz bir kimliğe ait; otomatik üzerine yazma reddedildi."
+                }
+            }
+            withContext(Dispatchers.IO) { identityStore.save(restored) }
+            _identity.value = restored
+            userProfileDao.replaceProfile(UserProfileEntity(
+                restored.code, currentProfile?.displayName ?: "LANU Kullanıcısı"))
+            restored
         }
-        withContext(Dispatchers.IO) { identityStore.save(restored) }
-        _identity.value = restored
-        userProfileDao.replaceProfile(UserProfileEntity(restored.code, userProfileDao.getUserProfile()?.displayName ?: "LANU Kullanıcısı"))
-        restored
     }
 
     suspend fun addContact(name: String, code: String) {
