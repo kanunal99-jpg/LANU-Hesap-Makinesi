@@ -470,3 +470,10 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - Mevcut anahtar silinmeden/yenisi üretilmeden imzayla matematiksel doğrulama; kaydetme ve okuma yolları korunuyor.
 - Yeni üç regresyon testi ve cihaz üzerinde kurtarma ihtiyacı anayasaya işlendi.
 - Sonuç: CI ve Release doğrulaması bitene kadar TEST BEKLENİYOR.
+
+
+### [20-10-2026] — BACKUP-01 Kullanılamaz kimlik yedeği üretimini önleme
+- Yeni kimlik yedeği öncesi matematiksel özel/açık anahtar çifti ve LANU kod doğrulaması.
+- Yedek geri yükleme aynı ortak doğrulayıcıyı kullanır; mevcut geçerli yedek formatı korunur.
+- Yedek/restore regresyon testleri ve üretim sınırlamaları anayasaya işlendi.
+- Durum: CI/PR kontrolü bekliyor; tam sohbet/rehber yedeği sağlamaz.
