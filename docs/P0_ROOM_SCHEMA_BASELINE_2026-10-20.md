@@ -29,3 +29,11 @@ Kalıcı keystore ve eski APK sertifikası hesap sahibinin kontrolündedir. Debu
 python3 scripts/verify_room_schema.py app/schemas/com.example.core.database.AppDatabase/4.json
 ```
 CI'da komutların gerçekten geçmesi gereklidir; doküman tek başına bir başarı kanıtı değildir.
+
+
+## İlk doğrulama ve sabit v4 kimliği
+- [PR CI #166](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/actions/runs/39415036168) test, şema export, lint, APK, sertifika ve SHA256 adımlarıyla başarılı.
+- CI artifact'ındaki gerçek `4.json` dosyasından SHA-256 elde edildi: `f2b636e686657e5415170f32886163df8963f9bccd5c21584d8e1606edf901ed`.
+- Hash `docs/ROOM_V4_SCHEMA.sha256` dosyasına sabitlendi. Sonraki derlemeler, v4 yapısını sürüm artırmadan değiştirirse CI başarısız olmalıdır.
+- Bu parmak izi kullanıcı verisi içermez. v1-v3 geçmiş sürümler için şema veya migration üretilmiş değildir.
+- Hash kontrolü eklendikten sonraki yeni CI çalışması ayrıca yeşil olmadan son paket onaylanmış sayılmaz.
