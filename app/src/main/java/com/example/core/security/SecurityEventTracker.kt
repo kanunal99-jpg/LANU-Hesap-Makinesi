@@ -66,7 +66,7 @@ class SecurityEventTracker(
             JSONArray(prefs.getString("events_list", "[]") ?: "[]")
         } catch (_: Exception) { null }
         val events = stored ?: JSONArray().also { array ->
-            volatileEvents.forEach(array::put)
+            volatileEvents.forEach { array.put(it) }
         }
         val list = mutableListOf<Map<String, Any>>()
         for (i in 0 until events.length()) {
