@@ -60,7 +60,9 @@ object CryptoUtils {
             val decodedBytes = Base64.decode(cipherText, Base64.NO_WRAP)
             
             // Try modern prepended IV format first (must have at least IV_LENGTH_BYTE + 16 bytes auth tag)
-            if (decodedBytes.size > IV_LENGTH_BYTE + 16) {
+            // A valid AES-GCM encryption of the empty string is exactly IV (12) + tag (16).
+            // Rejecting that boundary would make encrypt("") impossible to decrypt.
+            if (decodedBytes.size >= IV_LENGTH_BYTE + 16) {
                 try {
                     val iv = decodedBytes.copyOfRange(0, IV_LENGTH_BYTE)
                     val cipherOnly = decodedBytes.copyOfRange(IV_LENGTH_BYTE, decodedBytes.size)

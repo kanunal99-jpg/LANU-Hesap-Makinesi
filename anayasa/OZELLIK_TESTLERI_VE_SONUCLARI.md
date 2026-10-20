@@ -385,3 +385,10 @@ Uygulamanın şifreleme motoru, veri mimarisi, güvenlik politikaları ve kamufl
 - [ ] Samsung A55 + farklı cihaz erişilebilirlik/performans, Firebase gizlilik kontrolleri.
 
 Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyon kanıtı sayılmaz.
+
+
+### [20-10-2026] — CRYPTO-01 kapsam genişletme
+- [ ] `CryptoUtils.encrypt("")` ve `decrypt` ile 28 baytlık IV+tag uç durum doğrulaması.
+- [ ] Şifreli çerçevede IV değişimi reddi, auth-tag eksikliği reddi.
+- [ ] Legacy deterministik IV verisinin geriye uyumluluk çözme testi.
+- Test adımı: `./gradlew :app:testDebugUnitTest :app:lintDebug assembleDebug`; PR CI tamamlanana kadar başarılı sayılmaz.

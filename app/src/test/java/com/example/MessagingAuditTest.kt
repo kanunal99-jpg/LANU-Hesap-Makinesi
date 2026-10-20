@@ -1,6 +1,11 @@
 package com.example
 
+import android.util.Base64
 import com.example.core.crypto.CryptoUtils
+import java.security.MessageDigest
+import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -52,5 +57,49 @@ class MessagingAuditTest {
         } catch (_: SecurityException) {
             // Authentication failure must be explicit and never look like decrypted data.
         }
+    }
+
+    @Test
+    fun testCryptoUtils_emptyPlaintext_hasMinimumValidGcmFrameAndRoundTrips() {
+        val secret = "lanu-gcm-empty-boundary-secret"
+        val encrypted = CryptoUtils.encrypt("", secret)
+        assertEquals("AES-GCM empty payload is 12-byte IV + 16-byte tag", 28,
+            Base64.decode(encrypted, Base64.NO_WRAP).size)
+        assertEquals("", CryptoUtils.decrypt(encrypted, secret))
+    }
+
+    @Test
+    fun testCryptoUtils_tamperedMinimumGcmFrameFailsClosed() {
+        val secret = "lanu-gcm-tamper-test-secret"
+        val frame = Base64.decode(CryptoUtils.encrypt("", secret), Base64.NO_WRAP)
+        frame[0] = (frame[0].toInt() xor 1).toByte()
+        val tampered = Base64.encodeToString(frame, Base64.NO_WRAP)
+        try {
+            CryptoUtils.decrypt(tampered, secret)
+            fail("Tampered GCM IV must fail authentication")
+        } catch (_: SecurityException) { }
+    }
+
+    @Test
+    fun testCryptoUtils_truncatedGcmFrameFailsClosed() {
+        val secret = "lanu-gcm-truncated-frame-test"
+        val frame = Base64.decode(CryptoUtils.encrypt("", secret), Base64.NO_WRAP)
+        val truncated = Base64.encodeToString(frame.copyOf(frame.size - 1), Base64.NO_WRAP)
+        try {
+            CryptoUtils.decrypt(truncated, secret)
+            fail("Truncated authentication tag must not be accepted")
+        } catch (_: SecurityException) { }
+    }
+
+    @Test
+    fun testCryptoUtils_historicDeterministicIvCiphertextStillDecrypts() {
+        val secret = "legacy-room-message-compat"
+        val iv = MessageDigest.getInstance("MD5").digest(secret.toByteArray()).copyOf(12)
+        val key = MessageDigest.getInstance("SHA-256").digest(secret.toByteArray())
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
+        val encoded = Base64.encodeToString(
+            cipher.doFinal("Eski kayit korunur".toByteArray()), Base64.NO_WRAP)
+        assertEquals("Eski kayit korunur", CryptoUtils.decrypt(encoded, secret))
     }
 }
