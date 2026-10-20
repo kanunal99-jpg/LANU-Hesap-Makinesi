@@ -64,3 +64,33 @@ Hesap doğruluğu, güvenli saklama, iletişim modülü izinleri ve cihaz testle
 - **Ücret onayı:** Ücretli API/kota/servis tüketimi kullanıcı onayı olmadan genişletilmez; gerçek alternatif ve fallback test edilir.
 - **Kanıtlı kapanış:** Bulgu ID, önem, dosya+satır, CI kanıtı, kök neden, düzeltme commit'i, kabul testi, sürüm, geri dönüş planı ile izlenir.
 - **Faz durumu:** Bu ekleme yalnız analiz/dokümantasyon; kaynak kod düzeltmesi veya üretim doğrulaması değildir.
+
+
+## 20.10.2026 — P0/P1
+
+**Kaynak:** PR #37 ve 20.10.2026 tarihli main CI #39411770120 (başarılı). Release: v1.0.0-debug.165.
+
+### Tamamlananlar
+- PIN PBKDF2 rastgele tuz ve yalnız doğru giriş sonrası eski PIN geçişi; güvenli hata davranışı.
+- Finansal BigDecimal hesaplamaları ve regresyon testleri.
+- Biyometri ayarları Keystore hatasında güvensiz diske yazılmaz; güvenlik olayları yalnız geçici belleğe gider.
+- Main CI: unit/Robolectric, lint, APK, sertifika, SHA-256 ve yayın başarılı.
+
+### Yapılacaklar
+- **P0:** Sabit APK imzası ve iki sürümle cihaz yükseltme; Room v1-v3 gerçek şemaları, kayıpsız migration; Room şifrelemesi/yedek-kurtarma; iki cihaz mesaj güvenilirliği; OTA testi.
+- **P1:** Bağımsız kripto incelemesi; Hilt/MVVM; Crashlytics gizliliği; finansal referans testleri; Samsung A55 ve ikinci cihaz; KVKK, performans ve Compose erişilebilirlik.
+
+### Geçici kalite puanları
+| Ölçüt | Ağırlık | Mevcut | Hedef |
+|---|---:|---:|---:|
+| Güvenlik | 30% | 68 | 95 |
+| Veri bütünlüğü | 25% | 45 | 95 |
+| Mesajlaşma | 15% | 50 | 90 |
+| CI ve APK | 15% | 85 | 95 |
+| UX ve performans | 15% | 55 | 85 |
+| **Toplam** | **100%** | **60/100** | **93/100** |
+
+Puanlar planlama amaçlı ön değerlendirmedir, bağımsız sertifikasyon değildir. Hedef puan ancak test kanıtıyla geçerli olur.
+
+### Geçiş kapısı
+Önce Room v4 şema ihracı ve CI şema kontratı. Tarihî migration uydurulmaz; veritabanı sürümü değiştirilmez; veri silinmez. Kod ancak test, lint, build ve yayın önkoşulları doğrulandıktan sonra birleştirilir. Geçici debug imzalı APK, cihaz üstü güvenli güncelleme garantisi vermez.

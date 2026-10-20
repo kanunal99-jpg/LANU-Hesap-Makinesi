@@ -408,3 +408,18 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 *   **Sonuç:** BAŞARILI ✅
 *   **Kanıt:** GitHub Actions run, artifact ve release kayıtları.
 *   **Açıklama:** Unit/Robolectric testleri, Debug Lint, Debug APK derlemesi ve GitHub Release adımları CI üzerinde tamamlandı.
+
+
+### [20-10-2026] — P0/P1 devam: anayasa, kalite puanı ve Room v4 şema tabanı
+- **Doğrulanan önceki durum:** PR #37 main'e alındı; Actions #39411770120 başarılı; debug.165 Release yayımlandı. Bunlar cihaz testi/kalıcı imza kanıtı değildir.
+- **Yeni branch:** `codex/p0-room-schema-baseline-constitution-20261020`.
+- **Değişiklik:** `AppDatabase` için Room `exportSchema=true`, KSP `room.schemaLocation`, CI'da v4 şema kontratı kontrolü ve test artifact olarak JSON yükleme.
+- **Güvenlik sınırı:** v1-v3 şemaları uydurulmadı, `version=4` korundu; veritabanı ve kullanıcı verileri silinmedi.
+- **Puan:** mevcut 60/100 (ön değerlendirme), hedef 93/100 (koşullu), ayrıntı kök anayasada.
+- **Durum:** KOD PR'DA / CI DOĞRULAMASI BEKLENİYOR; main birleştirme ancak test + lint + build yeşilse.
+
+
+### [20-10-2026] — Gerçek Room v4 şema parmak izi
+- PR #38'in ilk CI #166 koşusunda derleyici üretimi v4 JSON, birim test, lint ve APK kontrolleri başarılı oldu.
+- Gerçek artifact SHA-256 değeri `docs/ROOM_V4_SCHEMA.sha256` dosyasına sabitlendi; CI artık aynı Room sürümü altında sessiz şema değişikliğini reddeder.
+- **Durum:** Hash sabitlemesinden sonraki tekrar CI sonucu bekleniyor; üretim ve gerçek cihaz onayı hâlâ açık.

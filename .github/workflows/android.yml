@@ -70,6 +70,12 @@ jobs:
       - name: Run Unit and Robolectric Tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
 
+      - name: Unit test Room schema verification guard
+        run: python3 -m unittest discover -s scripts -p 'test_verify_room_schema.py'
+
+      - name: Verify current Room v4 schema export
+        run: python3 scripts/verify_room_schema.py app/schemas/com.example.core.database.AppDatabase/4.json docs/ROOM_V4_SCHEMA.sha256
+
       - name: Run Android Lint
         run: ./gradlew :app:lintDebug --no-daemon --stacktrace
 
@@ -216,6 +222,7 @@ jobs:
           path: |
             app/build/reports/tests/testDebugUnitTest/
             app/build/reports/lint-results-debug.html
+            app/schemas/com.example.core.database.AppDatabase/4.json
           retention-days: 14
 
 
