@@ -189,3 +189,10 @@ Bu puan bir sertifika değildir; yerinde ve bağımsız kanıtlar tamamlanmadan 
 5. Sunucu retention/TTL/KVKK, kriptografi bağımsız denetim; Hilt/Compose erişilebilirlik, gizlilik kontrollü Crashlytics ve performans.
 
 **Önemli:** PR CI başarılı olması production/cihaz onayı değildir. Son APK sürümü ancak main workflow Release işi tamamlanıp APK asset indirilebilirliği doğrulanınca ilan edilir.
+
+
+### 20.10.2026 — P0 PIN kalıcı deneme kilidinde atomiklik (PIN-TX-01)
+- **Bulgu:** PIN kilit kademe sayacı `pin_lockout_strikes` ile bitiş süresi `pin_attempt_state` ayrı Room işlemleriyle yazılıyordu; iki yazma arasında I/O hatası/çökme tutarsız durum bırakabilirdi.
+- **Düzeltme:** `SettingsDao.persistPinGuard` iki satırı tek `@Transaction` altında commit eder; artan kilit ve başarılı PIN / biyometri sıfırlama yolları aynı atomik işlemden geçer.
+- **Test:** 4 yanlış girişten sonra 5. denemede `pin_lockout_strikes` INSERT hatası tetiklenir; iki satır da eski halinde kalır; hata kaldırılıp yeniden denenince 30 saniyelik kilit ve strike 1 oluşur. Başarılı biyometride her ikisi sıfırlanır.
+- **Durum:** GitHub PR + CI bağımsız testleri bitmeden üretim/başarı etiketi yok. Room v4 şeması sabit.
