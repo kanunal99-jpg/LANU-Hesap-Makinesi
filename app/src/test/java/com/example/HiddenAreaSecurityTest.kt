@@ -28,7 +28,12 @@ class HiddenAreaSecurityTest {
     private lateinit var repository: SecurityRepository
     private var now = 1_000_000L
 
-    private fun newRepository() = SecurityRepository(context, database.settingsDao()) { now }
+    // The JVM test supplies a fake preference store; production never accepts a plaintext fallback.
+    private fun newRepository() = SecurityRepository(
+        context, database.settingsDao(),
+        preferencesForTesting = context.getSharedPreferences("test_only_biometric_flags", Context.MODE_PRIVATE),
+        clock = { now }
+    )
 
     @Before
     fun setUp() = runBlocking {
