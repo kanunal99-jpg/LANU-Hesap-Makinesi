@@ -432,3 +432,11 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] Korumalı depolama toparlanınca eski RAM olayları kaybolmadan diske kaydedilir ve yeni tracker örneğinde okunur.
 - [ ] 50 olay sınırı ile yeni/eski olay sırası korunur; düz metin fallback dosyası kullanılmaz.
 - [ ] Android test, Room şema kontrolü, lint, APK ve imza/SHA256 doğrulaması.
+
+
+### [20-10-2026] — P0 ID-KEY-01 kimlik bütünlüğü testleri
+- [ ] Geçerli açık/özel anahtar çifti şifreli kimlik okuma-kaydetme sürecinde korunur.
+- [ ] Kod ve ID doğru olsa bile başka özel anahtarla uyuşmazlık reddedilir, mevcut kayıt silinmez.
+- [ ] Bozuk özel anahtar veya başka hesaptan kod, mevcut kimliğin üzerine yazılamaz.
+- [ ] Unit/Robolectric, Room şema hash, lint, APK, imza ve SHA256 CI doğrulaması.
+- [ ] Fiziksel cihaz Keystore anahtar kaybı ve manuel şifreli kimlik yedeğinden geri yükleme (ayrı P0).
