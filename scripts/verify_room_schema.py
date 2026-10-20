@@ -3,13 +3,14 @@
 
 This deliberately does not invent historical v1-v3 schemas or migration SQL.
 """
+import hashlib
 import json
 import re
 import sys
 from pathlib import Path
 
 
-def verify(path: Path) -> None:
+def verify(path: Path, pinned_sha: Path | None = None) -> None:
     if not path.is_file():
         raise ValueError(f"Room v4 schema file missing: {path}")
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -44,12 +45,19 @@ def verify(path: Path) -> None:
         missing = required_columns.get(table, set()) - names_in_table
         if missing:
             raise ValueError(f"Room table {table} is missing columns: {sorted(missing)}")
+    if pinned_sha is not None:
+        expected = pinned_sha.read_text(encoding="utf-8").strip()
+        if not re.fullmatch(r"[0-9a-f]{64}", expected):
+            raise ValueError("Pinned Room v4 SHA256 must be a 64-digit lowercase hash")
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual != expected:
+            raise ValueError("Room v4 schema drift detected without a version bump")
     print(f"Verified compiler-exported Room v4 schema: {len(entities)} tables, identity {identity}")
 
 
 if __name__ == "__main__":
     try:
-        verify(Path(sys.argv[1]))
+        verify(Path(sys.argv[1]), Path(sys.argv[2]) if len(sys.argv) > 2 else None)
     except (IndexError, OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         print(f"Room schema CI gate failed: {exc}", file=sys.stderr)
         sys.exit(1)
