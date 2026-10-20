@@ -417,3 +417,9 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - **Güvenlik sınırı:** v1-v3 şemaları uydurulmadı, `version=4` korundu; veritabanı ve kullanıcı verileri silinmedi.
 - **Puan:** mevcut 60/100 (ön değerlendirme), hedef 93/100 (koşullu), ayrıntı kök anayasada.
 - **Durum:** KOD PR'DA / CI DOĞRULAMASI BEKLENİYOR; main birleştirme ancak test + lint + build yeşilse.
+
+
+### [20-10-2026] — Gerçek Room v4 şema parmak izi
+- PR #38'in ilk CI #166 koşusunda derleyici üretimi v4 JSON, birim test, lint ve APK kontrolleri başarılı oldu.
+- Gerçek artifact SHA-256 değeri `docs/ROOM_V4_SCHEMA.sha256` dosyasına sabitlendi; CI artık aynı Room sürümü altında sessiz şema değişikliğini reddeder.
+- **Durum:** Hash sabitlemesinden sonraki tekrar CI sonucu bekleniyor; üretim ve gerçek cihaz onayı hâlâ açık.
