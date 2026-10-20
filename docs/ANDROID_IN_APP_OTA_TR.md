@@ -21,6 +21,15 @@ Yeni sürüm bulunduğunda şu sıra takip edilir:
 
 Uygulama eski LANU'yu kaldırmayı **asla** teklif etmez veya gizli verileri otomatik silmez. Uygulama içi sessiz veya kullanıcıdan habersiz kurulum mümkün değildir.
 
+## Güçlendirilmiş OTA güvenlik zinciri
+
+- Güncelleme kontrolü, **yeni sürümün doğrulama dosyaları eksikse** artık "güncelsiniz" sonucunu göstermez; bu sürümü açıkça **güvenlik nedeniyle kurulamaz** olarak işaretler.
+- Resmî GitHub API ve asset URL'leri için kesin repo/tag/dosya doğrulaması yapılır. İndirme HTTP yönlendirmeleri otomatik izlenmez; **her adımda HTTPS + izin verilen GitHub CDN adresleri** denetlenir, en çok 5 yönlendirmeye izin verilir.
+- APK akışı kopyalama sırasında **boyut sınırı**, SHA-256 ve kurulu uygulamanın sertifika kimliği, paket/sürüm kontrollerini uyguluyor.
+- İndirme **yüzde/KB ilerlemesi** görüntülenerek kullanıcı tarafından iptal edilebilir; kısmi APK temizlenir. Dosyalar benzersiz adla iç cache'de saklanır; 2 günden eski cache artıkları kaldırılır.
+- **Android yükleyicisi açılmadan hemen önce** indirilen dosyanın tam SHA-256'sı tekrar hesaplanır ve `PackageManager` ile APK imzası + `packageName` + daha yüksek `versionCode` yeniden kontrol edilir. Herhangi bir uyuşmazlıkta kurulum başlatılmaz.
+- Sistem yükleme onayı her zaman kullanıcıdadır; SMS, root, sessiz yükleme veya mevcut uygulamayı kaldırma yoktur.
+
 ## Mevcut eski debug sürüm kullanıcıları
 
 CI, v145 ve v148 gibi önceki debug APK'lerde **rastgele ve farklı** sertifikalar üretmiş olabilir. Aynı `applicationId` ile farklı sertifika yerinde güncellemeyi engeller. Bu sürümlerde OTA ekranı doğru şekilde **İmza uyumsuz** uyarısı gösterebilir. Bu hata değil, veri kaybı önleyen güvenlik kontrolüdür.
