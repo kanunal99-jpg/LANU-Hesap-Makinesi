@@ -14,11 +14,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.core.update.LanuUpdate
+import com.example.core.update.VerifiedUpdate
 import com.example.core.update.SecureOtaUpdater
 import com.example.core.update.UpdateStatus
 import kotlinx.coroutines.launch
-import java.io.File
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 
 /**
  * Explicit user-initiated update flow. Never silently downloads private data,
@@ -29,8 +30,10 @@ fun UpdateCheckScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf<UpdateStatus?>(null) }
-    var ready by remember { mutableStateOf<File?>(null) }
-    var readyRelease by remember { mutableStateOf<LanuUpdate?>(null) }
+    var ready by remember { mutableStateOf<VerifiedUpdate?>(null) }
+    var downloadJob by remember { mutableStateOf<Job?>(null) }
+    var downloadProgress by remember { mutableStateOf<Float?>(null) }
+    var downloadedBytes by remember { mutableLongStateOf(0L) }
     var busy by remember { mutableStateOf(false) }
     var operation by remember { mutableStateOf("") }
     var notice by remember { mutableStateOf<String?>(null) }
@@ -41,7 +44,7 @@ fun UpdateCheckScreen(modifier: Modifier = Modifier) {
         notice = null
         status = null
         ready = null
-        readyRelease = null
+        downloadProgress = null
         operation = "GitHub sürümleri kontrol ediliyor…"
         scope.launch {
             try {
@@ -80,8 +83,23 @@ fun UpdateCheckScreen(modifier: Modifier = Modifier) {
         }
 
         if (busy) {
-            LinearProgressIndicator(Modifier.fillMaxWidth())
+            val progress = downloadProgress
+            if (progress == null) {
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+            } else {
+                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+            }
             Text(operation, style = MaterialTheme.typography.bodyMedium)
+            if (downloadJob?.isActive == true) {
+                Text(
+                    "İndirilen: ${downloadedBytes / 1024} KB",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                TextButton(
+                    onClick = { downloadJob?.cancel() },
+                    modifier = Modifier.testTag("ota_cancel_download")
+                ) { Text("İndirmeyi iptal et") }
+            }
         }
         when (val current = status) {
             is UpdateStatus.Current -> {
@@ -102,25 +120,35 @@ fun UpdateCheckScreen(modifier: Modifier = Modifier) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("Yeni sürüm hazır: ${current.release.tag}", fontWeight = FontWeight.Bold)
                         Text("Sürüm kodu: ${current.release.versionCode}")
-                        if (readyRelease == current.release && ready?.isFile == true) {
+                        val checked = ready
+                        if (checked != null && checked.release == current.release && checked.file.isFile) {
                             Button(
                                 enabled = !busy,
                                 modifier = Modifier.fillMaxWidth().testTag("ota_install"),
                                 onClick = {
-                                    try {
-                                        if (!SecureOtaUpdater.launchInstaller(context, ready!!)) {
-                                            notice = "Android ayarlarında LANU için bilinmeyen uygulama yükleme iznini onaylayın. Ardından buraya dönerek Kur düğmesine yeniden dokunun."
-                                        } else {
-                                            notice = "Android sistem yükleyicisi açıldı. Güncelleme için ekrandaki onayı verin."
+                                    busy = true
+                                    operation = "Kurulum öncesi APK tekrar doğrulanıyor…"
+                                    notice = null
+                                    scope.launch {
+                                        try {
+                                            SecureOtaUpdater.verifyBeforeInstall(context, checked)
+                                            if (!SecureOtaUpdater.launchInstaller(context, checked.file)) {
+                                                notice = "Android ayarlarında LANU için bilinmeyen uygulama yükleme iznini onaylayın. Ardından buraya dönerek Kur düğmesine yeniden dokunun."
+                                            } else {
+                                                notice = "Android sistem yükleyicisi açıldı. Kurulum için ekrandaki onayı verin."
+                                            }
+                                        } catch (e: Exception) {
+                                            ready = null
+                                            notice = e.message ?: "Kurulum öncesi doğrulama başarısız."
+                                        } finally {
+                                            busy = false
                                         }
-                                    } catch (e: Exception) {
-                                        notice = e.message ?: "Android yükleyici açılamadı."
                                     }
                                 }
                             ) {
                                 Icon(Icons.Default.SystemUpdateAlt, contentDescription = null)
                                 Spacer(Modifier.width(8.dp))
-                                Text("Android üzerinden güncelle")
+                                Text("Yeniden doğrula ve Android üzerinden güncelle")
                             }
                         } else {
                             Button(
@@ -129,18 +157,30 @@ fun UpdateCheckScreen(modifier: Modifier = Modifier) {
                                 onClick = {
                                     if (busy) return@Button
                                     busy = true
-                                    operation = "APK indiriliyor ve güvenliği doğrulanıyor…"
+                                    downloadProgress = null
+                                    downloadedBytes = 0L
+                                    operation = "APK güvenli şekilde indiriliyor…"
                                     notice = null
-                                    scope.launch {
+                                    downloadJob = scope.launch {
                                         try {
-                                            ready = SecureOtaUpdater.download(context, current.release)
-                                            readyRelease = current.release
+                                            ready = SecureOtaUpdater.download(context, current.release) { received, total ->
+                                                downloadedBytes = received
+                                                downloadProgress = total?.takeIf { it > 0L }
+                                                    ?.let { (received.toDouble() / it).toFloat().coerceIn(0f, 1f) }
+                                                operation = if (total != null && total > 0L) {
+                                                    "APK indiriliyor: ${(received * 100L / total).coerceIn(0L, 100L)}%"
+                                                } else "APK indiriliyor…"
+                                            }
+                                        } catch (_: CancellationException) {
+                                            ready = null
+                                            notice = "İndirme iptal edildi; eksik APK temizlendi."
                                         } catch (e: Exception) {
                                             ready = null
-                                            readyRelease = null
                                             notice = e.message ?: "Güncelleme indirilemedi."
                                         } finally {
                                             busy = false
+                                            downloadJob = null
+                                            downloadProgress = null
                                         }
                                     }
                                 }
