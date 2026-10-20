@@ -196,3 +196,11 @@ Bu puan bir sertifika değildir; yerinde ve bağımsız kanıtlar tamamlanmadan 
 - **Düzeltme:** `SettingsDao.persistPinGuard` iki satırı tek `@Transaction` altında commit eder; artan kilit ve başarılı PIN / biyometri sıfırlama yolları aynı atomik işlemden geçer.
 - **Test:** 4 yanlış girişten sonra 5. denemede `pin_lockout_strikes` INSERT hatası tetiklenir; iki satır da eski halinde kalır; hata kaldırılıp yeniden denenince 30 saniyelik kilit ve strike 1 oluşur. Başarılı biyometride her ikisi sıfırlanır.
 - **Durum:** GitHub PR + CI bağımsız testleri bitmeden üretim/başarı etiketi yok. Room v4 şeması sabit.
+
+
+### 20.10.2026 — P0 Kimlik kayıt kalıcılığının geri okunarak doğrulanması (ID-PERSIST-01)
+- Mevcut Keystore korumalı kimlik `save`, şifreli `commit=true` ise geri okunabilirliği kontrol etmeden kaydı başarılı sayıyordu. Kaydedilemeyen/okunamayan kimlik, kullanıcıya kurtarma tamamlanmış gibi gösterilememeli.
+- Şifreli `identity` verisi başarıyla commit edildikten hemen sonra tekrar okunup kodlanan içerikle birebir karşılaştırılır. Uyuşmazlıkta işlem fail-closed; eski kayıtlar otomatik temizlenmez veya yeni kimlik üretilmez.
+- Android Robolectric: `commit=false` olduğunda önceki kimlik korunur; veri yazılsa bile getString başarısızsa yedekleme/restore yanlış başarılı bildirilmez. Testte sahte preferences üretimde kullanılmaz.
+- Kapsam: kimlik depolama dayanıklılığı, **tam Room veri şifrelemesi veya fiziksel cihaz Keystore kurtarma garantisi değil**.
+- Durum: PR + CI test sonucu olmadan tamamlandı sayılmaz.

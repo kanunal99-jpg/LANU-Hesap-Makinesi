@@ -1,6 +1,7 @@
 package com.example
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.test.core.app.ApplicationProvider
 import com.example.core.messaging.EncryptedMessagingIdentityStore
 import com.example.core.messaging.MessagingIdentity
@@ -80,6 +81,52 @@ class MessagingIdentityIntegrityTest {
                 assertEquals(previouslySaved, prefs.getString("identity", null))
                 assertEquals(existing, store.read())
             }
+        } finally {
+            context.deleteSharedPreferences(name)
+        }
+    }
+
+    @Test fun `failed encrypted commit never replaces previous private key`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "test-identity-write-failure-" + System.nanoTime()
+        val prefs = context.getSharedPreferences(name, Context.MODE_PRIVATE)
+        try {
+            val existing = UserCodes.create()
+            EncryptedMessagingIdentityStore(context, prefs).save(existing)
+            val denied = object : SharedPreferences by prefs {
+                override fun edit(): SharedPreferences.Editor {
+                    return object : SharedPreferences.Editor by prefs.edit() {
+                        override fun putString(key: String?, value: String?): SharedPreferences.Editor = this
+                        override fun commit(): Boolean = false
+                    }
+                }
+            }
+            try {
+                EncryptedMessagingIdentityStore(context, denied).save(UserCodes.create())
+                fail("Failed encrypted commit must not be reported as saved")
+            } catch (_: IllegalStateException) { }
+            assertEquals(existing, EncryptedMessagingIdentityStore(context, prefs).read())
+        } finally {
+            context.deleteSharedPreferences(name)
+        }
+    }
+
+    @Test fun `identity save is not reported successful if protected readback is unavailable`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "test-identity-readback-" + System.nanoTime()
+        val prefs = context.getSharedPreferences(name, Context.MODE_PRIVATE)
+        try {
+            val valid = UserCodes.create()
+            val unreadable = object : SharedPreferences by prefs {
+                override fun getString(key: String?, defValue: String?): String? =
+                    if (key == "identity") null else prefs.getString(key, defValue)
+            }
+            try {
+                EncryptedMessagingIdentityStore(context, unreadable).save(valid)
+                fail("A write without a verifiable protected read must fail closed")
+            } catch (_: IllegalStateException) { }
+            assertEquals("The storage record itself must remain recoverable",
+                valid, EncryptedMessagingIdentityStore(context, prefs).read())
         } finally {
             context.deleteSharedPreferences(name)
         }
