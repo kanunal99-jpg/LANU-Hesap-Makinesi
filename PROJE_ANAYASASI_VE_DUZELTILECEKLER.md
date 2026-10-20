@@ -232,3 +232,10 @@ Bu puan bir sertifika değildir; yerinde ve bağımsız kanıtlar tamamlanmadan 
 - **Bulgu:** Bilimsel hesap makinesi `highPrecisionMemory` için BigDecimal kullanmasına rağmen `CalculatorRepository` M+, M-, MS değerlerini Double'a indiriyordu; 0,1 + 0,2 gibi işlemler bellek API'sinde yuvarlama hatası oluşturuyordu.
 - **Düzeltme:** Repo içinde `exactMemoryValue` BigDecimal tek aritmetik kaynak; eski Double `memoryValue` salt geriye dönük UI gösterimi. ViewModel BigDecimal değerleri dönüştürmeden aktarır. Eski Double overload'ları korunur.
 - **Test:** 0.1+0.2=0.3, çok basamaklı sayı, legacy Double API ve temizlemenin tutarlılığı; CI ve UI kabul bekliyor.
+
+
+### 20.10.2026 — P0 RELAY-BODY-01 istek boyutu sınırının sunucuda akış halinde uygulanması
+- **Bulgu:** Edge endpoint önce tüm HTTP gövdesini `request.text()` ile belleğe alıyor, **ancak sonrasında** 100.000 karakter sınırını denetliyordu. Yetkisiz/kimliği doğrulanmamış devasa yükler gereksiz bellek kullanabilirdi.
+- **Düzeltme:** Gelen veriyi Web ReadableStream parçaları halinde oku, toplam UTF-8 byte sayısını 100.000 ile sınırla; Content-Length üst sınırını okuma öncesi denetle, eksik/yanlış Content-Length olsa bile aktüel byte sınırını uygula. Limit aşımında HTTP 413, bozuk UTF-8/başlıkta 400 ve stream iptali.
+- **Test:** 100.000 bayt tam sınırı ve 100.001 reddi, chunked/eksik Content-Length, geçersiz başlık, çok baytlı UTF-8, bozuk UTF-8, normal JSON; Node sunucu testlerinde otomatik.
+- **Açık:** Üretim Supabase Edge Function yayınına ilişkin canlı endpoint kanıtı yoksa production düzeltmesi olarak ilan edilmez. Dış güvenlik değerlendirmesi, sunucu TTL ve gerçek iki cihazlı senaryolar ayrı P0.
