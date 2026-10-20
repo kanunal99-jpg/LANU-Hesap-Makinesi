@@ -488,3 +488,10 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] Relay 503 remote delete hatasında yerel mesaj ve kayıt korunur; yanlış başarılı silme bildirimi yok.
 - [ ] Room hash, Android unit/Robolectric, lint, APK imza ve SHA256 CI kanıtı.
 
+
+
+### [20-10-2026] — MSG-SIZE-01 E2EE payload kabul kriterleri
+- [ ] 37.467 UTF-8 baytlık metin sunucu 50.000 karakter ciphertext kotasının içinde kalır.
+- [ ] Daha büyük veya bozuk çerçeve Base64 decode öncesi reddedilir.
+- [ ] UTF-8 Türkçe/emoji ve boş AES-GCM mesajları doğru okunur.
+- [ ] CI Android unit/Robolectric, lint, APK, Room schema hash, sertifika ve SHA256 başarılı.
