@@ -105,4 +105,16 @@ class SecureSupabaseCredentialMigrationTest {
         assertNull(database.settingsDao().getSettingValue("supabase_key"))
         assertNull(database.settingsDao().getSettingValue("supabase_url"))
     }
+
+    @Test fun `partial encrypted record preserves legacy values until recovery`() = runBlocking {
+        database.settingsDao().insertSetting(SettingsEntity("supabase_url", "https://legacy.example"))
+        database.settingsDao().insertSetting(SettingsEntity("supabase_key", "legacy-recovery-secret"))
+        assertTrue(preferences.edit().putString("supabase_key", "partial-secret").commit())
+        try {
+            repository().getSupabaseCredentials()
+            fail("Partial encrypted records must fail closed")
+        } catch (_: SecurityException) { }
+        assertEquals("legacy-recovery-secret", database.settingsDao().getSettingValue("supabase_key"))
+        assertEquals("https://legacy.example", database.settingsDao().getSettingValue("supabase_url"))
+    }
 }
