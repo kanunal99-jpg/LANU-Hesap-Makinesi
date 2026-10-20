@@ -303,6 +303,9 @@ class SecurityRepository(
                 "Güvenli bağlantı bilgileri eksik; eski kayıtlar korunuyor."
             }
             if (!hasProtectedUrl && (legacyUrl != null || legacyKey != null)) {
+                check(legacyUrl != null && legacyKey != null) {
+                    "Eski bağlantı bilgileri eksik; mevcut kayıtlar korunuyor."
+                }
                 check(prefs.edit()
                     .putString("supabase_url", legacyUrl)
                     .putString("supabase_key", legacyKey)
