@@ -59,6 +59,10 @@ object SecureOtaUpdater {
     private val tagPattern = Regex("""v1\.(?:0\.0-debug|1\.0-signed)\.(\d+)""")
     private val shaPattern = Regex("[a-f0-9]{64}")
 
+    /** Release metadata and content are limited to GitHub and its known download CDN. */
+    fun isApprovedEndpoint(scheme: String, host: String): Boolean =
+        scheme == "https" && host in approvedHosts
+
     private val http = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(35, TimeUnit.SECONDS)
@@ -315,7 +319,7 @@ object SecureOtaUpdater {
     private fun trustedGet(url: String, accept: String): Response {
         var next = Request.Builder().url(url).build().url
         repeat(MAX_REDIRECTS + 1) { hop ->
-            require(next.isHttps && next.host in approvedHosts) {
+            require(isApprovedEndpoint(next.scheme, next.host)) {
                 "Güncelleme indirmesi onaylanmamış bir adrese yönlendirildi."
             }
             val request = Request.Builder().url(next)
