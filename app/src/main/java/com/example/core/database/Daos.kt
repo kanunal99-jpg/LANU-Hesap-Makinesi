@@ -20,11 +20,19 @@ interface CalculationHistoryDao {
     @Query("DELETE FROM calculation_history WHERE timestamp < :timestamp")
     suspend fun deleteHistoryOlderThan(timestamp: Long)
 
-    @Query("SELECT id FROM calculation_history ORDER BY timestamp DESC LIMIT 10000 OFFSET 50")
+    @Query("SELECT id FROM calculation_history ORDER BY timestamp DESC, id DESC LIMIT -1 OFFSET 50")
     suspend fun getHistoryIdsToPrune(): List<Long>
 
     @Query("DELETE FROM calculation_history WHERE id IN (:ids)")
     suspend fun deleteHistoryByIds(ids: List<Long>)
+
+    @Transaction
+    suspend fun insertAndPruneHistory(history: CalculationHistoryEntity) {
+        // Insert and retention must commit together. A failure to prune cannot
+        // leave unbounded records, nor can it discard the previous 50 entries.
+        insertHistory(history)
+        getHistoryIdsToPrune().takeIf { it.isNotEmpty() }?.let { deleteHistoryByIds(it) }
+    }
 }
 
 @Dao
