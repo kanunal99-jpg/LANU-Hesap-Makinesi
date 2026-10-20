@@ -116,3 +116,11 @@ Puanlar planlama amaçlı ön değerlendirmedir, bağımsız sertifikasyon deği
 - **Kapsam:** Güncel Room v4 kapatıp yeniden açıldığında PIN doğrulama özeti, mesaj revizyonu, kullanıcı kimliği, rehber/engelleme, sohbet/okunmamış sayacı, bekleyen şifreli mesaj, finansal hesap geçmişi ve çağrı kaydı korunmalıdır.
 - **Kanıt yöntemi:** Kalıcı test SQLite dosyasına yedi tablonun her birinde örnek kayıt yaz; bağlantıyı tamamen kapat, yeniden aç; alanları ve `PENDING` teslim kuyruğunu doğrula.
 - **Durum:** Otomatik test geliştirme dalında. Şema sürümü değiştirilmedi. Eski v1-v3 migration, bozuk disk ve gerçek cihaz güncelleme kanıtı yerine geçmez. PR CI yeşil olmadan tamamlandı sayılmaz.
+
+
+### 20.10.2026 — P0-03: eski Supabase anahtarlarının düz metin Room kaydı
+
+- **Bulgu CRED-01 / etki:** `SecurityRepository.saveSupabaseCredentials()` bağlantı anahtarını `app_settings.supabase_key` sütununda şifresiz saklıyordu. Güncel Room v4 dosyası tümüyle şifreli olmadığı için bu yerel gizlilik riskiydi.
+- **Düzeltme:** Yeni URL ve anahtar yalnız Keystore destekli `EncryptedSharedPreferences` kaydına yazılır. Uygulama başlangıcında eski `supabase_url` / `supabase_key` Room kayıtları, şifreli kopyanın dayanıklı biçimde yazıldığı ve yeniden okunduğu doğrulanmadan silinmez. Korunan kaydın eksik olduğu durumda veya Keystore/commit hatasında işlem durur; eski veriler korunur; düz metne dönüş yapılmaz.
+- **Test kapıları:** Şifreli yeni kayıt, doğru eski kayıt geçişi, commit hatasında geri alınabilirlik, bozuk/eksik korumalı kayıt, önceki şifreli kaydın eski satırdan öncelikli tutulması; CI test, lint, APK, imza/SHA256.
+- **Sınırlar:** Testlerde enjekte edilen düz `SharedPreferences` yalnız sahte depodur; üretimde Keystore şifreli depolama kullanılır. Bu geliştirme tüm Room veritabanını şifrelemez; eski veriler taşınamıyorsa kullanıcıdan habersiz silinmez. PR CI ve gerçek cihaz kontrolü tamamlanmadan üretim güvenliği iddiası yok.
