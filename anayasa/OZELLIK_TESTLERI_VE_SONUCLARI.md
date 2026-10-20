@@ -400,3 +400,10 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] Tekrar senkronizasyonda mesajın tek defa okunmamış sayılması; yinelenen olayda artmaması.
 - [ ] Android unit/Robolectric + Room şema kontrolü + lint + APK imzası ve SHA256 ile CI doğrulaması.
 - [ ] Gerçek iki cihaz / kesintili ağ testleri (ayrı üretim kapısı).
+
+
+### [20-10-2026] — Room yedi tablo kalıcılık doğrulaması
+- [ ] Kalıcı SQLite veritabanına yedi tablo verilerini kaydedip yeniden açma sonrası byte/içerik doğrulaması.
+- [ ] `PENDING` mesaj kuyruğunun, revizyon, okunmamış ve PIN kayıtlarının korunması.
+- [ ] Eski v1-v3 fixture testleri ve gerçek cihaz yükseltmesi (bu testin kapsamı dışındadır).
+- [ ] Android unit/Robolectric, v4 şema parmak izi, lint, APK ve SHA-256 kalite kapıları.
