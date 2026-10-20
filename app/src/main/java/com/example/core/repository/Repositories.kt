@@ -5,8 +5,11 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.example.core.security.PinCredentialCodec
 import com.example.core.security.PinPolicy
 import com.example.core.security.PinAttemptStatus
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import com.example.core.crypto.CryptoUtils
@@ -105,7 +108,8 @@ class SecurityRepository(
     suspend fun setupPin(pin: String): Boolean = authenticationMutex.withLock {
         // Setup can never replace an existing credential without checking it.
         if (!PinPolicy.isValid(pin) || hasPin()) return@withLock false
-        settingsDao.insertSetting(SettingsEntity("pin_hash", CryptoUtils.hashPin(pin)))
+        val verifier = withContext(Dispatchers.Default) { PinCredentialCodec.create(pin) }
+        settingsDao.insertSetting(SettingsEntity("pin_hash", verifier))
         saveAttemptState(0, 0L)
         _isLockedState.value = false
         true
@@ -143,11 +147,13 @@ class SecurityRepository(
         val status = readAttemptStatus()
         if (status.remainingSeconds > 0) return false
         val storedHash = settingsDao.getSettingValue("pin_hash") ?: return false
-        val matches = PinPolicy.isValid(pin) && java.security.MessageDigest.isEqual(
-            storedHash.toByteArray(Charsets.UTF_8),
-            CryptoUtils.hashPin(pin).toByteArray(Charsets.UTF_8)
-        )
+        val matches = withContext(Dispatchers.Default) { PinCredentialCodec.verify(pin, storedHash) }
         if (matches) {
+            // Migrate only after proving the old PIN; never erase credentials on failure.
+            if (!PinCredentialCodec.isModern(storedHash)) {
+                val upgraded = withContext(Dispatchers.Default) { PinCredentialCodec.create(pin) }
+                settingsDao.insertSetting(SettingsEntity("pin_hash", upgraded))
+            }
             saveAttemptState(0, 0L)
         } else {
             val failures = status.failedAttempts + 1
@@ -171,7 +177,8 @@ class SecurityRepository(
 
     suspend fun changePin(currentPin: String, newPin: String): Boolean = authenticationMutex.withLock {
         if (!PinPolicy.isValid(newPin) || !checkPin(currentPin)) return@withLock false
-        settingsDao.insertSetting(SettingsEntity("pin_hash", CryptoUtils.hashPin(newPin)))
+        val verifier = withContext(Dispatchers.Default) { PinCredentialCodec.create(newPin) }
+        settingsDao.insertSetting(SettingsEntity("pin_hash", verifier))
         true
     }
 

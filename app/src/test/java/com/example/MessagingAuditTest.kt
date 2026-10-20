@@ -40,15 +40,17 @@ class MessagingAuditTest {
     }
 
     @Test
-    fun testCryptoUtils_wrongSecretFailsGracefully() {
+    fun testCryptoUtils_wrongSecretFailsClosed() {
         val secret1 = "secret_channel_1"
         val secret2 = "secret_channel_2"
         val plainText = "Bu metin sadece secret1 ile açılmalı"
 
         val cipherText = CryptoUtils.encrypt(plainText, secret1)
-        val decryptedWrong = CryptoUtils.decrypt(cipherText, secret2)
-
-        // Decrypting with wrong key returns ciphertext gracefully without crashing
-        assertNotEquals(plainText, decryptedWrong)
+        try {
+            CryptoUtils.decrypt(cipherText, secret2)
+            fail("Wrong secret must reject tampered ciphertext, not silently return its bytes")
+        } catch (_: SecurityException) {
+            // Authentication failure must be explicit and never look like decrypted data.
+        }
     }
 }
