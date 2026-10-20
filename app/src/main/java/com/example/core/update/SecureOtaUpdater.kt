@@ -16,6 +16,8 @@ import okhttp3.Response
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.IOException
 import java.util.UUID
 import org.json.JSONArray
@@ -64,6 +66,10 @@ object SecureOtaUpdater {
     /** Release metadata and content are limited to GitHub and its known download CDN. */
     fun isApprovedEndpoint(scheme: String, host: String): Boolean =
         scheme == "https" && host in approvedHosts
+
+    // One active OTA transfer per app process: public and private update screens
+    // must not overwrite the same resumable cache entry concurrently.
+    private val downloadMutex = Mutex()
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
@@ -271,7 +277,8 @@ object SecureOtaUpdater {
         context: Context,
         release: LanuUpdate,
         onProgress: (received: Long, total: Long?) -> Unit = { _, _ -> }
-    ): VerifiedUpdate = withContext(Dispatchers.IO) {
+    ): VerifiedUpdate = downloadMutex.withLock {
+        withContext(Dispatchers.IO) {
         validateRelease(release)
         val pinned = parseSigner(readText(release.certificateUrl, 3_000))
         require(sameCertificate(pinned, installedCertificate(context))) {
@@ -387,6 +394,7 @@ object SecureOtaUpdater {
         } catch (e: Exception) {
             partial.delete()
             throw e
+        }
         }
     }
 
