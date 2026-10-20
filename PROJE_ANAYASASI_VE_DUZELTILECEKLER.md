@@ -109,3 +109,10 @@ Puanlar planlama amaçlı ön değerlendirmedir, bağımsız sertifikasyon deği
 - **Düzeltme:** Tek gelen mesaj olayında sohbet oluşturma, doğrulanmış şifreli mesaj, okunmamış sayaç ve olay revizyonu `AppDatabase.withTransaction` ile atomik yürütülür. Sunucu teslim/okundu onayı yalnız işlem tamamlandıktan sonra gönderilir; tamper edilen içerik yine reddedilir.
 - **Regresyon:** Sahte bir DAO ile okunmamış sayacı adımında hata enjekte et; mesajın, sohbetin ve revizyonun geri alındığını ve sunucu onayı verilmediğini kanıtla. Ardından aynı olayı yeniden işle; okunmamış 1 olsun, tekrar oynatma 2 yapmasın.
 - **Kapsam ve sınır:** Room v4 şeması ve kullanıcı verileri değişmez. Kod, test ve CI doğrulaması bitmeden başarı ilan edilmez. Gerçek iki cihaz/çevrimdışı sunucu senaryoları hâlâ P0-05 kapısıdır.
+
+
+### 20.10.2026 — P0-02/P0-03 Room yedi tablo veri koruma regresyonu
+
+- **Kapsam:** Güncel Room v4 kapatıp yeniden açıldığında PIN doğrulama özeti, mesaj revizyonu, kullanıcı kimliği, rehber/engelleme, sohbet/okunmamış sayacı, bekleyen şifreli mesaj, finansal hesap geçmişi ve çağrı kaydı korunmalıdır.
+- **Kanıt yöntemi:** Kalıcı test SQLite dosyasına yedi tablonun her birinde örnek kayıt yaz; bağlantıyı tamamen kapat, yeniden aç; alanları ve `PENDING` teslim kuyruğunu doğrula.
+- **Durum:** Otomatik test geliştirme dalında. Şema sürümü değiştirilmedi. Eski v1-v3 migration, bozuk disk ve gerçek cihaz güncelleme kanıtı yerine geçmez. PR CI yeşil olmadan tamamlandı sayılmaz.
