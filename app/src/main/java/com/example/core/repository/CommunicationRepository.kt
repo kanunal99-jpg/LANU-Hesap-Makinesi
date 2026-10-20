@@ -1,5 +1,6 @@
 package com.example.core.repository
 
+import androidx.room.withTransaction
 import com.example.core.crypto.CryptoUtils
 import com.example.core.database.*
 import com.example.core.messaging.*
@@ -20,7 +21,8 @@ class CommunicationRepository(
     private val userProfileDao: UserProfileDao,
     private val callLogDao: CallLogDao,
     private val identityStore: MessagingIdentityStore,
-    private val relay: MessagingRelay
+    private val relay: MessagingRelay,
+    private val database: AppDatabase
 ) {
     val contacts = contactDao.getAllContacts().map { list -> list.filter { UserCodes.normalize(it.phoneNumber).isNotBlank() } }
     val conversations = conversationDao.getAllConversations()
@@ -216,35 +218,39 @@ class CommunicationRepository(
             val senderId = message.getString("senderId")
             val peerId = if (senderId == own.id) message.getString("recipientId") else senderId
             val convId = UserCodes.conversationId(own.id, peerId)
-            val revision = message.getLong("revision")
-            val previous = settingsDao.getSettingValue("lanu_message_revision_$id")?.toLongOrNull() ?: 0L
-            val hidden = settingsDao.getSettingValue("lanu_hidden_$id") == "true"
-            if (revision > previous) {
-                if (message.optBoolean("deleted") || hidden) messageDao.deleteMessage(id)
-                else {
-                    val peer = settingsDao.getSettingValue("lanu_peer_id_$peerId")?.let(::JSONObject) ?: throw IllegalStateException("Gönderenin anahtarı bulunamadı")
-                    // Never persist or acknowledge an unreadable/tampered encrypted message.
-                    // The relay cannot authenticate E2EE ciphertext; only the recipient can.
-                    try {
-                        PeerMessageCrypto.decrypt(own, peerId, peer.getString("publicKey"), id, senderId, message.getString("content"))
-                    } catch (e: Exception) {
-                        throw SecurityException("Şifreli mesaj doğrulanamadı. Teslim/okundu onayı gönderilmedi.", e)
+            // Message, unread count and replay revision are one durable unit.
+            // A crash before commit must not leave a message without its unread badge.
+            database.withTransaction {
+                val revision = message.getLong("revision")
+                val previous = settingsDao.getSettingValue("lanu_message_revision_$id")?.toLongOrNull() ?: 0L
+                val hidden = settingsDao.getSettingValue("lanu_hidden_$id") == "true"
+                if (revision > previous) {
+                    if (message.optBoolean("deleted") || hidden) messageDao.deleteMessage(id)
+                    else {
+                        val peer = settingsDao.getSettingValue("lanu_peer_id_$peerId")?.let(::JSONObject) ?: throw IllegalStateException("Gönderenin anahtarı bulunamadı")
+                        // Never persist or acknowledge an unreadable/tampered encrypted message.
+                        // The relay cannot authenticate E2EE ciphertext; only the recipient can.
+                        try {
+                            PeerMessageCrypto.decrypt(own, peerId, peer.getString("publicKey"), id, senderId, message.getString("content"))
+                        } catch (e: Exception) {
+                            throw SecurityException("Şifreli mesaj doğrulanamadı. Teslim/okundu onayı gönderilmedi.", e)
+                        }
+                        settingsDao.insertSetting(SettingsEntity("lanu_peer_conv_$convId", peer.toString()))
+                        if (conversationDao.getConversationById(convId) == null) {
+                            val contact = contactDao.getContactByPhone(peer.getString("code"))
+                            conversationDao.insertConversation(ConversationEntity(convId, peer.getString("code"), contact?.name ?: peer.getString("code")))
+                        }
+                        // A replayed or revised event must not inflate the unread badge.
+                        val firstLocalReceipt = messageDao.getMessage(id) == null
+                        messageDao.insertMessage(MessageEntity(id, convId, senderId, if (senderId == own.id) "Ben" else peer.getString("code"), message.getString("content"),
+                            timestamp = message.getLong("createdAt"), status = message.getString("status"), reaction = message.optString("reaction").ifBlank { null }))
+                        conversationDao.getConversationById(convId)?.let { conversationDao.insertConversation(it.copy(lastMessageText = "Şifreli mesaj", lastMessageTime = maxOf(it.lastMessageTime, message.getLong("createdAt")))) }
+                        if (senderId != own.id && activeConversationId != convId && firstLocalReceipt) {
+                            conversationDao.incrementUnreadCount(convId)
+                        }
                     }
-                    settingsDao.insertSetting(SettingsEntity("lanu_peer_conv_$convId", peer.toString()))
-                    if (conversationDao.getConversationById(convId) == null) {
-                        val contact = contactDao.getContactByPhone(peer.getString("code"))
-                        conversationDao.insertConversation(ConversationEntity(convId, peer.getString("code"), contact?.name ?: peer.getString("code")))
-                    }
-                    // A replayed or revised event must not inflate the unread badge.
-                    val firstLocalReceipt = messageDao.getMessage(id) == null
-                    messageDao.insertMessage(MessageEntity(id, convId, senderId, if (senderId == own.id) "Ben" else peer.getString("code"), message.getString("content"),
-                        timestamp = message.getLong("createdAt"), status = message.getString("status"), reaction = message.optString("reaction").ifBlank { null }))
-                    conversationDao.getConversationById(convId)?.let { conversationDao.insertConversation(it.copy(lastMessageText = "Şifreli mesaj", lastMessageTime = maxOf(it.lastMessageTime, message.getLong("createdAt")))) }
-                    if (senderId != own.id && activeConversationId != convId && firstLocalReceipt) {
-                        conversationDao.incrementUnreadCount(convId)
-                    }
+                    settingsDao.insertSetting(SettingsEntity("lanu_message_revision_$id", revision.toString()))
                 }
-                settingsDao.insertSetting(SettingsEntity("lanu_message_revision_$id", revision.toString()))
             }
             ack.put(event.getString("id"))
             if (senderId != own.id && activeConversationId == convId && !message.optBoolean("deleted")) read.put(id)
