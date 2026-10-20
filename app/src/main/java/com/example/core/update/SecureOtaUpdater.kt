@@ -498,7 +498,7 @@ object SecureOtaUpdater {
                 require(stageDir.usableSpace >= ready.file.length() + INSTALL_MIN_FREE_BYTES) {
                     "Kurulum kopyası için depolama alanı yetersiz."
                 }
-                val partial = File(stageDir, "$versionName.copying")
+                val partial = File(stageDir, "$versionName.copying.apk")
                 // Stale snapshots are removed only on a new explicit installer request.
                 stageDir.listFiles()?.filter { candidate ->
                     candidate.isFile && candidate != staged &&
