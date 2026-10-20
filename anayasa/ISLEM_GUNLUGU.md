@@ -522,3 +522,9 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - **Kapsam:** Mevcut `allowBackup=false`, legacy backup full-root exclude, Android 12+ `cloud-backup`/`device-transfer` full-root exclude, OTA FileProvider `exported=false` değerlerinin her PR CI'da XML doğrulaması.
 - **Test:** Geliştirici yedeklemeyi yeniden açarsa, bulut/cihaz kısıtını kaldırırsa veya FileProvider'ı dışa açarsa CI başarısız olmalı.
 - **Sınır:** Bu kontrol Room v4'ün kendisini şifrelemez, mevcut fiziksel cihazdaki eski verileri temizlemez ve manuel parolalı yedek sistemi yerine geçmez.
+
+### 20.10.2026 — P0 PIN başarılı girişte atomik sıfırlama (PIN-TX-02)
+- **Bulgu:** Yanlış PIN kilitleme kademesi önceki PR ile transaction olmuştu ancak doğru PIN `pin_attempt_state` ve `pin_lockout_strikes` kayıtlarını ayrı yazıyordu. İkinci yazma hatasında sahte veya tutarsız sıfırlanma oluşabilir.
+- **Düzeltme:** Başarılı PIN kontrolü, biyometriyle aynı `SettingsDao.persistPinGuard(0,0,0)` transaction yolunu kullanır; yalnız başarılı commit sonrasında UI kilidi açılır.
+- **Kanıt kapısı:** SQLite trigger ile ikinci satırda hata: ilk satır rollback, kullanıcı oturumu kilitli kalır; hata kalkınca doğru PIN guardı birlikte sıfırlar; 5 yeni yanlış deneme ilk 30s kademesidir.
+- **Sınır:** PIN gerçek cihaz donanım güvenliğine bağlanmış değildir, Room şifreli değildir; tarihî migration ve stable APK imzası P0.
