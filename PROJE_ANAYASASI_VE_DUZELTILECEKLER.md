@@ -64,3 +64,8 @@ Hesap doğruluğu, güvenli saklama, iletişim modülü izinleri ve cihaz testle
 - **Ücret onayı:** Ücretli API/kota/servis tüketimi kullanıcı onayı olmadan genişletilmez; gerçek alternatif ve fallback test edilir.
 - **Kanıtlı kapanış:** Bulgu ID, önem, dosya+satır, CI kanıtı, kök neden, düzeltme commit'i, kabul testi, sürüm, geri dönüş planı ile izlenir.
 - **Faz durumu:** Bu ekleme yalnız analiz/dokümantasyon; kaynak kod düzeltmesi veya üretim doğrulaması değildir.
+
+
+## 20.10.2026 — P0/P1
+
+Çalışma kaydı güncellenmektedir.
