@@ -491,3 +491,9 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - PIN kilitleme son tarihi ile artan kilitleme kademe sayacı tek SQLite transaction olarak bağlandı.
 - SQLite trigger ile ikinci yazmada hata enjekte eden regresyon ve biyometrik sıfırlama testi eklendi.
 - Merge kapısı: CI unit/Robolectric, lint, Room hash, APK sertifika ve SHA256 tamamlanmalı.
+
+
+### [20-10-2026] — MSG-DELETE-01 tekil mesaj silme atomiklik düzeltmesi
+- Timer yerel gizleme ve kullanıcı açık silme işlemi, senkronizasyon kilidi ve veritabanı atomik tombstone+silme olarak düzenlendi.
+- Uzak sunucu hatasında mesajı kaybetmeme, yerel disk hatasında rollback ve pending otomatik koruma regresyonları eklendi.
+- CI ve ana dal/yayın kanıtı sonuçlanmadan kapanmaz.
