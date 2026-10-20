@@ -44,12 +44,16 @@ class SecurityEventTracker(
         if (prefs != null) {
             try {
                 val current = JSONArray(prefs.getString("events_list", "[]") ?: "[]")
+                // When previous writes failed, do not silently discard the RAM-only events.
+                // Persist them with the next successful encrypted write.
+                volatileEvents.forEach { current.put(it) }
                 current.put(event)
                 val trimmed = JSONArray()
                 for (i in maxOf(0, current.length() - MAX_EVENTS) until current.length()) {
                     trimmed.put(current.get(i))
                 }
                 check(prefs.edit().putString("events_list", trimmed.toString()).commit())
+                volatileEvents.clear()
                 return
             } catch (_: Exception) {
                 // Do not retry writes against potentially corrupted encrypted preferences.
@@ -65,9 +69,10 @@ class SecurityEventTracker(
         val stored = if (prefs == null) null else try {
             JSONArray(prefs.getString("events_list", "[]") ?: "[]")
         } catch (_: Exception) { null }
-        val events = stored ?: JSONArray().also { array ->
-            volatileEvents.forEach { array.put(it) }
-        }
+        // An encrypted store can remain readable even when writes fail. Show both
+        // durable and RAM-only records until the next successful encrypted commit.
+        val events = stored ?: JSONArray()
+        volatileEvents.forEach { events.put(it) }
         val list = mutableListOf<Map<String, Any>>()
         for (i in 0 until events.length()) {
             val event = runCatching { events.getJSONObject(i) }.getOrNull() ?: continue
