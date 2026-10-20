@@ -449,3 +449,11 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - **Değişiklik:** Yeni kayıtlar Keystore destekli şifreli ayarlara; mevcut satırlar güvenli ve doğrulanabilir taşıma sonrasında seçici silmeye. Başlangıçta IO coroutine ile taşıma denenir, hata düz metin fallback oluşturmaz.
 - **Testler:** Yeni yazım, eski veriyi kayıpsız taşıma, başarısız commit, kısmi şifreli kayıt, korunmuş önceki değerin önceliği.
 - **Durum:** PR CI doğrulaması bekliyor; gerçek kullanıcı cihazı kanıtı henüz yok.
+
+
+### [20-10-2026] — P0-07 Supabase kimlik bilgisi düz metin depolama düzeltmesi
+- **Bulgu:** `supabase_key` ve `supabase_url` geçmişte Room ayar satırlarına yazılabiliyordu.
+- **Uygulama:** Keystore korumalı ayarlara yazma; uygulama açılışında güvenli eski veri taşıma; korumalı depolama ve kısmi kayıt hatasında temizleme yok.
+- **Test kapsamı:** başarılı yeni yazım, eski kaydı göç ettirme, başarısız `commit`, korumalı/veri önceliği ve kısmi korumalı kayıt için altı otomasyon testi.
+- **Uyarı:** DB/WAL'daki geçmiş düz metin kalıntıları bu işlemle garanti edilerek silinmez. Fiziksel cihaz kanıtı eksik.
+- **Durum:** PR ve CI doğrulaması bekliyor.
