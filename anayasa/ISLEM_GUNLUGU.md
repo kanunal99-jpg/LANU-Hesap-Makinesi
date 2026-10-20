@@ -477,3 +477,11 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - Yedek geri yükleme aynı ortak doğrulayıcıyı kullanır; mevcut geçerli yedek formatı korunur.
 - Yedek/restore regresyon testleri ve üretim sınırlamaları anayasaya işlendi.
 - Durum: CI/PR kontrolü bekliyor; tam sohbet/rehber yedeği sağlamaz.
+
+
+### [20-10-2026] — Dört eşzamanlı P0 güvenlik/veri koruma paketi
+- PR #45: Kimlik yedeği private/public eşleşme kanıtı eklendi. İlk Robolectric test eksikliği düzeltildi; son CI başarılı ve merge.
+- PR #47: Artan ve kalıcı PIN deneme kilidi (30s, 2dk, 10dk, 1sa, 12sa), yeşil CI ve merge.
+- PR #46: Yetim E2EE veride yanlışlıkla yeni kimlik oluşturma engellendi, eski telefon profili geçişi ve eşleşen yedek kurtarma korunarak testler düzeltildi; yeşil CI ve merge.
+- PR #49: Tam sohbet silme ve senkronizasyon tombstone güvenliği; ilk PR #48 paralel merge çakışması nedeniyle güncel main tabanında yeniden düzenlendi; yeşil CI ve merge.
+- Geçici tartılı puan 61/100 -> 66/100. Hedef 93/100. Sabit imza, tarihî migration, şifreli tüm DB, iki cihaz ve sunucu TTL açık P0.

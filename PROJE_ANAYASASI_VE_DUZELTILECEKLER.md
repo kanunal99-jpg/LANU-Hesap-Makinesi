@@ -159,3 +159,33 @@ Puanlar planlama amaçlı ön değerlendirmedir, bağımsız sertifikasyon deği
 - **Kabul:** Geçerli kimlik şifreli yedek/parola/geri yükleme eşitliği; farklı özel anahtar, bozuk özel anahtar, yanlış kod veya ID için yedek oluşturma reddi; unit + lint + APK imza/SHA256 CI başarılı.
 - **Sınır:** Geçerli kimlik yedeği yalnız kimlik anahtarlarını içerir; tam sohbet/rehber/finans verisi taşımaz. Geçersiz mevcut kimlik otomatik sıfırlanmaz. Fiziksel cihaz restore ve tam veri kurtarma ayrı P0'dır.
 - **Durum:** Kod/test GitHub geliştirme dalında; CI sonuçlanmadan birleştirildi/başarılı ilan etme.
+
+
+### 20.10.2026 — Paralel P0 paketi ve 90+ üretim hedefi
+**Birleştirilen ve PR CI testleri başarılı gelişmeler:**
+- [PR #45](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/pull/45) — geçersiz private/public kimlik anahtar çiftinden kullanılamaz yedek oluşturmayı reddetme.
+- [PR #47](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/pull/47) — ardışık yanlış PIN gruplarında 30 saniye / 2 dakika / 10 dakika / 1 saat / 12 saat kilitleme; restart sonrası kademe korunur.
+- [PR #46](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/pull/46) — şifreli kimlik kaybolduğunda E2EE geçmişini rastgele yeni kimlikle ilişkilendirmeme; uygun gerçek kimlik yedeğiyle geri yükleme; eski telefon numarası verisi geçişini koruma.
+- [PR #49](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/pull/49) — sohbet silme ve temizlemede tüm yerel mesajları replay tombstone'ları ile atomik silme ve hatada rollback. İlk PR #48 merge çakışması nedeniyle #49 ile güvenle yeniden uygulandı.
+
+**Tartılı kalite / kanıt temelli ön değerlendirme:**
+
+| Kategori | Ağırlık | Önce | Şimdi | Hedef |
+|---|---:|---:|---:|---:|
+| Güvenlik/PIN/kimlik | 30% | 71 | 77 | 95 |
+| Yerel veri koruma | 25% | 45 | 53 | 95 |
+| Mesajlaşma | 15% | 50 | 56 | 90 |
+| CI/APK/yayın | 15% | 85 | 85 | 95 |
+| UX/performans | 15% | 55 | 55 | 85 |
+| **Toplam** | **100%** | **61/100** | **66/100** | **93/100** |
+
+Bu puan bir sertifika değildir; yerinde ve bağımsız kanıtlar tamamlanmadan 90+ ilan edilmez. Bu turda +5 puan testli gelişmeye karşılık gelmektedir.
+
+**Yayın engelleyici açıklar (P0):**
+1. Kalıcı imzalı APK keystore ve beş güvenli Actions secret, iki ardışık aynı fingerprint'li build, gerçek cihazda silmeden yükseltme.
+2. Gerçek v1-v3 Room şema/fixture ile kayıpsız 1→4 / 2→4 / 3→4 migration; uydurma migration ve destructive fallback yasak.
+3. Tam Room dosyası şifrelemesi, WAL/serbest alan koruması, anahtar kaybı ve tam veri yedek/restore testi.
+4. Samsung A55 + farklı Android üreticisinden fiziksel cihazlarda mesaj, offline, read/ack, PIN/kimlik kurtarma ve OTA regresyonu.
+5. Sunucu retention/TTL/KVKK, kriptografi bağımsız denetim; Hilt/Compose erişilebilirlik, gizlilik kontrollü Crashlytics ve performans.
+
+**Önemli:** PR CI başarılı olması production/cihaz onayı değildir. Son APK sürümü ancak main workflow Release işi tamamlanıp APK asset indirilebilirliği doğrulanınca ilan edilir.
