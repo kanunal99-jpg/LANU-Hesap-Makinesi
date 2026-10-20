@@ -78,6 +78,65 @@ class SecureOtaUpdaterTest {
         assertTrue(otaProvider.grantUriPermissions)
     }
 
+    @Test fun `newer unverifiable release cannot be misreported as up to date`() {
+        val releases = JSONArray()
+            .put(release("v1.0.0-debug.200", listOf("app-debug.apk")))
+            .put(release("v1.0.0-debug.199"))
+            .put(release("v1.0.0-debug.198", draft = true))
+        assertEquals("v1.0.0-debug.200" to 200L,
+            SecureOtaUpdater.newestPublishedVersion(releases.toString(), 150))
+        assertEquals(199L, SecureOtaUpdater.chooseRelease(releases.toString(), 150)?.versionCode)
+        assertNull(SecureOtaUpdater.newestPublishedVersion(releases.toString(), 201))
+    }
+
+    @Test fun `untrusted release URLs cannot be sent to OTA downloader`() {
+        val good = SecureOtaUpdater.chooseRelease(
+            JSONArray().put(release("v1.0.0-debug.250")).toString(), 149
+        )!!
+        SecureOtaUpdater.validateRelease(good)
+        assertFails {
+            SecureOtaUpdater.validateRelease(good.copy(
+                apkUrl = "https://github.com/attacker/evil/releases/download/${good.tag}/app-debug.apk"
+            ))
+        }
+        assertFails {
+            SecureOtaUpdater.validateRelease(good.copy(tag = "v1.0.0-debug.999"))
+        }
+        assertFails {
+            SecureOtaUpdater.validateRelease(good.copy(
+                certificateUrl = "https://attacker.example/app-debug.apk.signer.txt"
+            ))
+        }
+    }
+
+    @Test fun `network redirects must remain within HTTPS GitHub endpoints`() {
+        assertTrue(SecureOtaUpdater.isApprovedEndpoint("https", "github.com"))
+        assertTrue(SecureOtaUpdater.isApprovedEndpoint("https", "api.github.com"))
+        assertTrue(SecureOtaUpdater.isApprovedEndpoint("https", "release-assets.githubusercontent.com"))
+        assertFalse(SecureOtaUpdater.isApprovedEndpoint("http", "github.com"))
+        assertFalse(SecureOtaUpdater.isApprovedEndpoint("https", "github.com.attacker.invalid"))
+        assertFalse(SecureOtaUpdater.isApprovedEndpoint("https", "evil.example"))
+        assertFalse(SecureOtaUpdater.isApprovedEndpoint("file", "github.com"))
+    }
+
+    @Test fun `tampered cached APK fails before package inspection`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val good = SecureOtaUpdater.chooseRelease(
+            JSONArray().put(release("v1.0.0-debug.250")).toString(), 149
+        )!!
+        val tempDir = java.io.File(context.cacheDir, "ota").apply { mkdirs() }
+        val file = java.io.File(tempDir, "tampered-test.apk")
+        try {
+            file.writeText("an APK replaced after download")
+            val oldDigest = "ab".repeat(32)
+            assertFails {
+                SecureOtaUpdater.verifyArchive(context, file, good, oldDigest)
+            }
+        } finally {
+            file.delete()
+        }
+    }
+
     private fun assertFails(block: () -> Unit) {
         try {
             block()
