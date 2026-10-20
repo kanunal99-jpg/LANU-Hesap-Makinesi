@@ -447,3 +447,14 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] Yanlış private key, bozuk private key, yanlış ID veya kullanıcı kodu için yedek üretimi engellenir.
 - [ ] Mevcut backup formatı, şifreleme algoritması veya Room v4 şeması değiştirilmez.
 - [ ] GitHub CI Android test, Room hash, lint, APK ve sertifika/SHA256 doğrulaması.
+
+
+### [20-10-2026] — Paralel P0 kapanış/test kayıtları
+- [x] PR #45: geçerli AES-GCM yedek roundtrip, bozuk kimlikte export reddi.
+- [x] PR #47: 30sn/2dk/10dk/1sa/12sa PIN kademe, yeni process, reset ve bozuk sayaç koruması.
+- [x] PR #46: yetim PENDING mesaj/kayıp kimlik, doğru yedekle kurtarma, yabancı yedek reddi, legacy telefon profili geçişi.
+- [x] PR #49: PENDING/READ sohbet mesajlarını atomik silme, tombstone, hata enjeksiyonu rollback, unread temizliği.
+- [x] Dört PR Android unit/Robolectric, Room v4 schema hash, lint, APK, imza ve SHA256 CI yeşil; GitHub merge tamam.
+- [ ] Son main run ve GitHub Release son APK doğrulama; debug sertifikası production güncelleme garantisi vermez.
+- [ ] Gerçek A55 ve ikinci üretici cihazda eski APK üzerine veri kayıpsız güncelleme.
+- [ ] Gerçek Room v1-v3 fixture migration, şifreli DB, tam geri yükleme, KVKK/TTL.
