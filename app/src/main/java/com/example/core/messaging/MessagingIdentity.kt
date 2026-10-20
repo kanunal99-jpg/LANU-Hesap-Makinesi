@@ -56,7 +56,13 @@ class EncryptedMessagingIdentityStore(
         }
         val value = JSONObject().put("id", identity.id).put("code", identity.code).put("nonce", identity.nonce)
             .put("publicKey", identity.publicKey).put("privateKey", identity.privateKey)
-        check(prefs.edit().putString("identity", value.toString()).commit()) { "Kimlik güvenle kaydedilemedi" }
+        val encoded = value.toString()
+        check(prefs.edit().putString("identity", encoded).commit()) { "Kimlik güvenle kaydedilemedi" }
+        // A true commit is not sufficient if a broken encrypted-store adapter
+        // cannot read the saved identity back. Never report recovery as complete.
+        check(prefs.getString("identity", null) == encoded) {
+            "Kimlik şifreli depodan doğrulanamadı; yedek dosyanızı koruyun."
+        }
     }
 }
 
