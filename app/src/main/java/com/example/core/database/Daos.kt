@@ -95,6 +95,12 @@ interface ConversationDao {
 
 @Dao
 interface MessageDao {
+    @Query("SELECT COUNT(*) FROM messages")
+    suspend fun countMessages(): Int
+
+    @Query("SELECT COUNT(*) FROM messages WHERE content LIKE 'lanu2:%'")
+    suspend fun countModernEncryptedMessages(): Int
+
     @Query("SELECT * FROM messages WHERE status IN ('PENDING', 'WAITING') ORDER BY timestamp ASC")
     suspend fun getPendingMessages(): List<MessageEntity>
 
@@ -128,6 +134,9 @@ interface MessageDao {
 
 @Dao
 interface CallLogDao {
+    @Query("SELECT COUNT(*) FROM call_logs")
+    suspend fun countCallLogs(): Int
+
     @Query("SELECT * FROM call_logs ORDER BY timestamp DESC")
     fun getAllCallLogs(): Flow<List<CallLogEntity>>
 
