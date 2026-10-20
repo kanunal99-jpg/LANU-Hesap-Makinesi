@@ -98,6 +98,9 @@ interface MessageDao {
     @Query("SELECT COUNT(*) FROM messages")
     suspend fun countMessages(): Int
 
+    @Query("SELECT COUNT(*) FROM messages WHERE content LIKE 'lanu2:%'")
+    suspend fun countModernEncryptedMessages(): Int
+
     @Query("SELECT * FROM messages WHERE status IN ('PENDING', 'WAITING') ORDER BY timestamp ASC")
     suspend fun getPendingMessages(): List<MessageEntity>
 
