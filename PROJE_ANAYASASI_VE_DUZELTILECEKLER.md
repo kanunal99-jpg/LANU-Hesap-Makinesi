@@ -189,3 +189,10 @@ Bu puan bir sertifika değildir; yerinde ve bağımsız kanıtlar tamamlanmadan 
 5. Sunucu retention/TTL/KVKK, kriptografi bağımsız denetim; Hilt/Compose erişilebilirlik, gizlilik kontrollü Crashlytics ve performans.
 
 **Önemli:** PR CI başarılı olması production/cihaz onayı değildir. Son APK sürümü ancak main workflow Release işi tamamlanıp APK asset indirilebilirliği doğrulanınca ilan edilir.
+
+
+### 20.10.2026 — P0 OTA imza raporu belirsizliği (OTA-META-01)
+- Önceki `parseSigner` aynı imza alanının birden fazla satırda tanımlanmasını `toMap` ile son satır lehine kabul ediyordu. Bozuk veya ek tanımlı metadata da atlanıyordu.
+- İzin verilen alanlar `apk`, `signing_mode`, `certificate_sha256` ve isteğe bağlı `upgrade_verified_on_device`; her alan en fazla bir kez bulunur. Yanlış/tekrar alan, fazladan eşitlik, belirsiz boşluk ve 2048 karakterden büyük rapor güvenli biçimde reddedilir.
+- İlk CI kapıları: çoklu fingerprint, iki imza modu, beklenmeyen alan, bozuk satır, çok büyük rapor için test; mevcut gerçek CI signer.txt formatını koruma.
+- Sertifika pin kontrolü hâlâ gerçek kurulu sertifika ile yapılır. Kalıcı imzalı iki APK aynı sertifika ile üretilemiyorsa OTA güvenli yerinde yükseltme üretim kapısı kapanmaz.
