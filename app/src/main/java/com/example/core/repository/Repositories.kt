@@ -297,17 +297,26 @@ class SecurityRepository(
             throw SecurityException("Güvenli depolama açılamadı. Bağlantı bilgileri korunuyor.")
         }
         try {
-            val hasProtectedEntry = prefs.contains("supabase_url") || prefs.contains("supabase_key")
-            if (!hasProtectedEntry && (legacyUrl != null || legacyKey != null)) {
+            val hasProtectedUrl = prefs.contains("supabase_url")
+            val hasProtectedKey = prefs.contains("supabase_key")
+            check(hasProtectedUrl == hasProtectedKey) {
+                "Güvenli bağlantı bilgileri eksik; eski kayıtlar korunuyor."
+            }
+            if (!hasProtectedUrl && (legacyUrl != null || legacyKey != null)) {
                 check(prefs.edit()
                     .putString("supabase_url", legacyUrl)
                     .putString("supabase_key", legacyKey)
                     .commit()) { "Güvenli bağlantı bilgileri kaydedilemedi." }
             }
-            // Removing a legacy row is safe only after a durable encrypted copy exists.
+            // Verify secure content is actually readable BEFORE erasing the recoverable copy.
+            val url = prefs.getString("supabase_url", null)
+            val key = prefs.getString("supabase_key", null)
+            if ((legacyUrl != null && url == null) || (legacyKey != null && key == null)) {
+                throw IllegalStateException("Güvenli bağlantı bilgileri doğrulanamadı.")
+            }
             if (legacyUrl != null) settingsDao.deleteSetting("supabase_url")
             if (legacyKey != null) settingsDao.deleteSetting("supabase_key")
-            return prefs.getString("supabase_url", null) to prefs.getString("supabase_key", null)
+            return url to key
         } catch (e: Exception) {
             throw SecurityException("Bağlantı bilgileri güvenli depodan okunamadı.", e)
         }
