@@ -37,11 +37,7 @@ class CalculatorRepository(private val historyDao: CalculationHistoryDao, privat
 
     suspend fun saveToHistory(expression: String, result: String) {
         if (expression.isNotBlank() && result != "Error") {
-            historyDao.insertHistory(CalculationHistoryEntity(expression = expression, result = result))
-            val idsToPrune = historyDao.getHistoryIdsToPrune()
-            if (idsToPrune.isNotEmpty()) {
-                historyDao.deleteHistoryByIds(idsToPrune)
-            }
+            historyDao.insertAndPruneHistory(CalculationHistoryEntity(expression = expression, result = result))
         }
     }
 
