@@ -79,6 +79,8 @@ class SecurityRepository(
     private val clock: () -> Long = System::currentTimeMillis
 ) {
     private val authenticationMutex = Mutex()
+    // Startup legacy migration and user-initiated updates must not race.
+    private val credentialsMutex = Mutex()
     private var backgroundedAt: Long? = null
 
     
@@ -283,14 +285,61 @@ class SecurityRepository(
         settingsDao.insertSetting(SettingsEntity("decimal_precision", precision.toString()))
     }
 
-    suspend fun getSupabaseCredentials(): Pair<String?, String?> {
-        val url = settingsDao.getSettingValue("supabase_url")
-        val key = settingsDao.getSettingValue("supabase_key")
-        return Pair(url, key)
+    /**
+     * Historical builds stored Supabase connection details in the unencrypted Room settings
+     * table. Copy them to Keystore-backed preferences *before* removing either old row.
+     * An unavailable/corrupted Keystore must never cause a plaintext fallback or data loss.
+     */
+    suspend fun getSupabaseCredentials(): Pair<String?, String?> = credentialsMutex.withLock {
+        val legacyUrl = settingsDao.getSettingValue("supabase_url")
+        val legacyKey = settingsDao.getSettingValue("supabase_key")
+        val prefs = sharedPreferences
+        if (prefs == null) {
+            // Unknown secure-store state is not proof that no credentials exist.
+            throw SecurityException("Güvenli depolama açılamadı. Bağlantı bilgileri korunuyor.")
+        }
+        try {
+            val hasProtectedUrl = prefs.contains("supabase_url")
+            val hasProtectedKey = prefs.contains("supabase_key")
+            check(hasProtectedUrl == hasProtectedKey) {
+                "Güvenli bağlantı bilgileri eksik; eski kayıtlar korunuyor."
+            }
+            if (!hasProtectedUrl && (legacyUrl != null || legacyKey != null)) {
+                check(legacyUrl != null && legacyKey != null) {
+                    "Eski bağlantı bilgileri eksik; mevcut kayıtlar korunuyor."
+                }
+                check(prefs.edit()
+                    .putString("supabase_url", legacyUrl)
+                    .putString("supabase_key", legacyKey)
+                    .commit()) { "Güvenli bağlantı bilgileri kaydedilemedi." }
+            }
+            // Verify secure content is actually readable BEFORE erasing the recoverable copy.
+            val url = prefs.getString("supabase_url", null)
+            val key = prefs.getString("supabase_key", null)
+            if ((legacyUrl != null && url == null) || (legacyKey != null && key == null)) {
+                throw IllegalStateException("Güvenli bağlantı bilgileri doğrulanamadı.")
+            }
+            if (legacyUrl != null) settingsDao.deleteSetting("supabase_url")
+            if (legacyKey != null) settingsDao.deleteSetting("supabase_key")
+            url to key
+        } catch (e: Exception) {
+            throw SecurityException("Bağlantı bilgileri güvenli depodan okunamadı.", e)
+        }
     }
 
-    suspend fun saveSupabaseCredentials(url: String, key: String) {
-        settingsDao.insertSetting(SettingsEntity("supabase_url", url))
-        settingsDao.insertSetting(SettingsEntity("supabase_key", key))
+    suspend fun saveSupabaseCredentials(url: String, key: String) = credentialsMutex.withLock {
+        val prefs = sharedPreferences
+            ?: throw SecurityException("Güvenli depolama açılamadı. Bağlantı bilgileri kaydedilmedi.")
+        try {
+            check(prefs.edit()
+                .putString("supabase_url", url)
+                .putString("supabase_key", key)
+                .commit()) { "Güvenli bağlantı bilgileri kaydedilemedi." }
+        } catch (e: Exception) {
+            throw SecurityException("Bağlantı bilgileri güvenli depoya yazılamadı.", e)
+        }
+        // Do not delete old plaintext copies until the encrypted write commits.
+        settingsDao.deleteSetting("supabase_url")
+        settingsDao.deleteSetting("supabase_key")
     }
 }

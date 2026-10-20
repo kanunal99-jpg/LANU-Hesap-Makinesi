@@ -407,3 +407,21 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] `PENDING` mesaj kuyruğunun, revizyon, okunmamış ve PIN kayıtlarının korunması.
 - [ ] Eski v1-v3 fixture testleri ve gerçek cihaz yükseltmesi (bu testin kapsamı dışındadır).
 - [ ] Android unit/Robolectric, v4 şema parmak izi, lint, APK ve SHA-256 kalite kapıları.
+
+
+### [20-10-2026] — P0 CRED-01 şifreli Supabase anahtarı
+- [ ] Yeni anahtar yalnız korumalı preferences ile kaydedilir; Room'da düz metin kalmaz.
+- [ ] Eski URL/anahtar yalnız şifreli commit+okuma doğrulandıktan sonra silinir.
+- [ ] Keystore veya commit hatasında sessiz başarı/düz metin fallback yok, eski kayıtlar korunur.
+- [ ] Yarım/bozuk korumalı kayıt eski düz metni silemez.
+- [ ] Android unit/Robolectric, Room şema hash, lint, APK, SHA-256 ve imza CI kapıları başarılı.
+- [ ] Fiziksel cihazda gerçek Keystore ile eski veri yükseltme testi (otomatik testlerin kapsamı dışı).
+
+
+### [20-10-2026] — P0 Supabase bağlantı anahtarı depolama testleri
+- [ ] Yeni bağlantı anahtarı sadece şifreli preference alanına yazılır; Room'da `supabase_key` / `supabase_url` kalmaz.
+- [ ] Eski kayıt başarılı korumalı aktarım ve okunabilirlik kontrolünden sonra temizlenir.
+- [ ] Korumalı yazma/commit hatasında eski kayıt yerinde kalır ve yeni gizli değer Room'a yazılmaz.
+- [ ] Eski ve güncel kayıt eşzamanlıysa korumalı kayıt korunur; kısmi korumalı kayıt fail-closed.
+- [ ] Android JVM/Robolectric, lint, APK + fingerprint + SHA256 ve GitHub Release kanıtları.
+- [ ] Gerçek cihaz Keystore ve geçmiş SQLite WAL/serbest alan sızıntısı incelenmesi (ayrı P0 kapısı).
