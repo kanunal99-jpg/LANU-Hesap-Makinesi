@@ -227,9 +227,3 @@ Bu puan bir sertifika değildir; yerinde ve bağımsız kanıtlar tamamlanmadan 
 - **Düzeltme:** UTF-8 metnin en fazla 37.467 bayt olması; gelen `lanu2:` çerçevesinin 44–50.000 karakter ve yalnız URL-güvenli Base64 karakterlerinden oluşması decode öncesinde doğrulanır. 12 bayt IV ve 16 bayt GCM etiketi korunur.
 - **Test:** sınırdaki mesaj, Türkçe/Unicode, boş mesaj, aşırı büyük çerçeve ve bozuk Base64 reddi; CI yeşil olmadan kapanmış sayılmaz.
 - **Sınır:** Tam SQLCipher/veri tabanı şifrelemesi, kullanıcı cihazında kötü niyetli relaya karşı kapsamlı güvenlik denetimi ve iki cihaz testleri ayrı P0.
-
-### 20.10.2026 — P0 Android otomatik yedekleme/aktarım sızıntısı CI bekçisi (BACKUP-GUARD-01)
-- **Risk:** Room v4 düz SQLite ve Keystore'a bağlı ayarlar otomatik bulut yedeklemeye veya cihazlar arası transfere dahil edilirse içerik sızıntısı ve kurtarılamayan Keystore anahtarı riski doğar.
-- **Kapsam:** Mevcut `allowBackup=false`, legacy backup full-root exclude, Android 12+ `cloud-backup`/`device-transfer` full-root exclude, OTA FileProvider `exported=false` değerlerinin her PR CI'da XML doğrulaması.
-- **Test:** Geliştirici yedeklemeyi yeniden açarsa, bulut/cihaz kısıtını kaldırırsa veya FileProvider'ı dışa açarsa CI başarısız olmalı.
-- **Sınır:** Bu kontrol Room v4'ün kendisini şifrelemez, mevcut fiziksel cihazdaki eski verileri temizlemez ve manuel parolalı yedek sistemi yerine geçmez.
