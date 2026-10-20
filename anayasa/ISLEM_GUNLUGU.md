@@ -463,3 +463,10 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - Şifreli depo okunur/yazılamaz durumdayken RAM'deki yeni olaylar ekran sorgusundan gizlenebiliyordu.
 - Kayıt görüntüleme iki güvenilir kaynağı birleştirir; başarılı korumalı kayıttan sonra RAM kuyruğu temizlenir.
 - Yazma hatası ve yeniden başarı, 50 olay limiti ile test ediliyor; CI sonuçlanana kadar BEKLEMEDE.
+
+
+### [20-10-2026] — ID-KEY-01 Kimlik açık/özel anahtar doğrulaması
+- Şifreli kaydın kod ve açık anahtarı doğru görünse bile özel anahtar başka kimliğe ait olabiliyordu.
+- Mevcut anahtar silinmeden/yenisi üretilmeden imzayla matematiksel doğrulama; kaydetme ve okuma yolları korunuyor.
+- Yeni üç regresyon testi ve cihaz üzerinde kurtarma ihtiyacı anayasaya işlendi.
+- Sonuç: CI ve Release doğrulaması bitene kadar TEST BEKLENİYOR.
