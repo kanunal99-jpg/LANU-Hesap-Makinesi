@@ -508,3 +508,9 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] UTF-8 bayt sayısı kullanılır; hatalı UTF-8/Content-Length 400 ile reddedilir.
 - [ ] Sunucu Node unit/Postgres, Android Robolectric/lint/Room hash ve APK signer CI yeşil.
 - [ ] Canlı Supabase Edge dağıtımı ve iki cihaz ile ağ/kesinti testi (ayrı üretim kabulü).
+
+### 20.10.2026 — P0 PIN başarılı girişte atomik sıfırlama (PIN-TX-02)
+- **Bulgu:** Yanlış PIN kilitleme kademesi önceki PR ile transaction olmuştu ancak doğru PIN `pin_attempt_state` ve `pin_lockout_strikes` kayıtlarını ayrı yazıyordu. İkinci yazma hatasında sahte veya tutarsız sıfırlanma oluşabilir.
+- **Düzeltme:** Başarılı PIN kontrolü, biyometriyle aynı `SettingsDao.persistPinGuard(0,0,0)` transaction yolunu kullanır; yalnız başarılı commit sonrasında UI kilidi açılır.
+- **Kanıt kapısı:** SQLite trigger ile ikinci satırda hata: ilk satır rollback, kullanıcı oturumu kilitli kalır; hata kalkınca doğru PIN guardı birlikte sıfırlar; 5 yeni yanlış deneme ilk 30s kademesidir.
+- **Sınır:** PIN gerçek cihaz donanım güvenliğine bağlanmış değildir, Room şifreli değildir; tarihî migration ve stable APK imzası P0.
