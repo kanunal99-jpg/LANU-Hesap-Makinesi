@@ -321,7 +321,7 @@ class SecurityRepository(
             }
             if (legacyUrl != null) settingsDao.deleteSetting("supabase_url")
             if (legacyKey != null) settingsDao.deleteSetting("supabase_key")
-            return url to key
+            url to key
         } catch (e: Exception) {
             throw SecurityException("Bağlantı bilgileri güvenli depodan okunamadı.", e)
         }
