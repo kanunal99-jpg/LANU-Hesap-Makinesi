@@ -222,6 +222,27 @@ class SecureOtaUpdaterTest {
         } finally { cache.deleteRecursively() }
     }
 
+    @Test fun `cache quota removes older large APKs while preserving current update`() {
+        val cache = java.io.File(ApplicationProvider.getApplicationContext<Context>().cacheDir,
+            "ota-quota-test-${System.nanoTime()}").apply { mkdirs() }
+        try {
+            fun sparse(version: Long, size: Long, timestamp: Long): java.io.File {
+                val name = SecureOtaUpdater.otaCacheName(version, "ab".repeat(32))
+                val file = java.io.File(cache, "$name.apk")
+                java.io.RandomAccessFile(file, "rw").use { it.setLength(size) }
+                file.setLastModified(timestamp)
+                return file
+            }
+            val oldest = sparse(170, 75L * 1024 * 1024, 10_000L)
+            val newer = sparse(171, 75L * 1024 * 1024, 20_000L)
+            val current = sparse(172, 75L * 1024 * 1024, 30_000L)
+            SecureOtaUpdater.pruneOtaCache(cache, setOf(current.name), now = 50_000L)
+            assertFalse(oldest.exists())
+            assertTrue(newer.exists())
+            assertTrue(current.exists())
+        } finally { cache.deleteRecursively() }
+    }
+
     private fun assertFails(block: () -> Unit) {
         try {
             block()
