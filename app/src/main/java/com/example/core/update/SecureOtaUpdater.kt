@@ -15,6 +15,10 @@ import okhttp3.Request
 import okhttp3.Response
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.io.IOException
 import java.util.UUID
 import org.json.JSONArray
 import java.io.File
@@ -62,6 +66,10 @@ object SecureOtaUpdater {
     /** Release metadata and content are limited to GitHub and its known download CDN. */
     fun isApprovedEndpoint(scheme: String, host: String): Boolean =
         scheme == "https" && host in approvedHosts
+
+    // One active OTA transfer per app process: public and private update screens
+    // must not overwrite the same resumable cache entry concurrently.
+    private val downloadMutex = Mutex()
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
@@ -187,6 +195,31 @@ object SecureOtaUpdater {
         return digest(certs.single())
     }
 
+    /**
+     * Strict HTTP resume validation. A server may ignore Range (HTTP 200), in which case
+     * the caller MUST discard the existing prefix before writing new bytes.
+     */
+    fun acceptedResumeOffset(existingBytes: Long, httpCode: Int, contentRange: String?): Long {
+        require(existingBytes >= 0L && existingBytes <= MAX_APK_BYTES) { "Kısmi indirme boyutu geçersiz." }
+        if (httpCode == 200) return 0L
+        require(existingBytes > 0L && httpCode == 206) { "Güvensiz veya beklenmeyen kısmi HTTP yanıtı." }
+        val match = Regex("""bytes (\d+)-(\d+)/(\d+)""").matchEntire(contentRange.orEmpty())
+            ?: throw IllegalArgumentException("Sunucu kısmi indirme aralığını doğrulamadı.")
+        val start = match.groupValues[1].toLongOrNull() ?: error("Kısmi aralık başlangıcı geçersiz.")
+        val end = match.groupValues[2].toLongOrNull() ?: error("Kısmi aralık bitişi geçersiz.")
+        val total = match.groupValues[3].toLongOrNull() ?: error("Kısmi aralık toplamı geçersiz.")
+        require(start == existingBytes && end >= start && total > end && total <= MAX_APK_BYTES) {
+            "Sunucu kısmi indirmeyi yanlış bayt aralığından başlattı."
+        }
+        return start
+    }
+
+    /** A full certificate + checksum check is mandatory even for an already cached APK. */
+    fun otaCacheName(version: Long, sha256: String): String {
+        require(version > 0 && shaPattern.matches(sha256)) { "OTA önbellek kimliği geçersiz." }
+        return "lanu-$version-${sha256.take(16)}"
+    }
+
     /** Each execution independently checks file content AND Android's APK signing identity. */
     fun verifyArchive(context: Context, apk: File, release: LanuUpdate, expectedSha: String) {
         validateRelease(release)
@@ -244,7 +277,8 @@ object SecureOtaUpdater {
         context: Context,
         release: LanuUpdate,
         onProgress: (received: Long, total: Long?) -> Unit = { _, _ -> }
-    ): VerifiedUpdate = withContext(Dispatchers.IO) {
+    ): VerifiedUpdate = downloadMutex.withLock {
+        withContext(Dispatchers.IO) {
         validateRelease(release)
         val pinned = parseSigner(readText(release.certificateUrl, 3_000))
         require(sameCertificate(pinned, installedCertificate(context))) {
@@ -252,52 +286,115 @@ object SecureOtaUpdater {
         }
         val expected = parseChecksum(readText(release.checksumUrl, 1_000))
         val directory = File(context.cacheDir, "ota").apply { require(isDirectory || mkdirs()) }
-        // Remove only old files; do not touch another live download.
+        // Old untrusted cache entries are deleted; never delete another active download.
         val expiry = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(2)
         directory.listFiles()?.filter { it.isFile && it.lastModified() < expiry }?.forEach { it.delete() }
-        val token = UUID.randomUUID().toString()
-        val partial = File(directory, "lanu-${release.versionCode}-$token.part.apk")
-        val final = File(directory, "lanu-${release.versionCode}-$token.apk")
+        val cacheName = otaCacheName(release.versionCode, expected)
+        val partial = File(directory, "$cacheName.part.apk")
+        val final = File(directory, "$cacheName.apk")
+
+        if (final.isFile) {
+            val reusable = runCatching {
+                verifyArchive(context, final, release, expected)
+                true
+            }.getOrDefault(false)
+            if (reusable) {
+                withContext(Dispatchers.Main) { onProgress(final.length(), final.length()) }
+                return@withContext VerifiedUpdate(release, final, expected, pinned)
+            }
+            final.delete()
+        }
+
         try {
-            trustedGet(release.apkUrl, "application/octet-stream").use { response ->
+            val existing = partial.length().takeIf { partial.isFile && it in 1..MAX_APK_BYTES } ?: 0L
+            if (partial.isFile && existing == 0L) partial.delete()
+            trustedGet(release.apkUrl, "application/octet-stream", existing.takeIf { it > 0L }).use { response ->
                 val body = response.body ?: error("APK yanıtı boş.")
+                val offset = acceptedResumeOffset(existing, response.code, response.header("Content-Range"))
                 val declared = body.contentLength()
-                require(declared <= MAX_APK_BYTES) { "APK boyutu sınırı aşıldı." }
+                require(declared <= MAX_APK_BYTES - offset) { "APK boyutu sınırı aşıldı." }
+                val total = when {
+                    offset > 0L -> response.header("Content-Range")!!
+                        .substringAfterLast('/').toLong()
+                    declared >= 0L -> declared
+                    else -> -1L
+                }
+                // Space reservation is defensive, not a substitute for the IOException handler.
+                if (total > 0L) {
+                    val remaining = total - offset
+                    require(remaining >= 0L && directory.usableSpace >= remaining + 2L * 1024 * 1024) {
+                        "Güncelleme için yeterli boş depolama alanı yok."
+                    }
+                }
+
                 val digest = MessageDigest.getInstance("SHA-256")
-                var received = 0L
-                var lastReported = 0L
+                if (offset > 0L) {
+                    partial.inputStream().buffered().use { input ->
+                        val buffer = ByteArray(32 * 1024)
+                        while (true) {
+                            currentCoroutineContext().ensureActive()
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            digest.update(buffer, 0, count)
+                        }
+                    }
+                } else {
+                    partial.delete() // HTTP 200 can mean the server ignored our Range header.
+                }
+
+                var received = offset
+                var downloadedNow = 0L
+                var lastReported = offset
                 body.byteStream().use { input ->
-                    partial.outputStream().use { output ->
+                    // Opening outputStream() before deciding to append would truncate
+                    // the resumable prefix. Open only the chosen stream.
+                    (if (offset > 0L) java.io.FileOutputStream(partial, true).buffered()
+                    else partial.outputStream().buffered()).use { output ->
                         val buffer = ByteArray(32 * 1024)
                         while (true) {
                             currentCoroutineContext().ensureActive()
                             val count = input.read(buffer)
                             if (count < 0) break
                             received += count
+                            downloadedNow += count
                             require(received <= MAX_APK_BYTES) { "APK çok büyük." }
                             digest.update(buffer, 0, count)
                             output.write(buffer, 0, count)
                             if (received - lastReported >= 512 * 1024) {
                                 lastReported = received
                                 withContext(Dispatchers.Main) {
-                                    onProgress(received, declared.takeIf { it > 0 })
+                                    onProgress(received, total.takeIf { it > 0L })
                                 }
                             }
                         }
                     }
                 }
-                require(received > 0L) { "APK indirmesi boş." }
+                if (received == 0L || (declared >= 0L && downloadedNow != declared) ||
+                    (total >= 0L && received != total)
+                ) {
+                    throw IOException("Bağlantı kesildi veya APK dosyası eksik geldi; yeniden denendiğinde kaldığı yerden devam edilecek.")
+                }
                 val actual = digest.digest().joinToString("") { "%02x".format(it) }
-                require(sameCertificate(actual, expected)) { "APK SHA-256 değeri uyuşmuyor; indirme iptal edildi." }
+                require(sameCertificate(actual, expected)) {
+                    "APK SHA-256 değeri uyuşmuyor; indirme temizlendi."
+                }
                 withContext(Dispatchers.Main) { onProgress(received, received) }
             }
             verifyArchive(context, partial, release, expected)
             require(partial.renameTo(final)) { "Doğrulanmış APK hazırlanamıyor." }
-            VerifiedUpdate(release, final, expected, pinned)
+            return@withContext VerifiedUpdate(release, final, expected, pinned)
+        } catch (e: CancellationException) {
+            partial.delete()
+            throw e
+        } catch (e: IOException) {
+            // Retain only verified-length partial bytes after a recoverable connection/storage
+            // interruption. We NEVER install cached partial files before a full SHA-256 match.
+            if (partial.length() > MAX_APK_BYTES) partial.delete()
+            throw e
         } catch (e: Exception) {
             partial.delete()
-            final.delete()
             throw e
+        }
         }
     }
 
@@ -316,18 +413,25 @@ object SecureOtaUpdater {
      * Pin all redirect destinations before making follow-on HTTP requests.
      * GitHub assets legitimately redirect to its public release CDN.
      */
-    private fun trustedGet(url: String, accept: String): Response {
+    private fun trustedGet(url: String, accept: String, rangeStart: Long? = null): Response {
         var next = Request.Builder().url(url).build().url
         repeat(MAX_REDIRECTS + 1) { hop ->
             require(isApprovedEndpoint(next.scheme, next.host)) {
                 "Güncelleme indirmesi onaylanmamış bir adrese yönlendirildi."
             }
-            val request = Request.Builder().url(next)
+            val builder = Request.Builder().url(next)
                 .header("User-Agent", "LANU-Android-Updater")
                 .header("Accept", accept)
+                .header("Accept-Encoding", "identity")
                 .header("Cache-Control", "no-cache")
-                .build()
+            if (rangeStart != null && rangeStart > 0L) builder.header("Range", "bytes=$rangeStart-")
+            val request = builder.build()
             val response = http.newCall(request).execute()
+            if (rangeStart != null && rangeStart > 0L && response.code == 416) {
+                response.close()
+                // The previous prefix no longer matches the server size; restart safely.
+                return trustedGet(url, accept, null)
+            }
             if (response.code in setOf(301, 302, 303, 307, 308)) {
                 val location = response.header("Location")
                 val resolved = location?.let { next.resolve(it) }

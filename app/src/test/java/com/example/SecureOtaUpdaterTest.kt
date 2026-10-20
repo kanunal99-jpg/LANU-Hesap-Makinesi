@@ -137,6 +137,47 @@ class SecureOtaUpdaterTest {
         }
     }
 
+
+    @Test fun `resuming requires exact content range alignment and bound`() {
+        assertEquals(1024L, SecureOtaUpdater.acceptedResumeOffset(
+            1024L, 206, "bytes 1024-2047/4096"
+        ))
+        assertEquals(0L, SecureOtaUpdater.acceptedResumeOffset(1024L, 200, null))
+        assertEquals(0L, SecureOtaUpdater.acceptedResumeOffset(0L, 200, null))
+        assertFails {
+            SecureOtaUpdater.acceptedResumeOffset(1024L, 206, "bytes 1023-2047/4096")
+        }
+        assertFails {
+            SecureOtaUpdater.acceptedResumeOffset(1024L, 206, "bytes 1025-2047/4096")
+        }
+        assertFails {
+            SecureOtaUpdater.acceptedResumeOffset(0L, 206, "bytes 0-2047/4096")
+        }
+        assertFails {
+            SecureOtaUpdater.acceptedResumeOffset(1024L, 206, "bytes 1024-4096/4096")
+        }
+        assertFails {
+            SecureOtaUpdater.acceptedResumeOffset(1024L, 206, "bytes 1024-2047/*")
+        }
+        assertFails {
+            SecureOtaUpdater.acceptedResumeOffset(-1L, 200, null)
+        }
+    }
+
+    @Test fun `partial download cache identity is checksum-scoped and rejects untrusted inputs`() {
+        val hashA = "ab".repeat(32)
+        val hashB = "cd".repeat(32)
+        val key = SecureOtaUpdater.otaCacheName(153L, hashA)
+        assertEquals(key, SecureOtaUpdater.otaCacheName(153L, hashA))
+        assertTrue(key.startsWith("lanu-153-"))
+        assertNotEquals(key, SecureOtaUpdater.otaCacheName(153L, hashB))
+        assertNotEquals(key, SecureOtaUpdater.otaCacheName(154L, hashA))
+        assertFalse(key.contains(".."))
+        assertFails { SecureOtaUpdater.otaCacheName(0L, hashA) }
+        assertFails { SecureOtaUpdater.otaCacheName(153L, "../app.apk") }
+        assertFails { SecureOtaUpdater.otaCacheName(153L, "") }
+    }
+
     private fun assertFails(block: () -> Unit) {
         try {
             block()

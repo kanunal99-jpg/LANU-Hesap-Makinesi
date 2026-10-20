@@ -30,6 +30,15 @@ Uygulama eski LANU'yu kaldırmayı **asla** teklif etmez veya gizli verileri oto
 - **Android yükleyicisi açılmadan hemen önce** indirilen dosyanın tam SHA-256'sı tekrar hesaplanır ve `PackageManager` ile APK imzası + `packageName` + daha yüksek `versionCode` yeniden kontrol edilir. Herhangi bir uyuşmazlıkta kurulum başlatılmaz.
 - Sistem yükleme onayı her zaman kullanıcıdadır; SMS, root, sessiz yükleme veya mevcut uygulamayı kaldırma yoktur.
 
+## Kesilen indirmeye devam etme ve doğrulanmış önbellek
+
+- İnternet bağlantısı kesilir veya aktarım erken biterse kısmi APK, yalnız **dahili OTA cache** alanında kalır. Aynı sürüm ve SHA-256 için yeniden denendiğinde HTTP `Range` ile kaldığı yerden devam etmeyi dener.
+- Sunucu `206 Partial Content` gönderirse `Content-Range` kesin olarak istenen ofsetle başlamalı, toplam APK boyutu güvenlik sınırları içinde olmalı. Hatalı/belirsiz aralık **reddedilir**. Sunucu `200 OK` gönderirse eski kısım temizlenir ve dosya sıfırdan güvenli biçimde indirilir.
+- `416 Range Not Satisfiable` yanıtında otomatik tam indirmeye dönülür.
+- Kullanıcı **İndirmeyi iptal et** dediğinde kısmi APK silinir; ağ hatası nedeniyle yarıda kalan dosya ise sadece sonraki aktarımı hızlandırmak için saklanır. Bir güncelleme hiçbir zaman **tam APK SHA-256 + Android paket/sertifika doğrulaması olmadan** yükleyiciye verilmez.
+- Bir sürümün doğrulanmış APK'sı cache'de mevcutsa **yeniden SHA-256 / paket / sertifika kontrolüyle** kullanılabilir; doğrulama başarısızsa silinir.
+- Boş depolama alanı indirme başlamadan değerlendirilir; düşük alanda açık hata verilir. Aynı işlemde iki indirme ekranı birbirinin dosyasını değiştiremez: OTA aktarımı süreç başına seri yürütülür.
+
 ## Mevcut eski debug sürüm kullanıcıları
 
 CI, v145 ve v148 gibi önceki debug APK'lerde **rastgele ve farklı** sertifikalar üretmiş olabilir. Aynı `applicationId` ile farklı sertifika yerinde güncellemeyi engeller. Bu sürümlerde OTA ekranı doğru şekilde **İmza uyumsuz** uyarısı gösterebilir. Bu hata değil, veri kaybı önleyen güvenlik kontrolüdür.
