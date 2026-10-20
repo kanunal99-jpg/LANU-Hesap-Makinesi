@@ -124,6 +124,14 @@ object UserCodes {
 }
 
 object PeerMessageCrypto {
+    // Match the relay's ciphertext length limit. Check BEFORE Base64 decode so
+    // a malformed remote message cannot allocate an unbounded byte array.
+    private const val PREFIX = "lanu2:"
+    private const val MAX_CIPHERTEXT_CHARS = 50_000
+    private const val MAX_UTF8_PLAINTEXT_BYTES = 37_467
+    private const val MIN_FRAME_BYTES = 12 + 16
+    private val encodedChars = Regex("[A-Za-z0-9_-]+")
+
     private fun key(identity: MessagingIdentity, peerId: String, publicKey: String): SecretKeySpec {
         val factory = KeyFactory.getInstance("EC")
         val privateKey = factory.generatePrivate(PKCS8EncodedKeySpec(UserCodes.decode(identity.privateKey)))
@@ -136,16 +144,24 @@ object PeerMessageCrypto {
     }
     private fun aad(messageId: String, senderId: String, recipientId: String) = "$messageId:$senderId:$recipientId".toByteArray(Charsets.UTF_8)
     fun encrypt(identity: MessagingIdentity, peerId: String, peerKey: String, messageId: String, text: String): String {
+        require(text.length <= MAX_UTF8_PLAINTEXT_BYTES) { "Mesaj boyutu sunucu sınırını aşıyor." }
+        val plain = text.toByteArray(Charsets.UTF_8)
+        require(plain.size <= MAX_UTF8_PLAINTEXT_BYTES) { "Mesaj boyutu sunucu sınırını aşıyor." }
         val iv = ByteArray(12).also(SecureRandom()::nextBytes)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key(identity, peerId, peerKey), GCMParameterSpec(128, iv))
         cipher.updateAAD(aad(messageId, identity.id, peerId))
-        return "lanu2:" + UserCodes.encode(iv + cipher.doFinal(text.toByteArray(Charsets.UTF_8)))
+        val envelope = PREFIX + UserCodes.encode(iv + cipher.doFinal(plain))
+        check(envelope.length <= MAX_CIPHERTEXT_CHARS) { "Şifreli mesaj boyutu sunucu sınırını aşıyor." }
+        return envelope
     }
     fun decrypt(identity: MessagingIdentity, peerId: String, peerKey: String, messageId: String, senderId: String, content: String): String {
-        require(content.startsWith("lanu2:"))
-        val bytes = UserCodes.decode(content.removePrefix("lanu2:"))
-        require(bytes.size >= 28)
+        require(content.length in (PREFIX.length + 38)..MAX_CIPHERTEXT_CHARS &&
+            content.startsWith(PREFIX)) { "Şifreli mesaj çerçevesi geçersiz." }
+        val encoded = content.removePrefix(PREFIX)
+        require(encodedChars.matches(encoded)) { "Şifreli mesaj kodlaması geçersiz." }
+        val bytes = UserCodes.decode(encoded)
+        require(bytes.size >= MIN_FRAME_BYTES) { "Şifreli mesaj eksik." }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, key(identity, peerId, peerKey), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
         cipher.updateAAD(aad(messageId, senderId, if (senderId == identity.id) peerId else identity.id))
