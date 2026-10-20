@@ -28,6 +28,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.core.calculator.FinancialMath
 import java.math.BigDecimal
 import java.math.RoundingMode
 
@@ -148,12 +149,7 @@ fun PercentageCalculatorPanel() {
     var amountStr by remember { mutableStateOf("1000") }
     var percentStr by remember { mutableStateOf("18") }
 
-    val amount = amountStr.toDoubleOrNull() ?: 0.0
-    val percent = percentStr.toDoubleOrNull() ?: 0.0
-
-    val calculatedValue = (amount * percent) / 100.0
-    val totalWithPercent = amount + calculatedValue
-    val totalWithoutPercent = amount - calculatedValue
+    val result = runCatching { FinancialMath.percentage(amountStr, percentStr) }.getOrNull()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -194,11 +190,11 @@ fun PercentageCalculatorPanel() {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    ResultRow("Miktarın %$percent'i:", String.format("%.2f TL", calculatedValue))
+                    ResultRow("Yüzde tutarı:", FinancialMath.display(result?.first))
                     Spacer(modifier = Modifier.height(8.dp))
-                    ResultRow("Miktar + Yüzde Tutarı:", String.format("%.2f TL", totalWithPercent))
+                    ResultRow("Miktar + Yüzde Tutarı:", FinancialMath.display(result?.second))
                     Spacer(modifier = Modifier.height(8.dp))
-                    ResultRow("Miktar - Yüzde Tutarı:", String.format("%.2f TL", totalWithoutPercent))
+                    ResultRow("Miktar - Yüzde Tutarı:", FinancialMath.display(result?.third))
                 }
             }
         }
@@ -210,11 +206,7 @@ fun DiscountCalculatorPanel() {
     var priceStr by remember { mutableStateOf("500") }
     var discountStr by remember { mutableStateOf("25") }
 
-    val originalPrice = priceStr.toDoubleOrNull() ?: 0.0
-    val discountPercent = discountStr.toDoubleOrNull() ?: 0.0
-
-    val savedAmount = (originalPrice * discountPercent) / 100.0
-    val finalPrice = originalPrice - savedAmount
+    val result = runCatching { FinancialMath.discount(priceStr, discountStr) }.getOrNull()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -255,9 +247,9 @@ fun DiscountCalculatorPanel() {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    ResultRow("İndirim Tutarı:", String.format("%.2f TL", savedAmount))
+                    ResultRow("İndirim Tutarı:", FinancialMath.display(result?.first))
                     Spacer(modifier = Modifier.height(8.dp))
-                    ResultRow("İndirimli Fiyat:", String.format("%.2f TL", finalPrice))
+                    ResultRow("İndirimli Fiyat:", FinancialMath.display(result?.second))
                 }
             }
         }
@@ -270,22 +262,7 @@ fun VatCalculatorPanel() {
     var vatStr by remember { mutableStateOf("20") }
     var isIncluded by remember { mutableStateOf(false) } // false = KDV Hariç, true = KDV Dahil
 
-    val price = priceStr.toDoubleOrNull() ?: 0.0
-    val vatRate = vatStr.toDoubleOrNull() ?: 0.0
-
-    val vatAmount: Double
-    val baseAmount: Double
-    val totalAmount: Double
-
-    if (isIncluded) {
-        totalAmount = price
-        baseAmount = price / (1.0 + (vatRate / 100.0))
-        vatAmount = totalAmount - baseAmount
-    } else {
-        baseAmount = price
-        vatAmount = price * (vatRate / 100.0)
-        totalAmount = price + vatAmount
-    }
+    val result = runCatching { FinancialMath.vat(priceStr, vatStr, isIncluded) }.getOrNull()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -355,11 +332,11 @@ fun VatCalculatorPanel() {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    ResultRow("KDV'siz Tutar:", String.format("%.2f TL", baseAmount))
+                    ResultRow("KDV'siz Tutar:", FinancialMath.display(result?.first))
                     Spacer(modifier = Modifier.height(8.dp))
-                    ResultRow("KDV Tutarı:", String.format("%.2f TL", vatAmount))
+                    ResultRow("KDV Tutarı:", FinancialMath.display(result?.second))
                     Spacer(modifier = Modifier.height(8.dp))
-                    ResultRow("Toplam Tutar:", String.format("%.2f TL", totalAmount))
+                    ResultRow("Toplam Tutar:", FinancialMath.display(result?.third))
                 }
             }
         }
@@ -372,30 +349,7 @@ fun InstallmentCalculatorPanel() {
     var monthsStr by remember { mutableStateOf("12") }
     var interestStr by remember { mutableStateOf("1.5") } // Aylık Faiz (%)
 
-    val totalAmount = amountStr.toDoubleOrNull() ?: 0.0
-    val months = monthsStr.toIntOrNull() ?: 1
-    val monthlyInterestPercent = interestStr.toDoubleOrNull() ?: 0.0
-
-    val monthlyPayment: Double
-    val totalPayment: Double
-    val totalInterest: Double
-
-    if (monthlyInterestPercent > 0) {
-        val i = monthlyInterestPercent / 100.0
-        // Formül: Taksit = P * [ i * (1+i)^n ] / [ (1+i)^n - 1 ]
-        val factor = Math.pow(1 + i, months.toDouble())
-        monthlyPayment = if (factor > 1) {
-            totalAmount * (i * factor) / (factor - 1)
-        } else {
-            totalAmount / months
-        }
-        totalPayment = monthlyPayment * months
-        totalInterest = totalPayment - totalAmount
-    } else {
-        monthlyPayment = totalAmount / months
-        totalPayment = totalAmount
-        totalInterest = 0.0
-    }
+    val result = runCatching { FinancialMath.installment(amountStr, monthsStr, interestStr) }.getOrNull()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -446,11 +400,11 @@ fun InstallmentCalculatorPanel() {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    ResultRow("Aylık Taksit Tutarı:", String.format("%.2f TL", monthlyPayment))
+                    ResultRow("Aylık Taksit Tutarı:", FinancialMath.display(result?.first))
                     Spacer(modifier = Modifier.height(8.dp))
-                    ResultRow("Toplam Ödenecek Faiz:", String.format("%.2f TL", totalInterest))
+                    ResultRow("Toplam Ödenecek Faiz:", FinancialMath.display(result?.second))
                     Spacer(modifier = Modifier.height(8.dp))
-                    ResultRow("Toplam Geri Ödeme:", String.format("%.2f TL", totalPayment))
+                    ResultRow("Toplam Geri Ödeme:", FinancialMath.display(result?.third))
                 }
             }
         }
@@ -463,13 +417,7 @@ fun InterestCalculatorPanel() {
     var rateStr by remember { mutableStateOf("45") } // Yıllık Faiz (%)
     var daysStr by remember { mutableStateOf("32") } // Gün Sayısı
 
-    val principal = principalStr.toDoubleOrNull() ?: 0.0
-    val annualRatePercent = rateStr.toDoubleOrNull() ?: 0.0
-    val days = daysStr.toIntOrNull() ?: 1
-
-    // Formül: Faiz = (Anapara * Faiz Oranı * Gün) / 36500
-    val earnedInterest = (principal * annualRatePercent * days) / 36500.0
-    val totalAmount = principal + earnedInterest
+    val result = runCatching { FinancialMath.interest(principalStr, rateStr, daysStr) }.getOrNull()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -520,9 +468,9 @@ fun InterestCalculatorPanel() {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    ResultRow("Brüt Faiz Getirisi:", String.format("%.2f TL", earnedInterest))
+                    ResultRow("Brüt Faiz Getirisi:", FinancialMath.display(result?.first))
                     Spacer(modifier = Modifier.height(8.dp))
-                    ResultRow("Vade Sonu Toplam Tutar:", String.format("%.2f TL", totalAmount))
+                    ResultRow("Vade Sonu Toplam Tutar:", FinancialMath.display(result?.second))
                 }
             }
         }
@@ -534,16 +482,7 @@ fun ProfitMarginCalculatorPanel() {
     var costStr by remember { mutableStateOf("80") }
     var marginStr by remember { mutableStateOf("20") } // Hedef Kâr Marjı (%)
 
-    val cost = costStr.toDoubleOrNull() ?: 0.0
-    val targetMarginPercent = marginStr.toDoubleOrNull() ?: 0.0
-
-    // Satış Fiyatı Formülü = Maliyet / (1 - (Marj / 100))
-    val sellingPrice = if (targetMarginPercent < 100.0 && targetMarginPercent >= 0.0) {
-        cost / (1.0 - (targetMarginPercent / 100.0))
-    } else {
-        cost
-    }
-    val profit = sellingPrice - cost
+    val result = runCatching { FinancialMath.margin(costStr, marginStr) }.getOrNull()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -584,9 +523,9 @@ fun ProfitMarginCalculatorPanel() {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    ResultRow("Önerilen Satış Fiyatı:", String.format("%.2f TL", sellingPrice))
+                    ResultRow("Önerilen Satış Fiyatı:", FinancialMath.display(result?.first))
                     Spacer(modifier = Modifier.height(8.dp))
-                    ResultRow("Net Kâr Tutarı:", String.format("%.2f TL", profit))
+                    ResultRow("Net Kâr Tutarı:", FinancialMath.display(result?.second))
                 }
             }
         }
