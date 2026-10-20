@@ -317,4 +317,41 @@ class HiddenAreaSecurityTest {
         assertEquals("0", database.settingsDao().getSettingValue("pin_lockout_strikes"))
         assertEquals(0, newRepository().getPinAttemptStatus().failedAttempts)
     }
+
+    @Test fun `failed successful-PIN reset rolls back both guard fields and stays locked`() = runBlocking {
+        assertTrue(repository.setupPin("1234"))
+        repository.lock()
+        repeat(4) { assertFalse(repository.verifyPin("9999")) }
+        val sql = database.openHelper.writableDatabase
+        sql.execSQL(
+            """CREATE TRIGGER deny_pin_guard_reset BEFORE INSERT ON app_settings
+                WHEN NEW.`key` = 'pin_lockout_strikes'
+                BEGIN SELECT RAISE(ABORT, 'simulated PIN guard persistence failure'); END"""
+        )
+        try {
+            repository.verifyPin("1234")
+            fail("The PIN must never be reported as an unlocked session on partial persistence")
+        } catch (_: Exception) {
+            // Injected failure happens after writing attempt state in the transaction.
+        } finally {
+            sql.execSQL("DROP TRIGGER IF EXISTS deny_pin_guard_reset")
+        }
+        assertEquals("4:0", database.settingsDao().getSettingValue("pin_attempt_state"))
+        assertEquals("0", database.settingsDao().getSettingValue("pin_lockout_strikes"))
+        assertTrue(repository.isLockedState.value)
+        assertTrue(newRepository().verifyPin("1234"))
+        assertEquals("0:0", database.settingsDao().getSettingValue("pin_attempt_state"))
+        assertEquals("0", database.settingsDao().getSettingValue("pin_lockout_strikes"))
+    }
+
+    @Test fun `successful correct PIN resets the entire progressive guard in one commit`() = runBlocking {
+        assertTrue(repository.setupPin("1234"))
+        repeat(5) { assertFalse(repository.verifyPin("9999")) }
+        now += PinPolicy.LOCKOUT_MS
+        assertTrue(repository.verifyPin("1234"))
+        assertEquals("0:0", database.settingsDao().getSettingValue("pin_attempt_state"))
+        assertEquals("0", database.settingsDao().getSettingValue("pin_lockout_strikes"))
+        repeat(5) { assertFalse(newRepository().verifyPin("9999")) }
+        assertEquals(30, repository.getPinAttemptStatus().remainingSeconds)
+    }
 }
