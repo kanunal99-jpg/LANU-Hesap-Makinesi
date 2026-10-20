@@ -433,7 +433,7 @@ open class ScientificCalculatorViewModel(
             val valueToAdd = amount ?: evaluateExpression(_expression.value.ifBlank { "0" })
             _uiState.update { current ->
                 val newMem = current.highPrecisionMemory.add(valueToAdd, mathContext)
-                repository.addToMemory(valueToAdd.toDouble())
+                repository.addToMemory(valueToAdd)
                 current.copy(highPrecisionMemory = newMem)
             }
         } catch (e: Exception) {}
@@ -444,7 +444,7 @@ open class ScientificCalculatorViewModel(
             val valueToSub = amount ?: evaluateExpression(_expression.value.ifBlank { "0" })
             _uiState.update { current ->
                 val newMem = current.highPrecisionMemory.subtract(valueToSub, mathContext)
-                repository.subtractFromMemory(valueToSub.toDouble())
+                repository.subtractFromMemory(valueToSub)
                 current.copy(highPrecisionMemory = newMem)
             }
         } catch (e: Exception) {}
@@ -454,7 +454,7 @@ open class ScientificCalculatorViewModel(
         try {
             val valueToStore = value ?: evaluateExpression(_expression.value.ifBlank { "0" })
             _uiState.update { current ->
-                repository.setMemory(valueToStore.toDouble())
+                repository.setMemory(valueToStore)
                 current.copy(highPrecisionMemory = valueToStore)
             }
         } catch (e: Exception) {}
