@@ -465,3 +465,10 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] Hata kaldırıldıktan sonra kalan 5. deneme doğru kademeyi saklar ve restart sonrası görünür.
 - [ ] Doğru biyometri, giriş kilidi ve strike sayaçlarını atomik sıfırlar.
 - [ ] Android test, Room v4 hash, lint, APK signer ve SHA256 CI başarılı.
+
+
+### [20-10-2026] — MSG-DELETE-01 silme güvenliği regresyonları
+- [ ] Başarılı timer silmesi ve kullanıcı kuyruğu iptalinde mesaj kaldırılır, tombstone korunur; PENDING/WAITING otomatik korunur.
+- [ ] Mesaj DELETE DAO hata enjeksiyonunda tombstone ve asıl mesaj birlikte rollback.
+- [ ] Relay 503 remote delete hatasında yerel mesaj ve kayıt korunur; yanlış başarılı silme bildirimi yok.
+- [ ] Room hash, Android unit/Robolectric, lint, APK imza ve SHA256 CI kanıtı.
