@@ -534,7 +534,7 @@ object SecureOtaUpdater {
         val stageDir = File(File(context.cacheDir, "ota"), INSTALL_STAGE).canonicalFile
         val canonical = apk.canonicalFile
         return apk.isFile && canonical.parentFile == stageDir &&
-            Regex("""lanu-\\d+-[a-f0-9]{64}\\.apk""").matches(canonical.name)
+            Regex("""lanu-\d+-[a-f0-9]{64}\.apk""").matches(canonical.name)
     }
 
     /**
@@ -549,7 +549,7 @@ object SecureOtaUpdater {
                 if (cont.isActive) cont.resumeWithException(e)
             }
             override fun onResponse(call: Call, response: Response) {
-                if (cont.isActive) cont.resume(response) { response.close() }
+                if (cont.isActive) cont.resume(response) { _, _, _ -> response.close() }
                 else response.close()
             }
         })
