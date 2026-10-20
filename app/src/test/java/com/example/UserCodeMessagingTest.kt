@@ -367,4 +367,77 @@ class UserCodeMessagingTest {
         assertEquals("Repeated event must not increase unread", 1,
             db.conversationDao().getConversationById(conversationId)?.unreadCount)
     }
+
+    @Test fun `missing identity with queued messages never generates a replacement account`() = runBlocking {
+        val orphanMessage = MessageEntity("orphan-pending", "orphan-conv",
+            "previous-private-account", "Ben", "lanu2:encrypted-not-lost", status = "PENDING")
+        db.messageDao().insertMessage(orphanMessage)
+        try {
+            repository().ensureIdentity()
+            fail("An orphaned message must block random identity replacement")
+        } catch (_: IllegalStateException) { }
+        assertNull("The missing identity must not be overwritten", vault.value)
+        assertEquals(orphanMessage, db.messageDao().getMessage("orphan-pending"))
+        assertEquals(1, db.messageDao().countMessages())
+    }
+
+    @Test fun `orphaned call log blocks silent identity recreation`() = runBlocking {
+        db.callLogDao().insertCallLog(CallLogEntity(
+            partnerName = "Friend", partnerPhone = "LANU-PEER",
+            isVideo = false, durationSeconds = 20, isOutgoing = true))
+        try {
+            repository().ensureIdentity()
+            fail("Call history must not be silently rebound to a newly generated identity")
+        } catch (_: IllegalStateException) { }
+        assertNull(vault.value)
+        assertEquals(1, db.callLogDao().countCallLogs())
+    }
+
+    @Test fun `matching encrypted backup restores missing identity without deleting queued messages`() = runBlocking {
+        val previous = UserCodes.create()
+        db.userProfileDao().insertProfile(UserProfileEntity(previous.code, "Old account"))
+        db.messageDao().insertMessage(MessageEntity(
+            "awaiting-send", "historic-conversation", previous.id,
+            "Old account", "lanu2:ciphertext-preserved", status = "PENDING"))
+        val password = "Long-restore-password-2026"
+        val backup = IdentityBackup.export(previous, password)
+        try {
+            repository().ensureIdentity()
+            fail("Automatic identity replacement must be refused")
+        } catch (_: IllegalStateException) { }
+        val restored = repository().restoreIdentity(backup, password)
+        assertEquals(previous, restored)
+        assertEquals(previous, vault.value)
+        assertEquals("Old account", db.userProfileDao().getUserProfile()?.displayName)
+        assertEquals("lanu2:ciphertext-preserved", db.messageDao().getMessage("awaiting-send")?.content)
+        assertEquals("PENDING", db.messageDao().getMessage("awaiting-send")?.status)
+        assertEquals(previous, repository().ensureIdentity())
+    }
+
+    @Test fun `orphaned conversation refuses different backup without overwriting profile`() = runBlocking {
+        val previous = UserCodes.create()
+        val unrelated = UserCodes.create()
+        db.userProfileDao().insertProfile(UserProfileEntity(previous.code, "Original owner"))
+        db.conversationDao().insertConversation(ConversationEntity(
+            "historic", "LANU-PEER", "Friend"))
+        val backup = IdentityBackup.export(unrelated, "Long-restore-password-2026")
+        try {
+            repository().restoreIdentity(backup, "Long-restore-password-2026")
+            fail("Unrelated recovery must not claim historical conversations")
+        } catch (_: IllegalArgumentException) { }
+        assertNull(vault.value)
+        assertEquals(previous.code, db.userProfileDao().getUserProfile()?.phoneNumber)
+        assertNotNull(db.conversationDao().getConversationById("historic"))
+    }
+
+    @Test fun `saved LANU profile alone blocks new identity when Keystore record is absent`() = runBlocking {
+        val previous = UserCodes.create()
+        db.userProfileDao().insertProfile(UserProfileEntity(previous.code, "Identity owner"))
+        try {
+            repository().ensureIdentity()
+            fail("Existing public profile is evidence of a lost private identity")
+        } catch (_: IllegalStateException) { }
+        assertNull(vault.value)
+        assertEquals(previous.code, db.userProfileDao().getUserProfile()?.phoneNumber)
+    }
 }
