@@ -425,3 +425,10 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] Eski ve güncel kayıt eşzamanlıysa korumalı kayıt korunur; kısmi korumalı kayıt fail-closed.
 - [ ] Android JVM/Robolectric, lint, APK + fingerprint + SHA256 ve GitHub Release kanıtları.
 - [ ] Gerçek cihaz Keystore ve geçmiş SQLite WAL/serbest alan sızıntısı incelenmesi (ayrı P0 kapısı).
+
+
+### [20-10-2026] — P1 güvenlik günlüğü dayanıklılığı
+- [ ] İlk olay şifreli depoya yazıldıktan sonra `commit=false` ile RAM'e düşen olay, günlük sorgusunda görünür.
+- [ ] Korumalı depolama toparlanınca eski RAM olayları kaybolmadan diske kaydedilir ve yeni tracker örneğinde okunur.
+- [ ] 50 olay sınırı ile yeni/eski olay sırası korunur; düz metin fallback dosyası kullanılmaz.
+- [ ] Android test, Room şema kontrolü, lint, APK ve imza/SHA256 doğrulaması.
