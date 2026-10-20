@@ -190,6 +190,10 @@ fun PercentageCalculatorPanel() {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
+                    if (result == null) {
+                        Text("Geçersiz veya sınır dışı değer. Lütfen alanları kontrol edin.", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                     ResultRow("Yüzde tutarı:", FinancialMath.display(result?.first))
                     Spacer(modifier = Modifier.height(8.dp))
                     ResultRow("Miktar + Yüzde Tutarı:", FinancialMath.display(result?.second))
@@ -247,6 +251,10 @@ fun DiscountCalculatorPanel() {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
+                    if (result == null) {
+                        Text("Geçersiz veya sınır dışı değer. Lütfen alanları kontrol edin.", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                     ResultRow("İndirim Tutarı:", FinancialMath.display(result?.first))
                     Spacer(modifier = Modifier.height(8.dp))
                     ResultRow("İndirimli Fiyat:", FinancialMath.display(result?.second))
@@ -332,6 +340,10 @@ fun VatCalculatorPanel() {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
+                    if (result == null) {
+                        Text("Geçersiz veya sınır dışı değer. Lütfen alanları kontrol edin.", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                     ResultRow("KDV'siz Tutar:", FinancialMath.display(result?.first))
                     Spacer(modifier = Modifier.height(8.dp))
                     ResultRow("KDV Tutarı:", FinancialMath.display(result?.second))
@@ -400,6 +412,10 @@ fun InstallmentCalculatorPanel() {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
+                    if (result == null) {
+                        Text("Geçersiz veya sınır dışı değer. Lütfen alanları kontrol edin.", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                     ResultRow("Aylık Taksit Tutarı:", FinancialMath.display(result?.first))
                     Spacer(modifier = Modifier.height(8.dp))
                     ResultRow("Toplam Ödenecek Faiz:", FinancialMath.display(result?.second))
@@ -468,6 +484,10 @@ fun InterestCalculatorPanel() {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
+                    if (result == null) {
+                        Text("Geçersiz veya sınır dışı değer. Lütfen alanları kontrol edin.", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                     ResultRow("Brüt Faiz Getirisi:", FinancialMath.display(result?.first))
                     Spacer(modifier = Modifier.height(8.dp))
                     ResultRow("Vade Sonu Toplam Tutar:", FinancialMath.display(result?.second))
@@ -523,6 +543,10 @@ fun ProfitMarginCalculatorPanel() {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
+                    if (result == null) {
+                        Text("Geçersiz veya sınır dışı değer. Lütfen alanları kontrol edin.", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                     ResultRow("Önerilen Satış Fiyatı:", FinancialMath.display(result?.first))
                     Spacer(modifier = Modifier.height(8.dp))
                     ResultRow("Net Kâr Tutarı:", FinancialMath.display(result?.second))
