@@ -534,7 +534,8 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] 90 gün geçmiş açıkça silinmiş + hiçbir bağlı olay kalmamış mesaj kaldırılır; canlı/yeniler korunur.
 - [ ] Bounded batch ve geçersiz batch reddi; anon/authenticated SQL EXECUTE yasağı.
 - [ ] Node PGlite, Android CI, Room v4 hash, lint, APK ve sertifika doğrulama.
-- [ ] Canlı Supabase migration + planlı servis rolü bakım çalışması + operasyon yedeği (ayrı kabul).
+- [x] Canlı Supabase migration, servis-rolü yetkileri, üç indeks, pg_cron zamanlaması ve kontrollü ilk işlev çağrısı.
+- [ ] Bakım görevinin ilk otomatik çalışması ve operasyonel DB geri yükleme / yedek tatbikatı.
 
 
 ### [21-10-2026] — Çoklu P0/P1 gerçek test sonuçları
@@ -545,7 +546,8 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [x] Live SQL migration, 3 retention indeksi ve sadece `service_role` EXECUTE yetkisi.
 - [x] Live RLS beş tabloda açık, `anon`/`authenticated` doğrudan SELECT yasağı.
 - [ ] Live HTTP POST/GET smoke ve iki gerçek cihazla mesajlaşma/OTA (ağ erişimi veya cihaz araçları bu oturumda yok).
-- [ ] `pg_cron` bakımı ve yeniden denemeye dayanıklı otomatik temizleme; canlı bakım fonksiyonu henüz çalıştırılmadı.
+- [x] `pg_cron` v1.6.4 etkin, günlük bakım job'u ACTIVE ve ilk manuel bakım sonucu doğrulandı; yalnız süresi geçmiş 34 nonce temizlendi.
+- [ ] İlk bağımsız zamanlanmış cron koşusu, job_run_details hata durumu ve operasyonel geri yükleme kanıtı.
 - [ ] Kalıcı Android APK imzası, gerçek cihazda uninstall olmadan yükseltme; tarihî Room 1-3; tüm yerel SQL at-rest şifreleme.
 - [ ] Son main CI + yeni GitHub Release APK asset kontrolü (mergelenen son commit için ayrı yapılır).
 
@@ -555,3 +557,12 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [x] İlk v4 dağıtımlarının `fallbackToDestructiveMigration` riski ve sonradan kaldırılması kanıtlandı.
 - [ ] Eski gerçek v4 APK/SQLite fixture'dan güncel Room v4'e aynı veriyle kapanış/açılış veya cihaz üzerinde güvenli güncelleme testi.
 - [ ] Depo dışı v1-v3 gerçek örnekleri varsa ancak o zaman ilgili explicit migration.
+
+
+### [21-10-2026] — Canlı migration ve cron kabul kanıtları
+- [x] Canlı 4 migration sürümü GitHub `supabase/migrations` dosya adlarıyla birebir eşleşir.
+- [x] `pg_cron` 1.6.4, `lanu-safe-retention-daily` jobid=1 ACTIVE, günlük 03:15 UTC, batch=500.
+- [x] İlk kontrollü SQL çağrısı 0 onaylı olay/34 tarihi nonce/0 mesaj kaldırdı; 13 onaysız olay, 14 toplam olay ve 2 mesaj korunuyor.
+- [x] Güvenli SQL fonksiyonu sadece service_role tarafından EXECUTE edilebilir; anon/authenticated reddi canlı doğrulandı.
+- [ ] İlk cron zamanlı koşunun `cron.job_run_details` kaydı ve dış DB backup/restore tatbikatı.
+- [ ] `scripts/test_verify_supabase_migrations.py` ve güncel isimli PGlite migration fixture için yeni PR CI + main CI yeşil.
