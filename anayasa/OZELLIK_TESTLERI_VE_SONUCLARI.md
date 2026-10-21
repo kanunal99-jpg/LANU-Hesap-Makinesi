@@ -527,3 +527,11 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - **Kurtarma/UX:** Kullanıcı `createConversation` ile bilerek tekrar sohbet başlatınca işaret atomik temizlenir. `deleteConversation` aynı `syncMutex` altında senkronizasyonla seri çalışır.
 - **Test:** Daha önce cihaza gelmemiş eski E2EE olayıyla yeniden oluşmama, açıkça yeniden başlatınca yeni mesaj alabilme, silme hatasında sohbet işareti rollback.
 - **Sınır:** SQLite WAL/serbest alan eski byte izleri, sunucu retention ve diğer cihazlarda sohbet silme bu yerel işaretin kapsamında değildir.
+
+### [21-10-2026] — SERVER-RETENTION-01 Postgres kabul testleri
+- [ ] Eski ACK edilmiş event silinir, hiç ACK edilmemiş olay yaşından bağımsız korunur.
+- [ ] 1 günü aşan nonce global temizlenir, yeni nonce korunur.
+- [ ] 90 gün geçmiş açıkça silinmiş + hiçbir bağlı olay kalmamış mesaj kaldırılır; canlı/yeniler korunur.
+- [ ] Bounded batch ve geçersiz batch reddi; anon/authenticated SQL EXECUTE yasağı.
+- [ ] Node PGlite, Android CI, Room v4 hash, lint, APK ve sertifika doğrulama.
+- [ ] Canlı Supabase migration + planlı servis rolü bakım çalışması + operasyon yedeği (ayrı kabul).
