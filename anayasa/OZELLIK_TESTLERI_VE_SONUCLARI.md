@@ -573,3 +573,15 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] Kişi kaydına hata: önceki kişi ve güven haritaları değişmeden kalır; tekrar sync başarılı.
 - [ ] Android unit/Robolectric, Room schema hash, lint, APK ve imza/SHA256 CI başarılı.
 - [ ] Gerçek Samsung A55 + farklı marka Android üzerinde iki cihazlı E2EE (ayrı P0).
+
+
+### [21-10-2026] — Üç paralel P0/P1 kod/regresyon kanıtı
+- [x] PR #75 CI #258: peer-key ID/code/conversation alias yazımlarında ikinci adıma enjekte edilen hata tüm SQLite değişikliklerini rollback yapar.
+- [x] PR #75 CI #258: contact yazma hatası, eski kişi ve güvenli peer kayıtlarını korur; ağ tekrar denemesi başarılı olur.
+- [x] PR #76 CI #259: APK bundle doğrulayıcı altı test, release metadata/sha256 ve GitHub Actions workflow yapısı testten geçti.
+- [x] PR #77 CI #260: 215 queued + 5 sent mesajda ilk tur 200 ve sonra 15, hiçbir mesaj kaybı olmadan işlem tamamlanabilir.
+- [x] PR #77 CI #260: timestamp eşitliğinde deterministik ID sırası; Room v4 hash ve APK/lint testleri başarılı.
+- [ ] En son birleşik main CI: gerçek GitHub Release'de **anonim** APK/SHA256/signer URL'den byte-byte tekrar indirme kapısı yeşil.
+- [ ] Kalıcı sertifika ve gerçek Samsung A55 / ikinci Android üreticide adb install -r veri koruma testi.
+- [ ] Room v1-v3 gerçek fixture ve SQLCipher+WAL+tam restore/power-loss testleri.
+- [ ] E2EE gerçek iki cihaz, fonksiyonel UX / TalkBack ve sunucu retention otomatik cron sonuç denetimi.
