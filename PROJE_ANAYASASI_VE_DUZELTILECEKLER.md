@@ -264,3 +264,38 @@ Bu puan bir sertifika değildir; yerinde ve bağımsız kanıtlar tamamlanmadan 
 - **Değişiklik:** Yeni yalnız yetkili `service_role` kullanıcıların çalıştırabildiği `lanu_prune_retained_data(batch)` SQL işlevi. 30 günü geçen *ACK edilmiş* olaylar, 1 günü geçen nonce'lar ve ancak **silinmiş**, 90 günü aşmış, hiçbir bekleyen olay referansı kalmamış mesajlar en fazla 5000'lik partilerle temizlenebilir. Hiçbir canlı mesaj veya ACK bekleyen olay silinmez.
 - **Testler:** PGlite Postgres üzerinde ACK/pending ayrımı, sona ermiş silinen mesaj, canlı/yenileri koruma, batch sınırı, yetkisiz rol reddi.
 - **Dağıtım şartı:** Migrasyonun gerçek Supabase'e uygulanması ve imtiyazlı bakım zamanlaması yapılmadan canlı sunucuda TTL etkin ilan edilemez. Varsayılan otomatik purge yoktur; operasyonel veritabanı yedeği ve staging doğrulaması gereklidir.
+
+
+### 21.10.2026 — Çoklu P0/P1 gerçek yayın ve canlı sunucu durum belgesi
+
+**GitHub'da testlerle birleştirilen gelişmeler:**
+- PR #70: PostgREST cevaplarının açılmış veri boyutunu 16 MiB ile sınırlandırma; Node güvenlik testleri ve Android CI başarılı.
+- PR #71: Sunucudan henüz gelmemiş mesajlar nedeniyle silinen sohbetin otomatik yeniden yaratılmasını engelleme, kullanıcı isteğiyle yeniden açma; Android/Robolectric CI başarılı.
+- PR #73: E2EE olaylarını kaybetmeden sunucu veri yaşam döngüsünü yöneten partili ve yalnız servis rolüyle çağrılabilir bakım fonksiyonu; Postgres/PGlite ve Android CI başarılı. PR #72 aynı çözümün eski dala dayanan, çakışan taslağı olarak kapatıldı.
+
+**Gerçek bağlı LANU Supabase kanıtları:**
+- Edge Function `lanu-relay` **v3 / ACTIVE**; mevcut GitHub main `core.mjs` ile birebir eşit olarak yeniden okundu. `verify_jwt=false` korunur; protokol uygulama içinde kullanıcı ECDSA imzasını doğrular.
+- SQL migration `20261021160108_safe_relay_retention_20261021` canlı veritabanına uygulandı. `public.lanu_prune_retained_data(integer)` var ve sadece `service_role` EXECUTE hakkına sahip; `anon`/`authenticated` yok. Üç retention indeksi var.
+- Beş LANU tablosunda RLS açık, `anon` ve `authenticated` doğrudan SELECT alamıyor. Güvenlik danışmanının "RLS no policy" INFO durumu bu yalnız sunucu modeliyle uyumludur.
+- Canlı DB'de **13 onay bekleyen olay** korunmuş, **34 geçmiş nonce** mevcut. Bakım fonksiyonu **henüz çalıştırılmadı**; `pg_cron` kurulmadığından süresel purge otomatik değil.
+- Fiziksel cihazla canlı iki uç testi yapılamadı; yerel HTTP doğrudan smoke ağ çözümleme kısıtı nedeniyle doğrulanamadı. Edge ACTIVE/source eşitliği ve CI, canlı son-kullanıcı trafiği kanıtı değildir.
+
+**Kalem kalem proje iç puanı (üretim kapıları kapalıyken):**
+| Kategori | Ağırlık | Önce | Şimdi | Hedef |
+|---|---:|---:|---:|---:|
+| Güvenlik / kimlik | 30% | 79 | 80 | 95 |
+| Veri / kurtarma | 25% | 57 | 60 | 95 |
+| E2EE / mesajlaşma | 15% | 59 | 64 | 90 |
+| CI / yayın | 15% | 86 | 87 | 95 |
+| Kullanıcı deneyimi | 15% | 55 | 55 | 85 |
+| **Ağırlıklı genel** | **100%** | **68/100** | **70/100** | **93/100** |
+
+Bu puanlar matematiksel sertifikasyon değil, testli geliştirme ve açık üretim risklerine dayalı tutarlı yönetim değerlendirmesidir.
+
+**Açık P0/P1 (tamamlandı denemez):**
+- P0: Hesap sahibi denetiminde kalıcı imza anahtarı + 2 aynı sertifikalı APK + gerçek cihazda `adb install -r` ve sohbet/PIN korunması.
+- P0: Gerçek tarihî Room v1/v2/v3 dosya/şema örnekleriyle kayıpsız migration testleri; eski şemalar bilinmeden uydurulamaz.
+- P0: Tam şifreli Room, eski düz metin WAL/serbest alan izleri, gerçek yedek/geri yükleme ve güç kesintisi dayanıklılığı.
+- P0: Samsung A55, Xiaomi, Huawei üzerinde iki farklı kullanıcı/cihazla E2EE, çevrim dışı, OTA ve erişilebilirlik testleri; dış kriptografi gözden geçirmesi.
+- P1: Supabase `pg_cron` veya kontrollü bakım zamanlaması, öncesinde operasyon yedeği, silinen kayıtların denetlenmesi; SMS/telefon verisi, düz metin message body ve istemcide service-role key asla kullanılmaz.
+- P1: Hilt ve Crashlytics ile premium arayüz/performans; uygun gerçek Firebase yapılandırması olmadan etkin ilan edilmez.
