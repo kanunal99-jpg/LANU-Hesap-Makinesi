@@ -534,3 +534,9 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - **Düzeltme:** `RestStore.query` PostgREST gövdesini akış sırasında (en fazla 16 MiB, dekompresyon sonrası) denetleyerek okur; Content-Length yalanı, UTF-8 bozulması veya sınır aşımı güvenli 503 hatasıyla reddedilir. Ham PostgREST hata/verisi sızdırılmaz.
 - **Test:** gerçek JSON, büyük Content-Length, chunked aşımda stream cancel, geçersiz UTF-8, PostgREST 403 hata redaksiyonu ve `RestStore` doğrudan sınır testi.
 - **Açık:** İki farklı fiziksel cihazla ağ/latency, üretim sunucu gözlemi, saklama/TTL ve genel oran sınırları ayrı kabul kapısıdır.
+
+
+### [21-10-2026] — SERVER-RETENTION-01 güvenli sunucu yaşam döngüsü
+- Ayrı SQL migrasyonunda 30 gün ACK olay, 1 gün nonce, 90 gün silinmiş ve referanssız mesaj için korumalı ve partili silme işlevi yazıldı.
+- Silinmemiş mesaj ve teslim edilmemiş olaylar kesinlikle korunur. PGlite regresyon testleri eklendi.
+- Canlı veritabanı migrasyon ve bakım job'u kullanıcının Supabase tarafında dağıtılana kadar P1 operasyonel madde açık kalır.
