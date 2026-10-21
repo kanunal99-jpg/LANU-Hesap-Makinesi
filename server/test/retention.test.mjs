@@ -11,8 +11,8 @@ const content = 'lanu2:' + 'A'.repeat(40);
 async function fixture() {
   const db = new PGlite();
   await db.exec('create role anon; create role authenticated; create role service_role bypassrls;');
-  const base = await readFile(new URL('../../supabase/migrations/20261019071736_persistent_user_code_messaging.sql', import.meta.url), 'utf8');
-  const migration = await readFile(new URL('../../supabase/migrations/20261021150000_safe_relay_retention.sql', import.meta.url), 'utf8');
+  const base = await readFile(new URL('../../supabase/migrations/20261019073855_persistent_user_code_messaging.sql', import.meta.url), 'utf8');
+  const migration = await readFile(new URL('../../supabase/migrations/20261021160108_safe_relay_retention_20261021.sql', import.meta.url), 'utf8');
   await db.exec(base);
   await db.exec(migration);
   for (const [id, letter] of [[first, 'D'], [second, 'E']]) {
