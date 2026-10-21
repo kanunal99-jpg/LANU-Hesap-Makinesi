@@ -116,7 +116,9 @@ interface MessageDao {
     @Query("SELECT COUNT(*) FROM messages WHERE content LIKE 'lanu2:%'")
     suspend fun countModernEncryptedMessages(): Int
 
-    @Query("SELECT * FROM messages WHERE status IN ('PENDING', 'WAITING') ORDER BY timestamp ASC")
+    // The relay submits queued messages in bounded batches. Keep durable rows
+    // for later sync passes; deterministic ID ordering handles equal timestamps.
+    @Query("SELECT * FROM messages WHERE status IN ('PENDING', 'WAITING') ORDER BY timestamp ASC, id ASC LIMIT 200")
     suspend fun getPendingMessages(): List<MessageEntity>
 
     @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
