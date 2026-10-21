@@ -551,3 +551,27 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - LANU Code Messaging Supabase Edge Function `lanu-relay` v2 -> v3 dağıtıldı.
 - `verify_jwt=false` (LANU imzalı istek protokolü) korundu; yeni `core.mjs` `main` koduyla birebir eşit, işlev ACTIVE.
 - Sunucu yanıtları 16 MiB sınırla stream edilir; canlı çok cihazlı uçtan uca test hâlâ açık.
+
+
+### [21-10-2026] — P0/P1 GitHub + Supabase üretim kanıtı
+- PR #70 (16 MiB PostgREST response sınırı) ve PR #71 (silinmiş sohbet eski sunucu olayına karşı replay koruması) CI yeşil ve main'e merge.
+- Live Supabase LANU Code Messaging `lanu-relay` v2 -> v3 ACTIVE olarak dağıtıldı; GitHub main ile kaynak eşitliği doğrulandı. Ağ erişimi olmadığı için gerçek HTTP smoke yapılmadı.
+- PR #73 güvenli ACK-event/nonce/silinmiş mesaj retention işlevi yeni main tabanında CI yeşil ve merge.
+- Supabase SQL migration `20261021160108_safe_relay_retention_20261021` başarıyla uygulandı. `service_role` yetkisi + 3 indeks doğrulandı. Anon/auth rollerine EXECUTE yetkisi yok.
+- 13 teslim onayı bekleyen olay korunuyor; pg_cron günlük 03:15 UTC'de aktif. İlk kontrollü bakım çağrısında **0 olay, 34 tarihi nonce, 0 mesaj** silindi ve 13 bekleyen olay korundu.
+- Eski geçici debug APK sertifika uyumluluğu, gerçek Room migration, fiziksel Android cihazlar ve tam DB şifreleme hâlâ yayın engeli.
+- Ağırlıklı puan: 68 -> **70/100**, hedef 93/100. Her yeni puan gerçek CI ve dağıtım kanıtıyla değerlendirilir.
+
+
+### [21-10-2026] — SCHEMA-HISTORY-01 gerçek eski veritabanı sürümü sorgusu
+- GitHub AppDatabase.kt için 3 gerçek commit: `685d0775136c` (16.09), `125fabf6b28e` (19.10), `9e46f4d2cf2f` (20.10); üçü de Room v4.
+- İzlenen repo geçmişinden Room v1-v3 çıkarılamaz, böyle migration kodu üretilmedi.
+- Geçerli kabul kapısı: gerçek eski v4 APK/test fixture ile yedi tablo veri koruma ve aynı sertifikayla yükseltme. Harici önceki APK varsa ayrıca gerçek örneği.
+
+
+### [21-10-2026] — Canlı pg_cron retention etkinleştirme / migration sürüm eşitleme
+- Gerçek Supabase SQL kayıtları: `20261019073855` ilk sunucu şeması, `20261021160108` retention fonksiyonu, `20261021160752` pg_cron uzantısı, `20261021160807` günlük görev.
+- `pg_cron` v1.6.4, aktif `lanu-safe-retention-daily` jobid=1, 03:15 UTC, `lanu_prune_retained_data(500)`; yetkisiz SQL EXECUTE kapalı.
+- Kontrollü SQL uygulaması sonuç: events=0, nonces=34, deleted_messages=0. Sonraki DB sayımı: 4 kimlik, 2 mesaj, 14 olay ve 13 bekleyen olay.
+- GitHub migration sürüm numaraları canlı envantere eşitlendi; Node Postgres test yolu güncellendi; CI'da sürüm tekilliği ve cron/retention invariantları eklendi.
+- Bir sonraki bağımsız cron zamanının çalışması, job_run_details ve gerçek Android cihaz testleri ayrı doğrulama olarak açık.

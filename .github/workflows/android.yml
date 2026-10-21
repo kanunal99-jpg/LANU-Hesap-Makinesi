@@ -38,6 +38,9 @@ jobs:
       - name: Verify relay protocol and Postgres security
         run: npm ci --prefix server && npm test --prefix server
 
+      - name: Verify deployed Supabase migration IDs and bounded retention schedule
+        run: python3 -m unittest discover -s scripts -p 'test_verify_supabase_migrations.py'
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:

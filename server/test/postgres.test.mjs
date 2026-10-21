@@ -9,7 +9,7 @@ const alice = 'a'.repeat(64), bob = 'b'.repeat(64), outsider = 'c'.repeat(64);
 before(async () => {
   db = new PGlite();
   await db.exec('create role anon; create role authenticated; create role service_role bypassrls;');
-  const migration = await readFile(new URL('../../supabase/migrations/20261019071736_persistent_user_code_messaging.sql', import.meta.url), 'utf8');
+  const migration = await readFile(new URL('../../supabase/migrations/20261019073855_persistent_user_code_messaging.sql', import.meta.url), 'utf8');
   await db.exec(migration);
   for (const [id, letter] of [[alice, 'A'], [bob, 'B'], [outsider, 'C']]) {
     await db.query('insert into public.lanu_identities(id, code, nonce, public_key) values ($1,$2,$3,$4)', [id, 'LANU-' + Array(5).fill(letter.repeat(4)).join('-'), 'A'.repeat(22), 'test-key']);
