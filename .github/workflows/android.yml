@@ -84,8 +84,10 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_verify_android_privacy.py'
           python3 scripts/verify_android_privacy.py
 
-      - name: Test published APK read-back verification
-        run: python3 -m unittest discover -s scripts -p 'test_verify_published_apk.py'
+      - name: Test APK publication and stable signing continuity
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_verify_published_apk.py'
+          python3 -m unittest discover -s scripts -p 'test_verify_stable_signer_continuity.py'
 
       - name: Run Android Lint
         run: ./gradlew :app:lintDebug --no-daemon --stacktrace
@@ -357,6 +359,29 @@ jobs:
           echo "signer=${signer[0]}" >> "$GITHUB_OUTPUT"
           echo "mode=$mode" >> "$GITHUB_OUTPUT"
           echo "publish=true" >> "$GITHUB_OUTPUT"
+
+      - name: Block stable release when prior stable certificate changed
+        if: steps.publish_guard.outputs.publish == 'true' && steps.publish_guard.outputs.mode == 'stable'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_SIGNER: ${{ steps.publish_guard.outputs.signer }}
+        run: |
+          set -euo pipefail
+          # The first protected-key release establishes a baseline. Subsequent
+          # stable releases must keep the exact same public signing identity.
+          previous="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '[.[] | select(.tag_name | test("^v1\\.1\\.0-signed\\.[0-9]+$"))] | sort_by(.published_at) | last | .tag_name // ""')"
+          if [ -z "$previous" ]; then
+            echo "::notice::First protected-key release: no prior stable APK exists."
+            echo "::notice::Device upgrade remains unverified; a matching signature alone cannot prove data preservation."
+          else
+            prev_dir="$RUNNER_TEMP/lanu-previous-stable-signer"
+            mkdir -p "$prev_dir"
+            gh release download "$previous" --pattern 'app-debug.apk.signer.txt' --dir "$prev_dir"
+            python3 scripts/verify_stable_signer_continuity.py \
+              "$CURRENT_SIGNER" "$prev_dir/app-debug.apk.signer.txt"
+          fi
 
       - name: Create GitHub Release from verified artifact
         if: steps.publish_guard.outputs.publish == 'true'
