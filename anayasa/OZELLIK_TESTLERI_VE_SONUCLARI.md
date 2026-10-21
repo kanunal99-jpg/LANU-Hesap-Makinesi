@@ -548,3 +548,10 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] `pg_cron` bakımı ve yeniden denemeye dayanıklı otomatik temizleme; canlı bakım fonksiyonu henüz çalıştırılmadı.
 - [ ] Kalıcı Android APK imzası, gerçek cihazda uninstall olmadan yükseltme; tarihî Room 1-3; tüm yerel SQL at-rest şifreleme.
 - [ ] Son main CI + yeni GitHub Release APK asset kontrolü (mergelenen son commit için ayrı yapılır).
+
+
+### [21-10-2026] — SCHEMA-HISTORY-01 sürüm envanteri
+- [x] GitHub `AppDatabase.kt` geçmişi: takip edilen tüm sürümler version=4; 16.09.2026 ilk kayıt dâhil.
+- [x] İlk v4 dağıtımlarının `fallbackToDestructiveMigration` riski ve sonradan kaldırılması kanıtlandı.
+- [ ] Eski gerçek v4 APK/SQLite fixture'dan güncel Room v4'e aynı veriyle kapanış/açılış veya cihaz üzerinde güvenli güncelleme testi.
+- [ ] Depo dışı v1-v3 gerçek örnekleri varsa ancak o zaman ilgili explicit migration.
