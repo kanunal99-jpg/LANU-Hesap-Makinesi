@@ -186,10 +186,11 @@ class CommunicationRepository(
         require(peerId == UserCodes.id(publicKey)) { "Kişi kimliği doğrulanamadı." }
         val oldById = settingsDao.getSettingValue("lanu_peer_id_$peerId")?.let(::JSONObject)
         require(oldById == null || oldById.getString("publicKey") == publicKey) { "Kişinin güvenlik anahtarı değişti." }
-        settingsDao.insertSetting(SettingsEntity("lanu_peer_id_$peerId", peer.toString()))
+        val convId = UserCodes.conversationId(ensureIdentity().id, peerId)
+        database.withTransaction {
+            settingsDao.insertSetting(SettingsEntity("lanu_peer_id_$peerId", peer.toString()))
         settingsDao.insertSetting(SettingsEntity("lanu_peer_code_$code", peer.toString()))
         if (originalCode != null) settingsDao.insertSetting(SettingsEntity("lanu_peer_code_$originalCode", peer.toString()))
-        val convId = UserCodes.conversationId(ensureIdentity().id, peerId)
         settingsDao.insertSetting(SettingsEntity("lanu_peer_conv_$convId", peer.toString()))
         val saved = contactDao.getContactByPhone(code) ?: originalCode?.let { contactDao.getContactByPhone(it) }
         if (saved != null) {
@@ -197,6 +198,7 @@ class CommunicationRepository(
             if (saved.phoneNumber != code) contactDao.deleteContact(saved.phoneNumber)
         }
         conversationDao.getConversationById(convId)?.let { conversationDao.insertConversation(it.copy(partnerPhone = code)) }
+        }
     }
 
     private suspend fun resolveContact(code: String): JSONObject {
