@@ -551,3 +551,13 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - LANU Code Messaging Supabase Edge Function `lanu-relay` v2 -> v3 dağıtıldı.
 - `verify_jwt=false` (LANU imzalı istek protokolü) korundu; yeni `core.mjs` `main` koduyla birebir eşit, işlev ACTIVE.
 - Sunucu yanıtları 16 MiB sınırla stream edilir; canlı çok cihazlı uçtan uca test hâlâ açık.
+
+
+### [21-10-2026] — P0/P1 GitHub + Supabase üretim kanıtı
+- PR #70 (16 MiB PostgREST response sınırı) ve PR #71 (silinmiş sohbet eski sunucu olayına karşı replay koruması) CI yeşil ve main'e merge.
+- Live Supabase LANU Code Messaging `lanu-relay` v2 -> v3 ACTIVE olarak dağıtıldı; GitHub main ile kaynak eşitliği doğrulandı. Ağ erişimi olmadığı için gerçek HTTP smoke yapılmadı.
+- PR #73 güvenli ACK-event/nonce/silinmiş mesaj retention işlevi yeni main tabanında CI yeşil ve merge.
+- Supabase SQL migration `20261021160108_safe_relay_retention_20261021` başarıyla uygulandı. `service_role` yetkisi + 3 indeks doğrulandı. Anon/auth rollerine EXECUTE yetkisi yok.
+- 13 teslim onayı bekleyen olay korunuyor. 34 geçmiş nonce bulunuyor ama cron aktif değil; **canlı purge henüz çalıştırılmadı**.
+- Eski geçici debug APK sertifika uyumluluğu, gerçek Room migration, fiziksel Android cihazlar ve tam DB şifreleme hâlâ yayın engeli.
+- Ağırlıklı puan: 68 -> **70/100**, hedef 93/100. Her yeni puan gerçek CI ve dağıtım kanıtıyla değerlendirilir.
