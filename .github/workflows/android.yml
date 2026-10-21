@@ -237,10 +237,72 @@ jobs:
           retention-days: 14
 
 
+  android-runtime-acceptance:
+    name: Android Runtime Database Acceptance (API 34)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Prepare Gradle and isolated debug signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f ./gradlew ]; then
+            gradle wrapper --gradle-version 9.3.1 --distribution-type bin
+          fi
+          chmod +x ./gradlew
+          keytool -genkeypair -v \
+            -keystore ./debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Permit KVM acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Exercise Room on an Android 14 runtime
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+
+      - name: Upload device-runtime acceptance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Android-Runtime-Test-Report
+          if-no-files-found: warn
+          path: |
+            app/build/reports/androidTests/connected/
+            app/build/outputs/androidTest-results/connected/
+
   publish:
     name: Publish verified APK
     if: github.event_name == 'push'
-    needs: build-and-test
+    needs: [build-and-test, android-runtime-acceptance]
     runs-on: ubuntu-latest
     permissions:
       contents: write
