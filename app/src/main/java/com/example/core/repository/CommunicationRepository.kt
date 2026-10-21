@@ -181,23 +181,37 @@ class CommunicationRepository(
     private suspend fun savePeer(peer: JSONObject, originalCode: String? = null) {
         val code = peer.getString("code")
         val publicKey = peer.getString("publicKey")
-        require(UserCodes.matches(code, publicKey, peer.getString("nonce"))) { "Kişi kodu ile güvenlik anahtarı eşleşmiyor." }
+        require(UserCodes.matches(code, publicKey, peer.getString("nonce"))) {
+            "Kişi kodu ile güvenlik anahtarı eşleşmiyor."
+        }
         val peerId = peer.getString("id")
         require(peerId == UserCodes.id(publicKey)) { "Kişi kimliği doğrulanamadı." }
-        val oldById = settingsDao.getSettingValue("lanu_peer_id_$peerId")?.let(::JSONObject)
-        require(oldById == null || oldById.getString("publicKey") == publicKey) { "Kişinin güvenlik anahtarı değişti." }
         val convId = UserCodes.conversationId(ensureIdentity().id, peerId)
         database.withTransaction {
+            // Key continuity checks and every alias/contact write are one durable unit.
+            val oldById = settingsDao.getSettingValue("lanu_peer_id_$peerId")?.let(::JSONObject)
+            require(oldById == null || oldById.getString("publicKey") == publicKey) {
+                "Kişinin güvenlik anahtarı değişti."
+            }
+            val saved = contactDao.getContactByPhone(code)
+                ?: originalCode?.let { contactDao.getContactByPhone(it) }
             settingsDao.insertSetting(SettingsEntity("lanu_peer_id_$peerId", peer.toString()))
-        settingsDao.insertSetting(SettingsEntity("lanu_peer_code_$code", peer.toString()))
-        if (originalCode != null) settingsDao.insertSetting(SettingsEntity("lanu_peer_code_$originalCode", peer.toString()))
-        settingsDao.insertSetting(SettingsEntity("lanu_peer_conv_$convId", peer.toString()))
-        val saved = contactDao.getContactByPhone(code) ?: originalCode?.let { contactDao.getContactByPhone(it) }
-        if (saved != null) {
-            contactDao.insertContact(saved.copy(phoneNumber = code, statusText = if (peer.optBoolean("mutual")) "Karşılıklı kayıtlı" else "Karşı tarafın kaydı bekleniyor"))
-            if (saved.phoneNumber != code) contactDao.deleteContact(saved.phoneNumber)
-        }
-        conversationDao.getConversationById(convId)?.let { conversationDao.insertConversation(it.copy(partnerPhone = code)) }
+            settingsDao.insertSetting(SettingsEntity("lanu_peer_code_$code", peer.toString()))
+            if (originalCode != null) {
+                settingsDao.insertSetting(SettingsEntity("lanu_peer_code_$originalCode", peer.toString()))
+            }
+            settingsDao.insertSetting(SettingsEntity("lanu_peer_conv_$convId", peer.toString()))
+            if (saved != null) {
+                contactDao.insertContact(saved.copy(
+                    phoneNumber = code,
+                    statusText = if (peer.optBoolean("mutual")) "Karşılıklı kayıtlı"
+                        else "Karşı tarafın kaydı bekleniyor"
+                ))
+                if (saved.phoneNumber != code) contactDao.deleteContact(saved.phoneNumber)
+            }
+            conversationDao.getConversationById(convId)?.let {
+                conversationDao.insertConversation(it.copy(partnerPhone = code))
+            }
         }
     }
 
