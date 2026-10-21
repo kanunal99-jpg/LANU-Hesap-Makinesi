@@ -258,3 +258,9 @@ Bu puan bir sertifika değildir; yerinde ve bağımsız kanıtlar tamamlanmadan 
 - **Kurtarma/UX:** Kullanıcı `createConversation` ile bilerek tekrar sohbet başlatınca işaret atomik temizlenir. `deleteConversation` aynı `syncMutex` altında senkronizasyonla seri çalışır.
 - **Test:** Daha önce cihaza gelmemiş eski E2EE olayıyla yeniden oluşmama, açıkça yeniden başlatınca yeni mesaj alabilme, silme hatasında sohbet işareti rollback.
 - **Sınır:** SQLite WAL/serbest alan eski byte izleri, sunucu retention ve diğer cihazlarda sohbet silme bu yerel işaretin kapsamında değildir.
+
+### 21.10.2026 — P1 Sunucu veri yaşam döngüsü ve güvenli temizlik (SERVER-RETENTION-01)
+- **Bulgu:** Sunucuda `lanu_events` ACK edilmiş eski olayları süresiz tutuyordu; pasif hesapların `lanu_nonces` kayıtları da kendi başına silinmiyordu. Artan kayıtların KVKK / kapasite riskleri vardı.
+- **Değişiklik:** Yeni yalnız yetkili `service_role` kullanıcıların çalıştırabildiği `lanu_prune_retained_data(batch)` SQL işlevi. 30 günü geçen *ACK edilmiş* olaylar, 1 günü geçen nonce'lar ve ancak **silinmiş**, 90 günü aşmış, hiçbir bekleyen olay referansı kalmamış mesajlar en fazla 5000'lik partilerle temizlenebilir. Hiçbir canlı mesaj veya ACK bekleyen olay silinmez.
+- **Testler:** PGlite Postgres üzerinde ACK/pending ayrımı, sona ermiş silinen mesaj, canlı/yenileri koruma, batch sınırı, yetkisiz rol reddi.
+- **Dağıtım şartı:** Migrasyonun gerçek Supabase'e uygulanması ve imtiyazlı bakım zamanlaması yapılmadan canlı sunucuda TTL etkin ilan edilemez. Varsayılan otomatik purge yoktur; operasyonel veritabanı yedeği ve staging doğrulaması gereklidir.
