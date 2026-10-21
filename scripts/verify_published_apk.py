@@ -13,7 +13,7 @@ from pathlib import Path
 
 ASSETS = ("app-debug.apk", "app-debug.apk.sha256", "app-debug.apk.signer.txt")
 FINGERPRINT = re.compile(r"[0-9a-f]{64}")
-CHECKSUM = re.compile(r"([0-9a-fA-F]{64})  \\*?app-debug\\.apk")
+CHECKSUM = re.compile(r"([0-9a-fA-F]{64})  \*?app-debug\.apk")
 
 
 def get_asset(folder: Path, name: str) -> Path:
@@ -62,7 +62,8 @@ def verify(published: Path, original: Path, expected_mode: str) -> None:
     match = CHECKSUM.fullmatch(checksum)
     if match is None:
         raise ValueError("Invalid portable SHA256 file")
-    actual = hashlib.file_digest(apk.open("rb"), "sha256").hexdigest()
+    with apk.open("rb") as stream:
+        actual = hashlib.file_digest(stream, "sha256").hexdigest()
     if actual != match.group(1).lower():
         raise ValueError("Published APK SHA256 mismatch")
     fields = read_signer(get_asset(published, ASSETS[2]))
