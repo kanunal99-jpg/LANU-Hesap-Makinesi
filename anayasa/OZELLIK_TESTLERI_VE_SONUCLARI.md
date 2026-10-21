@@ -520,3 +520,10 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - **Düzeltme:** `RestStore.query` PostgREST gövdesini akış sırasında (en fazla 16 MiB, dekompresyon sonrası) denetleyerek okur; Content-Length yalanı, UTF-8 bozulması veya sınır aşımı güvenli 503 hatasıyla reddedilir. Ham PostgREST hata/verisi sızdırılmaz.
 - **Test:** gerçek JSON, büyük Content-Length, chunked aşımda stream cancel, geçersiz UTF-8, PostgREST 403 hata redaksiyonu ve `RestStore` doğrudan sınır testi.
 - **Açık:** İki farklı fiziksel cihazla ağ/latency, üretim sunucu gözlemi, saklama/TTL ve genel oran sınırları ayrı kabul kapısıdır.
+
+### 20.10.2026 — P0 silinmiş sohbetin sunucu olayıyla yeniden oluşmasının önlenmesi (CONV-REPLAY-01)
+- **Bulgu:** Sohbet silerken mevcut mesajların ID tombstone'ları vardı; ancak o anda cihazda olmayan eski uzaktan gelen mesajlar gelecekte `synchronize` sırasında sohbeti ve kayıtları yeniden oluşturabiliyordu.
+- **Çözüm:** `lanu_hidden_conv_<id>` kalıcı Room gizlilik işareti sohbet silme transaction'ında saklanır. Gelen olaylarda sohbet işareti kontrol edilip mesaj/sohbet depolanmaz ve yanlış okundu bildirimi gönderilmez; teslim olayı revizyonu kaydedilip ACK alabilir.
+- **Kurtarma/UX:** Kullanıcı `createConversation` ile bilerek tekrar sohbet başlatınca işaret atomik temizlenir. `deleteConversation` aynı `syncMutex` altında senkronizasyonla seri çalışır.
+- **Test:** Daha önce cihaza gelmemiş eski E2EE olayıyla yeniden oluşmama, açıkça yeniden başlatınca yeni mesaj alabilme, silme hatasında sohbet işareti rollback.
+- **Sınır:** SQLite WAL/serbest alan eski byte izleri, sunucu retention ve diğer cihazlarda sohbet silme bu yerel işaretin kapsamında değildir.
