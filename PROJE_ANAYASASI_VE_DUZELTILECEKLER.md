@@ -263,7 +263,7 @@ Bu puan bir sertifika değildir; yerinde ve bağımsız kanıtlar tamamlanmadan 
 - **Bulgu:** Sunucuda `lanu_events` ACK edilmiş eski olayları süresiz tutuyordu; pasif hesapların `lanu_nonces` kayıtları da kendi başına silinmiyordu. Artan kayıtların KVKK / kapasite riskleri vardı.
 - **Değişiklik:** Yeni yalnız yetkili `service_role` kullanıcıların çalıştırabildiği `lanu_prune_retained_data(batch)` SQL işlevi. 30 günü geçen *ACK edilmiş* olaylar, 1 günü geçen nonce'lar ve ancak **silinmiş**, 90 günü aşmış, hiçbir bekleyen olay referansı kalmamış mesajlar en fazla 5000'lik partilerle temizlenebilir. Hiçbir canlı mesaj veya ACK bekleyen olay silinmez.
 - **Testler:** PGlite Postgres üzerinde ACK/pending ayrımı, sona ermiş silinen mesaj, canlı/yenileri koruma, batch sınırı, yetkisiz rol reddi.
-- **Dağıtım şartı:** Migrasyonun gerçek Supabase'e uygulanması ve imtiyazlı bakım zamanlaması yapılmadan canlı sunucuda TTL etkin ilan edilemez. Varsayılan otomatik purge yoktur; operasyonel veritabanı yedeği ve staging doğrulaması gereklidir.
+- **Dağıtım şartı:** Migrasyonun gerçek Supabase'e uygulanması ve imtiyazlı bakım zamanlaması yapılmadan canlı sunucuda TTL etkin ilan edilemez. 21.10.2026 günü imtiyazlı cron zamanlaması kuruldu, kontrollü ilk bakım çağrısı doğrulandı. Periyodik görev ilk çalışması ve operasyonel yedek doğrulaması ayrıca gereklidir.
 
 
 ### 21.10.2026 — Çoklu P0/P1 gerçek yayın ve canlı sunucu durum belgesi
@@ -277,7 +277,7 @@ Bu puan bir sertifika değildir; yerinde ve bağımsız kanıtlar tamamlanmadan 
 - Edge Function `lanu-relay` **v3 / ACTIVE**; mevcut GitHub main `core.mjs` ile birebir eşit olarak yeniden okundu. `verify_jwt=false` korunur; protokol uygulama içinde kullanıcı ECDSA imzasını doğrular.
 - SQL migration `20261021160108_safe_relay_retention_20261021` canlı veritabanına uygulandı. `public.lanu_prune_retained_data(integer)` var ve sadece `service_role` EXECUTE hakkına sahip; `anon`/`authenticated` yok. Üç retention indeksi var.
 - Beş LANU tablosunda RLS açık, `anon` ve `authenticated` doğrudan SELECT alamıyor. Güvenlik danışmanının "RLS no policy" INFO durumu bu yalnız sunucu modeliyle uyumludur.
-- Canlı DB'de **13 onay bekleyen olay** korunmuş, **34 geçmiş nonce** mevcut. Bakım fonksiyonu **henüz çalıştırılmadı**; `pg_cron` kurulmadığından süresel purge otomatik değil.
+- Canlı DB'de **13 onay bekleyen olay** korunmuş. `pg_cron` v1.6.4 ve `lanu-safe-retention-daily` 03:15 UTC (06:15 Türkiye) aktiftir. İlk kontrollü çağrıda **0 olay, 34 eski nonce, 0 mesaj** temizlendi; 13 onaysız olay ve 2 mesaj korundu.
 - Fiziksel cihazla canlı iki uç testi yapılamadı; yerel HTTP doğrudan smoke ağ çözümleme kısıtı nedeniyle doğrulanamadı. Edge ACTIVE/source eşitliği ve CI, canlı son-kullanıcı trafiği kanıtı değildir.
 
 **Kalem kalem proje iç puanı (üretim kapıları kapalıyken):**
@@ -297,7 +297,7 @@ Bu puanlar matematiksel sertifikasyon değil, testli geliştirme ve açık üret
 - P0: Gerçek tarihî Room v1/v2/v3 dosya/şema örnekleriyle kayıpsız migration testleri; eski şemalar bilinmeden uydurulamaz.
 - P0: Tam şifreli Room, eski düz metin WAL/serbest alan izleri, gerçek yedek/geri yükleme ve güç kesintisi dayanıklılığı.
 - P0: Samsung A55, Xiaomi, Huawei üzerinde iki farklı kullanıcı/cihazla E2EE, çevrim dışı, OTA ve erişilebilirlik testleri; dış kriptografi gözden geçirmesi.
-- P1: Supabase `pg_cron` veya kontrollü bakım zamanlaması, öncesinde operasyon yedeği, silinen kayıtların denetlenmesi; SMS/telefon verisi, düz metin message body ve istemcide service-role key asla kullanılmaz.
+- P1: Supabase cron kuruldu ve ilk manuel çalışma doğrulandı; **ilk bağımsız otomatik cron koşusunun hata kaydı, operasyonel yedek/restore denemesi ve KVKK incelemesi** hâlâ kabul bekliyor. SMS/telefon verisi, düz metin message body ve istemcide service-role key asla kullanılmaz.
 - P1: Hilt ve Crashlytics ile premium arayüz/performans; uygun gerçek Firebase yapılandırması olmadan etkin ilan edilmez.
 
 
@@ -305,3 +305,11 @@ Bu puanlar matematiksel sertifikasyon değil, testli geliştirme ve açık üret
 - GitHub `app/src/main/java/com/example/core/database/AppDatabase.kt` dosyasının mevcut depo geçmişindeki tüm kayıtları kontrol edildi: ilk takip edilen commit `685d0775136c` (16.09.2026) **version = 4 / exportSchema = false**; `125fabf6b28e` (19.10.2026) **version = 4**; `9e46f4d2cf2f` (20.10.2026) **version = 4 / exportSchema = true**.
 - Yedi tablo tüm izlenebilen sürümlerde korunmuş; 16.09 sürümü eski `fallbackToDestructiveMigration()` kullanmış, 19.10'da kaldırılmış.
 - **Kanıt sınırı:** Bu depo yolu geçmişinde doğrulanabilir v1-v3 şeması bulunmadığından gerçek v1-v3 migration implementasyonu mümkün değil. Dışarıda yayımlanmış ayrı APK/db örnekleri varsa bilinmiyor. Gerçekte yayımlanan v4 APK'den güncel v4'e veri koruma/uyumluluk testleri öncelikli; eski şemaları uydurmak yasaktır.
+
+
+### 21.10.2026 — Canlı Supabase pg_cron ve migration kaynak eşitliği
+- **Gerçek migration envanteri:** `20261019073855_persistent_user_code_messaging`, `20261021160108_safe_relay_retention_20261021`, `20261021160752_enable_pgcron_for_safe_lanu_retention_20261021`, `20261021160807_schedule_lanu_safe_retention_daily_20261021`. GitHub `supabase/migrations/` dosya adları birebir bu gerçek kayıtlarla eşitlendi.
+- **Cron:** `pg_cron` v1.6.4 kuruldu. `lanu-safe-retention-daily` (jobid=1) **active=true**, `postgres` tarafından günlük `15 3 * * *` zamanında `public.lanu_prune_retained_data(500)` çalıştırmak üzere kaydedildi.
+- **İlk kontrollü üretim çağrısı:** `{"events":0,"nonces":34,"deleted_messages":0}`; sonradan kimlik=4, mesaj=2, event=14 ve **onaysız=13** korundu, nonce=0. Bu test işlevin gerçekte çalıştığını kanıtlar; cron'un ilk otomatik çalışması için ayrı `cron.job_run_details` kanıtı gereklidir.
+- **CI koruması:** `scripts/test_verify_supabase_migrations.py` canlı migration numaralarını, tekil sürümleri, eski ACK olayları + silinen/referanssız mesajlar kuralını ve günlük limitli cron'ı her PR'da doğrular; PGlite SQL davranış testleri ayrıca vardır.
+- **Rollback:** Yetkili bakım görevi `select cron.unschedule('lanu-safe-retention-daily');` ile durdurulabilir. Silinmiş eski nonce/event byte'ları bu işlemle geri alınamaz; veri yedeği/operasyon politikası hâlâ gereklidir.
