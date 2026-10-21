@@ -585,3 +585,12 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] Kalıcı sertifika ve gerçek Samsung A55 / ikinci Android üreticide adb install -r veri koruma testi.
 - [ ] Room v1-v3 gerçek fixture ve SQLCipher+WAL+tam restore/power-loss testleri.
 - [ ] E2EE gerçek iki cihaz, fonksiyonel UX / TalkBack ve sunucu retention otomatik cron sonuç denetimi.
+
+
+### [21-10-2026] — DB-DEVICE-GATE-01 Android Runtime kabul testleri
+- [ ] API 34 `allSevenTablesSurviveRealSQLiteCloseAndReopen`: yedi tablo, PIN, kod eşlemesi, kuyruk, geçmiş korunur.
+- [ ] API 34 `unknownHistoricalSchemaFailsClosedButKeepsOldRows`: bilinmeyen test v3 SQLite güvenli reddedilir ve kayıt korunur.
+- [ ] API 34 `crashedTransactionDoesNotLeaveOrphanedMessages`: yarıda kesilen Room transaction iz bırakmaz.
+- [ ] API 34 `androidBackupIsDisabledForInstalledApp`: manifest backup kapalıdır.
+- [ ] PR Android Runtime CI ve main Android Runtime CI yeşil; yayın bu kapıya bağlı.
+- [ ] Fiziksel Samsung/Xiaomi/Huawei, gerçek v1-v3 fixture, SQLCipher/WAL/recovery ve stable OTA ayrı P0. Emülatör = fiziksel kanıt değildir.

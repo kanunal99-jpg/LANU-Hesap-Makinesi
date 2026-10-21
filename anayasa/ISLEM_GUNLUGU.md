@@ -588,3 +588,9 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - PR #77: offline 215 bekleyen mesajın 200+15 batch olarak kayıpsız sıraya alınması; CI #260 full green; merge tamam.
 - En son başarılı main CI ve indirilebilir yeni Release dosyaları ayrıca doğrulanmadan koşullu 72/100 kesinleşmez.
 - Açık P0: kalıcı signing keystore, fiziksel iki farklı cihazda veri kayıpsız OTA, tarihî Room v1-v3 gerçek fixture ve bütünsel yerel şifreleme. Hedef 93.
+
+
+### [21-10-2026] — DB-DEVICE-GATE-01 cihaz/emülatör veri koruma testi
+- Yeni `RoomDevicePreservationTest` ile yedi tablo, bekleyen mesaj, bilinmeyen eski şema, atomik rollback ve Android backup disable kontrolleri.
+- GitHub Actions'ta Android API 34 runtime job yayın kapısına eklendi. İki CI işi başarılı değilse APK publish atlanır.
+- Testler CI üzerinden gerçekleşince durumu kanıt linkiyle güncelle. Fiziksel Samsung/Xiaomi/Huawei, gerçek tarihî migration, SQLCipher/WAL ve kalıcı signing hâlâ açık P0.

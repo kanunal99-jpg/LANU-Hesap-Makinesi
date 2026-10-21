@@ -352,3 +352,11 @@ Bu puanlar matematiksel sertifikasyon değil, testli geliştirme ve açık üret
 6. Canlı Supabase retention cron'un ilk bağımsız çalışma günlüğü, operasyonel restore ve KVKK denetimi son kabul için gerekli.
 
 **Otomatik çalışma sınırı:** GitHub CI/test/release takip edilebilir; kullanıcı telefonu veya özel keystore olmadan gerçek cihaz yükseltme yapıldığı iddia edilemez.
+
+
+### 21.10.2026 — P0 Android Runtime Room koruma kabul kapısı (DB-DEVICE-GATE-01)
+- **Kök neden:** Önceki CI yalnız JVM/Robolectric ve şema kontrolü çalıştırıyordu; `app/src/androidTest` gerçek Android Runtime yoluna bağlanmamıştı. Yeşil CI fiziksel veri korumasını kanıtlamıyordu.
+- **Düzeltme:** API 34 Android emülatörde yedi tablo reopen + bilinmeyen v3 fail-closed + transaction rollback + installed backup flag kontrolleri eklendi; release işi iki bağımsız test işine bağlandı.
+- **Kabul:** PR CI Android Runtime job ve main CI gerçekten yeşil olmadan başarılı olarak işaretlenemez. Emülatör sonucu gerçek Samsung/Xiaomi/Huawei fiziksel testlerinin yerine geçmez.
+- **Kalan P0:** tarihî v1-v3 gerçek şemalar, bütün Room SQLCipher/WAL şifreleme, key-loss kurtarma, iki aynı sertifikalı stable APK ve `adb install -r` cihaz kabulü. Bu engeller bitmeden `production ready` ilan edilmez.
+- **Ayrıntı:** `docs/P0_ANDROID_RUNTIME_DATABASE_GATE_2026-10-21.md`.
