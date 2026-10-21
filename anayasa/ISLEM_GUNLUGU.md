@@ -561,3 +561,9 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - 13 teslim onayı bekleyen olay korunuyor. 34 geçmiş nonce bulunuyor ama cron aktif değil; **canlı purge henüz çalıştırılmadı**.
 - Eski geçici debug APK sertifika uyumluluğu, gerçek Room migration, fiziksel Android cihazlar ve tam DB şifreleme hâlâ yayın engeli.
 - Ağırlıklı puan: 68 -> **70/100**, hedef 93/100. Her yeni puan gerçek CI ve dağıtım kanıtıyla değerlendirilir.
+
+
+### [21-10-2026] — SCHEMA-HISTORY-01 gerçek eski veritabanı sürümü sorgusu
+- GitHub AppDatabase.kt için 3 gerçek commit: `685d0775136c` (16.09), `125fabf6b28e` (19.10), `9e46f4d2cf2f` (20.10); üçü de Room v4.
+- İzlenen repo geçmişinden Room v1-v3 çıkarılamaz, böyle migration kodu üretilmedi.
+- Geçerli kabul kapısı: gerçek eski v4 APK/test fixture ile yedi tablo veri koruma ve aynı sertifikayla yükseltme. Harici önceki APK varsa ayrıca gerçek örneği.
