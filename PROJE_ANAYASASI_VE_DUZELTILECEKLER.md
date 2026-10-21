@@ -360,3 +360,35 @@ Bu puanlar matematiksel sertifikasyon değil, testli geliştirme ve açık üret
 - **Kabul:** PR CI Android Runtime job ve main CI gerçekten yeşil olmadan başarılı olarak işaretlenemez. Emülatör sonucu gerçek Samsung/Xiaomi/Huawei fiziksel testlerinin yerine geçmez.
 - **Kalan P0:** tarihî v1-v3 gerçek şemalar, bütün Room SQLCipher/WAL şifreleme, key-loss kurtarma, iki aynı sertifikalı stable APK ve `adb install -r` cihaz kabulü. Bu engeller bitmeden `production ready` ilan edilmez.
 - **Ayrıntı:** `docs/P0_ANDROID_RUNTIME_DATABASE_GATE_2026-10-21.md`.
+
+
+---
+
+### 21.10.2026 — LANU premium 90+ eylem sırası (UPGRADE-P0-20261021)
+
+**Talimat:** Önce #1 kalıcı APK imzası ve veri kayıpsız güvenli yükseltme; #2–#5 anayasa takip listesine alınır. Kod değişikliği ve başarılı CI hiçbir zaman gerçek cihaz kabulü sayılmaz.
+
+**#1 / P0 — Kalıcı APK sertifikası ve güvenli yükseltme — AÇIK, kısmen kodlandı**
+- Mevcut CI, korunan beş GitHub Actions imzalama sırrı tam sağlanınca imzayı SHA-256 ile doğrular, sürüm kodunu artırır ve imzalı sürümü ayrı etiketler. Sır yokken çıkan APK yalnız geçici debug'dır.
+- Bu iş paketinde stable APK yayımlanmadan önce **önceki stable release'in sertifika fingerprint'ini karşılaştıran** yeni CI kapısı ve altı regresyon testi hazırlandı; sertifika değişirse, eski signer yoksa veya bozuksa yayın durur. İlk stable APK ancak yeni başlangıç noktasıdır; eski geçici debug sürümlerini güncellediği iddia edilmez.
+- **Bloker:** Korunan kalıcı keystore/özel anahtar ve beş GitHub Actions Secrets değeri hesap sahibi tarafından sağlanmadıkça bu depo kalıcı imzalı APK üretemez. Sırlar sohbet, kod, issue, PR veya Release içine konmaz.
+- **Kabul:** İki ardışık stable APK'da aynı sertifika parmak izi ve artan versionCode; SHA-256 + anonim GitHub indirme doğrulaması; gerçek Samsung A55'te ilk stable sürüme PIN/kimlik/sohbet/geçmiş/ayar verisi ekleyip ikincisini uygulamayı kaldırmadan adb install -r ile yükleme; veri ve OTA koruması; önceki farklı imzalı debug kurulumları asla kaldırmaya zorlamama. Bu kanıtlar oluşmadan #1 kapanmaz.
+- İzleme: GitHub issue #16, #22 ve docs/ANDROID_APK_SIGNING_AND_UPGRADES_TR.md.
+
+**#2 / P0 — Yerel veritabanı ve kurtarma — BEKLİYOR**
+- Tam Room (WAL dâhil) şifreleme ve anahtar kaybı; gerçek yedek/geri yükleme, elektrik/ağ kesintisi ve migration rollback tasarımı. Tarihî v1-v3 veritabanı/şemaları olmadan sahte migration oluşturulmaz.
+- Kabul: gerçek örneklerde yıkımsız göç, Room v4 veri/kimlik/sohbet/rehber bütünlüğü ve cihaz kanıtı; destructive fallback yok.
+
+**#3 / P0-P1 — Gerçek cihaz ve canlı iletişim — BEKLİYOR**
+- Samsung A55, Xiaomi ve Huawei üzerinde OTA, kilit ekranı, pil, ağ kesintisi, performans; iki ayrı cihazda gerçek E2EE metin mesajı ve offline teslim/okundu testleri. Bağımsız kriptografi incelemesi.
+- Kabul: cihaz/Android/build kimlikli test raporları, canlı sunucu smoke, PIN/veri koruma; demo çağrılar gerçek WebRTC olarak sunulmaz.
+
+**#4 / P1 — Mimari, Crashlytics ve R8 — BEKLİYOR**
+- Manuel AppContainer'dan Hilt'e geçiş; Compose/MVVM, Coroutine/Flow ve güvenli exception handling. Gerçek Firebase projesi ve mahremiyet onayıyla Crashlytics; üretim release için R8/ProGuard.
+- Kabul: çalışan gerçek Crashlytics kayıtları (PII gizli), küçültülmüş imzalı release build, unit/integrasyon testleri, veri bütünlüğü.
+
+**#5 / P1 — Premium UX, performans ve yayın uygunluğu — BEKLİYOR**
+- A55 öncelikli FPS, RAM, CPU, pil, başlangıç, uzun ifade ve büyük hesap geçmişi ölçümleri; TalkBack, %200 yazı, 360dp, yatay/dikey ve tema/kontrast. KVKK, kalıcı gizlilik politikası ve silme/saklama akışları.
+- Kabul: en az iki fiziksel cihaz ölçümleri, üretim politikalarının yayımlanması, tüm açık P0'ların kapatılması ve güvenli imzalı APK'nin doğrulanması.
+
+**Kalite referansı:** 21.10.2026 itibarıyla kanıta dayalı 69/100 değerlendirmesi; 90+ yalnız hedef, gerçekleşmiş sonuç değildir. Sıra #1 → #2 → #3 → #4 → #5. Kullanıcı verisi korunmadan özellik etkinleştirilmez veya başarı iddiası kurulmaz.
