@@ -541,3 +541,13 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - **Kurtarma/UX:** Kullanıcı `createConversation` ile bilerek tekrar sohbet başlatınca işaret atomik temizlenir. `deleteConversation` aynı `syncMutex` altında senkronizasyonla seri çalışır.
 - **Test:** Daha önce cihaza gelmemiş eski E2EE olayıyla yeniden oluşmama, açıkça yeniden başlatınca yeni mesaj alabilme, silme hatasında sohbet işareti rollback.
 - **Sınır:** SQLite WAL/serbest alan eski byte izleri, sunucu retention ve diğer cihazlarda sohbet silme bu yerel işaretin kapsamında değildir.
+
+### [21-10-2026] — SERVER-RETENTION-01 güvenli sunucu yaşam döngüsü
+- Ayrı SQL migrasyonunda 30 gün ACK olay, 1 gün nonce, 90 gün silinmiş ve referanssız mesaj için korumalı ve partili silme işlevi yazıldı.
+- Silinmemiş mesaj ve teslim edilmemiş olaylar kesinlikle korunur. PGlite regresyon testleri eklendi.
+- Canlı veritabanı migrasyon ve bakım job'u kullanıcının Supabase tarafında dağıtılana kadar P1 operasyonel madde açık kalır.
+
+### [21-10-2026] — Supabase canlı relay v3 doğrulaması
+- LANU Code Messaging Supabase Edge Function `lanu-relay` v2 -> v3 dağıtıldı.
+- `verify_jwt=false` (LANU imzalı istek protokolü) korundu; yeni `core.mjs` `main` koduyla birebir eşit, işlev ACTIVE.
+- Sunucu yanıtları 16 MiB sınırla stream edilir; canlı çok cihazlı uçtan uca test hâlâ açık.
