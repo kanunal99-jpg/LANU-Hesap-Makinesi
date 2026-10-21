@@ -535,3 +535,16 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] Bounded batch ve geçersiz batch reddi; anon/authenticated SQL EXECUTE yasağı.
 - [ ] Node PGlite, Android CI, Room v4 hash, lint, APK ve sertifika doğrulama.
 - [ ] Canlı Supabase migration + planlı servis rolü bakım çalışması + operasyon yedeği (ayrı kabul).
+
+
+### [21-10-2026] — Çoklu P0/P1 gerçek test sonuçları
+- [x] PR #70: Node cevap boyutu sınırı regresyonları ve Android CI yeşil.
+- [x] PR #71: silinmiş sohbetin hiç alınmamış mesajla dirilmemesi, bilinçli yeni sohbet ve atomik rollback, Android CI yeşil.
+- [x] PR #73: 30 gün eski ACK edilmiş event, 1 gün eski nonce, 90 gün eski silinmiş/referanssız mesaj, yetkisiz SQL çalıştırma yasağı ve 1–5000 batch PGlite testleri; Android CI yeşil.
+- [x] Live Supabase Edge `lanu-relay` v3 ACTIVE ve main kodu ile eşit.
+- [x] Live SQL migration, 3 retention indeksi ve sadece `service_role` EXECUTE yetkisi.
+- [x] Live RLS beş tabloda açık, `anon`/`authenticated` doğrudan SELECT yasağı.
+- [ ] Live HTTP POST/GET smoke ve iki gerçek cihazla mesajlaşma/OTA (ağ erişimi veya cihaz araçları bu oturumda yok).
+- [ ] `pg_cron` bakımı ve yeniden denemeye dayanıklı otomatik temizleme; canlı bakım fonksiyonu henüz çalıştırılmadı.
+- [ ] Kalıcı Android APK imzası, gerçek cihazda uninstall olmadan yükseltme; tarihî Room 1-3; tüm yerel SQL at-rest şifreleme.
+- [ ] Son main CI + yeni GitHub Release APK asset kontrolü (mergelenen son commit için ayrı yapılır).
