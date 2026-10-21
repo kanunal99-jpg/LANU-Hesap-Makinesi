@@ -45,6 +45,19 @@ export async function readBoundedRequest(request, maxBytes = 100000) {
     reader.releaseLock();
   }
 }
+/**
+ * PostgREST results can contain up to 200 inbox events. Stream with a hard
+ * decompressed-byte ceiling; response.text() otherwise buffers arbitrary
+ * server data before JSON parsing and can exhaust the Edge Function.
+ */
+export async function readBoundedResponse(response, maxBytes = 16 * 1024 * 1024) {
+  try {
+    return await readBoundedRequest(response, maxBytes);
+  } catch {
+    // Never expose PostgREST/transport internals or raw data to the client.
+    throw new RelayError(503, 'Mesajlaşma sunucusu yanıtı güvenli sınırları aştı.');
+  }
+}
 function decode(value) { return Uint8Array.from(atob(value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=')), c => c.charCodeAt(0)); }
 async function digest(value) { return new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(value))); }
 export async function publicId(publicKey) { return [...await digest(publicKey)].map(v => v.toString(16).padStart(2, '0')).join(''); }
@@ -158,7 +171,8 @@ export class RestStore {
   constructor(url, serviceKey, fetcher = fetch) { this.url = url.replace(/\/$/, '') + '/rest/v1/'; this.serviceKey = serviceKey; this.fetcher = fetcher; }
   async query(path, method = 'GET', data, prefer) {
     const response = await this.fetcher(this.url + path, { method, headers: { apikey: this.serviceKey, ...(this.serviceKey.startsWith('sb_secret_') ? {} : { Authorization: 'Bearer ' + this.serviceKey }), 'Content-Type': 'application/json', ...(prefer ? { Prefer: prefer } : {}) }, ...(data === undefined ? {} : { body: JSON.stringify(data) }) });
-    const raw = await response.text();
+    // Read only bounded UTF-8 response bytes, cancelling oversized streams.
+    const raw = await readBoundedResponse(response);
     let parsed; try { parsed = raw ? JSON.parse(raw) : null; } catch { throw new RelayError(503, 'Sunucu yanıtı okunamadı.'); }
     if (!response.ok) {
       if (response.status === 409) throw new RelayError(409, 'Kayıt çakıştı; tekrar deneyin.');
