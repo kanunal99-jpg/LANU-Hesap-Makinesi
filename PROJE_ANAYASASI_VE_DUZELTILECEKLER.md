@@ -313,3 +313,10 @@ Bu puanlar matematiksel sertifikasyon değil, testli geliştirme ve açık üret
 - **İlk kontrollü üretim çağrısı:** `{"events":0,"nonces":34,"deleted_messages":0}`; sonradan kimlik=4, mesaj=2, event=14 ve **onaysız=13** korundu, nonce=0. Bu test işlevin gerçekte çalıştığını kanıtlar; cron'un ilk otomatik çalışması için ayrı `cron.job_run_details` kanıtı gereklidir.
 - **CI koruması:** `scripts/test_verify_supabase_migrations.py` canlı migration numaralarını, tekil sürümleri, eski ACK olayları + silinen/referanssız mesajlar kuralını ve günlük limitli cron'ı her PR'da doğrular; PGlite SQL davranış testleri ayrıca vardır.
 - **Rollback:** Yetkili bakım görevi `select cron.unschedule('lanu-safe-retention-daily');` ile durdurulabilir. Silinmiş eski nonce/event byte'ları bu işlemle geri alınamaz; veri yedeği/operasyon politikası hâlâ gereklidir.
+
+
+### 21.10.2026 — P0 E2EE kişi güven anahtarlarının atomik kaydı (PEER-TRUST-TX-01)
+- **Bulgu:** `savePeer` doğrulanmış kişinin public key / ID / code alias ve sohbet eşlemesini birden çok Room yazımıyla kaydediyordu. İkinci yazmada SQLite hatası/çökme kısmi güven haritası bırakabiliyor, kişi doğrulanmış görünürken gönderme/çözme tutarlılığını bozabiliyordu.
+- **Düzeltme:** `ensureIdentity` ile hesap ID'si işlem öncesinde alınır; `database.withTransaction` içinde eski public-key continuity kontrolü, bütün `lanu_peer_*` alias'ları, kişinin güncellenmesi ve sohbet kaydı beraber commit edilir ya da beraber rollback olur.
+- **Regresyon:** Alias kaydına hata enjekte et ve tüm map alanlarının temiz kaldığını doğrula; contact DAO hata verdiğinde eski kişi kaydı ve bütün haritalar korunmalı. Hata giderildikten sonraki `synchronize` başarılı olmalı.
+- **Sınır:** İki fiziksel cihaz E2EE trafiği, server retention ve Signal tarzı forward secrecy ayrı P0. Room v4 şema değişmedi.
