@@ -580,3 +580,11 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 ### [21-10-2026] — PEER-TRUST-TX-01 kişi kripto kimlik atomikliği
 - ECDSA onaylı kişi kimliği için ID/code/sohbet bağlarının ve contact kaydının tek Room transaction içinde korunması.
 - İki kasıtlı SQLite hata enjeksiyonu ve tekrar sync regresyonu. GitHub PR/CI başarılı olmadan teslim veya puan artışı yazılmaz.
+
+
+### [21-10-2026] — PEER-TRUST-TX-01 + APK-PUBLISH-01 + OFFLINE-BATCH-01 eşzamanlı teslim
+- PR #75: iki hata enjeksiyonlu E2EE kişi key-alias/contact atomiklik testleri CI #258 full green; merge tamam.
+- PR #76: herkese açık GitHub Release URL'lerinden APK, SHA256 ve signer tekrar indirme, önceden test edilmiş CI bytes/sha ile karşılaştırma; altı offline regresyon testi CI #259 full green; merge tamam.
+- PR #77: offline 215 bekleyen mesajın 200+15 batch olarak kayıpsız sıraya alınması; CI #260 full green; merge tamam.
+- En son başarılı main CI ve indirilebilir yeni Release dosyaları ayrıca doğrulanmadan koşullu 72/100 kesinleşmez.
+- Açık P0: kalıcı signing keystore, fiziksel iki farklı cihazda veri kayıpsız OTA, tarihî Room v1-v3 gerçek fixture ve bütünsel yerel şifreleme. Hedef 93.

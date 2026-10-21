@@ -320,3 +320,35 @@ Bu puanlar matematiksel sertifikasyon değil, testli geliştirme ve açık üret
 - **Düzeltme:** `ensureIdentity` ile hesap ID'si işlem öncesinde alınır; `database.withTransaction` içinde eski public-key continuity kontrolü, bütün `lanu_peer_*` alias'ları, kişinin güncellenmesi ve sohbet kaydı beraber commit edilir ya da beraber rollback olur.
 - **Regresyon:** Alias kaydına hata enjekte et ve tüm map alanlarının temiz kaldığını doğrula; contact DAO hata verdiğinde eski kişi kaydı ve bütün haritalar korunmalı. Hata giderildikten sonraki `synchronize` başarılı olmalı.
 - **Sınır:** İki fiziksel cihaz E2EE trafiği, server retention ve Signal tarzı forward secrecy ayrı P0. Room v4 şema değişmedi.
+
+
+### 21.10.2026 — Proje koordinatörlüğü: E2EE güven, APK yayını, offline ölçek (TUR-20261021)
+
+**Güncel doğrulanmış temel:** main CI #257 tamamen yeşil, debug.257 APK/sha256/signer GitHub Releases erişilebilir. Debug sertifikası yerinde üretim OTA garantisi değildir.
+
+**Bu turda ayrı ayrı PR CI + merge tamamlanan işler:**
+- PR #75 PEER-TRUST-TX-01: ECDSA doğrulanmış kişi ID / public key / LANU kod alias'ları ve sohbet iletişim kaydı tek Room transaction. Şifreli ID eşlemesi/kişi DAO hatasıyla rollback ve tekrar sync regresyonları (GitHub Actions #258).
+- PR #76 APK-PUBLISH-01: Build + apksigner + checksum sonrasında GitHub Release APK, SHA256 ve signer dosyalarını anonim HTTPS adresinden gerçekten yeniden indir; byte-byte CI artifact eşitliği, SHA256, signing-mode ve cihaz upgrade=false metadata doğrula. Altı verifier regresyonu (PR Actions #259); gerçek birleşik main publish koşusu ayrıca doğrulanacak.
+- PR #77 OFFLINE-BATCH-01: en eski 200 PENDING/WAITING mesajı sabit timestamp+ID sırasıyla işle; 215 bekleyen ve 5 gönderilmiş mesaj testi hiçbir satırın silinmediğini, iki turda kuyruğun boşalabildiğini doğrular (PR Actions #260).
+
+**Kalem kalem puan (bağımsız üretim kanıtı eksik):**
+| Kategori | Ağırlık | Mevcut doğrulanan | Bu turun main+Release testleri geçerse | Nihai hedef |
+|---|---:|---:|---:|---:|
+| Güvenlik / kimlik | 30% | 80 | 82 | 95 |
+| Yerel veri / kurtarma | 25% | 60 | 62 | 95 |
+| E2EE / mesajlaşma | 15% | 64 | 67 | 90 |
+| CI / APK / OTA yayın | 15% | 87 | 90 | 95 |
+| UX / performans | 15% | 55 | 55 | 85 |
+| **Ağırlıklı toplam** | **100%** | **70/100** | **72/100 (koşullu)** | **93/100** |
+
+**Yayın kabulü:** PR'ların geçtiği testleri gerçek cihaz/production testleri sayma. Sadece main'deki son commit için main build/test/lint/signer/sha256 ve yeni anonim GitHub Release APK indirme kontrolü yeşilse 72/100 kabul edilir.
+
+**Açık yüksek etkili üretim P0:**
+1. Hesap sahibinin güvenli GitHub Secrets alanına kalıcı APK keystore + 4 parola/alias/fingerprint bileşenlerini eksiksiz eklemesi; aynı sertifikayla iki ardışık artan versionCode APK, Samsung A55 üzerinde adb install -r ve PIN/kimlik/mesajların korunması. Debug eski APK kaldırma kesinlikle önermeme.
+2. Gerçek tarihi Room v1-v3 uygulama/veritabanı şema örnekleri varsa elde et; bunlar depoda olmadığından hayali migration üretme. Mevcut gerçek Room v4 kurulum verisinin güncellemeyle kalıcılığına fiziksel cihazda test ekle.
+3. Kesintiye dayanıklı SQLCipher benzeri yerel veritabanı şifreleme ve plaintext-WAL kalıntı temizleme, gerçek kimlik anahtarı / tam veri yedeği ve veri geri yükleme kanıtları. Kullanıcının verisini silen fallback yasak.
+4. Samsung A55 + Xiaomi + HMS'li veya GMS'siz Huawei gerçek iki kullanıcı ile E2EE teslim/read, offline, çoklu 200'lü backlog, silme/replay, OTA ve TalkBack testi; dış kripto protokolü incelemesi.
+5. Firebase gerçek yapılandırma ve kullanıcı mahremiyeti onayı olmadan Crashlytics etkin gösterme; Hilt/MVVM, ergonomi ve büyük veri performans testleri hâlâ P1.
+6. Canlı Supabase retention cron'un ilk bağımsız çalışma günlüğü, operasyonel restore ve KVKK denetimi son kabul için gerekli.
+
+**Otomatik çalışma sınırı:** GitHub CI/test/release takip edilebilir; kullanıcı telefonu veya özel keystore olmadan gerçek cihaz yükseltme yapıldığı iddia edilemez.
