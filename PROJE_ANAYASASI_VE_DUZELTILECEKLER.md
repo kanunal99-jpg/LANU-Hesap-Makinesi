@@ -299,3 +299,9 @@ Bu puanlar matematiksel sertifikasyon değil, testli geliştirme ve açık üret
 - P0: Samsung A55, Xiaomi, Huawei üzerinde iki farklı kullanıcı/cihazla E2EE, çevrim dışı, OTA ve erişilebilirlik testleri; dış kriptografi gözden geçirmesi.
 - P1: Supabase `pg_cron` veya kontrollü bakım zamanlaması, öncesinde operasyon yedeği, silinen kayıtların denetlenmesi; SMS/telefon verisi, düz metin message body ve istemcide service-role key asla kullanılmaz.
 - P1: Hilt ve Crashlytics ile premium arayüz/performans; uygun gerçek Firebase yapılandırması olmadan etkin ilan edilmez.
+
+
+#### 21.10.2026 — Tarihî Room kök neden kanıtı (SCHEMA-HISTORY-01)
+- GitHub `app/src/main/java/com/example/core/database/AppDatabase.kt` dosyasının mevcut depo geçmişindeki tüm kayıtları kontrol edildi: ilk takip edilen commit `685d0775136c` (16.09.2026) **version = 4 / exportSchema = false**; `125fabf6b28e` (19.10.2026) **version = 4**; `9e46f4d2cf2f` (20.10.2026) **version = 4 / exportSchema = true**.
+- Yedi tablo tüm izlenebilen sürümlerde korunmuş; 16.09 sürümü eski `fallbackToDestructiveMigration()` kullanmış, 19.10'da kaldırılmış.
+- **Kanıt sınırı:** Bu depo yolu geçmişinde doğrulanabilir v1-v3 şeması bulunmadığından gerçek v1-v3 migration implementasyonu mümkün değil. Dışarıda yayımlanmış ayrı APK/db örnekleri varsa bilinmiyor. Gerçekte yayımlanan v4 APK'den güncel v4'e veri koruma/uyumluluk testleri öncelikli; eski şemaları uydurmak yasaktır.
