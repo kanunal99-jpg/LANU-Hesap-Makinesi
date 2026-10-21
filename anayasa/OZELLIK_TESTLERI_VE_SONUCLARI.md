@@ -566,3 +566,10 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [x] Güvenli SQL fonksiyonu sadece service_role tarafından EXECUTE edilebilir; anon/authenticated reddi canlı doğrulandı.
 - [ ] İlk cron zamanlı koşunun `cron.job_run_details` kaydı ve dış DB backup/restore tatbikatı.
 - [ ] `scripts/test_verify_supabase_migrations.py` ve güncel isimli PGlite migration fixture için yeni PR CI + main CI yeşil.
+
+
+### [21-10-2026] — PEER-TRUST-TX-01 kabul kapıları
+- [ ] İkinci alias kaydında hata: peer ID, peer code ve conversation map birlikte rollback.
+- [ ] Kişi kaydına hata: önceki kişi ve güven haritaları değişmeden kalır; tekrar sync başarılı.
+- [ ] Android unit/Robolectric, Room schema hash, lint, APK ve imza/SHA256 CI başarılı.
+- [ ] Gerçek Samsung A55 + farklı marka Android üzerinde iki cihazlı E2EE (ayrı P0).
