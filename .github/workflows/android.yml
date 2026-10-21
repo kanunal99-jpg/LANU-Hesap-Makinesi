@@ -84,6 +84,9 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_verify_android_privacy.py'
           python3 scripts/verify_android_privacy.py
 
+      - name: Test published APK read-back verification
+        run: python3 -m unittest discover -s scripts -p 'test_verify_published_apk.py'
+
       - name: Run Android Lint
         run: ./gradlew :app:lintDebug --no-daemon --stacktrace
 
@@ -244,6 +247,11 @@ jobs:
     env:
       GH_REPO: ${{ github.repository }}
     steps:
+      - name: Checkout release verification policy
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
       - name: Download verified APK artifact
         uses: actions/download-artifact@v4
         with:
@@ -312,3 +320,29 @@ jobs:
             --title "LANU CALCULATOR $TAG" \
             --notes "Commit: $GITHUB_SHA. $NOTES" \
             --prerelease
+
+      # Verification MUST happen from anonymous public HTTPS download URLs,
+      # not from the build runner's private artifact or authenticated API.
+      - name: Re-download public APK and prove published bytes
+        if: steps.publish_guard.outputs.publish == 'true'
+        shell: bash
+        env:
+          SIGNING_MODE: ${{ steps.publish_guard.outputs.mode }}
+        run: |
+          set -euo pipefail
+          if [ "$SIGNING_MODE" = "stable" ]; then
+            TAG="v1.1.0-signed.${{ github.run_number }}"
+          else
+            TAG="v1.0.0-debug.${{ github.run_number }}"
+          fi
+          dir="$RUNNER_TEMP/lanu-public-download"
+          mkdir -p "$dir"
+          for file in app-debug.apk app-debug.apk.sha256 app-debug.apk.signer.txt; do
+            curl --silent --show-error --fail --location --retry 4 \
+              --retry-all-errors --retry-delay 2 --max-time 180 \
+              --proto '=https' --proto-redir '=https' \
+              "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$file" \
+              --output "$dir/$file"
+          done
+          python3 scripts/verify_published_apk.py "$dir" "$RUNNER_TEMP/lanu-verified" "$SIGNING_MODE"
+          echo "Publicly downloadable APK verified for $TAG"
