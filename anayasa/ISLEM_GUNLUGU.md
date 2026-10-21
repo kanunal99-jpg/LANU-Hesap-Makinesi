@@ -575,3 +575,8 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - Kontrollü SQL uygulaması sonuç: events=0, nonces=34, deleted_messages=0. Sonraki DB sayımı: 4 kimlik, 2 mesaj, 14 olay ve 13 bekleyen olay.
 - GitHub migration sürüm numaraları canlı envantere eşitlendi; Node Postgres test yolu güncellendi; CI'da sürüm tekilliği ve cron/retention invariantları eklendi.
 - Bir sonraki bağımsız cron zamanının çalışması, job_run_details ve gerçek Android cihaz testleri ayrı doğrulama olarak açık.
+
+
+### [21-10-2026] — PEER-TRUST-TX-01 kişi kripto kimlik atomikliği
+- ECDSA onaylı kişi kimliği için ID/code/sohbet bağlarının ve contact kaydının tek Room transaction içinde korunması.
+- İki kasıtlı SQLite hata enjeksiyonu ve tekrar sync regresyonu. GitHub PR/CI başarılı olmadan teslim veya puan artışı yazılmaz.
