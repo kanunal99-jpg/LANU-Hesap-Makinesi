@@ -520,3 +520,12 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - **Düzeltme:** `RestStore.query` PostgREST gövdesini akış sırasında (en fazla 16 MiB, dekompresyon sonrası) denetleyerek okur; Content-Length yalanı, UTF-8 bozulması veya sınır aşımı güvenli 503 hatasıyla reddedilir. Ham PostgREST hata/verisi sızdırılmaz.
 - **Test:** gerçek JSON, büyük Content-Length, chunked aşımda stream cancel, geçersiz UTF-8, PostgREST 403 hata redaksiyonu ve `RestStore` doğrudan sınır testi.
 - **Açık:** İki farklı fiziksel cihazla ağ/latency, üretim sunucu gözlemi, saklama/TTL ve genel oran sınırları ayrı kabul kapısıdır.
+
+
+### [21-10-2026] — SERVER-RETENTION-01 Postgres kabul testleri
+- [ ] Eski ACK edilmiş event silinir, hiç ACK edilmemiş olay yaşından bağımsız korunur.
+- [ ] 1 günü aşan nonce global temizlenir, yeni nonce korunur.
+- [ ] 90 gün geçmiş açıkça silinmiş + hiçbir bağlı olay kalmamış mesaj kaldırılır; canlı/yeniler korunur.
+- [ ] Bounded batch ve geçersiz batch reddi; anon/authenticated SQL EXECUTE yasağı.
+- [ ] Node PGlite, Android CI, Room v4 hash, lint, APK ve sertifika doğrulama.
+- [ ] Canlı Supabase migration + planlı servis rolü bakım çalışması + operasyon yedeği (ayrı kabul).
