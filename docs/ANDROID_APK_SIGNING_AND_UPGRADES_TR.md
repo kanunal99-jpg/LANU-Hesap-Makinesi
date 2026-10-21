@@ -49,3 +49,10 @@ Her iki yayına `app-debug.apk`, `app-debug.apk.sha256` ve herkese açık sertif
 ## Fiziksel doğrulama durumu
 
 CI unit, Robolectric, lint, build, paket versionCode, imza parmak izi ve SHA-256 kontrol eder. Gerçek telefonla yükseltme veya iki kişi arasında mesajlaşma için emülatör/telefon erişimi gereklidir; sadece CI başarısına dayanarak `production ready` denmez.
+
+
+## 21.10.2026 — Stable sertifika sürekliliği için yeni CI kapısı
+
+Yeni scripts/verify_stable_signer_continuity.py kontrolü, GitHub Release yayımlanmadan önce yeni stable APK signer raporunu önceki stable Release'in signer raporuyla karşılaştırır. SHA-256 imza parmak izi farklıysa, önceki rapor bozuk/eksikse veya herhangi biri stable değilse **yayını durdurur**. Altı regresyon senaryosu kodlanmıştır. İlk stable yayın önceki stable olmadığından yalnız bir baseline oluşturur; eski geçici debug APK üzerine veri kayıpsız güncelleme vaadi değildir.
+
+Bu kontrol mevcut apksigner ve SHA-256 doğrulaması ile public-download read-back kontrollerine eklenir. İlk stable APK'yi hesap sahibinin GitHub Secrets alanında bulunan beş sırla üretmek gerekir; sırların hazırlanıp eklenmesi bu kod değişikliğinin parçası değildir. Aynı sertifikayla iki sürümün ve gerçek telefonda adb install -r ile yerinde yükseltmenin doğrulanması ayrıca gerekir. Keystore ve parolalar asla depoya, sohbetlere veya sürüm eklerine yazılmaz.
