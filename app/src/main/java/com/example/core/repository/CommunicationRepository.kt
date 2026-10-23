@@ -1,6 +1,8 @@
 package com.example.core.repository
 
 import androidx.room.withTransaction
+import android.content.Context
+import android.net.Uri
 import com.example.core.crypto.CryptoUtils
 import com.example.core.database.*
 import com.example.core.messaging.*
@@ -22,7 +24,8 @@ class CommunicationRepository(
     private val callLogDao: CallLogDao,
     private val identityStore: MessagingIdentityStore,
     private val relay: MessagingRelay,
-    private val database: AppDatabase
+    private val database: AppDatabase,
+    private val mediaTransport: SecureMediaTransport = SecureMediaTransport()
 ) {
     val contacts = contactDao.getAllContacts().map { list -> list.filter { UserCodes.normalize(it.phoneNumber).isNotBlank() } }
     val conversations = conversationDao.getAllConversations()
@@ -249,16 +252,76 @@ class CommunicationRepository(
         }
     }
 
-    suspend fun sendMessage(conversationId: String, text: String, mediaUrl: String? = null, onTypingStateChange: (suspend (Boolean) -> Unit)? = null): String {
+    suspend fun sendMessage(conversationId: String, text: String, mediaUrl: String? = null, onTypingStateChange: (suspend (Boolean) -> Unit)? = null, preparedId: String? = null): String {
         require(mediaUrl == null) { "Medya aktarımı henüz etkin değil; metin mesajı gönderebilirsiniz." }
         require(text.isNotBlank() && text.length <= 8000) { "Mesaj 1–8000 karakter olmalıdır." }
         val own = ensureIdentity()
         val peer = peerForConversation(conversationId) ?: throw IllegalStateException("Kişinin kodunu sunucudan doğrulayın.")
-        val id = UUID.randomUUID().toString()
+        val id = preparedId ?: UUID.randomUUID().toString()
+        require(runCatching { UUID.fromString(id).toString() == id }.getOrDefault(false)) {
+            "Mesaj kimliği doğrulanamadı."
+        }
         val encrypted = PeerMessageCrypto.encrypt(own, peer.getString("id"), peer.getString("publicKey"), id, text)
         messageDao.insertMessage(MessageEntity(id, conversationId, own.id, userProfileDao.getUserProfile()?.displayName ?: "Ben", encrypted, status = "PENDING"))
         conversationDao.getConversationById(conversationId)?.let { conversationDao.insertConversation(it.copy(lastMessageText = "Şifreli mesaj", lastMessageTime = System.currentTimeMillis())) }
         return id
+    }
+
+    data class ReceivedMedia(val name: String, val mime: String, val bytes: ByteArray)
+
+    /** Only user-selected input; never send a plaintext file or public media URL. */
+    suspend fun sendMedia(conversationId: String, context: Context, uri: Uri, photo: Boolean): String {
+        val own = registerRemote()
+        val peer = peerForConversation(conversationId) ?: error("Karşı tarafın anahtarı doğrulanamadı.")
+        val peerId = peer.getString("id")
+        val peerKey = peer.getString("publicKey")
+        val id = UUID.randomUUID().toString()
+        val clear = withContext(Dispatchers.IO) {
+            SecureMediaPicker.read(context.applicationContext, uri, photo)
+        }
+        val encrypted = withContext(Dispatchers.Default) {
+            SecureMediaAttachment.encrypt(own, peerId, peerKey, id, clear.bytes)
+        }
+        val requested = relay.request(own, "mediaUpload", JSONObject()
+            .put("messageId", id).put("peerId", peerId)
+            .put("cipherBytes", encrypted.ciphertext.size).put("cipherSha256", encrypted.sha256))
+        mediaTransport.upload(requested.getString("uploadUrl"), own.id, id, encrypted.ciphertext)
+        val manifest = SecureMediaAttachment.Manifest(
+            clear.name, clear.mime, encrypted.ciphertext.size, encrypted.sha256)
+        // Encrypted text manifest carries filename, type and hash to both users.
+        // No plaintext filename/URL appears in the relay's message table.
+        return sendMessage(conversationId, manifest.serialize(), preparedId = id)
+    }
+
+    /** Download only a locally authenticated media message by its exact ID. */
+    suspend fun receiveMedia(conversationId: String, messageId: String): ReceivedMedia {
+        val own = ensureIdentity()
+        val stored = messageDao.getMessage(messageId)
+            ?: error("Dosya mesajı bulunamadı.")
+        require(stored.conversationId == conversationId && stored.content.startsWith("lanu2:")) {
+            "Dosya mesaj kimliği doğrulanamadı."
+        }
+        val peer = peerForConversation(conversationId) ?: error("Karşı tarafın anahtarı eksik.")
+        val peerId = peer.getString("id")
+        val peerKey = peer.getString("publicKey")
+        val decryptedManifest = PeerMessageCrypto.decrypt(own, peerId, peerKey,
+            stored.id, stored.senderPhone, stored.content)
+        val manifest = SecureMediaAttachment.parseManifest(decryptedManifest)
+            ?: error("Bu mesaj bir dosya değil.")
+        val result = relay.request(own, "mediaDownload", JSONObject().put("messageId", messageId))
+        require(result.getInt("cipherBytes") == manifest.size &&
+            result.getString("cipherSha256") == manifest.sha256) {
+            "Alıcıdaki dosya bilgisiyle sunucu uyuşmuyor."
+        }
+        val senderId = stored.senderPhone
+        require(senderId == own.id || senderId == peerId) { "Medya göndericisi geçersiz." }
+        val frame = mediaTransport.download(
+            result.getString("downloadUrl"), senderId, messageId, manifest.size)
+        val plaintext = withContext(Dispatchers.Default) {
+            SecureMediaAttachment.decrypt(own, peerId, peerKey, messageId, senderId,
+                frame, manifest.sha256)
+        }
+        return ReceivedMedia(manifest.name, manifest.mime, plaintext)
     }
 
     suspend fun synchronize(activeConversationId: String? = null) = syncMutex.withLock {
