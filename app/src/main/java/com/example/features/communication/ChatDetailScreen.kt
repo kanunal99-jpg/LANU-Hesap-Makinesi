@@ -66,15 +66,8 @@ fun ChatDetailScreen(
     var isSelfDestructEnabled by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
-    val triggerVibration = {
-        val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createOneShot(30, VibrationEffect.DEFAULT_AMPLITUDE))
-        } else {
-            @Suppress("DEPRECATION")
-            vibrator.vibrate(30)
-        }
-    }
+    // Silent UI policy: no sound or haptic feedback for chat actions.
+    val triggerVibration: () -> Unit = {}
 
     androidx.lifecycle.compose.LifecycleResumeEffect(conversationId) {
         viewModel.selectConversation(conversationId)
@@ -433,13 +426,7 @@ fun MessageBubble(
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onLongPress = {
-                            val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                vibrator?.vibrate(VibrationEffect.createOneShot(40, VibrationEffect.DEFAULT_AMPLITUDE))
-                            } else {
-                                @Suppress("DEPRECATION")
-                                vibrator?.vibrate(40)
-                            }
+                            // Long-press menu remains available without vibration.
                             showMenu = true
                         }
                     )
