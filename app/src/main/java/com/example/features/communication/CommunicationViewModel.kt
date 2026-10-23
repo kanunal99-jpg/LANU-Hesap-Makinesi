@@ -1,5 +1,7 @@
 package com.example.features.communication
 
+import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -36,6 +38,10 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
     val busy = _busy.asStateFlow()
     private val _isSending = MutableStateFlow(false)
     val isSending = _isSending.asStateFlow()
+    private val _loadedMedia = MutableStateFlow<Map<String, CommunicationRepository.ReceivedMedia>>(emptyMap())
+    val loadedMedia = _loadedMedia.asStateFlow()
+    private val _downloadingMediaId = MutableStateFlow<String?>(null)
+    val downloadingMediaId = _downloadingMediaId.asStateFlow()
     enum class NetworkState { ONLINE, OFFLINE, RECONNECTING, UNCONFIGURED }
     private val _networkState = MutableStateFlow(if (repository.relayConfigured) NetworkState.OFFLINE else NetworkState.UNCONFIGURED)
     val networkState = _networkState.asStateFlow()
@@ -136,6 +142,10 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
         }
     }
     fun leaveConversation(id: String) {
+        // Keep decrypted attachment bytes only in volatile memory for the active chat.
+        _loadedMedia.value = emptyMap()
+        _downloadingMediaId.value = null
+
         if (_activeConversation.value?.id == id) {
             messagesCollectorJob?.cancel()
             _activeConversation.value = null
@@ -182,8 +192,34 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
             }
         }
     }
-    fun sendMediaMessage(caption: String, mediaUrl: String) {
-        _errorMessage.value = "Medya aktarımı henüz etkin değil. Metin mesajı gönderebilirsiniz."
+    fun sendMedia(context: Context, uri: Uri, photo: Boolean) {
+        if (_isSending.value) return
+        _isSending.value = true
+        operation {
+            try {
+                repository.sendMedia(_activeConversation.value?.id
+                    ?: error("Sohbet henüz seçilmedi."), context, uri, photo)
+                synchronize()
+            } finally {
+                _isSending.value = false
+            }
+        }
+    }
+
+    fun downloadMedia(conversationId: String, messageId: String) {
+        if (_loadedMedia.value.containsKey(messageId) || _downloadingMediaId.value != null) return
+        _downloadingMediaId.value = messageId
+        operation {
+            try {
+                val received = repository.receiveMedia(conversationId, messageId)
+                // Never persist decrypted private media to the public Downloads directory.
+                if (_activeConversation.value?.id == conversationId) {
+                    _loadedMedia.value = _loadedMedia.value + (messageId to received)
+                }
+            } finally {
+                _downloadingMediaId.value = null
+            }
+        }
     }
     fun insertSystemMessage(partnerName: String, text: String) { /* Call UI demos never create a delivered remote message. */ }
     fun addReaction(messageId: String, emoji: String) = operation { repository.addReaction(messageId, emoji); synchronize() }
