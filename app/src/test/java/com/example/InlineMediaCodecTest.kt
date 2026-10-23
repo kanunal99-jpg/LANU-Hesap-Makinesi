@@ -12,6 +12,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.util.UUID
+import java.io.ByteArrayInputStream
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -78,6 +79,23 @@ class InlineMediaCodecTest {
             val doc = InlineMediaCodec.encode("pic.jpg", "image/jpeg", jpeg)
             assertArrayEquals(jpeg, InlineMediaCodec.decode(doc).bytes)
         } finally { bitmap.recycle() }
+    }
+
+    @Test fun sourceReaderRejectsOversizedDataBeforeDecoder() {
+        val valid = ByteArray(512) { 42 }
+        assertArrayEquals(valid, InlineMediaPreparer.readBoundedInput(
+            ByteArrayInputStream(valid), 512
+        ))
+        reject {
+            InlineMediaPreparer.readBoundedInput(
+                ByteArrayInputStream(ByteArray(513) { 42 }), 512
+            )
+        }
+    }
+
+    @Test fun emptyOrMalformedMediaNeverQueueAsAnAttachment() {
+        reject { InlineMediaCodec.encode("empty.pdf", "application/pdf", byteArrayOf()) }
+        reject { InlineMediaCodec.decode("lanu-media-v1:" + "{}") }
     }
 
     @Test fun largestInlineDocumentSurvivesAuthenticPeerEncryption() {

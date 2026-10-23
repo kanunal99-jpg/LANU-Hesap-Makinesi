@@ -1,12 +1,6 @@
 package com.example.features.communication
 
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.net.Uri
-import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -19,62 +13,29 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.core.media.InlineMediaCodec
-import com.example.core.media.InlineMediaPreparer
-import kotlinx.coroutines.launch
 
 /**
- * Private gallery/camera/system-document intents. No READ_MEDIA_* permission.
- * The confirmation previews the actual stripped/compressed payload that will
- * be encrypted, not the possibly metadata-bearing original.
+ * UI only. The parent FragmentActivity owns ActivityResultRegistry launchers,
+ * so results aren't lost when the private chat locks while a system picker is open.
+ * The PIN-gated ViewModel retains a short-lived draft in process memory.
  */
 @Composable
 fun InlineMediaComposer(
     enabled: Boolean,
+    pendingEnvelope: String?,
+    onPhoto: () -> Unit,
+    onCamera: () -> Unit,
+    onDocument: () -> Unit,
+    onCancel: () -> Unit,
     onSend: (String, () -> Unit) -> Unit
 ) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
-    var processing by remember { mutableStateOf(false) }
-    var pendingEnvelope by remember { mutableStateOf<String?>(null) }
-
-    fun prepare(operation: suspend () -> String) {
-        if (processing || !enabled) return
-        processing = true
-        scope.launch {
-            try {
-                pendingEnvelope = operation()
-            } catch (e: Exception) {
-                Toast.makeText(context, e.message ?: "Dosya hazırlanamadı.", Toast.LENGTH_LONG).show()
-            } finally {
-                processing = false
-            }
-        }
-    }
-
-    val imagePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri: Uri? ->
-        if (uri != null) prepare { InlineMediaPreparer.imageFromPicker(context, uri) }
-    }
-    val cameraPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicturePreview()
-    ) { bitmap: Bitmap? ->
-        if (bitmap != null) prepare { InlineMediaPreparer.cameraPreview(bitmap) }
-    }
-    val documentPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        if (uri != null) prepare { InlineMediaPreparer.documentFromPicker(context, uri) }
-    }
-
     Box {
         IconButton(
-            enabled = enabled && !processing,
+            enabled = enabled,
             modifier = Modifier.testTag("inline_media_add"),
             onClick = { menu = true }
         ) { Icon(Icons.Default.Add, contentDescription = "Fotoğraf veya belge ekle") }
@@ -82,60 +43,47 @@ fun InlineMediaComposer(
             DropdownMenuItem(
                 text = { Text("Galeriden küçük fotoğraf") },
                 leadingIcon = { Icon(Icons.Default.ImageIcon, contentDescription = null) },
-                onClick = {
-                    menu = false
-                    imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                }
+                onClick = { menu = false; onPhoto() }
             )
             DropdownMenuItem(
                 text = { Text("Kamera (küçük fotoğraf)") },
                 leadingIcon = { Icon(Icons.Default.CameraAlt, contentDescription = null) },
-                onClick = {
-                    menu = false
-                    try { cameraPicker.launch(null) }
-                    catch (_: Exception) { Toast.makeText(context, "Kamera açılamadı.", Toast.LENGTH_SHORT).show() }
-                }
+                onClick = { menu = false; onCamera() }
             )
             DropdownMenuItem(
                 text = { Text("Küçük PDF / TXT (18 KB)") },
                 leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null) },
-                onClick = {
-                    menu = false
-                    documentPicker.launch(arrayOf("application/pdf", "text/plain"))
-                }
+                onClick = { menu = false; onDocument() }
             )
         }
     }
-
-    if (processing) CircularProgressIndicator(modifier = Modifier.size(20.dp))
 
     val prepared = remember(pendingEnvelope) {
         pendingEnvelope?.let { runCatching { InlineMediaCodec.decode(it) }.getOrNull() }
     }
     if (pendingEnvelope != null && prepared != null) {
         AlertDialog(
-            onDismissRequest = { pendingEnvelope = null },
+            onDismissRequest = onCancel,
             title = { Text("Şifreli ek gönder") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(prepared.name)
-                    Text("Bu ilk güvenli sürüm en fazla 18 KB fotoğraf/belge gönderebilir. Büyük video ve belgeler henüz desteklenmiyor.")
+                    Text("En fazla 18 KB. Alıcının da yeni LANU medya sürümüne güncellenmiş olması gerekir. Eski sürümler dosyayı açamayabilir.")
                     if (prepared.isImage) InlineMediaImage(prepared, modifier = Modifier
                         .fillMaxWidth().heightIn(max = 200.dp))
                 }
             },
             confirmButton = {
                 TextButton(
-                    enabled = enabled && !processing,
+                    enabled = enabled,
                     modifier = Modifier.testTag("inline_media_send"),
                     onClick = {
-                        val envelope = pendingEnvelope ?: return@TextButton
-                        onSend(envelope) { pendingEnvelope = null }
+                        onSend(pendingEnvelope, onCancel)
                     }
                 ) { Text("Şifreli gönder") }
             },
             dismissButton = {
-                TextButton(onClick = { pendingEnvelope = null }) { Text("Vazgeç") }
+                TextButton(onClick = onCancel) { Text("Vazgeç") }
             }
         )
     }

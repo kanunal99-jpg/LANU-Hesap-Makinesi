@@ -9,6 +9,7 @@ import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -18,13 +19,16 @@ import kotlin.math.roundToInt
  * location EXIF metadata from selected pictures before encryption.
  */
 object InlineMediaPreparer {
+    private const val MAX_SOURCE_IMAGE_BYTES = 12 * 1024 * 1024
+
     suspend fun imageFromPicker(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)?.use {
-            // decodeStream returns null intentionally in bounds-only mode.
-            BitmapFactory.decodeStream(it, null, bounds)
-            Unit
+        // File size from document providers can be absent or forged. Always
+        // enforce an actual streaming read ceiling before JPEG/PNG decoding.
+        val source = context.contentResolver.openInputStream(uri)?.use {
+            readBoundedInput(it, MAX_SOURCE_IMAGE_BYTES)
         } ?: throw IllegalArgumentException("Fotoğraf açılamadı.")
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(source, 0, source.size, bounds)
         require(bounds.outWidth in 1..12_000 && bounds.outHeight in 1..12_000 &&
             bounds.outWidth.toLong() * bounds.outHeight <= 100_000_000L) {
             "Fotoğraf boyutları güvenli sınırı aşıyor."
@@ -35,9 +39,8 @@ object InlineMediaPreparer {
             inSampleSize = sample
             inPreferredConfig = Bitmap.Config.RGB_565
         }
-        val bitmap = context.contentResolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, options)
-        } ?: throw IllegalArgumentException("Fotoğraf çözümlenemedi.")
+        val bitmap = BitmapFactory.decodeByteArray(source, 0, source.size, options)
+            ?: throw IllegalArgumentException("Fotoğraf çözümlenemedi.")
         try {
             InlineMediaCodec.encode("foto.jpg", "image/jpeg", compactJpeg(bitmap))
         } finally {
@@ -57,20 +60,26 @@ object InlineMediaPreparer {
             else -> throw IllegalArgumentException("Şu anda yalnız PDF ve TXT belgeleri destekleniyor.")
         }
         val name = displayName(context, uri) ?: if (mime == "application/pdf") "belge.pdf" else "belge.txt"
-        val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
-            val output = ByteArrayOutputStream()
-            val buffer = ByteArray(4096)
-            while (true) {
-                val count = input.read(buffer)
-                if (count == -1) break
-                require(output.size() + count <= InlineMediaCodec.MAX_FILE_BYTES) {
-                    "Belge en fazla 18 KB olabilir. Büyük dosya yükleme henüz etkin değil."
-                }
-                output.write(buffer, 0, count)
-            }
-            output.toByteArray()
+        val bytes = context.contentResolver.openInputStream(uri)?.use {
+            readBoundedInput(it, InlineMediaCodec.MAX_FILE_BYTES)
         } ?: throw IllegalArgumentException("Belge açılamadı.")
         InlineMediaCodec.encode(name, mime, bytes)
+    }
+
+    internal fun readBoundedInput(input: InputStream, maxBytes: Int): ByteArray {
+        require(maxBytes in 1..MAX_SOURCE_IMAGE_BYTES)
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(4096)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            if (count == 0) continue
+            require(output.size().toLong() + count <= maxBytes.toLong()) {
+                "Dosya izin verilen boyutu aşıyor."
+            }
+            output.write(buffer, 0, count)
+        }
+        return output.toByteArray()
     }
 
     private fun displayName(context: Context, uri: Uri): String? =
