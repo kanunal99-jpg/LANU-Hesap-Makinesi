@@ -118,13 +118,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                         if (speed > 800) {
                             if (navigationBackstack.lastOrNull() is Screen.Calculator) {
                                 calcViewModel.onKeyPress("AC")
-                                val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                    vibrator?.vibrate(VibrationEffect.createOneShot(100, VibrationEffect.DEFAULT_AMPLITUDE))
-                                } else {
-                                    @Suppress("DEPRECATION")
-                                    vibrator?.vibrate(100)
-                                }
+                                // Silent operation: do not vibrate when shake-to-clear triggers.
                             }
                         }
                         last_x = x
