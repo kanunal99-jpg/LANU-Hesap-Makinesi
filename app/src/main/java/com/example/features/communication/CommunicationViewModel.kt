@@ -122,9 +122,17 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
     fun selectConversation(id: String) {
         messagesCollectorJob?.cancel()
         messagesCollectorJob = viewModelScope.launch {
-            _activeConversation.value = repository.getConversationById(id)
-            repository.markConversationOpened(id)
-            repository.getMessages(id).collectLatest { _activeMessages.value = it }
+            try {
+                _activeConversation.value = repository.getConversationById(id)
+                repository.markConversationOpened(id)
+                repository.getMessages(id).collectLatest { _activeMessages.value = it }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                // An uncaught coroutine failure terminates the Android process.
+                // Do not log peer IDs, messages, or encryption material.
+                android.util.Log.e("LANU-Messaging", "Conversation load failed: ${e.javaClass.simpleName}")
+                _errorMessage.value = "Sohbet yüklenemedi. Tekrar deneyin."
+            }
         }
     }
     fun leaveConversation(id: String) {
@@ -159,8 +167,14 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
                 onQueued()
                 // The timer is *only* a local hide, never remote deletion.
                 if (isSelfDestruct) viewModelScope.launch {
-                    delay(destructDelaySeconds.coerceAtLeast(1) * 1000L)
-                    repository.hideMessageLocally(messageId)
+                    try {
+                        delay(destructDelaySeconds.coerceAtLeast(1) * 1000L)
+                        repository.hideMessageLocally(messageId)
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
+                        android.util.Log.e("LANU-Messaging", "Local hide failed: ${e.javaClass.simpleName}")
+                        _errorMessage.value = "Mesajın otomatik gizlenmesi tamamlanamadı."
+                    }
                 }
                 synchronize()
             } finally {
