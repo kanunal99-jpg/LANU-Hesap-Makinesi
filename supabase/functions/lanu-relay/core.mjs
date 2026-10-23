@@ -204,6 +204,34 @@ export class RestStore {
     }
     return parsed;
   }
+  async mediaLink(mode, senderId, messageId) {
+    insist((mode === 'upload' || mode === 'download') &&
+      hex64.test(senderId) && uuid.test(messageId), 400, 'Güvenli medya kimliği geçersiz.');
+    const storagePath = 'lanu-private-media/' + senderId + '/' + messageId + '.bin';
+    const route = mode === 'upload' ? '/object/upload/sign/' : '/object/sign/';
+    const endpoint = this.origin + '/storage/v1' + route + storagePath;
+    const headers = {
+      apikey: this.serviceKey,
+      ...(this.serviceKey.startsWith('sb_secret_') ? {} :
+        { Authorization: 'Bearer ' + this.serviceKey }),
+      'Content-Type': 'application/json'
+    };
+    const response = await this.fetcher(endpoint, {
+      method: 'POST', headers, body: mode === 'upload' ? '{}' : '{"expiresIn":60}'
+    });
+    const raw = await readBoundedResponse(response, 4096);
+    insist(response.ok, 503, 'Güvenli dosya depolaması kullanılamıyor.');
+    let result;
+    try { result = JSON.parse(raw); }
+    catch { throw new RelayError(503, 'Dosya bağlantısı doğrulanamadı.'); }
+    const signedPath = mode === 'upload' ? result?.url : result?.signedURL;
+    const prefix = route + storagePath + '?token=';
+    insist(typeof signedPath === 'string' &&
+      signedPath.startsWith(prefix) && signedPath.length < 3500 &&
+      /^[A-Za-z0-9_.-]+$/.test(signedPath.slice(prefix.length)),
+      503, 'Güvenli dosya bağlantısı reddedildi.');
+    return this.origin + '/storage/v1' + signedPath;
+  }
   async reserveMedia(owner, peer, messageId, cipherBytes, cipherSha256) {
     const allowed = await this.query('rpc/lanu_media_reserve', 'POST', {
       p_sender: owner, p_recipient: peer, p_message_id: messageId,
