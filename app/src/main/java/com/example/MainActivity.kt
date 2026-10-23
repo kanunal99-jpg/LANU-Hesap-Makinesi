@@ -96,11 +96,12 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     }
 
     private fun completeExternalPickerResult() {
-        // If Android kept the host Activity STARTED while showing a selector,
-        // an opt-in reauthentication still requires PIN on result return.
+        // Some Android system pickers are presented as overlays and do not
+        // trigger Activity.onStop. Enforce the same opt-in PIN / expiry /
+        // screen-off rules when their result arrives anyway.
         if (::securityViewModel.isInitialized &&
             externalPickerStartedAtMs != null &&
-            securityViewModel.requirePinOnMediaPickerReturn.value) {
+            !permittedPickerReturn()) {
             securityViewModel.lock()
             concealPrivateAreaIfLocked()
         }
