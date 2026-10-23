@@ -192,7 +192,7 @@ export function createRelay(store, clock = Date.now) {
 
 /** Only used inside the trusted edge function. Never ship its service key in Android. */
 export class RestStore {
-  constructor(url, serviceKey, fetcher = fetch) { this.url = url.replace(/\/$/, '') + '/rest/v1/'; this.serviceKey = serviceKey; this.fetcher = fetcher; }
+  constructor(url, serviceKey, fetcher = fetch) { this.origin = url.replace(/\/$/, ''); this.url = this.origin + '/rest/v1/'; this.serviceKey = serviceKey; this.fetcher = fetcher; }
   async query(path, method = 'GET', data, prefer) {
     const response = await this.fetcher(this.url + path, { method, headers: { apikey: this.serviceKey, ...(this.serviceKey.startsWith('sb_secret_') ? {} : { Authorization: 'Bearer ' + this.serviceKey }), 'Content-Type': 'application/json', ...(prefer ? { Prefer: prefer } : {}) }, ...(data === undefined ? {} : { body: JSON.stringify(data) }) });
     // Read only bounded UTF-8 response bytes, cancelling oversized streams.
