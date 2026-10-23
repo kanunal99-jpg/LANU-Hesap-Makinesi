@@ -90,6 +90,7 @@ class PrivateMediaCryptoTest {
             val bytes = encrypted.ciphertextFile.readBytes()
             val n = PrivateMediaCrypto.CHUNK_BYTES + 16
             bytes.copyOfRange(0, n).copyInto(bytes, n)
+            encrypted.ciphertextFile.writeBytes(bytes)
             assertRejected {
                 PrivateMediaCrypto.decryptToVerifiedPrivateFile(
                     encrypted.ciphertextFile, encrypted.manifest, encrypted.keyMaterial, dir)
