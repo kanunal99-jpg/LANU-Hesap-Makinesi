@@ -1,15 +1,10 @@
 package com.example.features.communication
 
-import android.app.Activity
 import android.content.Context
-import android.content.Intent
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -46,9 +41,6 @@ import com.example.R
 import com.example.core.crypto.CryptoUtils
 import com.example.core.database.MessageEntity
 import com.example.core.media.InlineMediaCodec
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -62,7 +54,8 @@ fun ChatDetailScreen(
     onNavigateBack: () -> Unit,
     onChoosePhoto: () -> Unit = {},
     onTakePhoto: () -> Unit = {},
-    onChooseDocument: () -> Unit = {}
+    onChooseDocument: () -> Unit = {},
+    onSaveAttachment: (InlineMediaCodec.Attachment) -> Unit = {}
 ) {
     val context = LocalContext.current
     val activeConversation by viewModel.activeConversation.collectAsState()
@@ -78,33 +71,6 @@ fun ChatDetailScreen(
     var textInput by remember { mutableStateOf("") }
     var isSelfDestructEnabled by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
-    val mediaScope = rememberCoroutineScope()
-    var attachmentToSave by remember { mutableStateOf<InlineMediaCodec.Attachment?>(null) }
-    var savingAttachment by remember { mutableStateOf(false) }
-    val saveAttachmentLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { response ->
-        val attachment = attachmentToSave
-        attachmentToSave = null
-        val target = response.data?.data
-        if (response.resultCode == Activity.RESULT_OK && target != null && attachment != null) {
-            if (!savingAttachment) {
-                savingAttachment = true
-                mediaScope.launch {
-                    try {
-                        withContext(Dispatchers.IO) {
-                            context.contentResolver.openOutputStream(target, "w")?.use { it.write(attachment.bytes) }
-                                ?: throw IllegalArgumentException("Dosya kaydedilemedi.")
-                        }
-                        Toast.makeText(context, "Dosya kaydedildi.", Toast.LENGTH_SHORT).show()
-                    } catch (_: Exception) {
-                        Toast.makeText(context, "Dosya kaydedilemedi.", Toast.LENGTH_LONG).show()
-                    } finally { savingAttachment = false }
-                }
-            }
-        }
-    }
-
     // Silent UI policy: no sound or haptic feedback for chat actions.
     val triggerVibration: () -> Unit = {}
 
@@ -291,20 +257,7 @@ fun ChatDetailScreen(
                                 viewModel.editMessage(message.id, newText)
                             }
                         },
-                        onSaveAttachment = { attachment ->
-                            if (!savingAttachment) {
-                                attachmentToSave = attachment
-                                val intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
-                                    .addCategory(Intent.CATEGORY_OPENABLE)
-                                    .setType(attachment.mime)
-                                    .putExtra(Intent.EXTRA_TITLE, attachment.name)
-                                try { saveAttachmentLauncher.launch(intent) }
-                                catch (_: Exception) {
-                                    attachmentToSave = null
-                                    Toast.makeText(context, "Dosya kaydetme ekranı açılamadı.", Toast.LENGTH_LONG).show()
-                                }
-                            }
-                        }
+                        onSaveAttachment = onSaveAttachment
                     )
                 }
 
