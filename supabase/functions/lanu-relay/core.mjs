@@ -204,6 +204,19 @@ export class RestStore {
     }
     return parsed;
   }
+  async reserveMedia(owner, peer, messageId, cipherBytes, cipherSha256) {
+    const allowed = await this.query('rpc/lanu_media_reserve', 'POST', {
+      p_sender: owner, p_recipient: peer, p_message_id: messageId,
+      p_cipher_bytes: cipherBytes, p_cipher_sha256: cipherSha256
+    });
+    return allowed === true;
+  }
+
+  async media(messageId) {
+    const row = (await this.query('lanu_media?message_id=eq.' + messageId + '&limit=1'))[0];
+    return row ? { senderId: row.sender_id, recipientId: row.recipient_id,
+      cipherBytes: row.cipher_bytes, cipherSha256: row.cipher_sha256 } : null;
+  }
   mapIdentity(row) { return row ? { id: row.id, code: row.code, nonce: row.nonce, publicKey: row.public_key } : null; }
   async identity(id) { return this.mapIdentity((await this.query('lanu_identities?id=eq.' + id + '&limit=1'))[0]); }
   async identityByCode(code) { return this.mapIdentity((await this.query('lanu_identities?code=eq.' + encodeURIComponent(code) + '&limit=1'))[0]); }
