@@ -81,7 +81,8 @@ class PrivateMediaKeyEnvelopeTest {
         reject { PrivateMediaKeyEnvelope.decryptFromPeer(bob, alice.id, alice.publicKey, UUID.randomUUID().toString(), alice.id, ciphertext) }
         reject { PrivateMediaKeyEnvelope.decryptFromPeer(bob, charlie.id, charlie.publicKey, id, alice.id, ciphertext) }
         reject { PrivateMediaKeyEnvelope.decryptFromPeer(bob, alice.id, alice.publicKey, id, charlie.id, ciphertext) }
-        reject { PrivateMediaKeyEnvelope.decryptFromPeer(bob, alice.id, alice.publicKey, id, alice.id, ciphertext.dropLast(1) + "A") }
+        val alteredLastChar = if (ciphertext.last() == 'A') 'B' else 'A'
+        reject { PrivateMediaKeyEnvelope.decryptFromPeer(bob, alice.id, alice.publicKey, id, alice.id, ciphertext.dropLast(1) + alteredLastChar) }
     }
 
     @Test fun forgedOrExtraFieldsAndBadBase64FailClosedEvenWhenSignedBySender() {
@@ -104,7 +105,7 @@ class PrivateMediaKeyEnvelopeTest {
             JSONObject(plain).put("cipherSha256", "0".repeat(63)),
             JSONObject(plain).put("plainBytes", 0)
         )
-        for ((index, payload) in formats.withIndex()) {
+        for (payload in formats) {
             val id = UUID.randomUUID().toString()
             val frame = PeerMessageCrypto.encrypt(
                 alice, bob.id, bob.publicKey, id, payload.toString()
