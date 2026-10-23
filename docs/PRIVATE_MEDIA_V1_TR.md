@@ -17,6 +17,15 @@
 - Çözme sonucunda çıkan dosya **yalnız uygulama private** dizininde geçici olarak bulunur. Kullanıcı onaylı görüntüleme/SAF dışa aktarma bitince silinmesi zorunludur. **Dikkat:** geçici çözülmüş dosya anlık düz metindir; üretimde dosya bırakmayan streaming görüntüleme tercih edilmeli ve otomatik TTL temizliği yapılmalıdır.
 - `EncryptedFile.keyMaterial` **gizli** materyaldir; uygulamada henüz akışa bağlanmadı, Room'a/relay'e/Storage'a yazılmıyor. `destroyKey()` key dizisini sıfırlar; gerçek sürümde anahtarın doğrulanmış alıcıya **mevcut E2EE PeerMessageCrypto** mesajında iletilmesi, kimlik doğrulaması ve kesintide güvenli kurtarma ayrıca gerekir.
 
+## Kimliği doğrulanmış alıcıya medya anahtarı teslimi — ikinci altyapı aşaması
+
+- `PrivateMediaKeyEnvelope.kt` yalnız bellek üzerinde manifest + rastgele 32 byte dosya anahtarını **önceden doğrulanmış** alıcının `PeerMessageCrypto.encrypt` ECDH/AES-GCM kanalıyla şifreler. Şifreli `lanu2:` mesaj ID'si, gönderici/alıcı kimliği ve mesaj AAD'si mevcut kriptografik kanala bağlıdır. **Bu bir aktarma noktası değil, henüz üretimde kullanılmayan codec'tir.**
+- Alıcı aynı doğrulanmış gönderici anahtarıyla zarfı açar; `version=1`, tam JSON alan seti, 64 MiB manifest/sayaç/nonce/file ID/hash ve anahtarın kanonik Base64URL / 32 byte olması tekrar doğrulanır.
+- Gizli AES medya anahtarı yalnız `OpenedMediaKey.keyMaterial` byte dizisi olarak geri gelir; iş bitince `destroyKey()` ile sıfırlanmalıdır. Bu uygulama **anahtarı Room'a, log'a, Supabase Storage'a veya açık URL'ye yazmaz**.
+- E2EE peer kimliği `peerForConversation` güven ilişkisiyle ayrıca doğrulanmalıdır; başkasının key'ini kullanıcıdan veya sunucudan doğrulamadan kabul etmek güvenli değildir.
+- Yanlış mesaj ID'si, üçüncü alıcı, farklı gönderici, şifreli frame oynama, bozuk zarf, fazla alan, yanlış MIME/hash/nonce veya key boyutu reddedilir. Birim testleri alıcının gerçek AES-GCM parçalı dosyayı çözebildiğini de doğrular.
+- **Zorunlu sınır:** Bu şifreli zarf şimdi `CommunicationRepository.sendMessage` akışına, Room'a veya üretim ağ API'sine bağlanmadı. Özel bucket kimlik/RLS/signed URL/TTL ve kalıcı offline retry altyapısı hazır olmadan büyük video/fotoğraf paylaşımı kullanıcı arayüzünde görünmeyecek.
+
 ## Bilinçli olarak henüz yapılmayanlar
 
 - Sunucuya otomatik dosya yükleme/indirme, Supabase Storage bucket, object storage credential, presigned URL, kimlik doğrulama, kullanıcı bazlı erişim kontrolü.
