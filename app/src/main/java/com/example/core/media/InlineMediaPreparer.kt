@@ -20,8 +20,11 @@ import kotlin.math.roundToInt
 object InlineMediaPreparer {
     suspend fun imageFromPicker(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-            ?: throw IllegalArgumentException("Fotoğraf açılamadı.")
+        context.contentResolver.openInputStream(uri)?.use {
+            // decodeStream returns null intentionally in bounds-only mode.
+            BitmapFactory.decodeStream(it, null, bounds)
+            Unit
+        } ?: throw IllegalArgumentException("Fotoğraf açılamadı.")
         require(bounds.outWidth in 1..12_000 && bounds.outHeight in 1..12_000 &&
             bounds.outWidth.toLong() * bounds.outHeight <= 100_000_000L) {
             "Fotoğraf boyutları güvenli sınırı aşıyor."
