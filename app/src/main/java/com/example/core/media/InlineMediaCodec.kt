@@ -54,7 +54,7 @@ object InlineMediaCodec {
 
     /** Reject malformed or tampered content, including noncanonical base64. */
     fun decode(text: String): Attachment {
-        require(isAttachment(text) && text.length <= MAX_ENVELOPE_CHARS) {
+        require(text == text.trim() && isAttachment(text) && text.length <= MAX_ENVELOPE_CHARS) {
             "Ek dosya kimliği geçersiz."
         }
         val json = JSONObject(text.removePrefix(PREFIX))
