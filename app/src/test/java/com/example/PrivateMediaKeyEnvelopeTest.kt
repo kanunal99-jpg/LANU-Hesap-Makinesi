@@ -81,8 +81,13 @@ class PrivateMediaKeyEnvelopeTest {
         reject { PrivateMediaKeyEnvelope.decryptFromPeer(bob, alice.id, alice.publicKey, UUID.randomUUID().toString(), alice.id, ciphertext) }
         reject { PrivateMediaKeyEnvelope.decryptFromPeer(bob, charlie.id, charlie.publicKey, id, alice.id, ciphertext) }
         reject { PrivateMediaKeyEnvelope.decryptFromPeer(bob, alice.id, alice.publicKey, id, charlie.id, ciphertext) }
-        val alteredLastChar = if (ciphertext.last() == 'A') 'B' else 'A'
-        reject { PrivateMediaKeyEnvelope.decryptFromPeer(bob, alice.id, alice.publicKey, id, alice.id, ciphertext.dropLast(1) + alteredLastChar) }
+        // Mutate an IV byte, not the final Base64URL character: padding bits
+        // at the end may be ignored by a decoder and make the test flaky.
+        val tamperIndex = "lanu2:".length + 8
+        val tampered = StringBuilder(ciphertext).apply {
+            setCharAt(tamperIndex, if (this[tamperIndex] == 'A') 'B' else 'A')
+        }.toString()
+        reject { PrivateMediaKeyEnvelope.decryptFromPeer(bob, alice.id, alice.publicKey, id, alice.id, tampered) }
     }
 
     @Test fun forgedOrExtraFieldsAndBadBase64FailClosedEvenWhenSignedBySender() {
