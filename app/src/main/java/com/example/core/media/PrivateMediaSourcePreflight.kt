@@ -35,6 +35,10 @@ object PrivateMediaSourcePreflight {
         sanitizedImage: Boolean = false,
         userApprovedOriginalVideo: Boolean = false
     ): InputStream {
+        // We own the source immediately, even when MIME or user consent fails.
+        // Otherwise rejected SAF/PhotoPicker streams can leak file descriptors.
+        val stream = PushbackInputStream(source, MAX_SNIFF_BYTES)
+        try {
         require(mime in setOf("image/jpeg", "image/png", "application/pdf", "video/mp4")) {
             "Büyük dosya türü desteklenmiyor."
         }
@@ -51,8 +55,6 @@ object PrivateMediaSourcePreflight {
             "video/mp4" -> 16
             else -> error("Unsupported input")
         }
-        val stream = PushbackInputStream(source, MAX_SNIFF_BYTES)
-        try {
             val prefix = ByteArray(needed)
             var read = 0
             var stalled = 0
