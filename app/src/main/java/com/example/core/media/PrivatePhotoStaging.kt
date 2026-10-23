@@ -29,7 +29,15 @@ object PrivatePhotoStaging {
 
     /** Re-encode pixels as JPEG rather than copying original metadata. */
     internal fun stageSelectedBytes(raw: ByteArray, privateDirectory: File): PrivateMediaCrypto.EncryptedFile {
-        require(raw.size in 1..MAX_SOURCE) { "Görsel dosyası çok büyük." }
+        require(raw.size in 4..MAX_SOURCE) { "Görsel dosyası çok büyük veya geçersiz." }
+        val jpeg = raw[0] == 0xff.toByte() && raw[1] == 0xd8.toByte() &&
+            raw[2] == 0xff.toByte()
+        val png = raw.size >= 8 && raw[0] == 0x89.toByte() &&
+            raw[1] == 0x50.toByte() && raw[2] == 0x4e.toByte() &&
+            raw[3] == 0x47.toByte() && raw[4] == 0x0d.toByte() &&
+            raw[5] == 0x0a.toByte() && raw[6] == 0x1a.toByte() &&
+            raw[7] == 0x0a.toByte()
+        require(jpeg || png) { "Fotoğrafın JPEG/PNG başlığı geçersiz." }
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(raw, 0, raw.size, bounds)
         require(bounds.outWidth in 1..12000 && bounds.outHeight in 1..12000 &&
