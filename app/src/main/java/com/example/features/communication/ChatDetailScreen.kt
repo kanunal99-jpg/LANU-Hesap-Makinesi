@@ -71,7 +71,9 @@ fun ChatDetailScreen(
     val errorMessage by viewModel.errorMessage.collectAsState()
     val isSending by viewModel.isSending.collectAsState()
     val preparedMedia by viewModel.preparedInlineMedia.collectAsState()
-    val pendingEnvelope = viewModel.pendingMediaFor(conversationId)
+    val pendingEnvelope = preparedMedia?.takeIf {
+        it.conversationId == conversationId && it.expiresAtMillis > System.currentTimeMillis()
+    }?.envelope
 
     var textInput by remember { mutableStateOf("") }
     var isSelfDestructEnabled by remember { mutableStateOf(false) }
@@ -320,7 +322,7 @@ fun ChatDetailScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     InlineMediaComposer(
-                        enabled = !isSending,
+                        enabled = !isSending && activeConversation?.id == conversationId,
                         pendingEnvelope = pendingEnvelope,
                         onPhoto = onChoosePhoto,
                         onCamera = onTakePhoto,
