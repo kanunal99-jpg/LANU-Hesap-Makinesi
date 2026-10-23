@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.core.diagnostics.CrashDiagnostics
 import com.example.core.update.VerifiedUpdate
 import com.example.core.update.SecureOtaUpdater
 import com.example.core.update.UpdateStatus
@@ -29,6 +30,7 @@ import kotlinx.coroutines.CancellationException
 @Composable
 fun UpdateCheckScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val recentAbnormalExit = remember(context) { CrashDiagnostics.mostRecentAbnormalExit(context) }
     val uriHandler = LocalUriHandler.current
     val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf<UpdateStatus?>(null) }
@@ -81,6 +83,23 @@ fun UpdateCheckScreen(modifier: Modifier = Modifier) {
                 Text("Android sürüm kodu: ${SecureOtaUpdater.installedVersion(context)}")
                 Text("Yükleme öncesi APK imzası, SHA-256 özeti, paket adı ve sürüm numarası doğrulanır.",
                     style = MaterialTheme.typography.bodySmall)
+            }
+        }
+
+        recentAbnormalExit?.let { exit ->
+            OutlinedCard(Modifier.fillMaxWidth().testTag("recent_android_crash")) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Android kapanma tanılaması", fontWeight = FontWeight.SemiBold)
+                    Text(exit.label)
+                    Text(
+                        java.text.DateFormat.getDateTimeInstance().format(java.util.Date(exit.timestamp)),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(
+                        "Bu kayıt yalnız kapanma türünü gösterir; kesin neden için cihaz hata kaydı gerekir. Mesajlar veya PIN gönderilmez.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
         }
 
