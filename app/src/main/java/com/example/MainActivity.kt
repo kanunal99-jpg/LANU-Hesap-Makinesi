@@ -237,7 +237,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                 )
                             }
                             is Screen.Updates -> {
-                                Column {
+                                // Edge-to-edge window: keep the navigation action out of the
+                                // status bar, and all update controls above the gesture bar.
+                                Column(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                                     TextButton(onClick = { navigateBack() }) { Text("← Hesap makinesine dön") }
                                     UpdateCheckScreen(modifier = Modifier.weight(1f))
                                 }
