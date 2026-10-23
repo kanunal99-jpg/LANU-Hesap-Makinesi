@@ -31,7 +31,7 @@ else
     exit 1
   fi
   openssl rand -hex 24 > "$STORE_FILE"
-  openssl rand -hex 24 > "$KEY_FILE"
+  cp "$STORE_FILE" "$KEY_FILE"  # PKCS12 requires matching store and private-key password
   chmod 600 "$STORE_FILE" "$KEY_FILE"
   export STORE_PASSWORD="$(cat "$STORE_FILE")"
   export KEY_PASSWORD="$(cat "$KEY_FILE")"
