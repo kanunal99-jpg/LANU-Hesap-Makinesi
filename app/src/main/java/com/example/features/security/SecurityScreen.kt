@@ -83,16 +83,8 @@ fun SecurityScreen(
 
     var enteredDigits by remember { mutableStateOf("") }
 
-    // Haptic vibration helper
-    val triggerVibration = {
-        val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createOneShot(30, VibrationEffect.DEFAULT_AMPLITUDE))
-        } else {
-            @Suppress("DEPRECATION")
-            vibrator.vibrate(30)
-        }
-    }
+    // Do not emit haptic feedback while entering the PIN.
+    val triggerVibration: () -> Unit = {}
 
     // The calculator entry code only opens authentication; it is never a PIN bypass.
     LaunchedEffect(directUnlockPin, isReady) {
