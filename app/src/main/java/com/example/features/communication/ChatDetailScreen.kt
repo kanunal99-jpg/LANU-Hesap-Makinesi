@@ -458,6 +458,10 @@ private fun formatDateHeader(timestamp: Long): String {
 fun MessageBubble(
     text: String,
     mediaUrl: String? = null,
+    loadedAttachment: CommunicationRepository.ReceivedMedia? = null,
+    isDownloadingAttachment: Boolean = false,
+    onDownloadAttachment: () -> Unit = {},
+    onSaveAttachment: (CommunicationRepository.ReceivedMedia) -> Unit = {},
     timestamp: Long,
     isMine: Boolean,
     status: String,
@@ -472,6 +476,24 @@ fun MessageBubble(
     var showMenu by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf(false) }
     var editText by remember { mutableStateOf(text) }
+    val attachment = remember(text) {
+        runCatching { SecureMediaAttachment.parseManifest(text) }.getOrNull()
+    }
+    val decodedImage = remember(loadedAttachment) {
+        if (loadedAttachment?.mime?.startsWith("image/") == true) {
+            runCatching {
+                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(loadedAttachment.bytes, 0, loadedAttachment.bytes.size, options)
+                require(options.outWidth in 1..12000 && options.outHeight in 1..12000)
+                var sample = 1
+                while (options.outWidth / sample > 1600 || options.outHeight / sample > 1600) sample *= 2
+                options.inJustDecodeBounds = false
+                options.inSampleSize = sample
+                BitmapFactory.decodeByteArray(
+                    loadedAttachment.bytes, 0, loadedAttachment.bytes.size, options)?.asImageBitmap()
+            }.getOrNull()
+        } else null
+    }
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     
@@ -533,6 +555,42 @@ fun MessageBubble(
                 .border(1.dp, bubbleBorder, bubbleShape)
                 .padding(12.dp)
         ) {
+            if (attachment != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        if (attachment.mime.startsWith("image/")) Icons.Default.Image else Icons.Default.Description,
+                        contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text(attachment.name, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                        Text("${attachment.size / 1024} KB şifreli dosya",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                if (decodedImage != null) {
+                    Image(bitmap = decodedImage, contentDescription = "Şifreli fotoğraf önizlemesi",
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)
+                            .clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Fit)
+                }
+                if (loadedAttachment != null) {
+                    Text("Dosya doğrulandı · Yalnız bu uygulamada açıldı",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary)
+                    TextButton(onClick = { onSaveAttachment(loadedAttachment) }) {
+                        Text("Cihaza kaydet")
+                    }
+                } else {
+                    OutlinedButton(onClick = onDownloadAttachment, enabled = !isDownloadingAttachment) {
+                        if (isDownloadingAttachment) CircularProgressIndicator(Modifier.size(18.dp))
+                        else Icon(Icons.Default.Download, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (isDownloadingAttachment) "Doğrulanıyor…" else "Güvenli dosyayı aç")
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+            }
+
             // Media Image Preview if present
             if (!mediaUrl.isNullOrBlank()) {
                 AsyncImage(
@@ -549,7 +607,8 @@ fun MessageBubble(
                 }
             }
 
-            if (text.isNotBlank() && (mediaUrl.isNullOrBlank() || text != "📷 Fotoğraf")) {
+            if (attachment == null && text.isNotBlank() &&
+                (mediaUrl.isNullOrBlank() || text != "📷 Fotoğraf")) {
                 Text(
                     text = text,
                     fontSize = 14.sp,
@@ -590,7 +649,7 @@ fun MessageBubble(
                     }
                 }
                 HorizontalDivider()
-                DropdownMenuItem(
+                if (attachment == null) DropdownMenuItem(
                     text = { Text("Metni Kopyala") },
                     leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp)) },
                     onClick = {
@@ -599,7 +658,7 @@ fun MessageBubble(
                         Toast.makeText(context, "Mesaj panoya kopyalandı", Toast.LENGTH_SHORT).show()
                     }
                 )
-                if (isMine) {
+                if (isMine && attachment == null) {
                     DropdownMenuItem(
                         text = { Text("Mesajı Düzenle") },
                         leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp)) },
