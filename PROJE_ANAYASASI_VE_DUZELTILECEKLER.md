@@ -475,3 +475,24 @@ Bu puanlar matematiksel sertifikasyon değil, testli geliştirme ve açık üret
 **Güvenlik ve maliyet sözleşmesi:** Galerinin tamamına erişim izni isteme; Android sistem seçicilerini kullan. Medya içerik anahtarı veya açık medya URL'sini sunucu/DB loglarına yazma; şifreli payload ve yalnız alıcıya yetkili erişim. Dosya tipleri/boyutları/EXIF/retention/TTL doğrulanır. Her kritik yol ana servis→alternatif→fallback→hata yönetimi→güvenli varsayılan→log→smoke test. Kullanıcının açık onayı olmadan ücretli storage planına geçilmez.
 
 **Release kabulü:** Yeni özellik `READY` olamaz; gerçek iki cihazda E2EE medya teslimi, kesilen ağda güvenli retry, mevcut metin/PIN korunumu, SHA256/signer continuity, CI ve doğrudan indirilebilir GitHub Release APK kanıtları sağlanmadan.
+
+
+---
+
+### 23.10.2026 — GÜVENLİ KÜÇÜK MEDYA PAYLAŞIMI 304 CI KABULÜ
+
+**Milestone:** [#85 Medya Paylaşımı](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/85); [PR #86](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/pull/86) ve [PR #87](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/pull/87) **MERGED**; kalıcı imzalı [v1.1.0-signed.304](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/releases/tag/v1.1.0-signed.304) resmî GitHub Releases'te yayımlandı. [Actions #304](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/actions/runs/39968054234) **SUCCESS**: Android birim/Robolectric, Lint, API34 emülatör Room, APK bütünlük ve imza doğrulama, önceki stable sertifika SHA-256 sürekliliği, anonim public APK read-back. 304 uygulaması **A55 veya ikinci fiziksel cihazda henüz kabul testinden geçmedi**.
+
+#### Bu sürümde gerçek uygulama özelliği
+- Sohbet mesaj alanındaki **+** menüsünden Android **Photo Picker** ile galeri fotoğrafı, sistem kamerasından düşük çözünürlüklü fotoğraf önizlemesi veya Android SAF **OpenDocument** ile PDF/TXT seçme.
+- **Yalnız dosya başına 18.000 bayt veya daha küçük** JPEG/PDF/UTF-8 TXT. Fotoğraf 18 KB'a sığana kadar yeniden JPEG sıkıştırılır, kaynak EXIF/konum metaverisi yeni JPEG'e eklenmez. Kaynak görsel **12 MiB streaming byte** ve piksel boyut kontrolünden geçer; yanlış MIME, bozuk Base64/UTF-8, aşırı dosya boyutu ve yanlış SHA-256 reddedilir.
+- Mevcut `PeerMessageCrypto` ECDH/AES-GCM şifreli mesaj biçimiyle gönderilir; gönderici/alıcı için Room'da yalnız şifreli frame saklanır; mevcut relay'den iletilir. Yeni public storage URL veya özel medya depolama servisi **yoktur**.
+- Android başka uygulama seçicisini açınca mevcut güvenlik politikası PIN kilidini sürdürür. Activity-owned picker ve save callback ile veriler kaybolmadan aktarılır; hazırlanan ek en fazla 5 dakika yalnız RAM'de bulunur. Kilitli hesap makinesi ekranında gizli sohbet olduğunu ele veren medya başarı bildirimi gösterilmez.
+- Alıcıda şifre çözümünün ardından ek biçimi/hash tekrar kontrol edilir, küçük JPEG önizlemesi veya dosya adı gösterilir, sadece kullanıcının açık **Cihaza kaydet** seçimiyle Android'in seçtiği dosyaya dışarı aktarılır.
+- **Farklı protokol/sürüm uyumu:** İlk medya özelliği için gönderici ve alıcının da 304+ olması önerilir; eski sürüm uyumluluğu ve kullanıcı hataları ayrıca test edilmelidir.
+
+#### Açık kabul ve sınırlamalar
+1. **Gerçek cihaz A55 OTA 286/289 → 304**, mevcut PIN/sohbet/verilerin korunması ve Samsung A55 + ikinci Android cihaz arasında iki yönlü fotoğraf/PDF/TXT gönder-al-kaydet; Android seçicisi→PIN→taslak onayı; izin reddi/iptal, çevrim dışı tekrar, bozuk ve büyük dosya, FLAG_SECURE ve crash/ANR smoke hâlâ **AÇIK**. #85 bu kanıtlar alınmadan kapatılamaz.
+2. **Büyük fotoğraf, video, ses, çok dosyalı ekler ve büyük PDF DESTEKLENMİYOR.** Alıcı ve gönderici için 18 KB sınırı açıkça belirtilir. Gerçek büyük dosya için istemci AEAD + private auth storage, süreli URL, chunk/resumable upload, sınır/retention/temizlik, şifreli metadata ve doğrulanabilir yetki/maliyet tasarımı uygulanmadan özellik hazır sayılmaz.
+3. **Güvenlik sürekliliği:** P0 Android crash [#82](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/82) ve cihaz dışı keystore yedeği [#83](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/83) açıktır; kullanıcı dosyalarını silme, APK'yı kaldırma ya da PIN'i gevşetme önerilmez.
+4. **Sürüm standardı:** CI derlemesi başarılı olmadan `READY`, gerçek cihaz testi olmadan `DEVICE ACCEPTED` yazılmaz. Bütün yayınlarda kalıcı sertifika SHA-256 karşılaştırması ve doğrulanmış indirilebilir APK zorunlu; hiçbir secret repo/log/issue içine konulmaz.
