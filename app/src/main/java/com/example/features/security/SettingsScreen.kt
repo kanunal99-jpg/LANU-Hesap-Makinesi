@@ -38,6 +38,7 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val lockTimeoutMs by securityViewModel.lockTimeoutMs.collectAsState()
+    val requirePinOnMediaPickerReturn by securityViewModel.requirePinOnMediaPickerReturn.collectAsState()
     val biometricEnabled by securityViewModel.biometricEnabled.collectAsState()
     val hasPin by securityViewModel.hasPin.collectAsState()
     val lockoutRemainingSeconds by securityViewModel.lockoutRemainingSeconds.collectAsState()
@@ -293,6 +294,36 @@ fun SettingsScreen(
                     DropdownMenuItem(text = { Text(stringResource(R.string.minutes_5_full)) }, onClick = { securityViewModel.updateLockTimeout(300000L); expanded = false })
                 }
             }
+        }
+
+        // Prevent a redundant PIN after returning from the Android system
+        // gallery/camera/document picker. This does not disable normal app
+        // auto-lock, PIN setup, the private-area gate or screen-off lock.
+        Row(
+            modifier = Modifier.fillMaxWidth().testTag("media_picker_pin_setting"),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Fotoğraf/dosya seçimi sonrası PIN iste",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = "Varsayılan kapalıdır. Galeri, kamera ve dosya seçicisinden 2 dakika içinde dönerseniz ek PIN sorulmaz. Ekran kilidi ve normal uygulama kilidi değişmez.",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                )
+            }
+            Switch(
+                checked = requirePinOnMediaPickerReturn,
+                onCheckedChange = { securityViewModel.setRequirePinOnMediaPickerReturn(it) },
+                modifier = Modifier.testTag("media_picker_pin_switch").semantics {
+                    contentDescription = "Medya seçimi sonrası PIN, " +
+                        if (requirePinOnMediaPickerReturn) "açık" else "kapalı"
+                }
+            )
         }
 
         Row(

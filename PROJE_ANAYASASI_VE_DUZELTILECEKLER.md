@@ -496,3 +496,19 @@ Bu puanlar matematiksel sertifikasyon değil, testli geliştirme ve açık üret
 2. **Büyük fotoğraf, video, ses, çok dosyalı ekler ve büyük PDF DESTEKLENMİYOR.** Alıcı ve gönderici için 18 KB sınırı açıkça belirtilir. Gerçek büyük dosya için istemci AEAD + private auth storage, süreli URL, chunk/resumable upload, sınır/retention/temizlik, şifreli metadata ve doğrulanabilir yetki/maliyet tasarımı uygulanmadan özellik hazır sayılmaz.
 3. **Güvenlik sürekliliği:** P0 Android crash [#82](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/82) ve cihaz dışı keystore yedeği [#83](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/83) açıktır; kullanıcı dosyalarını silme, APK'yı kaldırma ya da PIN'i gevşetme önerilmez.
 4. **Sürüm standardı:** CI derlemesi başarılı olmadan `READY`, gerçek cihaz testi olmadan `DEVICE ACCEPTED` yazılmaz. Bütün yayınlarda kalıcı sertifika SHA-256 karşılaştırması ve doğrulanmış indirilebilir APK zorunlu; hiçbir secret repo/log/issue içine konulmaz.
+
+
+---
+
+### 23.10.2026 — A55 FOTOĞRAF KABULÜ VE KULLANICI KONTROLLÜ MEDYA PIN TERCIHİ
+
+**Kullanıcının aynı gün açık geri bildirimi:** "Güncelleme tamam", "Foto çek gönder tamam", "Galeriden Foto seç gönder tamam". Bunlar Samsung A55 üzerinde **bildirilen başarılı gerçek cihaz adımlarıdır**. Uygulama içi güncelleme ve gönderme kanıtı vardır; karşı cihazdan fotoğrafı açma/kaydetme, PDF/TXT, offline retry ve tam veri kıyaslama burada ayrıca raporlanmadı, bunlar [#85](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/85) kapsamında **açık** kalır.
+
+**Yeni kullanıcı kararı:** Otomatik medya seçici dönüş PIN ekranı istenmiyor; kullanıcı Ayarlar'dan **kendisi açabilsin**. [#88](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/88) ve [PR #89](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/pull/89).
+
+**Uygulama tasarım sözleşmesi (otomatik CI + A55 kabulü gerektirir):**
+- Gizli Alan → Ayarlar → Güvenlik'te "Fotoğraf/dosya seçimi sonrası PIN iste" anahtarı; **yeni kurulumda varsayılan KAPALI**, kullanıcı AÇIK yaparsa sistem medya seçicisinden dönüşte tekrar PIN gerekir. Tercih kalıcı SettingsDao row'da tutulur, bozuk kayıt güvenli şekilde PIN'i gerektirir.
+- **Kapsamı dar tut:** Yalnız LANU'nun açtığı Android galeri/Photo Picker, kamera, dosya seçici ve kullanıcının doğrudan açtığı dosya kaydetme ekranlarında en çok **2 dakikalık**, yalnız bellekte tutulan geri dönüş muafiyeti. **PIN ile ilk giriş, uygulama elle kilitleme, ekran kapatma/Keyguard, normal arka plan geçişi, uzun süreli ayrılık ve yeniden başlatma eski PIN korumasına tabi kalır.** Ekran görüntüsü FLAG_SECURE, E2EE, parola kontrolü ve PIN kilitleme oranı değişmez.
+- Kullanıcı tercihi açıkken picker dönüşünde Android onStop olmasa bile PIN gerekiyorsa uygulanır. Kısa picker seçimi PIN kapalıysa daha önce doğrulanmış oturumu korunur; yeni bir doğrulamasız oturum yaratılmaz. Güvenlik tercih hatasında fail closed.
+- Regresyon: ayar varsayılanı/persistence, PIN açık-kapalı, ekran kapatmak, elle kilitlemek, picker TTL, izin iptali, içerik doğrulama, iki cihaz medya, OTA veri korunumu ve yeni sürümde çökme/ANR yokluğu testleri.
+- **Kapanış:** PR CI, resmî kalıcı imzalı GitHub APK ve gerçek Samsung A55'te PIN anahtarının iki durumunda tekrar test olmadan bu madde kapatılmaz. #82 çökme, #83 keystore yedeği ayrıca açık kalır.

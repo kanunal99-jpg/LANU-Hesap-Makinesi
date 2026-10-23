@@ -38,6 +38,10 @@ class SecurityViewModel(
     private val _lockTimeoutMs = MutableStateFlow(0L)
     val lockTimeoutMs: StateFlow<Long> = _lockTimeoutMs.asStateFlow()
 
+    // Assume the stricter choice until the persisted setting is loaded.
+    private val _requirePinOnMediaPickerReturn = MutableStateFlow(true)
+    val requirePinOnMediaPickerReturn: StateFlow<Boolean> = _requirePinOnMediaPickerReturn.asStateFlow()
+
     private val _biometricEnabled = MutableStateFlow(false)
     val biometricEnabled: StateFlow<Boolean> = _biometricEnabled.asStateFlow()
 
@@ -105,6 +109,11 @@ class SecurityViewModel(
     private fun loadSettings() {
         viewModelScope.launch {
             _lockTimeoutMs.value = repository.getLockTimeout()
+            // Existing users default to OFF specifically for a short trusted
+            // Android gallery/camera/document-picker return, not all backgrounding.
+            _requirePinOnMediaPickerReturn.value =
+                try { repository.requirePinOnMediaPickerReturn() }
+                catch (_: Exception) { true }
             _biometricEnabled.value = repository.isBiometricEnabled()
             _screenProtectionEnabled.value = repository.isScreenProtectionEnabled()
             _themePreference.value = repository.getThemePreference()
@@ -294,6 +303,18 @@ class SecurityViewModel(
         viewModelScope.launch {
             repository.setLockTimeout(timeoutMs)
             _lockTimeoutMs.value = timeoutMs
+        }
+    }
+
+    fun setRequirePinOnMediaPickerReturn(enabled: Boolean) {
+        viewModelScope.launch {
+            try {
+                repository.setRequirePinOnMediaPickerReturn(enabled)
+                _requirePinOnMediaPickerReturn.value = enabled
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                _errorMessage.value = "Medya PIN tercihi kaydedilemedi."
+            }
         }
     }
 

@@ -2,6 +2,8 @@ package com.example
 
 import android.content.BroadcastReceiver
 import android.content.Context
+import android.app.KeyguardManager
+import com.example.core.security.MediaPickerReturnPolicy
 import android.content.Intent
 import android.app.Activity
 import android.graphics.Bitmap
@@ -61,6 +63,53 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     // callbacks. Opening a system picker must not bypass PIN/FLAG_SECURE.
     private var pendingPickerConversationId: String? = null
 
+    // Volatile trusted Android system-picker session. Never persists across
+    // process restarts; cannot unlock a previously locked private area.
+    private var externalPickerStartedAtMs: Long? = null
+    private var pickerBackgroundLockExempted = false
+    private var screenOffDuringPicker = false
+
+    private fun beginExternalPicker() {
+        externalPickerStartedAtMs = SystemClock.elapsedRealtime()
+        screenOffDuringPicker = false
+    }
+
+    private fun keyguardIsLocked(): Boolean =
+        (getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager)?.isKeyguardLocked != false
+
+    private fun permittedPickerReturn(): Boolean =
+        ::securityViewModel.isInitialized &&
+            MediaPickerReturnPolicy.mayResumeWithoutPin(
+                requirePinOnReturn = securityViewModel.requirePinOnMediaPickerReturn.value,
+                pickerStartedElapsedMs = externalPickerStartedAtMs,
+                nowElapsedMs = SystemClock.elapsedRealtime(),
+                isUnlocked = !securityViewModel.isLocked.value,
+                screenWasLocked = screenOffDuringPicker || keyguardIsLocked()
+            )
+
+    private fun concealPrivateAreaIfLocked() {
+        if (::securityViewModel.isInitialized && securityViewModel.isLocked.value &&
+            navigationBackstack.lastOrNull()?.let { isSecureScreen(it) } == true) {
+            navigationBackstack.clear()
+            navigationBackstack.add(Screen.Calculator)
+        }
+    }
+
+    private fun completeExternalPickerResult() {
+        // Some Android system pickers are presented as overlays and do not
+        // trigger Activity.onStop. Enforce the same opt-in PIN / expiry /
+        // screen-off rules when their result arrives anyway.
+        if (::securityViewModel.isInitialized &&
+            externalPickerStartedAtMs != null &&
+            !permittedPickerReturn()) {
+            securityViewModel.lock()
+            concealPrivateAreaIfLocked()
+        }
+        // onStart can be called before or after result delivery. Keep the
+        // timestamp until a bypassed onStop/onStart pair is reconciled.
+        if (!pickerBackgroundLockExempted) externalPickerStartedAtMs = null
+    }
+
     private val imagePicker = registerForActivityResult(
         ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
@@ -86,8 +135,12 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         }
     }
 
-    private fun takePendingPickerChat(): String? =
-        pendingPickerConversationId.also { pendingPickerConversationId = null }
+    private fun takePendingPickerChat(): String? {
+        val chatId = pendingPickerConversationId
+        pendingPickerConversationId = null
+        completeExternalPickerResult()
+        return chatId
+    }
 
     private fun prepareMedia(chatId: String, prepare: suspend () -> String) {
         lifecycleScope.launch {
@@ -110,15 +163,21 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         if (!::securityViewModel.isInitialized || securityViewModel.isLocked.value) return
         if (pendingPickerConversationId != null) return
         pendingPickerConversationId = chatId
+        beginExternalPicker()
         try {
             when (kind) {
                 "gallery" -> imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                 "camera" -> cameraPreviewPicker.launch(null)
                 "document" -> documentPicker.launch(arrayOf("application/pdf", "text/plain"))
-                else -> { pendingPickerConversationId = null; return }
+                else -> {
+                    pendingPickerConversationId = null
+                    externalPickerStartedAtMs = null
+                    return
+                }
             }
         } catch (_: Exception) {
             pendingPickerConversationId = null
+            externalPickerStartedAtMs = null
             Toast.makeText(this, "Android dosya seçicisi açılamadı.", Toast.LENGTH_LONG).show()
         }
     }
@@ -131,6 +190,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     ) { response ->
         val attachment = pendingExportAttachment
         pendingExportAttachment = null
+        completeExternalPickerResult()
         val destination = response.data?.data
         if (response.resultCode == Activity.RESULT_OK &&
             destination != null && attachment != null) {
@@ -153,6 +213,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         if (!::securityViewModel.isInitialized || securityViewModel.isLocked.value) return
         if (pendingExportAttachment != null) return
         pendingExportAttachment = attachment
+        beginExternalPicker()
         try {
             val intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
                 .addCategory(Intent.CATEGORY_OPENABLE)
@@ -161,6 +222,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             exportPicker.launch(intent)
         } catch (_: Exception) {
             pendingExportAttachment = null
+            externalPickerStartedAtMs = null
             Toast.makeText(this, "Android dosya kaydetme ekranı açılamadı.", Toast.LENGTH_LONG).show()
         }
     }
@@ -420,6 +482,10 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     }
 
     private fun handleLockOnScreenOff() {
+        // Screen-off must always override the temporary picker convenience.
+        screenOffDuringPicker = true
+        pickerBackgroundLockExempted = false
+        externalPickerStartedAtMs = null
         if (::securityViewModel.isInitialized) {
             securityViewModel.lock()
         }
@@ -434,6 +500,15 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     }
 
     private fun handleAppBackgrounded() {
+        // This is the sole allowed exception: an Activity-launched Android
+        // picker, still within the short session, while the phone is unlocked.
+        // All ordinary app switches and screen-off events use normal auto-lock.
+        if (permittedPickerReturn() &&
+            (pendingPickerConversationId != null || pendingExportAttachment != null)) {
+            pickerBackgroundLockExempted = true
+            return
+        }
+        pickerBackgroundLockExempted = false
         backgroundTimestamp = SystemClock.elapsedRealtime()
         if (::securityViewModel.isInitialized) {
             securityViewModel.appBackgrounded()
@@ -449,6 +524,22 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     }
 
     private fun handleAppForegrounded() {
+        if (pickerBackgroundLockExempted) {
+            pickerBackgroundLockExempted = false
+            val returnIsTrusted = permittedPickerReturn()
+            externalPickerStartedAtMs = null
+            if (returnIsTrusted) {
+                // A short picker round-trip is NOT a new private-area login.
+                // Caller already authenticated before opening this picker.
+                backgroundTimestamp = 0L
+                securityViewModel.checkPinExists()
+                return
+            }
+            // Expired picker, device lock, or explicit opt-in: fail closed.
+            securityViewModel.lock()
+            concealPrivateAreaIfLocked()
+        }
+        externalPickerStartedAtMs = null
         if (::securityViewModel.isInitialized) {
             val timeoutMs = securityViewModel.lockTimeoutMs.value
             val elapsed = SystemClock.elapsedRealtime() - backgroundTimestamp
