@@ -123,16 +123,10 @@ fun CalculatorScreen(
         }
     }
 
-    // Haptic feedback helper
-    val triggerVibration = {
-        val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createOneShot(35, VibrationEffect.DEFAULT_AMPLITUDE))
-        } else {
-            @Suppress("DEPRECATION")
-            vibrator.vibrate(35)
-        }
-    }
+    // User-requested silent operation: calculator and navigation never vibrate.
+    // Keep call sites as a no-op to preserve all existing navigation and math logic.
+    val triggerVibration: () -> Unit = {}
+
 
     val speechRecognizerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
