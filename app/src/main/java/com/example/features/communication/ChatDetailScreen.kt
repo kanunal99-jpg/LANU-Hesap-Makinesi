@@ -4,6 +4,15 @@ import android.content.Context
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.net.Uri
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.content.FileProvider
+import java.io.File
+import java.util.UUID
+import com.example.core.messaging.SecureMediaAttachment
+import com.example.core.repository.CommunicationRepository
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -61,6 +70,42 @@ fun ChatDetailScreen(
     val userPhone by viewModel.userId.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
     val isSending by viewModel.isSending.collectAsState()
+    val loadedMedia by viewModel.loadedMedia.collectAsState()
+    val downloadingMediaId by viewModel.downloadingMediaId.collectAsState()
+    var attachmentMenuExpanded by remember { mutableStateOf(false) }
+    var pendingCameraFile by remember { mutableStateOf<File?>(null) }
+    var pendingSave by remember { mutableStateOf<CommunicationRepository.ReceivedMedia?>(null) }
+
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri?.let { viewModel.sendMedia(context, it, photo = true) }
+    }
+    val documentPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { viewModel.sendMedia(context, it, photo = false) }
+    }
+    val cameraPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicture()) { success ->
+        val file = pendingCameraFile
+        pendingCameraFile = null
+        if (file != null) {
+            if (success) {
+                val uri = FileProvider.getUriForFile(context,
+                    "${context.packageName}.ota.provider", file)
+                viewModel.sendMedia(context, uri, photo = true)
+            } else file.delete()
+        }
+    }
+    val saveDocument = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        val media = pendingSave
+        pendingSave = null
+        if (uri != null && media != null) {
+            runCatching {
+                context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(media.bytes) }
+                    ?: error("Belge kaydedilemedi.")
+            }.onFailure { Toast.makeText(context, "Belge kaydedilemedi.", Toast.LENGTH_LONG).show() }
+        }
+    }
 
     var textInput by remember { mutableStateOf("") }
     var isSelfDestructEnabled by remember { mutableStateOf(false) }
@@ -236,6 +281,13 @@ fun ChatDetailScreen(
                     
                     MessageBubble(
                         text = decryptedText,
+                        loadedAttachment = loadedMedia[message.id],
+                        isDownloadingAttachment = downloadingMediaId == message.id,
+                        onDownloadAttachment = { viewModel.downloadMedia(conversationId, message.id) },
+                        onSaveAttachment = { received ->
+                            pendingSave = received
+                            saveDocument.launch(received.name)
+                        },
                         mediaUrl = message.mediaUrl,
                         timestamp = message.timestamp,
                         isMine = isMine,
@@ -266,6 +318,51 @@ fun ChatDetailScreen(
                         .padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Box {
+                        IconButton(
+                            enabled = !isSending,
+                            onClick = { attachmentMenuExpanded = true },
+                            modifier = Modifier.testTag("secure_attachment_menu")
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Şifreli fotoğraf veya dosya ekle")
+                        }
+                        DropdownMenu(
+                            expanded = attachmentMenuExpanded,
+                            onDismissRequest = { attachmentMenuExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Galeriden fotoğraf") },
+                                leadingIcon = { Icon(Icons.Default.PhotoLibrary, contentDescription = null) },
+                                onClick = {
+                                    attachmentMenuExpanded = false
+                                    photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                })
+                            DropdownMenuItem(
+                                text = { Text("Kamerayla fotoğraf çek") },
+                                leadingIcon = { Icon(Icons.Default.PhotoCamera, contentDescription = null) },
+                                onClick = {
+                                    attachmentMenuExpanded = false
+                                    runCatching {
+                                        val folder = File(context.cacheDir, "lanu-camera").apply { mkdirs() }
+                                        val file = File(folder, "photo-${UUID.randomUUID()}.jpg")
+                                        pendingCameraFile = file
+                                        val uri = FileProvider.getUriForFile(context,
+                                            "${context.packageName}.ota.provider", file)
+                                        cameraPicker.launch(uri)
+                                    }.onFailure {
+                                        Toast.makeText(context, "Kamera başlatılamadı.", Toast.LENGTH_LONG).show()
+                                    }
+                                })
+                            DropdownMenuItem(
+                                text = { Text("PDF veya metin dosyası") },
+                                leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null) },
+                                onClick = {
+                                    attachmentMenuExpanded = false
+                                    documentPicker.launch(arrayOf("application/pdf", "text/plain"))
+                                })
+                        }
+                    }
+
                     OutlinedTextField(
                         value = textInput,
                         onValueChange = { textInput = it },
