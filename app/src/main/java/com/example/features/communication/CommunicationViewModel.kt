@@ -3,6 +3,7 @@ package com.example.features.communication
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.core.media.InlineMediaCodec
 import com.example.core.database.ConversationEntity
 import com.example.core.database.MessageEntity
 import com.example.core.repository.CommunicationRepository
@@ -36,6 +37,36 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
     val busy = _busy.asStateFlow()
     private val _isSending = MutableStateFlow(false)
     val isSending = _isSending.asStateFlow()
+
+    /** Volatile-only, never persisted. Survives system Photo Picker's secure lock.
+     * PIN reauthentication is still required before preview or sending.
+     */
+    data class PreparedInlineMedia(val conversationId: String, val envelope: String, val expiresAtMillis: Long)
+    private val _preparedInlineMedia = MutableStateFlow<PreparedInlineMedia?>(null)
+    val preparedInlineMedia = _preparedInlineMedia.asStateFlow()
+
+    fun stashPreparedMedia(conversationId: String, envelope: String) {
+        // Reject malformed media and cross-thread payloads before retaining even in RAM.
+        InlineMediaCodec.decode(envelope)
+        require(conversationId.isNotBlank()) { "Ek dosya için sohbet seçilemedi." }
+        _preparedInlineMedia.value = PreparedInlineMedia(
+            conversationId,
+            envelope,
+            System.currentTimeMillis() + 5 * 60_000L
+        )
+    }
+
+    fun pendingMediaFor(conversationId: String): String? {
+        val current = _preparedInlineMedia.value ?: return null
+        if (current.expiresAtMillis < System.currentTimeMillis()) {
+            _preparedInlineMedia.value = null
+            return null
+        }
+        return current.takeIf { it.conversationId == conversationId }?.envelope
+    }
+
+    fun clearPreparedMedia() { _preparedInlineMedia.value = null }
+
     enum class NetworkState { ONLINE, OFFLINE, RECONNECTING, UNCONFIGURED }
     private val _networkState = MutableStateFlow(if (repository.relayConfigured) NetworkState.OFFLINE else NetworkState.UNCONFIGURED)
     val networkState = _networkState.asStateFlow()
@@ -196,7 +227,9 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
         _isSending.value = true
         operation {
             try {
+                // Saving encrypted content in Room must succeed before the draft disappears.
                 repository.sendInlineAttachment(conversation.id, envelope)
+                if (_preparedInlineMedia.value?.envelope == envelope) clearPreparedMedia()
                 onQueued()
                 synchronize()
             } finally {
