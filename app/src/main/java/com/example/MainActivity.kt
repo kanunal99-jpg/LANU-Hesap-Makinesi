@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.lifecycle.ViewModelProvider
 import com.example.core.security.AppLifecycleObserver
 import com.example.features.calculator.CalculatorScreen
@@ -135,6 +136,15 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         }
 
         setContent {
+            // Silent by default across calculator, PIN, and private chat.
+            // Compose's host View can play system click sounds independently of
+            // explicit Vibrator calls; disable both sources without touching the
+            // user's keyboard or global Android accessibility preferences.
+            val uiView = LocalView.current
+            SideEffect {
+                uiView.isSoundEffectsEnabled = false
+                uiView.isHapticFeedbackEnabled = false
+            }
             val themePreference by securityViewModel.themePreference.collectAsState()
             val buttonColorTheme by securityViewModel.buttonColorTheme.collectAsState()
             val darkTheme = when (themePreference) {
