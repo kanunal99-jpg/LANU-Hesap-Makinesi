@@ -8,6 +8,7 @@ import org.junit.rules.TemporaryFolder
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.security.SecureRandom
 
 class PrivateMediaCryptoTest {
@@ -168,6 +169,48 @@ class PrivateMediaCryptoTest {
             }
             assertEquals(0, dir.listFiles()!!.count { it.name.startsWith("lanu-verified-") })
         } finally { encrypted.destroyKey() }
+    }
+
+    @Test fun stalledSourceFailsClosedAndDeletesIncompleteCiphertext() {
+        val dir = work.newFolder("stalled")
+        val neverReady = object : InputStream() {
+            override fun read(): Int = 0
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int = 0
+        }
+        assertRejected {
+            PrivateMediaCrypto.encryptToPrivateFile(neverReady, 8192, "application/pdf", dir)
+        }
+        assertEquals(0, dir.listFiles()!!.size)
+    }
+
+    @Test fun temporarilyStalledProviderStillEncryptsAndDecrypts() {
+        val dir = work.newFolder("recovering")
+        val source = makeSource(77884)
+        val provider = object : InputStream() {
+            private var position = 0
+            private var calls = 0
+            override fun read(): Int =
+                if (position < source.size) source[position++].toInt() and 255 else -1
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                if (++calls % 4 == 1) return 0
+                if (position >= source.size) return -1
+                val count = minOf(length, 3137, source.size - position)
+                System.arraycopy(source, position, buffer, offset, count)
+                position += count
+                return count
+            }
+        }
+        val encrypted = PrivateMediaCrypto.encryptToPrivateFile(
+            provider, source.size.toLong(), "image/jpeg", dir)
+        try {
+            val plain = PrivateMediaCrypto.decryptToVerifiedPrivateFile(
+                encrypted.ciphertextFile, encrypted.manifest, encrypted.keyMaterial, dir)
+            try { assertArrayEquals(source, plain.readBytes()) }
+            finally { plain.delete() }
+        } finally {
+            encrypted.destroyKey()
+            encrypted.ciphertextFile.delete()
+        }
     }
 
     @Test fun separateFilesHaveIndependentKeysNoncesAndIds() {
