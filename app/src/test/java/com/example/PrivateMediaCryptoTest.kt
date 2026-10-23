@@ -8,6 +8,7 @@ import org.junit.rules.TemporaryFolder
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.security.SecureRandom
 
 class PrivateMediaCryptoTest {
@@ -161,6 +162,38 @@ class PrivateMediaCryptoTest {
             )
         }
         assertEquals(0, dir.listFiles()!!.size)
+    }
+
+    @Test fun intermittentlyStalledProviderCanStillTransferDataCorrectly() {
+        val dir = work.newFolder("stalled-then-recovered")
+        val original = makeSource(77_884)
+        val provider = object : InputStream() {
+            var position = 0
+            var calls = 0
+            override fun read(): Int =
+                if (position < original.size) original[position++].toInt() and 255 else -1
+            override fun read(bytes: ByteArray, offset: Int, length: Int): Int {
+                if (++calls % 4 == 1) return 0
+                if (position >= original.size) return -1
+                val count = minOf(length, 3137, original.size - position)
+                System.arraycopy(original, position, bytes, offset, count)
+                position += count
+                return count
+            }
+        }
+        val encrypted = PrivateMediaCrypto.encryptToPrivateFile(
+            provider, original.size.toLong(), "image/jpeg", dir
+        )
+        try {
+            val verified = PrivateMediaCrypto.decryptToVerifiedPrivateFile(
+                encrypted.ciphertextFile, encrypted.manifest, encrypted.keyMaterial, dir
+            )
+            try { assertArrayEquals(original, verified.readBytes()) }
+            finally { assertTrue(verified.delete()) }
+        } finally {
+            encrypted.destroyKey()
+            encrypted.ciphertextFile.delete()
+        }
     }
 
     @Test fun truncatedOrAppendedCipherFileIsRejectedBeforeDecrypting() {
