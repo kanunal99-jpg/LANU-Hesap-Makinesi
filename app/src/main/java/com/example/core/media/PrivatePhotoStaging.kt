@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.File
 import kotlin.math.max
 
 /**
@@ -27,46 +28,56 @@ object PrivatePhotoStaging {
                 InlineMediaPreparer.readBoundedInput(it, MAX_SOURCE)
             } ?: throw IllegalArgumentException("Fotoğraf açılamadı.")
             try {
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeByteArray(original, 0, original.size, bounds)
-                require(bounds.outWidth in 1..12000 && bounds.outHeight in 1..12000 &&
-                    bounds.outWidth.toLong() * bounds.outHeight <= 100_000_000L) {
-                    "Görsel güvenli piksel sınırını aşıyor."
-                }
-                var sample = 1
-                while (max(bounds.outWidth, bounds.outHeight) / sample > 2400 ||
-                    bounds.outWidth.toLong() * bounds.outHeight / (sample * sample) > 6_000_000) {
-                    sample *= 2
-                }
-                val bitmap = BitmapFactory.decodeByteArray(original, 0, original.size,
-                    BitmapFactory.Options().apply {
-                        inSampleSize = sample
-                        inPreferredConfig = Bitmap.Config.RGB_565
-                    }) ?: throw IllegalArgumentException("Fotoğraf okunamadı.")
-                try {
-                    val buffer = ByteArrayOutputStream()
-                    check(bitmap.compress(Bitmap.CompressFormat.JPEG, 85, buffer)) {
-                        "Fotoğraf JPEG'e dönüştürülemedi."
-                    }
-                    val bytes = buffer.toByteArray()
-                    try {
-                        require(bytes.isNotEmpty() && bytes.size.toLong() <=
-                            PrivateMediaCrypto.MAX_FILE_BYTES) { "Dosya sınırı aşıldı." }
-                        PrivateMediaSourcePreflight.inspect(
-                            ByteArrayInputStream(bytes), "image/jpeg", sanitizedImage = true
-                        ).use {
-                            PrivateMediaCrypto.encryptToPrivateFile(
-                                it, bytes.size.toLong(), "image/jpeg", context.cacheDir
-                            )
-                        }
-                    } finally {
-                        bytes.fill(0)
-                    }
-                } finally {
-                    bitmap.recycle()
-                }
+                stageSelectedBytes(original, context.cacheDir)
             } finally {
                 original.fill(0)
             }
         }
+
+    /**
+     * Input is a bounded image snapshot. This helper enables offline tests of
+     * EXIF-scrubbing and encrypted output, without a real document provider.
+     */
+    internal fun stageSelectedBytes(original: ByteArray, privateDirectory: File):
+        PrivateMediaCrypto.EncryptedFile {
+        require(original.size in 1..MAX_SOURCE) { "Görsel kaynağı çok büyük." }
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(original, 0, original.size, bounds)
+        require(bounds.outWidth in 1..12000 && bounds.outHeight in 1..12000 &&
+            bounds.outWidth.toLong() * bounds.outHeight <= 100_000_000L) {
+            "Görsel güvenli piksel sınırını aşıyor."
+        }
+        var sample = 1
+        while (max(bounds.outWidth, bounds.outHeight) / sample > 2400 ||
+            bounds.outWidth.toLong() * bounds.outHeight / (sample * sample) > 6_000_000) {
+            sample *= 2
+        }
+        val bitmap = BitmapFactory.decodeByteArray(original, 0, original.size,
+            BitmapFactory.Options().apply {
+                inSampleSize = sample
+                inPreferredConfig = Bitmap.Config.RGB_565
+            }) ?: throw IllegalArgumentException("Fotoğraf okunamadı.")
+        try {
+            val buffer = ByteArrayOutputStream()
+            check(bitmap.compress(Bitmap.CompressFormat.JPEG, 85, buffer)) {
+                "Fotoğraf JPEG'e dönüştürülemedi."
+            }
+            val bytes = buffer.toByteArray()
+            try {
+                require(bytes.isNotEmpty() && bytes.size.toLong() <=
+                    PrivateMediaCrypto.MAX_FILE_BYTES) { "Dosya sınırı aşıldı." }
+                PrivateMediaSourcePreflight.inspect(
+                    ByteArrayInputStream(bytes), "image/jpeg", sanitizedImage = true
+                ).use {
+                    PrivateMediaCrypto.encryptToPrivateFile(
+                        it, bytes.size.toLong(), "image/jpeg", privateDirectory
+                    )
+                }
+            } finally {
+                bytes.fill(0)
+            }
+        } finally {
+            bitmap.recycle()
+        }
+    }
 }
