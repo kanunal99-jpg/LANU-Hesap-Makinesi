@@ -150,18 +150,79 @@ fun CommunicationScreen(
 private fun IdentityCodeCard(code: String, name: String) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
-    Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-        Column(Modifier.padding(12.dp)) {
-            Text(name.ifBlank { "LANU Kullanıcısı" }, fontWeight = FontWeight.Bold)
-            Text("Kullanıcı kodun", fontSize = 11.sp)
-            Text(code, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.testTag("my_user_code"))
-            Row {
-                TextButton(onClick = { clipboard.setText(AnnotatedString(code)) }) { Text("Kopyala") }
-                TextButton(onClick = {
-                    context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"; putExtra(Intent.EXTRA_TEXT, code)
-                    }, "Kullanıcı kodunu paylaş"))
-                }) { Text("Paylaş") }
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        )
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier.size(42.dp).clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.Person,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(name.ifBlank { "LANU Kullanıcısı" },
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold)
+                    Text("Kişisel iletişim kodunuz",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Text(
+                text = code.ifBlank { "Kod hazırlanıyor…" },
+                modifier = Modifier.fillMaxWidth().testTag("my_user_code"),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    enabled = code.isNotBlank(),
+                    onClick = { clipboard.setText(AnnotatedString(code)) },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = null,
+                        modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Kopyala")
+                }
+                OutlinedButton(
+                    enabled = code.isNotBlank(),
+                    onClick = {
+                        try {
+                            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, code)
+                            }, "LANU kodunu paylaş"))
+                        } catch (_: Exception) {
+                            android.widget.Toast.makeText(
+                                context, "Paylaşım ekranı açılamadı.", android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null,
+                        modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Paylaş")
+                }
             }
         }
     }
