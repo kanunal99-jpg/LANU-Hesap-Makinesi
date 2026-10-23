@@ -149,6 +149,30 @@ object PrivateMediaCrypto {
             manifest.plainBytes + manifest.chunks * GCM_TAG_BYTES.toLong()) {
             "Şifreli dosya boyutu geçersiz."
         }
+        // Verify the complete encrypted object BEFORE writing even a temporary
+        // plaintext byte. This prevents a wrong SHA manifest or truncated
+        // object from creating any private plaintext at all. GCM tags still
+        // authenticate each block independently on the following pass.
+        val fullDigest = MessageDigest.getInstance("SHA-256")
+        FileInputStream(encrypted).use { source ->
+            val buffer = ByteArray(CHUNK_BYTES)
+            var total = 0L
+            while (true) {
+                val count = source.read(buffer)
+                if (count < 0) break
+                if (count == 0) continue
+                total += count
+                require(total <= manifest.plainBytes +
+                    manifest.chunks * GCM_TAG_BYTES.toLong()) {
+                    "Şifreli medya boyutu güvenli sınırı aşıyor."
+                }
+                fullDigest.update(buffer, 0, count)
+            }
+        }
+        require(MessageDigest.isEqual(
+            fullDigest.digest(), fromHex(manifest.cipherSha256)
+        )) { "Şifreli dosya özeti eşleşmiyor." }
+
         val plain = File.createTempFile("lanu-verified-", ".private", privateDirectory)
         val fileId = fromHex(manifest.fileId)
         val prefix = fromHex(manifest.noncePrefix)
