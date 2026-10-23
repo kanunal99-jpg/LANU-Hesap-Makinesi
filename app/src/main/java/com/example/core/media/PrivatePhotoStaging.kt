@@ -11,73 +11,55 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import kotlin.math.max
 
-/**
- * Encrypts a higher-quality Photo Picker selection inside the app cache.
- * Pixels are re-encoded rather than copying EXIF/GPS metadata.
- * Does not upload or send files; returned key must later be destroyed.
- */
+/** Local, encrypted high-quality photo staging; does not upload any bytes. */
 object PrivatePhotoStaging {
     private const val MAX_SOURCE = 12 * 1024 * 1024
 
     suspend fun stage(context: Context, uri: Uri): PrivateMediaCrypto.EncryptedFile =
         withContext(Dispatchers.IO) {
-            require(uri.scheme == "content") { "Güvenli galeri seçicisi gerekli." }
+            require(uri.scheme == "content") { "Galeri seçicisi gerekiyor." }
             require(context.contentResolver.getType(uri)?.lowercase() in
-                setOf("image/jpeg", "image/png")) { "Fotoğraf türü geçersiz." }
-            val original = context.contentResolver.openInputStream(uri)?.use {
+                setOf("image/jpeg", "image/png")) { "Fotoğraf türü desteklenmiyor." }
+            val source = context.contentResolver.openInputStream(uri)?.use {
                 InlineMediaPreparer.readBoundedInput(it, MAX_SOURCE)
             } ?: throw IllegalArgumentException("Fotoğraf açılamadı.")
-            try {
-                stageSelectedBytes(original, context.cacheDir)
-            } finally {
-                original.fill(0)
-            }
+            try { stageSelectedBytes(source, context.cacheDir) }
+            finally { source.fill(0) }
         }
 
-    /**
-     * Input is a bounded image snapshot. This helper enables offline tests of
-     * EXIF-scrubbing and encrypted output, without a real document provider.
-     */
-    internal fun stageSelectedBytes(original: ByteArray, privateDirectory: File):
-        PrivateMediaCrypto.EncryptedFile {
-        require(original.size in 1..MAX_SOURCE) { "Görsel kaynağı çok büyük." }
+    /** Re-encode pixels as JPEG rather than copying original metadata. */
+    internal fun stageSelectedBytes(raw: ByteArray, privateDirectory: File): PrivateMediaCrypto.EncryptedFile {
+        require(raw.size in 1..MAX_SOURCE) { "Görsel dosyası çok büyük." }
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(original, 0, original.size, bounds)
+        BitmapFactory.decodeByteArray(raw, 0, raw.size, bounds)
         require(bounds.outWidth in 1..12000 && bounds.outHeight in 1..12000 &&
-            bounds.outWidth.toLong() * bounds.outHeight <= 100_000_000L) {
-            "Görsel güvenli piksel sınırını aşıyor."
+            bounds.outWidth.toLong() * bounds.outHeight <= 100_000_000) {
+            "Görsel çözünürlüğü sınır dışı."
         }
         var sample = 1
         while (max(bounds.outWidth, bounds.outHeight) / sample > 2400 ||
             bounds.outWidth.toLong() * bounds.outHeight / (sample * sample) > 6_000_000) {
             sample *= 2
         }
-        val bitmap = BitmapFactory.decodeByteArray(original, 0, original.size,
+        val bitmap = BitmapFactory.decodeByteArray(raw, 0, raw.size,
             BitmapFactory.Options().apply {
                 inSampleSize = sample
                 inPreferredConfig = Bitmap.Config.RGB_565
-            }) ?: throw IllegalArgumentException("Fotoğraf okunamadı.")
-        try {
-            val buffer = ByteArrayOutputStream()
-            check(bitmap.compress(Bitmap.CompressFormat.JPEG, 85, buffer)) {
-                "Fotoğraf JPEG'e dönüştürülemedi."
-            }
-            val bytes = buffer.toByteArray()
+            }) ?: throw IllegalArgumentException("Fotoğraf açılamadı.")
+        return try {
+            val output = ByteArrayOutputStream()
+            check(bitmap.compress(Bitmap.CompressFormat.JPEG, 85, output))
+            val jpg = output.toByteArray()
             try {
-                require(bytes.isNotEmpty() && bytes.size.toLong() <=
-                    PrivateMediaCrypto.MAX_FILE_BYTES) { "Dosya sınırı aşıldı." }
+                require(jpg.isNotEmpty() && jpg.size.toLong() <= PrivateMediaCrypto.MAX_FILE_BYTES)
                 PrivateMediaSourcePreflight.inspect(
-                    ByteArrayInputStream(bytes), "image/jpeg", sanitizedImage = true
-                ).use {
+                    ByteArrayInputStream(jpg), "image/jpeg", sanitizedImage = true
+                ).use { checked ->
                     PrivateMediaCrypto.encryptToPrivateFile(
-                        it, bytes.size.toLong(), "image/jpeg", privateDirectory
+                        checked, jpg.size.toLong(), "image/jpeg", privateDirectory
                     )
                 }
-            } finally {
-                bytes.fill(0)
-            }
-        } finally {
-            bitmap.recycle()
-        }
+            } finally { jpg.fill(0) }
+        } finally { bitmap.recycle() }
     }
 }
