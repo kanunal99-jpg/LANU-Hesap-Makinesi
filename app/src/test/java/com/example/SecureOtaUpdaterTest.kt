@@ -17,6 +17,20 @@ import org.robolectric.annotation.Config
 class SecureOtaUpdaterTest {
     private val root = "https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/releases/download/"
 
+    @Test fun `official release link accepts only exact LANU signing-channel tags`() {
+        assertEquals(
+            "https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/releases/tag/v1.0.0-debug.269",
+            SecureOtaUpdater.officialReleasePage("v1.0.0-debug.269")
+        )
+        assertEquals(
+            "https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/releases/tag/v1.1.0-signed.300",
+            SecureOtaUpdater.officialReleasePage("v1.1.0-signed.300")
+        )
+        assertNull(SecureOtaUpdater.officialReleasePage("../evil"))
+        assertNull(SecureOtaUpdater.officialReleasePage("v1.0.0-debug.269/../../other"))
+        assertNull(SecureOtaUpdater.officialReleasePage("https://example.com/bad"))
+    }
+
     private fun release(tag: String, names: List<String> = listOf(
         "app-debug.apk", "app-debug.apk.sha256", "app-debug.apk.signer.txt"
     ), draft: Boolean = false): JSONObject {

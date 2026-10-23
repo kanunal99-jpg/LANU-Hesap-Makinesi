@@ -11,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -28,6 +29,7 @@ import kotlinx.coroutines.CancellationException
 @Composable
 fun UpdateCheckScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
     val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf<UpdateStatus?>(null) }
     var ready by remember { mutableStateOf<VerifiedUpdate?>(null) }
@@ -112,6 +114,28 @@ fun UpdateCheckScreen(modifier: Modifier = Modifier) {
                         Text("Güncelleme güvenlik nedeniyle engellendi", fontWeight = FontWeight.Bold)
                         Text("Bulunan sürüm: ${current.tag}")
                         Text(current.reason, modifier = Modifier.testTag("ota_signature_blocked"))
+                        if (current.reason.contains("APK imzası")) {
+                            Text(
+                                "Bu hata Android'in imza denetimidir; aynı sertifikayla imzalanmamış " +
+                                    "iki APK birbirinin üzerine güncelleme olarak kurulamaz.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Text(
+                                "Henüz hiç PIN, sohbet veya hesap geçmişi oluşturmadıysanız yalnız bir defa " +
+                                    "temiz kurulum yapabilirsiniz: Resmî APK'yi indirin, " +
+                                    "Android Ayarlar'dan eski LANU'yu kaldırın, İndirilenler'den yeni APK'yi kurun. " +
+                                    "Kaldırma işlemi LANU içindeki bütün verileri siler. " +
+                                    "Veriniz varsa kaldırmayın; güvenli taşıma gereklidir.",
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.testTag("ota_clean_install_guidance")
+                            )
+                            SecureOtaUpdater.officialReleasePage(current.tag)?.let { releasePage ->
+                                OutlinedButton(
+                                    onClick = { uriHandler.openUri(releasePage) },
+                                    modifier = Modifier.fillMaxWidth().testTag("ota_official_release_link")
+                                ) { Text("Resmî APK sayfasını aç") }
+                            }
+                        }
                     }
                 }
             }

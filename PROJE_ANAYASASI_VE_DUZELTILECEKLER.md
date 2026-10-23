@@ -392,3 +392,16 @@ Bu puanlar matematiksel sertifikasyon değil, testli geliştirme ve açık üret
 - Kabul: en az iki fiziksel cihaz ölçümleri, üretim politikalarının yayımlanması, tüm açık P0'ların kapatılması ve güvenli imzalı APK'nin doğrulanması.
 
 **Kalite referansı:** 21.10.2026 itibarıyla kanıta dayalı 69/100 değerlendirmesi; 90+ yalnız hedef, gerçekleşmiş sonuç değildir. Sıra #1 → #2 → #3 → #4 → #5. Kullanıcı verisi korunmadan özellik etkinleştirilmez veya başarı iddiası kurulmaz.
+
+
+---
+
+### 23.10.2026 — P0 OTA sertifika engeli / kullanıcıda henüz veri yok (OTA-BOOTSTRAP-01)
+
+**Kullanıcı gözlemi:** Samsung A55'te versionCode 267, GitHub v1.0.0-debug.269 için APK sertifika uyumsuzluğu. Kök neden: her CI'da yeni geçici debug anahtarı oluşturulması. Android aynı applicationId ve farklı sertifika için uygulama içi yerinde yükseltmeyi reddeder.
+
+**Yeni kullanıcı koşulu:** Kullanıcı 23.10.2026 tarihinde şimdilik LANU içinde korunacak veri olmadığını belirtti. Bu yalnız bu ilk cihaz için kullanıcı onayıyla tek seferlik temiz kurulumu mümkün kılar; eski APK'nin üzerine imza denetimini atlayarak kurulum yapılmaz. Başka cihazların mevcut kullanıcı verisi korunmalıdır.
+
+**Kod ve kontrol:** scripts/bootstrap_stable_signing.sh yerel anahtar üretme/yedekleme ve GitHub Actions Secrets yerleştirme akışı; .github/workflows/android.yml manuel stable yayın (yalnız imzalama anahtarı korumalı ve beş secret tam ise), UI imza uyumsuzluğu için doğrulanmış resmî GitHub release sayfası ve veri olmayan kullanıcıya ayrı temiz kurulum yönergesi, negatif URI ve CI bash testleri.
+
+**Kabul kapısı:** (1) Kullanıcı hesabı güvenilir yerel signing bootstrap çalıştırdı; (2) ilk stable APK Release + SHA256/signer yayımlandı; (3) ikinci stable sürüm aynı sertifika SHA256 + artan versionCode ile çıktı; (4) temiz kurulan ilk stable'dan ikinciye fiziksel Samsung A55 üzerinde uygulama içi güncelleme doğrulandı; (5) main CI ve release download read-back başarılı. Bu beş kanıt sağlanmadan durum **P0 AÇIK**. Eski debug sürüm kaldırılacaksa uygulamada korunacak veri bulunmamalı ve kullanıcı bilinçli onay vermelidir.

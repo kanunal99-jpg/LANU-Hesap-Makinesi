@@ -56,3 +56,14 @@ CI unit, Robolectric, lint, build, paket versionCode, imza parmak izi ve SHA-256
 Yeni scripts/verify_stable_signer_continuity.py kontrolü, GitHub Release yayımlanmadan önce yeni stable APK signer raporunu önceki stable Release'in signer raporuyla karşılaştırır. SHA-256 imza parmak izi farklıysa, önceki rapor bozuk/eksikse veya herhangi biri stable değilse **yayını durdurur**. Altı regresyon senaryosu kodlanmıştır. İlk stable yayın önceki stable olmadığından yalnız bir baseline oluşturur; eski geçici debug APK üzerine veri kayıpsız güncelleme vaadi değildir.
 
 Bu kontrol mevcut apksigner ve SHA-256 doğrulaması ile public-download read-back kontrollerine eklenir. İlk stable APK'yi hesap sahibinin GitHub Secrets alanında bulunan beş sırla üretmek gerekir; sırların hazırlanıp eklenmesi bu kod değişikliğinin parçası değildir. Aynı sertifikayla iki sürümün ve gerçek telefonda adb install -r ile yerinde yükseltmenin doğrulanması ayrıca gerekir. Keystore ve parolalar asla depoya, sohbetlere veya sürüm eklerine yazılmaz.
+
+
+## 23.10.2026 — İlk kurulumda veri yoksa temiz geçiş ve tek seferlik kalıcı imza hazırlığı
+
+Eski debug.267 ile debug.269 her CI koşusunda farklı üretilmiş geçici debug sertifikaları kullandığı için Android yerinde güncellemeyi reddeder. OTA imza denetimini kapatmak ya da PackageManager'ı atlamak yasaktır.
+
+**Verisiz ilk kurulum istisnası:** Kullanıcının LANU'da PIN, LANU kimliği, sohbet, kişi, hesap geçmişi veya korunacak başka veri olmadığından emin olması hâlinde Android Ayarlarından eski sürümü **kendi onayıyla** kaldırıp resmî yeni APK'yi temiz kurabilir. Bu veri silen bir **yeniden kurulumdur**, OTA güncellemesi değildir. Veri varsa kesinlikle kaldırılmaz. Gelecekteki OTA'nın çalışması için ilk temiz kurulan APK'nin **kalıcı imzalı** stable sürüm olması şarttır; geçici debug APK yüklemek kalıcı imza sorununu çözmez.
+
+**Hesap sahibinin güvenilir bilgisayarından tek seferlik hazırlık:** GitHub CLI (gh), JDK/keytool, OpenSSL kur; gh auth login ile kendi hesabında oturum aç. Kaynağını inceleyerek bash scripts/bootstrap_stable_signing.sh çalıştır. Betik anahtarı kullanıcı cihazındaki $HOME/.lanu/signing klasörüne üretir, eski anahtar varsa otomatik değiştirmez. GitHub CLI ile beş imzalama değerini Actions Secrets alanına istemci tarafında şifreleyerek yükler ve manuel ana dal workflow_dispatch tetikler. Anahtar, parola ve yedek klasörünü depoya, issue'ya, PR'a, sohbet mesajına veya Release'e koyma. Yerel dosyaları güvenli şekilde yedekle.
+
+Manuel yayın çalışması beş korunan secret eksikse fail-closed durur. Yeni stable yayının sertifikası sonraki stable yayında CI ile eşitlik denetiminden geçer. İki ardışık kalıcı sertifikalı sürüm ve Samsung A55 üzerinde doğrulanmış güncelleme görülmeden P0 kapatılamaz.

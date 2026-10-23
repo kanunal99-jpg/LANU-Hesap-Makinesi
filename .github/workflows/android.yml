@@ -3,6 +3,7 @@ name: Android CI/CD Build & Test Automation
 on:
   push:
     branches: [ "main", "master" ]
+  workflow_dispatch: # Trusted owner can publish the first stable APK after provisioning signing secrets
   pull_request:
     branches: [ "main", "master" ]
 
@@ -84,6 +85,9 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_verify_android_privacy.py'
           python3 scripts/verify_android_privacy.py
 
+      - name: Validate owner-side stable signing bootstrap syntax
+        run: bash -n scripts/bootstrap_stable_signing.sh
+
       - name: Test APK publication and stable signing continuity
         run: |
           python3 -m unittest discover -s scripts -p 'test_verify_published_apk.py'
@@ -94,8 +98,8 @@ jobs:
 
       # Never expose long-lived signing credentials to pull_request builds.
       # The complete keyset must exist as protected repository/environment secrets.
-      - name: Restore stable signing key (trusted pushes only)
-        if: github.event_name == 'push'
+      - name: Restore stable signing key (trusted main pushes and manual dispatches)
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
         id: signing
         env:
           LANU_SIGNING_KEYSTORE_BASE64: ${{ secrets.LANU_SIGNING_KEYSTORE_BASE64 }}
@@ -136,6 +140,17 @@ jobs:
             echo "mode=stable" >> "$GITHUB_OUTPUT"
             echo "expected_fingerprint=$expected" >> "$GITHUB_OUTPUT"
             echo "Protected keystore restored for trusted push; no private key is uploaded as artifact."
+          fi
+
+      - name: Require protected signing on explicitly requested stable releases
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          SIGNING_MODE: ${{ steps.signing.outputs.mode }}
+        run: |
+          if [ "$SIGNING_MODE" != "stable" ]; then
+            echo "::error::Manual stable release requires all five protected LANU signing secrets."
+            exit 1
           fi
 
       - name: Ensure isolated CI debug keystore for PRs and unprovisioned builds
@@ -303,7 +318,7 @@ jobs:
 
   publish:
     name: Publish verified APK
-    if: github.event_name == 'push'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     needs: [build-and-test, android-runtime-acceptance]
     runs-on: ubuntu-latest
     permissions:
