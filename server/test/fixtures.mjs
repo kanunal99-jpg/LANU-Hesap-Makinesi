@@ -4,6 +4,19 @@ import { createRelay, publicId, publicCode } from '../../supabase/functions/lanu
 
 export class MemoryStore {
   users = new Map(); edges = new Map(); messages = new Map(); pending = new Map(); nonces = new Set();
+  mediaFiles = new Map();
+  async reserveMedia(owner, peer, id, bytes, sha) {
+    const old = this.mediaFiles.get(id);
+    if (old) return old.senderId === owner && old.recipientId === peer &&
+      old.cipherBytes === bytes && old.cipherSha256 === sha;
+    if ([...this.mediaFiles.values()].filter(x => x.senderId === owner).length >= 12) return false;
+    this.mediaFiles.set(id, { senderId: owner, recipientId: peer, cipherBytes: bytes, cipherSha256: sha });
+    return true;
+  }
+  async media(id) { return this.mediaFiles.get(id) ?? null; }
+  async mediaLink(mode, sender, messageId) {
+    return 'https://media.example.test/' + mode + '/' + sender + '/' + messageId;
+  }
   async identity(id) { return this.users.get(id) ?? null; }
   async identityByCode(code) { return [...this.users.values()].find(v => v.code === code) ?? null; }
   async register(value) { if (!this.users.has(value.id)) this.users.set(value.id, structuredClone(value)); return structuredClone(this.users.get(value.id)); }
