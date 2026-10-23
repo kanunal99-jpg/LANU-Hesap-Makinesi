@@ -226,6 +226,22 @@ class SecurityRepository(
         settingsDao.insertSetting(SettingsEntity("lock_timeout", timeoutMs.toString()))
     }
 
+    /**
+     * User convenience preference, separate from global PIN/auto-lock policy.
+     * Absent row = OFF (no extra PIN during a short trusted picker round trip).
+     * Corrupt values fail closed and require PIN.
+     */
+    suspend fun requirePinOnMediaPickerReturn(): Boolean {
+        return when (settingsDao.getSettingValue("pin_on_media_picker_return")) {
+            null, "false" -> false
+            else -> true
+        }
+    }
+
+    suspend fun setRequirePinOnMediaPickerReturn(enabled: Boolean) {
+        settingsDao.insertSetting(SettingsEntity("pin_on_media_picker_return", enabled.toString()))
+    }
+
     suspend fun updateLastActiveTime() {
         settingsDao.insertSetting(SettingsEntity("last_active_time", System.currentTimeMillis().toString()))
     }
