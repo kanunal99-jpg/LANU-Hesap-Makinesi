@@ -147,6 +147,27 @@ export function createRelay(store, clock = Date.now) {
         insist(message.senderId === owner && message.recipientId === data.peerId && message.content === data.content, 409, 'Mesaj kimliği çakıştı.');
         return { status: message.status };
       }
+      case 'mediaUpload': {
+        insist(uuid.test(data.messageId ?? '') && hex64.test(data.peerId ?? '') &&
+          data.peerId !== owner && Number.isSafeInteger(data.cipherBytes) &&
+          data.cipherBytes >= 29 && data.cipherBytes <= MAX_ENCRYPTED_MEDIA_BYTES &&
+          hex64.test(data.cipherSha256 ?? ''), 400, 'Güvenli dosya meta verisi geçersiz.');
+        insist(await store.mutual(owner, data.peerId), 409, 'Medya paylaşımı için karşılıklı kişi kaydı gerekir.');
+        insist(await store.reserveMedia(owner, data.peerId, data.messageId, data.cipherBytes, data.cipherSha256),
+          429, 'Günlük medya paylaşım sınırına ulaşıldı.');
+        return { uploadUrl: await store.mediaLink('upload', owner, data.messageId) };
+      }
+      case 'mediaDownload': {
+        insist(uuid.test(data.messageId ?? ''), 400, 'Dosya mesaj kimliği geçersiz.');
+        const entry = await store.media(data.messageId);
+        const message = await store.message(data.messageId);
+        insist(entry && message && !message.deleted &&
+          message.senderId === entry.senderId && message.recipientId === entry.recipientId &&
+          (owner === entry.senderId || owner === entry.recipientId),
+          404, 'Bu dosyaya erişim bulunamadı.');
+        return { downloadUrl: await store.mediaLink('download', entry.senderId, data.messageId),
+          cipherBytes: entry.cipherBytes, cipherSha256: entry.cipherSha256 };
+      }
       case 'sync': return { contacts: await store.contacts(owner), events: await store.events(owner) };
       case 'ack': {
         const eventIds = data.eventIds ?? [], readIds = data.readIds ?? [];
