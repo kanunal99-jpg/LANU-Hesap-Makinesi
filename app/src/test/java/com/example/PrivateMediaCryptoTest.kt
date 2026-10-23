@@ -150,6 +150,19 @@ class PrivateMediaCryptoTest {
         assertEquals(0, dir.listFiles()!!.size)
     }
 
+    @Test fun silentZeroByteFileProviderCannotHangEncryption() {
+        val dir = work.newFolder("stalled-provider")
+        val provider = object : ByteArrayInputStream(ByteArray(512)) {
+            override fun read(b: ByteArray, off: Int, len: Int): Int = 0
+        }
+        assertRejected {
+            PrivateMediaCrypto.encryptToPrivateFile(
+                provider, 512, "application/pdf", dir
+            )
+        }
+        assertEquals(0, dir.listFiles()!!.size)
+    }
+
     @Test fun truncatedOrAppendedCipherFileIsRejectedBeforeDecrypting() {
         val dir = work.newFolder("size")
         val encrypted = PrivateMediaCrypto.encryptToPrivateFile(
