@@ -48,6 +48,24 @@ class PrivateMediaSourcePreflightTest {
         }
     }
 
+    @Test fun invalidMimeAndMissingPrivacyConsentCloseOriginalProvider() {
+        for ((mime, approved) in listOf(
+            "application/x-executable" to false,
+            "image/jpeg" to false,
+            "video/mp4" to false
+        )) {
+            var closed = false
+            val stream = object : ByteArrayInputStream(jpeg()) {
+                override fun close() { closed = true; super.close() }
+            }
+            rejected {
+                PrivateMediaSourcePreflight.inspect(stream, mime,
+                    sanitizedImage = approved, userApprovedOriginalVideo = approved)
+            }
+            assertTrue("Rejected media must release source stream: $mime", closed)
+        }
+    }
+
     @Test fun invalidStreamClosesOriginalProvider() {
         var closed=false
         val stream=object:ByteArrayInputStream(byteArrayOf(1,2,3,4,5,6,7,8)){
