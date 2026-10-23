@@ -7,6 +7,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +43,7 @@ fun SettingsScreen(
     val requirePinOnMediaPickerReturn by securityViewModel.requirePinOnMediaPickerReturn.collectAsState()
     val biometricEnabled by securityViewModel.biometricEnabled.collectAsState()
     val hasPin by securityViewModel.hasPin.collectAsState()
+    val entryPinEnabled by securityViewModel.entryPinEnabled.collectAsState()
     val lockoutRemainingSeconds by securityViewModel.lockoutRemainingSeconds.collectAsState()
     val isAuthenticating by securityViewModel.isAuthenticating.collectAsState()
     val themePreference by securityViewModel.themePreference.collectAsState()
@@ -48,6 +51,9 @@ fun SettingsScreen(
     val decimalPrecision by securityViewModel.decimalPrecision.collectAsState()
 
     var showChangePinDialog by remember { mutableStateOf(false) }
+    var showDisableEntryPinDialog by remember { mutableStateOf(false) }
+    var showCreateEntryPinDialog by remember { mutableStateOf(false) }
+    var entryPinError by remember { mutableStateOf<String?>(null) }
     var showAuditLogsDialog by remember { mutableStateOf(false) }
     var informationTopic by remember { mutableStateOf<InformationTopic?>(null) }
     val coroutineScope = rememberCoroutineScope()
@@ -263,6 +269,79 @@ fun SettingsScreen(
             color = MaterialTheme.colorScheme.primary
         )
 
+        // Optional *first-entry* PIN gate, unrelated to the separate picker
+        // convenience switch below. The 2011. calculator entry stays mandatory.
+        ElevatedCard(
+            modifier = Modifier.fillMaxWidth().testTag("optional_private_pin_card"),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.elevatedCardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+            )
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Shield, contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Gizli alan PIN koruması",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold)
+                        Text(if (entryPinEnabled) "PIN ile korunan giriş" else "PIN olmadan giriş",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (entryPinEnabled) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.error)
+                    }
+                    Switch(
+                        checked = entryPinEnabled,
+                        enabled = !isAuthenticating,
+                        onCheckedChange = { requested ->
+                            entryPinError = null
+                            when {
+                                !requested && hasPin -> showDisableEntryPinDialog = true
+                                requested && !hasPin -> showCreateEntryPinDialog = true
+                                else -> coroutineScope.launch {
+                                    if (!securityViewModel.changeEntryPinRequirement(requested)) {
+                                        entryPinError = "Tercih kaydedilemedi. Tekrar deneyin."
+                                    }
+                                }
+                            }
+                        },
+                        modifier = Modifier.testTag("optional_private_pin_switch").semantics {
+                            contentDescription = "Gizli alan PIN koruması " +
+                                if (entryPinEnabled) "açık" else "kapalı"
+                        }
+                    )
+                }
+                Text(
+                    "Hesap makinesindeki özel girişten sonra PIN isteğe bağlıdır. " +
+                        "Koruma kapalıysa ek PIN sorulmaz; koruma açıksa kayıtlı PIN doğrulanır.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (!entryPinEnabled) {
+                    Text(
+                        "Güvenlik uyarısı: Telefonu kullanan ve gizli giriş yöntemini bilen " +
+                            "bir kişi PIN olmadan sohbetlere erişebilir. Ekran kilidini açık tutmayın.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                if (entryPinError != null) {
+                    Text(entryPinError!!, color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                Text(
+                    if (hasPin) "Mevcut PIN saklanır; PIN değiştirme aşağıda kullanılabilir."
+                    else "Henüz PIN belirlenmedi. Dilerseniz korumayı açarken yeni PIN oluşturun.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -311,13 +390,15 @@ fun SettingsScreen(
                     fontWeight = FontWeight.Medium
                 )
                 Text(
-                    text = "Varsayılan kapalıdır. Galeri, kamera ve dosya seçicisinden 2 dakika içinde dönerseniz ek PIN sorulmaz. Ekran kilidi ve normal uygulama kilidi değişmez.",
+                    text = if (!entryPinEnabled) "PIN koruması kapalıyken bu seçenek kullanılmaz."
+                    else "Galeri, kamera ve dosya seçicisinden kısa sürede dönüşte ek PIN isteğini ayrıca yönetir.",
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
                 )
             }
             Switch(
-                checked = requirePinOnMediaPickerReturn,
+                checked = requirePinOnMediaPickerReturn && entryPinEnabled,
+                enabled = entryPinEnabled && hasPin,
                 onCheckedChange = { securityViewModel.setRequirePinOnMediaPickerReturn(it) },
                 modifier = Modifier.testTag("media_picker_pin_switch").semantics {
                     contentDescription = "Medya seçimi sonrası PIN, " +
@@ -339,14 +420,16 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onBackground
                 )
                 Text(
-                    text = if (hasPin) stringResource(R.string.biometric_setup_desc) else stringResource(R.string.biometric_setup_error),
+                    text = if (!entryPinEnabled) "Biyometrik giriş için önce PIN korumasını açın."
+                    else if (hasPin) stringResource(R.string.biometric_setup_desc)
+                    else stringResource(R.string.biometric_setup_error),
                     fontSize = 11.sp,
                     color = if (hasPin) MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f) else MaterialTheme.colorScheme.error
                 )
             }
             Switch(
-                checked = biometricEnabled && hasPin,
-                enabled = hasPin,
+                checked = biometricEnabled && hasPin && entryPinEnabled,
+                enabled = hasPin && entryPinEnabled,
                 onCheckedChange = { isChecked ->
                     triggerVibration()
                     securityViewModel.setBiometricEnabled(isChecked)
@@ -502,6 +585,105 @@ fun SettingsScreen(
         AppInformationDialog(topic) { informationTopic = null }
     }
 
+    // Require knowledge of the CURRENT PIN before disabling the first-entry
+    // guard; toggling it must never erase or reset the saved credential.
+    if (showDisableEntryPinDialog) {
+        var currentPin by remember { mutableStateOf("") }
+        var dialogError by remember { mutableStateOf<String?>(null) }
+        AlertDialog(
+            onDismissRequest = { showDisableEntryPinDialog = false },
+            title = { Text("PIN korumasını kapat") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Kayıtlı PIN silinmez. Ancak gizli giriş yöntemini bilen biri " +
+                        "PIN sorulmadan sohbetleri açabilir.")
+                    OutlinedTextField(
+                        value = currentPin,
+                        onValueChange = { currentPin = it.filter { ch -> ch in '0'..'9' }.take(PinPolicy.MAX_LENGTH) },
+                        label = { Text("Mevcut PIN ile doğrula") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("disable_private_pin_current")
+                    )
+                    if (dialogError != null) Text(dialogError!!, color = MaterialTheme.colorScheme.error)
+                    if (lockoutRemainingSeconds > 0) {
+                        Text("PIN giriş denemesi kilitli: $lockoutRemainingSeconds saniye.",
+                            color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = PinPolicy.isValid(currentPin) && !isAuthenticating && lockoutRemainingSeconds == 0,
+                    onClick = {
+                        coroutineScope.launch {
+                            val ok = securityViewModel.changeEntryPinRequirement(false, currentPin)
+                            currentPin = ""
+                            if (ok) showDisableEntryPinDialog = false
+                            else dialogError = "PIN doğrulanamadı veya tercih kaydedilemedi."
+                        }
+                    },
+                    modifier = Modifier.testTag("confirm_disable_private_pin")
+                ) { Text("Doğrula ve kapat") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDisableEntryPinDialog = false }) { Text("Vazgeç") }
+            }
+        )
+    }
+
+    // No user PIN yet: create one only by an explicit opt-in in Settings.
+    if (showCreateEntryPinDialog) {
+        var newPin by remember { mutableStateOf("") }
+        var again by remember { mutableStateOf("") }
+        var dialogError by remember { mutableStateOf<String?>(null) }
+        AlertDialog(
+            onDismissRequest = { showCreateEntryPinDialog = false },
+            title = { Text("Gizli alan için PIN oluştur") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("PIN 4–12 rakamdan oluşur. Korumayı açtığınızda " +
+                        "sonraki özel alan girişlerinde sorulur.")
+                    OutlinedTextField(
+                        value = newPin,
+                        onValueChange = { newPin = it.filter { ch -> ch in '0'..'9' }.take(PinPolicy.MAX_LENGTH) },
+                        label = { Text("Yeni PIN") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("create_private_pin_input")
+                    )
+                    OutlinedTextField(
+                        value = again,
+                        onValueChange = { again = it.filter { ch -> ch in '0'..'9' }.take(PinPolicy.MAX_LENGTH) },
+                        label = { Text("PIN tekrar") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (dialogError != null) Text(dialogError!!, color = MaterialTheme.colorScheme.error)
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = PinPolicy.isValid(newPin) && newPin == again && !isAuthenticating,
+                    onClick = {
+                        coroutineScope.launch {
+                            val ok = securityViewModel.createEntryPin(newPin)
+                            newPin = ""
+                            again = ""
+                            if (ok) showCreateEntryPinDialog = false
+                            else dialogError = "PIN oluşturulamadı. Tekrar deneyin."
+                        }
+                    }
+                ) { Text("PIN korumasını aç") }
+            },
+            dismissButton = { TextButton(onClick = { showCreateEntryPinDialog = false }) { Text("Vazgeç") } }
+        )
+    }
+
     // Change PIN Dialog
     if (showChangePinDialog) {
         var currentPinInput by remember { mutableStateOf("") }
@@ -524,7 +706,7 @@ fun SettingsScreen(
                         )
                     } else {
                         Text(
-                            "Kasanızı kilitleyen ve hesap makinesinden erişimi sağlayan PIN kodunuzu güncelleyin.",
+                            "PIN girişi isteğe bağlı olsa da kayıtlı PIN kodunu istediğiniz zaman değiştirebilirsiniz.",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

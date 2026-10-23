@@ -27,6 +27,10 @@ class SecurityViewModel(
     private val _hasPin = MutableStateFlow(false)
     val hasPin: StateFlow<Boolean> = _hasPin.asStateFlow()
 
+    // Until durable settings load, require authentication (fail closed).
+    private val _entryPinEnabled = MutableStateFlow(true)
+    val entryPinEnabled: StateFlow<Boolean> = _entryPinEnabled.asStateFlow()
+
     val isLocked = repository.isLockedState
 
     private val _setupStep = MutableStateFlow(SetupStep.ENTER_PIN)
@@ -95,6 +99,7 @@ class SecurityViewModel(
         viewModelScope.launch {
             try {
                 _hasPin.value = repository.hasPin()
+                _entryPinEnabled.value = repository.isEntryPinEnabled()
                 refreshAttemptStatus()
                 _isReady.value = true
             } catch (e: Exception) {
@@ -119,6 +124,76 @@ class SecurityViewModel(
             _themePreference.value = repository.getThemePreference()
             _buttonColorTheme.value = repository.getButtonColorTheme()
             _decimalPrecision.value = repository.getDecimalPrecision()
+        }
+    }
+
+    /**
+     * "2011." opens the hidden area. PIN verification is performed only when
+     * the durable, user-managed entry protection is enabled. No caller may
+     * blindly unlock based on a cached UI switch or the entry code itself.
+     */
+    fun enterFromCalculator(onOpen: () -> Unit, onPinRequired: () -> Unit) {
+        viewModelScope.launch {
+            try {
+                if (repository.tryEnterWithoutPin()) {
+                    _hasPin.value = repository.hasPin()
+                    _entryPinEnabled.value = false
+                    eventTracker.logEvent("PRIVATE_ENTRY_OPTIONAL", "PIN kapalı, özel alana giriş")
+                    onOpen()
+                } else {
+                    _entryPinEnabled.value = true
+                    onPinRequired()
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                repository.lock()
+                _entryPinEnabled.value = true
+                _errorMessage.value = "Güvenlik tercihi doğrulanamadı. PIN ile devam edin."
+                onPinRequired()
+            }
+        }
+    }
+
+    /** Disabling with an existing PIN requires password re-verification. */
+    suspend fun changeEntryPinRequirement(enabled: Boolean, currentPin: String? = null): Boolean {
+        if (_isAuthenticating.value) return false
+        _isAuthenticating.value = true
+        return try {
+            val success = repository.setEntryPinEnabled(enabled, currentPin)
+            refreshAttemptStatus()
+            if (success) {
+                _entryPinEnabled.value = enabled
+                eventTracker.logEvent("PIN_ENTRY_PREFERENCE", if (enabled) "PIN koruması açıldı" else "PIN koruması kapatıldı")
+            }
+            success
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            _errorMessage.value = "PIN giriş tercihi kaydedilemedi."
+            false
+        } finally {
+            _isAuthenticating.value = false
+        }
+    }
+
+    /** For users without a PIN: create one only upon their explicit choice. */
+    suspend fun createEntryPin(pin: String): Boolean {
+        if (_isAuthenticating.value || !PinPolicy.isValid(pin)) return false
+        _isAuthenticating.value = true
+        return try {
+            val success = repository.setupPin(pin)
+            if (success) {
+                _hasPin.value = true
+                _entryPinEnabled.value = true
+                _setupStep.value = SetupStep.COMPLETED
+                eventTracker.logEvent("PIN_SETUP", "PIN kullanıcı tercihiyle oluşturuldu")
+            }
+            success
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            _errorMessage.value = "PIN oluşturulamadı."
+            false
+        } finally {
+            _isAuthenticating.value = false
         }
     }
 
@@ -164,6 +239,7 @@ class SecurityViewModel(
                             } else if (repository.setupPin(pin)) {
                                 _tempPin.value = ""
                                 _hasPin.value = true
+                                _entryPinEnabled.value = true
                                 if (generation != authenticationGeneration) {
                                     repository.lock()
                                     return@launch

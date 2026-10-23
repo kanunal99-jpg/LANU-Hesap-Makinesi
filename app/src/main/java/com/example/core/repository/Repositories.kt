@@ -106,11 +106,57 @@ class SecurityRepository(
         return settingsDao.getSettingValue("pin_hash") != null
     }
 
+    /**
+     * The calculator's private-area entry code is independent of a user's
+     * optional PIN. Existing installs with a PIN remain protected until the
+     * owner explicitly disables the gate and confirms their current PIN.
+     * Fresh installs without a PIN open from the secret code, without being
+     * forced into PIN setup. Missing preference is not interpreted as a reset.
+     */
+    suspend fun isEntryPinEnabled(): Boolean = when (settingsDao.getSettingValue("entry_pin_enabled")) {
+        "true" -> true
+        "false" -> false
+        null -> hasPin()
+        else -> true // Fail closed on corrupted stored preferences.
+    }
+
+    /**
+     * Only caller of a passwordless private-area unlock. The calculator entry
+     * gesture is required by the MainActivity caller; this checks the durable
+     * setting inside the same authentication mutex as PIN verification.
+     */
+    suspend fun tryEnterWithoutPin(): Boolean = authenticationMutex.withLock {
+        if (isEntryPinEnabled()) return@withLock false
+        updateLastActiveTime()
+        _isLockedState.value = false
+        true
+    }
+
+    /**
+     * Disable requires the EXISTING PIN while one is present, including
+     * persisted brute-force lockout. Never erase pin_hash, backup identity or
+     * private data. Enabling reuses the saved PIN and does not force reset.
+     */
+    suspend fun setEntryPinEnabled(enabled: Boolean, currentPin: String? = null): Boolean =
+        authenticationMutex.withLock {
+            if (enabled) {
+                if (!hasPin()) return@withLock false
+            } else if (hasPin()) {
+                if (currentPin == null || !PinPolicy.isValid(currentPin) || !checkPin(currentPin)) {
+                    return@withLock false
+                }
+            }
+            settingsDao.insertSetting(SettingsEntity("entry_pin_enabled", enabled.toString()))
+            true
+        }
+
     suspend fun setupPin(pin: String): Boolean = authenticationMutex.withLock {
         // Setup can never replace an existing credential without checking it.
         if (!PinPolicy.isValid(pin) || hasPin()) return@withLock false
         val verifier = withContext(Dispatchers.Default) { PinCredentialCodec.create(pin) }
         settingsDao.insertSetting(SettingsEntity("pin_hash", verifier))
+        // PIN creation explicitly opts into an authenticated private entry.
+        settingsDao.insertSetting(SettingsEntity("entry_pin_enabled", "true"))
         settingsDao.persistPinGuard(0, 0L, 0)
         _isLockedState.value = false
         true

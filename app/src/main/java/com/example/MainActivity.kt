@@ -379,8 +379,21 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                 CalculatorScreen(
                                     viewModel = calcViewModel,
                                     onNavigateToLock = {
-                                        securityViewModel.checkPinExists()
-                                        navigateTo(Screen.Security())
+                                        // "2011." is the private-area entry gesture, not
+                                        // itself the PIN. Ask the durable repository whether
+                                        // the owner opted out of a second PIN challenge.
+                                        securityViewModel.enterFromCalculator(
+                                            onOpen = {
+                                                if (!securityViewModel.isLocked.value) {
+                                                    navigationBackstack.clear()
+                                                    navigationBackstack.add(Screen.Communication)
+                                                }
+                                            },
+                                            onPinRequired = {
+                                                securityViewModel.checkPinExists()
+                                                navigateTo(Screen.Security())
+                                            }
+                                        )
                                     },
                                     onNavigateToUnitConverter = { initialValue ->
                                         navigateTo(Screen.UnitConverter(initialValue))
