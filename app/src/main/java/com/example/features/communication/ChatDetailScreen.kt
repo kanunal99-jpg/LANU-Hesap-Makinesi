@@ -59,7 +59,10 @@ import java.util.Locale
 fun ChatDetailScreen(
     viewModel: CommunicationViewModel,
     conversationId: String,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onChoosePhoto: () -> Unit = {},
+    onTakePhoto: () -> Unit = {},
+    onChooseDocument: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val activeConversation by viewModel.activeConversation.collectAsState()
@@ -67,6 +70,8 @@ fun ChatDetailScreen(
     val userPhone by viewModel.userId.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
     val isSending by viewModel.isSending.collectAsState()
+    val preparedMedia by viewModel.preparedInlineMedia.collectAsState()
+    val pendingEnvelope = viewModel.pendingMediaFor(conversationId)
 
     var textInput by remember { mutableStateOf("") }
     var isSelfDestructEnabled by remember { mutableStateOf(false) }
@@ -316,6 +321,11 @@ fun ChatDetailScreen(
                 ) {
                     InlineMediaComposer(
                         enabled = !isSending,
+                        pendingEnvelope = pendingEnvelope,
+                        onPhoto = onChoosePhoto,
+                        onCamera = onTakePhoto,
+                        onDocument = onChooseDocument,
+                        onCancel = { viewModel.clearPreparedMedia() },
                         onSend = { envelope, onQueued ->
                             viewModel.sendInlineAttachment(envelope, onQueued)
                         }
