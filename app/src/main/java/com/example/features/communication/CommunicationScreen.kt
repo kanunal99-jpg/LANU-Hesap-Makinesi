@@ -65,11 +65,8 @@ fun CommunicationScreen(
     val error by viewModel.errorMessage.collectAsState()
     var tab by remember { mutableIntStateOf(0) }
     var showAdd by remember { mutableStateOf(false) }
-    val vibrate: () -> Unit = {
-        (context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator)?.let {
-            if (Build.VERSION.SDK_INT >= 26) it.vibrate(VibrationEffect.createOneShot(30, VibrationEffect.DEFAULT_AMPLITUDE))
-        }
-    }
+    // Silent UI policy for contacts, chats, and settings.
+    val vibrate: () -> Unit = {}
     androidx.lifecycle.compose.LifecycleResumeEffect(viewModel) {
         viewModel.startSync("home")
         onPauseOrDispose { viewModel.stopSync("home") }
