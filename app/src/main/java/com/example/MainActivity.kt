@@ -3,6 +3,7 @@ package com.example
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.app.Activity
 import android.graphics.Bitmap
 import android.net.Uri
 import android.widget.Toast
@@ -33,6 +34,9 @@ import androidx.compose.ui.platform.LocalView
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.example.core.media.InlineMediaPreparer
+import com.example.core.media.InlineMediaCodec
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import com.example.core.security.AppLifecycleObserver
 import com.example.features.calculator.CalculatorScreen
@@ -117,6 +121,48 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         } catch (_: Exception) {
             pendingPickerConversationId = null
             Toast.makeText(this, "Android dosya seçicisi açılamadı.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // Export is also an external Activity. The chat is re-locked in background,
+    // so its callback must never be owned by the disappearing Compose screen.
+    private var pendingExportAttachment: InlineMediaCodec.Attachment? = null
+    private val exportPicker = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { response ->
+        val attachment = pendingExportAttachment
+        pendingExportAttachment = null
+        val destination = response.data?.data
+        if (response.resultCode == Activity.RESULT_OK &&
+            destination != null && attachment != null) {
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        contentResolver.openOutputStream(destination, "w")?.use { stream ->
+                            stream.write(attachment.bytes)
+                        } ?: throw IllegalStateException("Dosya açılamadı.")
+                    }
+                    Toast.makeText(this@MainActivity, "Dosya kaydedildi.", Toast.LENGTH_SHORT).show()
+                } catch (_: Exception) {
+                    Toast.makeText(this@MainActivity, "Dosya kaydedilemedi.", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun saveAttachmentWithPicker(attachment: InlineMediaCodec.Attachment) {
+        if (!::securityViewModel.isInitialized || securityViewModel.isLocked.value) return
+        if (pendingExportAttachment != null) return
+        pendingExportAttachment = attachment
+        try {
+            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType(attachment.mime)
+                .putExtra(Intent.EXTRA_TITLE, attachment.name)
+            exportPicker.launch(intent)
+        } catch (_: Exception) {
+            pendingExportAttachment = null
+            Toast.makeText(this, "Android dosya kaydetme ekranı açılamadı.", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -364,6 +410,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                     onChoosePhoto = { launchMediaPicker(screen.conversationId, "gallery") },
                                     onTakePhoto = { launchMediaPicker(screen.conversationId, "camera") },
                                     onChooseDocument = { launchMediaPicker(screen.conversationId, "document") },
+                                    onSaveAttachment = { attachment -> saveAttachmentWithPicker(attachment) },
                                 )
                             }
                         }
