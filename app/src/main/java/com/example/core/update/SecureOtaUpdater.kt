@@ -77,6 +77,10 @@ object SecureOtaUpdater {
     fun isApprovedEndpoint(scheme: String, host: String): Boolean =
         scheme == "https" && host in approvedHosts
 
+    /** Only open release pages for strictly validated tags from the official LANU repository. */
+    fun officialReleasePage(tag: String): String? =
+        if (tagPattern.matches(tag)) "https://github.com/$OWNER_REPO/releases/tag/$tag" else null
+
     // One active OTA transfer per app process: public and private update screens
     // must not overwrite the same resumable cache entry concurrently.
     private val downloadMutex = Mutex()
