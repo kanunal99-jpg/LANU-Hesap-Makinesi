@@ -512,3 +512,16 @@ Bu puanlar matematiksel sertifikasyon değil, testli geliştirme ve açık üret
 - Kullanıcı tercihi açıkken picker dönüşünde Android onStop olmasa bile PIN gerekiyorsa uygulanır. Kısa picker seçimi PIN kapalıysa daha önce doğrulanmış oturumu korunur; yeni bir doğrulamasız oturum yaratılmaz. Güvenlik tercih hatasında fail closed.
 - Regresyon: ayar varsayılanı/persistence, PIN açık-kapalı, ekran kapatmak, elle kilitlemek, picker TTL, izin iptali, içerik doğrulama, iki cihaz medya, OTA veri korunumu ve yeni sürümde çökme/ANR yokluğu testleri.
 - **Kapanış:** PR CI, resmî kalıcı imzalı GitHub APK ve gerçek Samsung A55'te PIN anahtarının iki durumunda tekrar test olmadan bu madde kapatılmaz. #82 çökme, #83 keystore yedeği ayrıca açık kalır.
+
+
+---
+
+### 23.10.2026 — LANU 324 SAMSUNG A55 KULLANICI KABULÜ
+
+**Kullanıcı tarafından açıkça beyan edilen cihaz kabulü:** “Evet başarılı 324 sürüm pın dahil herşey aktif ve doğru.” Bu, Samsung Galaxy A55 üzerinde kurulu **324 sürümündeki mevcut özelliklerin, özellikle kullanıcı kontrollü PIN davranışının, doğru çalıştığına ilişkin gerçek cihaz geri bildirimidir**. Önceki aynı gün cihaz kabulü: “Güncelleme tamam”, “Foto çek gönder tamam”, “Galeriden Foto seç gönder tamam.” Birlikte değerlendirildiğinde uygulama içi OTA, kameradan küçük fotoğraf gönderme, galeriden küçük fotoğraf gönderme ve medya dönüşü PIN tercihi **KULLANICI KABUL EDİLDİ** statüsündedir.
+
+**CI ve dağıtım kanıtı:** [GitHub Actions #324](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/actions/runs/39995876046) tamamı SUCCESS: birim/Robolectric, Android API 34 Room kabulü, APK kalıcı imzası + signer continuity ve yayımlanan APK için anonim tekrar indirme bütünlük kontrolü. Resmî [v1.1.0-signed.324](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/releases/tag/v1.1.0-signed.324) APK, checksum ve sertifika dosyalarıyla erişilebilir.
+
+**GitHub kapanışı:** [#88](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/88) — kullanıcı tarafından yönetilen “Fotoğraf/dosya seçimi sonrası PIN iste” tercihi, kod/test ve v324 cihazdaki genel kabul kanıtı üzerine **CLOSED**. Kullanıcı AÇIK/KAPALI seçeneklerinin her birini tek tek belgeleyen ayrı ekran kaydı sunmadı; cihaz onayının kapsamı olduğundan geniş anlatılmaz. Android ilk PIN, elle kilitleme, ekran kilidi ve veri koruma standartları değişmez.
+
+**Bilerek AÇIK tutulanlar:** [#82](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/82) önceki Java/Kotlin crash'in kesin kök nedeni (önbellek temizliği sonrası yeni çökme bildirilmedi; yeni tanılama ancak sonraki olayda işe yarar), [#83](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/83) Termux APK signing anahtarı için cihaz dışı şifreli yedek ve geri yükleme doğrulaması, [#85](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/85) 18 KB ötesi tam boy fotoğraf/belge/video için güvenli yetkili storage + anahtar teslimi ve iki cihaz gönder/al kabulü. Büyük medya AES-GCM parçalı şifreleme çekirdeğinin mevcut olması **canlı video gönderimi olduğu anlamına gelmez**.
