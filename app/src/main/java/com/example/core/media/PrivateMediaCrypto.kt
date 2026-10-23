@@ -235,10 +235,15 @@ object PrivateMediaCrypto {
     private fun readExactly(input: InputStream, size: Int): ByteArray {
         val result = ByteArray(size)
         var pos = 0
+        var stalled = 0
         while (pos < size) {
             val count = input.read(result, pos, size - pos)
             if (count < 0) throw IOException("Dosya eksik veya aktarım kesildi.")
-            if (count == 0) continue
+            if (count == 0) {
+                if (++stalled >= 3) throw IOException("Dosya sağlayıcısı yanıt vermedi.")
+                continue
+            }
+            stalled = 0
             pos += count
         }
         return result
