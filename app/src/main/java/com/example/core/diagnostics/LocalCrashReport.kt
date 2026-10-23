@@ -101,8 +101,9 @@ object LocalCrashReport {
         }.getOrNull()
 
     fun clear(context: Context): Boolean = runCatching {
-        val f = file(context)
-        !f.exists() || f.delete()
+        // AtomicFile.delete removes both the main file and its recovery backup.
+        AtomicFile(file(context)).delete()
+        true
     }.getOrDefault(false)
 
     private fun file(context: Context): File = File(context.noBackupFilesDir, REPORT_FILE)
