@@ -152,11 +152,9 @@ fun CalculatorScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
-                            .clickable {
-                                triggerVibration()
-                                onNavigateToLock()
-                            }
-                            .testTag("lanu_title_button")
+                            // Public title is NOT an alternate way into the
+                            // private area when the owner disables entry PIN.
+                            .testTag("lanu_title_label")
                     ) {
                         Icon(
                             painter = painterResource(R.drawable.ic_launcher_foreground),
