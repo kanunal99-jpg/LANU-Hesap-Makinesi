@@ -94,6 +94,9 @@ async function verify(publicKey, payload, signature) {
 }
 const messageIds = values => Array.isArray(values) && values.length <= 200 && values.every(value => typeof value === 'string' && uuid.test(value));
 const ciphertext = value => typeof value === 'string' && value.length <= 50000 && /^lanu2:[A-Za-z0-9_-]{38,}$/.test(value);
+// Media is intentionally capped at two MiB including nonce and auth tag.
+const MAX_ENCRYPTED_MEDIA_BYTES = 2 * 1024 * 1024;
+
 export function createRelay(store, clock = Date.now) {
   return async envelope => {
     insist(envelope && typeof envelope.payload === 'string' && envelope.payload.length <= 70000 && typeof envelope.signature === 'string', 400, 'Geçersiz istek.');
