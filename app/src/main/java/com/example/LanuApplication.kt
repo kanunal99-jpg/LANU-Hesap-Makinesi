@@ -2,6 +2,7 @@ package com.example
 
 import android.app.Application
 import com.example.core.di.AppContainer
+import com.example.core.diagnostics.LocalCrashHandler
 import com.example.core.security.LegacyInsecurePreferencesCleanup
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -14,6 +15,9 @@ class LanuApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // Install before other startup work. Only sanitized app source frames are
+        // stored locally; original Android crash reporting remains in the chain.
+        LocalCrashHandler.install(this)
         LegacyInsecurePreferencesCleanup.clean(this)
         container = AppContainer(this)
         // Older installs may contain a Supabase key in Room. Migrate on launch so it
