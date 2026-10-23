@@ -93,6 +93,9 @@ jobs:
           bash -n scripts/backup_stable_signing_encrypted.sh
           bash -n scripts/test_backup_stable_signing_encrypted.sh
           bash scripts/test_backup_stable_signing_encrypted.sh
+          bash -n scripts/publish_verified_release_retry.sh
+          bash -n scripts/test_publish_verified_release_retry.sh
+          bash scripts/test_publish_verified_release_retry.sh
 
       - name: Test APK publication and stable signing continuity
         run: |
@@ -422,12 +425,7 @@ jobs:
             TAG="v1.0.0-debug.${{ github.run_number }}"
             NOTES="GEÇİCİ DEBUG SERTİFİKASI. Bu APK eski kurulumun üzerine veri kayıpsız güncelleme garantisi vermez. Kurulu LANU uygulamasını kaldırmayın."
           fi
-          gh release create "$TAG" \
-            "$APK_PATH" "$CHECKSUM_PATH" "$SIGNER_PATH" \
-            --target "$GITHUB_SHA" \
-            --title "LANU CALCULATOR $TAG" \
-            --notes "Commit: $GITHUB_SHA. $NOTES" \
-            --prerelease
+          bash scripts/publish_verified_release_retry.sh "$TAG" "$NOTES"
 
       # Verification MUST happen from anonymous public HTTPS download URLs,
       # not from the build runner's private artifact or authenticated API.
