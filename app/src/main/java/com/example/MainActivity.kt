@@ -3,6 +3,11 @@ package com.example
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import android.content.IntentFilter
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -26,6 +31,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import com.example.core.media.InlineMediaPreparer
+import kotlinx.coroutines.launch
 import com.example.core.security.AppLifecycleObserver
 import com.example.features.calculator.CalculatorScreen
 import com.example.features.update.UpdateCheckScreen
@@ -44,6 +52,73 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     private lateinit var calcViewModel: CalculatorViewModel
     private lateinit var securityViewModel: SecurityViewModel
     private lateinit var commViewModel: CommunicationViewModel
+
+    // The Activity (not the disposable chat Composable) owns picker result
+    // callbacks. Opening a system picker must not bypass PIN/FLAG_SECURE.
+    private var pendingPickerConversationId: String? = null
+
+    private val imagePicker = registerForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        val chatId = takePendingPickerChat()
+        if (chatId != null && uri != null) prepareMedia(chatId) {
+            InlineMediaPreparer.imageFromPicker(this, uri)
+        }
+    }
+    private val cameraPreviewPicker = registerForActivityResult(
+        ActivityResultContracts.TakePicturePreview()
+    ) { bitmap: Bitmap? ->
+        val chatId = takePendingPickerChat()
+        if (chatId != null && bitmap != null) prepareMedia(chatId) {
+            InlineMediaPreparer.cameraPreview(bitmap)
+        }
+    }
+    private val documentPicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        val chatId = takePendingPickerChat()
+        if (chatId != null && uri != null) prepareMedia(chatId) {
+            InlineMediaPreparer.documentFromPicker(this, uri)
+        }
+    }
+
+    private fun takePendingPickerChat(): String? =
+        pendingPickerConversationId.also { pendingPickerConversationId = null }
+
+    private fun prepareMedia(chatId: String, prepare: suspend () -> String) {
+        lifecycleScope.launch {
+            try {
+                val envelope = prepare()
+                if (::commViewModel.isInitialized) {
+                    commViewModel.stashPreparedMedia(chatId, envelope)
+                    Toast.makeText(this@MainActivity,
+                        "Ek dosya hazır. PIN ile gizli alana dönerek gönderebilirsiniz.",
+                        Toast.LENGTH_LONG).show()
+                }
+            } catch (_: Exception) {
+                Toast.makeText(this@MainActivity,
+                    "Dosya güvenli sınırda hazırlanamadı. En fazla 18 KB destekleniyor.",
+                    Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun launchMediaPicker(chatId: String, kind: String) {
+        if (!::securityViewModel.isInitialized || securityViewModel.isLocked.value) return
+        if (pendingPickerConversationId != null) return
+        pendingPickerConversationId = chatId
+        try {
+            when (kind) {
+                "gallery" -> imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                "camera" -> cameraPreviewPicker.launch(null)
+                "document" -> documentPicker.launch(arrayOf("application/pdf", "text/plain"))
+                else -> { pendingPickerConversationId = null; return }
+            }
+        } catch (_: Exception) {
+            pendingPickerConversationId = null
+            Toast.makeText(this, "Android dosya seçicisi açılamadı.", Toast.LENGTH_LONG).show()
+        }
+    }
 
     private var sensorManager: SensorManager? = null
     private var accelerometer: Sensor? = null
@@ -251,6 +326,14 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                         if (!securityViewModel.isLocked.value) {
                                             navigationBackstack.clear()
                                             navigationBackstack.add(Screen.Communication)
+                                            // Only after valid PIN/biometric can an attachment
+                                            // draft return to its original private conversation.
+                                            val draft = commViewModel.preparedInlineMedia.value
+                                            if (draft != null && draft.expiresAtMillis > System.currentTimeMillis()) {
+                                                navigationBackstack.add(Screen.ChatDetail(draft.conversationId))
+                                            } else if (draft != null) {
+                                                commViewModel.clearPreparedMedia()
+                                            }
                                         }
                                     },
                                     onNavigateBack = {
@@ -278,6 +361,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                     onNavigateBack = {
                                         navigateBack()
                                     },
+                                    onChoosePhoto = { launchMediaPicker(screen.conversationId, "gallery") },
+                                    onTakePhoto = { launchMediaPicker(screen.conversationId, "camera") },
+                                    onChooseDocument = { launchMediaPicker(screen.conversationId, "document") },
                                 )
                             }
                         }
