@@ -450,3 +450,13 @@ Bu puanlar matematiksel sertifikasyon değil, testli geliştirme ve açık üret
 #### P0 imzalama/OTA sorunu için kapanış kuralları
 - Önceki [#16](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/16) (geçici sertifika engeli) ve [#22](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/22) (kalıcı sertifika ve artan versionCode), test ve kullanıcı kanıtlarıyla 23.10.2026 tarihinde **TAMAMLANDI / CLOSED**: stable sertifika aynı, 274→286 gerçek kullanıcı OTA sonucu başarılı, kullanıcı veri kaybı olmadığını doğruladı. Bu kabulün kapsamı **Samsung A55 üzerinde gözlenen test** ile sınırlıdır. Bu, `#82` uygulama çökmesini, cihaz dışı keystore yedeğini, tüm Android cihazlarında OTA uyumunu veya tüm ürünün hazır olduğunu kanıtlamaz.
 - Geri dönüşte önceki veri kayıplı debug imzasına asla otomatik dönme; üretimde silme/yeniden kurma önerisi ancak verilerin doğrulanmış yedeği ve kullanıcının açık tercihiyle olabilir.
+
+
+---
+
+### 23.10.2026 — ÖNBELLEK TEMİZLİĞİ SONRASI SAMSUNG A55 ÇÖKME GÖZLEMİ
+
+- **Gerçek cihaz kullanıcısı bildirimi:** Samsung Galaxy A55'te sürüm 286'ya veri kaybı olmadan geçildikten sonra Android'in `ApplicationExitInfo.REASON_CRASH` kaydında 23.10.2026 15:03:42 tarihli **Java/Kotlin kod hatası** görülmüştü. Kullanıcı daha sonra yalnız **uygulama önbelleğini temizlediğini** ve bu işlemden sonra **şu ana kadar yeni benzer hata almadığını** bildirdi.
+- **Kanıt sınıfı:** *Şu an tekrarlanmıyor / gözlem altında*. Önbellek temizliği, olayın kesin kök nedenini göstermiyor; eski tarihli exit log'u kalabilir. **P0 #82 açıktır; kullanıcı verisi silinemez, uygulama kaldırılmaz.** Tekrar oluşursa gizli verileri ifşa etmeyen stack trace/kök neden ve cihaz senaryosu esas alınır.
+- **Güncel APK yayını:** [GitHub Actions #289](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/actions/runs/39951330311) — tüm işler SUCCESS, korunan aynı APK imzası ve SHA-256 / anonim APK read-back başarılı; [v1.1.0-signed.289](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/releases/tag/v1.1.0-signed.289) yayımlandı. Bu sürümde status bar/OTA ekranı güvenli çizim alanı düzeltmesi bulunuyor. **289 gerçek A55'te güncelleme ve çakışma yok testi henüz yapılmadı**; eski 286 cihaz kabulü geriye dönük geçerlidir.
+- **Kalan P1:** Özel imzalama anahtarının erişim kontrollü şifreli cihaz dışı yedeği ve geri yükleme testi [#83](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/83). Başka marka/model cihazlarda ağ, mesaj, PIN ve OTA testleri; Room şifreleme, güvenli kurtarma, Hilt ve gerçek gizlilik onaylı Crashlytics/R8 üretim yayın zinciri henüz tam kabul edilmemiştir.
