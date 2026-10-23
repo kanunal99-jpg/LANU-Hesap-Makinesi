@@ -182,8 +182,30 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
             }
         }
     }
+    /** Only verified small inline attachments; no public URLs or plaintext storage. */
+    fun sendInlineAttachment(envelope: String, onQueued: () -> Unit = {}) {
+        val conversation = _activeConversation.value
+        if (conversation == null) {
+            _errorMessage.value = "Sohbet henüz açılmadı. Ek dosya gönderilmedi."
+            return
+        }
+        if (_isSending.value) {
+            _errorMessage.value = "Önceki mesaj hazırlanıyor; tekrar deneyin."
+            return
+        }
+        _isSending.value = true
+        operation {
+            try {
+                repository.sendInlineAttachment(conversation.id, envelope)
+                onQueued()
+                synchronize()
+            } finally {
+                _isSending.value = false
+            }
+        }
+    }
     fun sendMediaMessage(caption: String, mediaUrl: String) {
-        _errorMessage.value = "Medya aktarımı henüz etkin değil. Metin mesajı gönderebilirsiniz."
+        _errorMessage.value = "Büyük medya aktarımı henüz etkin değil. Küçük fotoğraf/belge seçebilirsiniz."
     }
     fun insertSystemMessage(partnerName: String, text: String) { /* Call UI demos never create a delivered remote message. */ }
     fun addReaction(messageId: String, emoji: String) = operation { repository.addReaction(messageId, emoji); synchronize() }
