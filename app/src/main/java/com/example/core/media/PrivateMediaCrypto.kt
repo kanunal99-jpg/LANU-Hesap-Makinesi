@@ -211,10 +211,19 @@ object PrivateMediaCrypto {
     private fun readExactly(input: InputStream, size: Int): ByteArray {
         val result = ByteArray(size)
         var pos = 0
+        var consecutiveEmptyReads = 0
         while (pos < size) {
             val count = input.read(result, pos, size - pos)
             if (count < 0) throw IOException("Dosya eksik veya aktarım kesildi.")
-            if (count == 0) continue
+            if (count == 0) {
+                // ContentResolver providers can return zero bytes indefinitely.
+                // Never hang a worker, hold secret bytes, or fill device storage.
+                if (++consecutiveEmptyReads >= 4) {
+                    throw IOException("Dosya sağlayıcısı yanıt vermedi.")
+                }
+                continue
+            }
+            consecutiveEmptyReads = 0
             pos += count
         }
         return result
