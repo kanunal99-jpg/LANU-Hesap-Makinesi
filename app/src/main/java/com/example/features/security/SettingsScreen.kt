@@ -439,6 +439,9 @@ fun SettingsScreen(
             }
         }
 
+        // Visible only after the private area was unlocked with PIN/biometry.
+        LocalCrashDiagnosticsPanel()
+
         // Anayasa & Test Denetim Paneli Row
         Row(
             modifier = Modifier.fillMaxWidth(),
