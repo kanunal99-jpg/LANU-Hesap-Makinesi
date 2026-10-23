@@ -14,6 +14,7 @@ import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.view.WindowManager
+import android.view.View
 import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -142,8 +143,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             // user's keyboard or global Android accessibility preferences.
             val uiView = LocalView.current
             SideEffect {
-                uiView.isSoundEffectsEnabled = false
-                uiView.isHapticFeedbackEnabled = false
+                configureSilentUi(uiView)
             }
             val themePreference by securityViewModel.themePreference.collectAsState()
             val buttonColorTheme by securityViewModel.buttonColorTheme.collectAsState()
@@ -393,6 +393,12 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     }
 
     companion object {
+        /** Disable automatic host feedback without changing system/keyboard preferences. */
+        fun configureSilentUi(view: View) {
+            view.isSoundEffectsEnabled = false
+            view.isHapticFeedbackEnabled = false
+        }
+
         /** Decoy and public utilities may be captured; PIN + private screens never may. */
         fun requiresScreenshotProtection(screen: Screen): Boolean =
             screen is Screen.Security || screen is Screen.Communication || screen is Screen.ChatDetail
