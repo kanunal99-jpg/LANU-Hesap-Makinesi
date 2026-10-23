@@ -460,3 +460,18 @@ Bu puanlar matematiksel sertifikasyon değil, testli geliştirme ve açık üret
 - **Kanıt sınıfı:** *Şu an tekrarlanmıyor / gözlem altında*. Önbellek temizliği, olayın kesin kök nedenini göstermiyor; eski tarihli exit log'u kalabilir. **P0 #82 açıktır; kullanıcı verisi silinemez, uygulama kaldırılmaz.** Tekrar oluşursa gizli verileri ifşa etmeyen stack trace/kök neden ve cihaz senaryosu esas alınır.
 - **Güncel APK yayını:** [GitHub Actions #289](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/actions/runs/39951330311) — tüm işler SUCCESS, korunan aynı APK imzası ve SHA-256 / anonim APK read-back başarılı; [v1.1.0-signed.289](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/releases/tag/v1.1.0-signed.289) yayımlandı. Bu sürümde status bar/OTA ekranı güvenli çizim alanı düzeltmesi bulunuyor. **289 gerçek A55'te güncelleme ve çakışma yok testi henüz yapılmadı**; eski 286 cihaz kabulü geriye dönük geçerlidir.
 - **Kalan P1:** Özel imzalama anahtarının erişim kontrollü şifreli cihaz dışı yedeği ve geri yükleme testi [#83](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/83). Başka marka/model cihazlarda ağ, mesaj, PIN ve OTA testleri; Room şifreleme, güvenli kurtarma, Hilt ve gerçek gizlilik onaylı Crashlytics/R8 üretim yayın zinciri henüz tam kabul edilmemiştir.
+
+
+---
+
+### 23.10.2026 — LANU GÜVENLİ MEDYA PAYLAŞIMI BAŞLANGIÇ KARARI
+
+**İş paketi:** [GitHub #85 — Güvenli Medya Paylaşımı](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/85). Kullanıcı 23.10.2026 tarihinde geliştirmeye başlama onayı verdi. **Bu onay ücretli altyapı, gizlilik zayıflatma, gerçek kullanıcı verilerini silme veya doğrulanmamış APK yayınlama onayı değildir.**
+
+**Ürün sırası:** (0) P0 crash kök nedeni #82, imza kurtarma #83 ve offline metin kuyruğu regresyon güvenliği; (1) Compose sohbet eki (+), Android Photo Picker ve SAF ile fotoğraf/galeri/belge seçimi, kamera ile fotoğraf çekme; (2) istemci tarafında AEAD medya şifrelemesi, doğrulanmış alıcıya anahtar teslimi, yetkili özel storage, checksum, upload/download state machine, retry/offline; (3) A55 + ikinci gerçek cihazda veri kayıpsız OTA ve iki yönlü dosya kabulü; (4) video/sesli mesaj, premium UX, çoklu cihazlar ve gerçek WebRTC çağrı ayrı aşamalar.
+
+**Gerçek mevcut kod durumu:** `CommunicationViewModel.sendMediaMessage()` işlevi kapalı olduğunu bildiriyor; `CommunicationRepository.sendMessage(mediaUrl)` medyayı açıkça reddediyor. `MessageEntity.mediaUrl` alanı ve Compose `AsyncImage` önizlemesi tek başına gerçek medya aktarımı değildir. Kullanıcıya özellik çalışıyor diye gösterilmez.
+
+**Güvenlik ve maliyet sözleşmesi:** Galerinin tamamına erişim izni isteme; Android sistem seçicilerini kullan. Medya içerik anahtarı veya açık medya URL'sini sunucu/DB loglarına yazma; şifreli payload ve yalnız alıcıya yetkili erişim. Dosya tipleri/boyutları/EXIF/retention/TTL doğrulanır. Her kritik yol ana servis→alternatif→fallback→hata yönetimi→güvenli varsayılan→log→smoke test. Kullanıcının açık onayı olmadan ücretli storage planına geçilmez.
+
+**Release kabulü:** Yeni özellik `READY` olamaz; gerçek iki cihazda E2EE medya teslimi, kesilen ağda güvenli retry, mevcut metin/PIN korunumu, SHA256/signer continuity, CI ve doğrudan indirilebilir GitHub Release APK kanıtları sağlanmadan.
