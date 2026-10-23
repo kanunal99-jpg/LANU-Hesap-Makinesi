@@ -405,3 +405,14 @@ Bu puanlar matematiksel sertifikasyon değil, testli geliştirme ve açık üret
 **Kod ve kontrol:** scripts/bootstrap_stable_signing.sh yerel anahtar üretme/yedekleme ve GitHub Actions Secrets yerleştirme akışı; .github/workflows/android.yml manuel stable yayın (yalnız imzalama anahtarı korumalı ve beş secret tam ise), UI imza uyumsuzluğu için doğrulanmış resmî GitHub release sayfası ve veri olmayan kullanıcıya ayrı temiz kurulum yönergesi, negatif URI ve CI bash testleri.
 
 **Kabul kapısı:** (1) Kullanıcı hesabı güvenilir yerel signing bootstrap çalıştırdı; (2) ilk stable APK Release + SHA256/signer yayımlandı; (3) ikinci stable sürüm aynı sertifika SHA256 + artan versionCode ile çıktı; (4) temiz kurulan ilk stable'dan ikinciye fiziksel Samsung A55 üzerinde uygulama içi güncelleme doğrulandı; (5) main CI ve release download read-back başarılı. Bu beş kanıt sağlanmadan durum **P0 AÇIK**. Eski debug sürüm kaldırılacaksa uygulamada korunacak veri bulunmamalı ve kullanıcı bilinçli onay vermelidir.
+
+
+---
+
+### 23.10.2026 — İlk kalıcı imzalı LANU APK yayını (SIGNING-BASELINE-273)
+
+- **Kanıt:** [GitHub Actions #273](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/actions/runs/39938347797) — kullanıcı Samsung A55 Termux üzerinden GitHub Actions Secrets'a kalıcı PKCS12 keystore'u sağladı ve güvenilir workflow_dispatch çalışmasını başlattı; Android 14 runtime, build/test, sertifika parmak izi eşitliği, sha256 ve anonim Release read-back **başarılı**.
+- **İlk stable yayın:** [v1.1.0-signed.273](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/releases/tag/v1.1.0-signed.273), GitHub ana dal commit 36cc558bdce16b353258af90df0fa174cb987d46. Bu, korunan sertifika kimliği için temel referanstır.
+- **İkinci doğrulama:** Bu belgeye ait kontrollü ana dal güncellemesi yeni GitHub CI sürüm numarası tetikler; ikinci protected stable APK'nın önceki stable sürümle fingerprint eşitliği, artan versionCode, SHA256 ve anonim indirilebilirlik kontrolünden geçmesi beklenir. CI sonucu doğrulanmadan başarı kabul edilmez.
+- **Fiziksel cihaz kabulü açık:** Kullanıcı LANU'da korunacak veri olmadığını belirtti. Android, eski ephemeral debug üzerine yeni stable sertifikalı APK'yı kuramaz. Kullanıcının kendi onayıyla bir defalık eski LANU'yu kaldırıp **ilk stable.273** APK'yı temiz kurması ve sonrasında **ikinci stable sürüme uygulama içinden güncelleme** yapması gerekir. Bu gerçekleşmeden P0 kapatılmış sayılmaz.
+- **Özel anahtarın kalıcılığı:** Telefonun Termux içindeki $HOME/.lanu/signing klasörü, keystore ve parolalarla birlikte yalnız kullanıcı denetimindedir; cihaz/Termux silinmeden önce erişimi kısıtlı, güvenilir şifreli yedek gerekir. Secret veya keystore içeriği dokümanlara, CI loglarına ya da GitHub Release'e yüklenmez.
