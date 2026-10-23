@@ -3,6 +3,7 @@ package com.example
 import android.app.Application
 import com.example.core.di.AppContainer
 import com.example.core.diagnostics.LocalCrashHandler
+import com.example.core.media.PrivateMediaCacheRecovery
 import com.example.core.security.LegacyInsecurePreferencesCleanup
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -18,6 +19,10 @@ class LanuApplication : Application() {
         // Install before other startup work. Only sanitized app source frames are
         // stored locally; original Android crash reporting remains in the chain.
         LocalCrashHandler.install(this)
+        // After a crash, no later session must inherit verified plaintext.
+        // Only LANU temporary media prefixes are touched; Room, PIN and
+        // existing 18 KB attachments remain unchanged.
+        runCatching { PrivateMediaCacheRecovery.purge(cacheDir) }
         LegacyInsecurePreferencesCleanup.clean(this)
         container = AppContainer(this)
         // Older installs may contain a Supabase key in Room. Migrate on launch so it

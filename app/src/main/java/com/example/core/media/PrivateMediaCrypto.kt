@@ -149,6 +149,30 @@ object PrivateMediaCrypto {
             manifest.plainBytes + manifest.chunks * GCM_TAG_BYTES.toLong()) {
             "Şifreli dosya boyutu geçersiz."
         }
+        // Verify the complete encrypted object BEFORE writing even a temporary
+        // plaintext byte. This prevents a wrong SHA manifest or truncated
+        // object from creating any private plaintext at all. GCM tags still
+        // authenticate each block independently on the following pass.
+        val fullDigest = MessageDigest.getInstance("SHA-256")
+        FileInputStream(encrypted).use { source ->
+            val buffer = ByteArray(CHUNK_BYTES)
+            var total = 0L
+            while (true) {
+                val count = source.read(buffer)
+                if (count < 0) break
+                if (count == 0) continue
+                total += count
+                require(total <= manifest.plainBytes +
+                    manifest.chunks * GCM_TAG_BYTES.toLong()) {
+                    "Şifreli medya boyutu güvenli sınırı aşıyor."
+                }
+                fullDigest.update(buffer, 0, count)
+            }
+        }
+        require(MessageDigest.isEqual(
+            fullDigest.digest(), fromHex(manifest.cipherSha256)
+        )) { "Şifreli dosya özeti eşleşmiyor." }
+
         val plain = File.createTempFile("lanu-verified-", ".private", privateDirectory)
         val fileId = fromHex(manifest.fileId)
         val prefix = fromHex(manifest.noncePrefix)
@@ -211,10 +235,15 @@ object PrivateMediaCrypto {
     private fun readExactly(input: InputStream, size: Int): ByteArray {
         val result = ByteArray(size)
         var pos = 0
+        var stalled = 0
         while (pos < size) {
             val count = input.read(result, pos, size - pos)
             if (count < 0) throw IOException("Dosya eksik veya aktarım kesildi.")
-            if (count == 0) continue
+            if (count == 0) {
+                if (++stalled >= 3) throw IOException("Dosya sağlayıcısı yanıt vermedi.")
+                continue
+            }
+            stalled = 0
             pos += count
         }
         return result
