@@ -94,14 +94,13 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             try {
                 val envelope = prepare()
                 if (::commViewModel.isInitialized) {
+                    // No Toast here: the decoy calculator must not reveal
+                    // the existence of hidden chats or a pending media attachment.
                     commViewModel.stashPreparedMedia(chatId, envelope)
-                    Toast.makeText(this@MainActivity,
-                        "Ek dosya hazır. PIN ile gizli alana dönerek gönderebilirsiniz.",
-                        Toast.LENGTH_LONG).show()
                 }
             } catch (_: Exception) {
                 Toast.makeText(this@MainActivity,
-                    "Dosya güvenli sınırda hazırlanamadı. En fazla 18 KB destekleniyor.",
+                    "Seçilen öğe işlenemedi.",
                     Toast.LENGTH_LONG).show()
             }
         }
