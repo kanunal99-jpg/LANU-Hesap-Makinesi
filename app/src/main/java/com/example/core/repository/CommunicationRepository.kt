@@ -2,6 +2,7 @@ package com.example.core.repository
 
 import androidx.room.withTransaction
 import com.example.core.crypto.CryptoUtils
+import com.example.core.media.InlineMediaCodec
 import com.example.core.database.*
 import com.example.core.messaging.*
 import kotlinx.coroutines.Dispatchers
@@ -250,12 +251,31 @@ class CommunicationRepository(
     }
 
     suspend fun sendMessage(conversationId: String, text: String, mediaUrl: String? = null, onTypingStateChange: (suspend (Boolean) -> Unit)? = null): String {
-        require(mediaUrl == null) { "Medya aktarımı henüz etkin değil; metin mesajı gönderebilirsiniz." }
-        require(text.isNotBlank() && text.length <= 8000) { "Mesaj 1–8000 karakter olmalıdır." }
+        require(mediaUrl == null) { "Resmî olmayan medya bağlantıları desteklenmiyor." }
+        require(text.isNotBlank() && text.length <= 8000 && !InlineMediaCodec.isAttachment(text)) {
+            "Metin mesajı 1–8000 karakter olmalıdır."
+        }
+        return queueEncryptedContent(conversationId, text)
+    }
+
+    /**
+     * Small attachment bytes are embedded in an authenticated E2EE message.
+     * Never write plaintext bytes, media URLs, or content keys into Room/relay.
+     * Oversized files require a separate future private-storage protocol.
+     */
+    suspend fun sendInlineAttachment(conversationId: String, envelope: String): String {
+        require(envelope.length <= InlineMediaCodec.MAX_ENVELOPE_CHARS && InlineMediaCodec.isAttachment(envelope)) {
+            "Ek dosya biçimi geçersiz."
+        }
+        InlineMediaCodec.decode(envelope) // Fail closed on corrupt MIME, data or SHA-256.
+        return queueEncryptedContent(conversationId, envelope)
+    }
+
+    private suspend fun queueEncryptedContent(conversationId: String, plaintext: String): String {
         val own = ensureIdentity()
         val peer = peerForConversation(conversationId) ?: throw IllegalStateException("Kişinin kodunu sunucudan doğrulayın.")
         val id = UUID.randomUUID().toString()
-        val encrypted = PeerMessageCrypto.encrypt(own, peer.getString("id"), peer.getString("publicKey"), id, text)
+        val encrypted = PeerMessageCrypto.encrypt(own, peer.getString("id"), peer.getString("publicKey"), id, plaintext)
         messageDao.insertMessage(MessageEntity(id, conversationId, own.id, userProfileDao.getUserProfile()?.displayName ?: "Ben", encrypted, status = "PENDING"))
         conversationDao.getConversationById(conversationId)?.let { conversationDao.insertConversation(it.copy(lastMessageText = "Şifreli mesaj", lastMessageTime = System.currentTimeMillis())) }
         return id
