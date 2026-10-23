@@ -44,16 +44,26 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
     data class PreparedInlineMedia(val conversationId: String, val envelope: String, val expiresAtMillis: Long)
     private val _preparedInlineMedia = MutableStateFlow<PreparedInlineMedia?>(null)
     val preparedInlineMedia = _preparedInlineMedia.asStateFlow()
+    private var mediaExpiryJob: Job? = null
 
     fun stashPreparedMedia(conversationId: String, envelope: String) {
         // Reject malformed media and cross-thread payloads before retaining even in RAM.
         InlineMediaCodec.decode(envelope)
         require(conversationId.isNotBlank()) { "Ek dosya için sohbet seçilemedi." }
-        _preparedInlineMedia.value = PreparedInlineMedia(
+        mediaExpiryJob?.cancel()
+        val prepared = PreparedInlineMedia(
             conversationId,
             envelope,
             System.currentTimeMillis() + 5 * 60_000L
         )
+        _preparedInlineMedia.value = prepared
+        mediaExpiryJob = viewModelScope.launch {
+            delay(5 * 60_000L)
+            // Stale expiry must not delete a newer draft.
+            if (_preparedInlineMedia.value === prepared) {
+                _preparedInlineMedia.value = null
+            }
+        }
     }
 
     fun pendingMediaFor(conversationId: String): String? {
@@ -65,7 +75,11 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
         return current.takeIf { it.conversationId == conversationId }?.envelope
     }
 
-    fun clearPreparedMedia() { _preparedInlineMedia.value = null }
+    fun clearPreparedMedia() {
+        mediaExpiryJob?.cancel()
+        mediaExpiryJob = null
+        _preparedInlineMedia.value = null
+    }
 
     enum class NetworkState { ONLINE, OFFLINE, RECONNECTING, UNCONFIGURED }
     private val _networkState = MutableStateFlow(if (repository.relayConfigured) NetworkState.OFFLINE else NetworkState.UNCONFIGURED)
