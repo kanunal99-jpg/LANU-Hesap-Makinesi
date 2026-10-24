@@ -96,7 +96,7 @@ object PrivateMediaCrypto {
     ): EncryptedFile {
         PrivateOfficeDocumentPreflight.validate(stagedPrivateFile, mime)
         // Validate the live private Storage reservation budget before spending
-        CPU and disk space encrypting a file the relay must reject.
+        // CPU and disk space encrypting a file the relay must reject.
         PrivateMediaTransferBudget.encryptedBytes(stagedPrivateFile.length())
         return FileInputStream(stagedPrivateFile).use {
             encryptPrepared(it, stagedPrivateFile.length(), mime, privateDirectory, random, true)
