@@ -34,7 +34,10 @@ object PrivateMediaCrypto {
     private const val GCM_TAG_BYTES = 16
     private val allowedMime = setOf(
         "image/jpeg", "image/png", "video/mp4",
-        "application/pdf", "text/plain"
+        "application/pdf", "text/plain",
+        PrivateOfficeDocumentPreflight.DOCX_MIME,
+        PrivateOfficeDocumentPreflight.XLSX_MIME,
+        PrivateOfficeDocumentPreflight.PPTX_MIME
     )
     private val hexChars = Regex("[0-9a-f]+")
     private val sha = Regex("[0-9a-f]{64}")
@@ -79,7 +82,35 @@ object PrivateMediaCrypto {
         mime: String,
         privateDirectory: File,
         random: SecureRandom = SecureRandom()
+    ): EncryptedFile = encryptPrepared(source, declaredBytes, mime, privateDirectory, random, false)
+
+    /**
+     * OOXML input must be a size-bounded APP-PRIVATE staged file, never an
+     * unchecked remote/provider stream. No Office document upload is enabled.
+     */
+    fun encryptOfficeDocumentToPrivateFile(
+        stagedPrivateFile: File,
+        mime: String,
+        privateDirectory: File,
+        random: SecureRandom = SecureRandom()
     ): EncryptedFile {
+        PrivateOfficeDocumentPreflight.validate(stagedPrivateFile, mime)
+        return FileInputStream(stagedPrivateFile).use {
+            encryptPrepared(it, stagedPrivateFile.length(), mime, privateDirectory, random, true)
+        }
+    }
+
+    private fun encryptPrepared(
+        source: InputStream,
+        declaredBytes: Long,
+        mime: String,
+        privateDirectory: File,
+        random: SecureRandom,
+        validatedOffice: Boolean
+    ): EncryptedFile {
+        require(validatedOffice || !PrivateOfficeDocumentPreflight.isOfficeMime(mime)) {
+            "Office dosyaları yalnız doğrulanmış özel dosya alanından şifrelenebilir."
+        }
         val count = validCount(declaredBytes, mime)
         require(privateDirectory.isDirectory) { "Özel dosya alanı bulunamadı." }
         val fileId = ByteArray(FILE_ID_BYTES).also(random::nextBytes)
