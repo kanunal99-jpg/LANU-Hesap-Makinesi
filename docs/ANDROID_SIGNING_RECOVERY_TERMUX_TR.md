@@ -32,3 +32,36 @@ Mevcut telefon veya yeni telefon üzerindeki **orijinal imza dosyalarını asla 
 ## Otomatik test
 
 `scripts/test_backup_stable_signing_encrypted.sh` yalnız **sahte keystore/parola** üreterek terminali simüle eder, AES-256 arşiv oluşturma, GPG ile yeniden açma, byte eşitliği ve 600 arşiv iznini doğrular. GitHub CI'ya bağlanmıştır. **Bu test gerçek kullanıcı anahtarının cihaz dışında güvenle korunduğunu kanıtlamaz.**
+
+## 24.10.2026 — İkinci cihazda sertifika kurtarma doğrulaması
+
+Yeni `scripts/verify_offdevice_signing_recovery.sh` yalnızca **şifreli GPG yedeği**
+ve resmi GitHub Release'ten alınmış `app-debug.apk.signer.txt` dosyasını
+kullanarak geri yüklemeyi ayrı/izole bir alanda doğrular.
+
+1. Yedeği Termux/telefon dışındaki güvenilir bir bilgisayara veya başka özel cihaza
+   taşıyın. **Yalnızca `.gpg` arşivini taşıyın**; açık keystore ve parola dosyalarını
+   asla GitHub'a/e-postaya/sohbete göndermeyin.
+2. Güvendiğiniz LANU Release sayfasından (örneğin
+   `v1.1.0-signed.363`) **`app-debug.apk.signer.txt`** dosyasını o cihaza
+   indirin. Dosyanın beklenen resmi sürüme ait olduğunu bağımsız doğrulayın.
+3. Güvenilir cihazda GnuPG, GNU tar, JDK `keytool` ve OpenSSL kurulu olmalı.
+4. Arşivle aynı kullanıcıya ait yerel terminalde, dosya adlarını kendi
+   konumlarıyla değiştirerek çalıştırın:
+
+```bash
+bash scripts/verify_offdevice_signing_recovery.sh \\
+  /güvenli/yol/lanu-signing-YYYYMMDD.tar.gz.gpg \\
+  /güvenli/yol/app-debug.apk.signer.txt
+```
+
+Şifre **yalnızca terminalde gizli girişle** istenir; komut satırına veya
+sohbete yazmayın. Betik şifreli arşivi **yalnız üç normal dosyaya** sınırlar,
+geçici izole alana açar, `lanu` imza sertifikasının SHA-256 parmak izini
+resmi stable APK'nin SHA-256 sertifika iziyle karşılaştırır. Eşleşmezse
+**başarısız olur**; var olan orijinal imza anahtarının üstüne asla yazmaz.
+
+Bu ayrı cihaz işlemi gerçekten yapılıp sahibince doğrulanmadan **#83
+kapatılamaz**. Flash depolamadaki geçici düz dosyaların silinmesi güvenli
+fiziksel imhayı garanti etmez; mümkünse güvenilir belleğe dayalı geçici
+dizin kullanılır. CI testi **yalnız sahte PKCS12** anahtarla çalışır.
