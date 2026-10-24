@@ -9,9 +9,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import dagger.hilt.android.HiltAndroidApp
+import javax.inject.Inject
 
+@HiltAndroidApp
 class LanuApplication : Application() {
-    lateinit var container: AppContainer
+    @Inject lateinit var container: AppContainer
     private val credentialMigrationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
@@ -24,7 +27,6 @@ class LanuApplication : Application() {
         // existing 18 KB attachments remain unchanged.
         runCatching { PrivateMediaCacheRecovery.purge(cacheDir) }
         LegacyInsecurePreferencesCleanup.clean(this)
-        container = AppContainer(this)
         // Older installs may contain a Supabase key in Room. Migrate on launch so it
         // does not remain there until a legacy UI happens to request credentials.
         // Keystore errors must never erase originals or crash application startup.

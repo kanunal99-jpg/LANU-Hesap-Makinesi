@@ -76,6 +76,8 @@ class SecurityViewModel(
     private val _isAuthenticating = MutableStateFlow(false)
     val isAuthenticating = _isAuthenticating.asStateFlow()
 
+    private var pinLoaded = false
+    private var settingsLoaded = false
     private val _isReady = MutableStateFlow(false)
     val isReady = _isReady.asStateFlow()
 
@@ -101,9 +103,11 @@ class SecurityViewModel(
                 _hasPin.value = repository.hasPin()
                 _entryPinEnabled.value = repository.isEntryPinEnabled()
                 refreshAttemptStatus()
-                _isReady.value = true
+                pinLoaded = true
+                _isReady.value = pinLoaded && settingsLoaded
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
+                pinLoaded = false
                 _isReady.value = false
                 _errorMessage.value = "Güvenlik bilgileri okunamadı. Lütfen tekrar deneyin."
                 repository.lock()
@@ -113,21 +117,34 @@ class SecurityViewModel(
 
     private fun loadSettings() {
         viewModelScope.launch {
-            _lockTimeoutMs.value = repository.getLockTimeout()
-            // Existing users default to OFF specifically for a short trusted
-            // Android gallery/camera/document-picker return, not all backgrounding.
-            _requirePinOnMediaPickerReturn.value =
-                try { repository.requirePinOnMediaPickerReturn() }
-                catch (_: Exception) { true }
-            _biometricEnabled.value = repository.isBiometricEnabled()
-            _screenProtectionEnabled.value = repository.isScreenProtectionEnabled()
-            _themePreference.value = repository.getThemePreference()
-            _buttonColorTheme.value = repository.getButtonColorTheme()
-            _decimalPrecision.value = repository.getDecimalPrecision()
+            try {
+                _lockTimeoutMs.value = repository.getLockTimeout()
+                // Existing users default to OFF specifically for a short trusted
+                // Android gallery/camera/document-picker return, not all backgrounding.
+                _requirePinOnMediaPickerReturn.value =
+                    try { repository.requirePinOnMediaPickerReturn() }
+                    catch (_: Exception) { true }
+                _biometricEnabled.value = repository.isBiometricEnabled()
+                _screenProtectionEnabled.value = repository.isScreenProtectionEnabled()
+                _themePreference.value = repository.getThemePreference()
+                _buttonColorTheme.value = repository.getButtonColorTheme()
+                _decimalPrecision.value = repository.getDecimalPrecision()
+                settingsLoaded = true
+                _isReady.value = pinLoaded && settingsLoaded
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                settingsLoaded = false
+                _isReady.value = false
+                repository.lock()
+                _errorMessage.value = "Ayarlar güvenle yüklenemedi. Kayıtlar korunuyor; yeniden deneyin."
+            }
         }
     }
 
     fun reloadAfterRestore() {
+        pinLoaded = false
+        settingsLoaded = false
+        _isReady.value = false
         checkPinExists()
         loadSettings()
     }
@@ -139,6 +156,10 @@ class SecurityViewModel(
      */
     fun enterFromCalculator(onOpen: () -> Unit, onPinRequired: () -> Unit) {
         viewModelScope.launch {
+            if (!_isReady.value) {
+                _errorMessage.value = "Güvenlik ayarları hazırlanıyor. Lütfen yeniden deneyin."
+                return@launch
+            }
             try {
                 if (repository.tryEnterWithoutPin()) {
                     _hasPin.value = repository.hasPin()
@@ -337,8 +358,19 @@ class SecurityViewModel(
         }
     }
 
-    fun setScreenProtectionEnabled(enabled: Boolean) {
+    private fun protectedOperation(block: suspend () -> Unit) {
         viewModelScope.launch {
+            try { block() }
+            catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                repository.lock()
+                _errorMessage.value = "İşlem güvenle tamamlanamadı. Kayıtlarınız korunuyor; yeniden deneyin."
+            }
+        }
+    }
+
+    fun setScreenProtectionEnabled(enabled: Boolean) {
+        protectedOperation {
             repository.setScreenProtectionEnabled(enabled)
             _screenProtectionEnabled.value = enabled
             eventTracker.logEvent("SECURITY_CONFIG", "Ekran/Önizleme koruması: $enabled")
@@ -370,9 +402,10 @@ class SecurityViewModel(
     }
 
     fun dismissBiometricOptIn(enable: Boolean) {
-        viewModelScope.launch {
+        protectedOperation {
             if (enable) {
-                setBiometricEnabled(true)
+                repository.setBiometricEnabled(true)
+                _biometricEnabled.value = true
             }
             _showBiometricOptIn.value = false
             _onPendingSuccessAction.value?.invoke()
@@ -381,7 +414,7 @@ class SecurityViewModel(
     }
 
     fun updateLockTimeout(timeoutMs: Long) {
-        viewModelScope.launch {
+        protectedOperation {
             repository.setLockTimeout(timeoutMs)
             _lockTimeoutMs.value = timeoutMs
         }
@@ -400,28 +433,28 @@ class SecurityViewModel(
     }
 
     fun setBiometricEnabled(enabled: Boolean) {
-        viewModelScope.launch {
+        protectedOperation {
             repository.setBiometricEnabled(enabled)
             _biometricEnabled.value = enabled
         }
     }
 
     fun setThemePreference(theme: String) {
-        viewModelScope.launch {
+        protectedOperation {
             repository.setThemePreference(theme)
             _themePreference.value = theme
         }
     }
 
     fun setButtonColorTheme(theme: String) {
-        viewModelScope.launch {
+        protectedOperation {
             repository.setButtonColorTheme(theme)
             _buttonColorTheme.value = theme
         }
     }
 
     fun setDecimalPrecision(precision: Int) {
-        viewModelScope.launch {
+        protectedOperation {
             repository.setDecimalPrecision(precision)
             _decimalPrecision.value = precision
         }
@@ -446,13 +479,13 @@ class SecurityViewModel(
     }
 
     fun appForegrounded() {
-        viewModelScope.launch {
+        protectedOperation {
             repository.handleAppForegrounded()
         }
     }
 
     fun appBackgrounded() {
-        viewModelScope.launch {
+        protectedOperation {
             repository.handleAppBackgrounded()
         }
     }

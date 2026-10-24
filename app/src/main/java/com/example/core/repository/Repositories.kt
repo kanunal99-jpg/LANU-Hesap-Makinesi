@@ -265,10 +265,11 @@ class SecurityRepository(
     suspend fun getLockTimeout(): Long {
         // Returns duration in milliseconds. 0 = immediate, -1 = disabled
         val value = settingsDao.getSettingValue("lock_timeout") ?: "0"
-        return value.toLongOrNull() ?: 0L
+        return value.toLongOrNull()?.takeIf { it == -1L || it in 0L..86400000L } ?: 0L
     }
 
     suspend fun setLockTimeout(timeoutMs: Long) {
+        require(timeoutMs == -1L || timeoutMs in 0L..86400000L) { "Geçersiz kilit süresi." }
         settingsDao.insertSetting(SettingsEntity("lock_timeout", timeoutMs.toString()))
     }
 

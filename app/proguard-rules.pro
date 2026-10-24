@@ -1,4 +1,31 @@
 # Add project specific ProGuard rules here.
+-keepattributes Signature,InnerClasses,EnclosingMethod,SourceFile,LineNumberTable,*Annotation*
+# Preserve the local privacy-safe crash frame filter after shrinking.
+-keeppackagenames com.example.**
+-keepnames class com.example.core.diagnostics.**
+# AndroidX Test's separately built tracing bridge reflects/links this public API.
+-keep class androidx.tracing.** { *; }
+# AndroidJUnitRunner runs in a separate instrumentation APK. Its Kotlin runtime
+# is resolved from the target APK; R8 can otherwise strip unused stdlib APIs
+# (observed release-test crash: NoClassDefFoundError kotlin.LazyKt).
+# Preserve the runtime library while still shrinking/obfuscating our app code.
+-keep class kotlin.** { *; }
+# Release instrumentation runs against a separately packaged AndroidJUnitRunner.
+# Its test methods invoke kotlinx.coroutines.BuildersKt (runBlocking) even when
+# no remaining production path references that JVM entrypoint. R8 stripped it
+# in CI #351, causing three data-preservation tests to fail before assertions.
+# Keeping the coroutine ABI avoids masking the regression by skipping tests.
+-keep class kotlinx.coroutines.** { *; }
+# The same release instrumentation suite also constructs temporary Room databases.
+# Preserve the database/SQLite public ABI referenced only by the separate test
+# APK; CI #354 proved the normal app can build while Room.class was stripped.
+-keep class androidx.room.** { *; }
+-keep class androidx.sqlite.** { *; }
+# Tests in the separate instrumentation APK explicitly instantiate the
+# current v4 AppDatabase and its DAO/entity classes. Keep this ABI stable for
+# destructive-migration regression checks on the minified release variant.
+# This does not migrate or reset the existing user's Room database.
+-keep class com.example.core.database.** { *; }
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.
 #

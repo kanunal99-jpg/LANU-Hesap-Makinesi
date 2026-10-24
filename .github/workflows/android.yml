@@ -181,8 +181,12 @@ jobs:
           fi
           test -f ./debug.keystore
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+      - name: Build minified production APK
+        run: |
+          ./gradlew :app:assembleRelease --no-daemon --stacktrace
+          # Preserve the established OTA asset name while publishing a release variant.
+          mkdir -p app/build/outputs/apk/debug
+          cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/debug/app-debug.apk
 
       - name: Verify packaged Android versionCode
         shell: bash
@@ -194,6 +198,11 @@ jobs:
             sed -n "s/^package:.*versionCode='\\([0-9][0-9]*\\)'.*/\\1/p")"
           test -n "$ACTUAL"
           test "$ACTUAL" = "$LANU_VERSION_CODE"
+          test -s app/build/outputs/mapping/release/mapping.txt
+          if "$AAPT" dump badging app/build/outputs/apk/debug/app-debug.apk | grep -q 'application-debuggable'; then
+            echo "::error::Published APK must be a non-debuggable minified release."
+            exit 1
+          fi
 
       - name: Verify APK certificate and pinned signing identity
         shell: bash
@@ -315,7 +324,9 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+          script: |
+            ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+            ./gradlew -PlanuDeviceBuildType=release :app:connectedReleaseAndroidTest --no-daemon --stacktrace
 
       - name: Upload device-runtime acceptance report
         if: always()
