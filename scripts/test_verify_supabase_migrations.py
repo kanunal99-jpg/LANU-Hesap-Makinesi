@@ -11,6 +11,7 @@ APPLIED = (
     "20261021160108_safe_relay_retention_20261021.sql",
     "20261021160752_enable_pgcron_for_safe_lanu_retention_20261021.sql",
     "20261021160807_schedule_lanu_safe_retention_daily_20261021.sql",
+    "20261024105720_private_media_grants_and_quota.sql",
 )
 
 
@@ -43,6 +44,26 @@ class SupabaseMigrationProvenanceTest(unittest.TestCase):
         self.assertIn("public.lanu_prune_retained_data(500)", schedule)
         self.assertNotIn("truncate", schedule)
         self.assertNotIn("delete from", schedule)
+
+
+    def test_private_media_migration_is_private_and_quota_bounded(self):
+        body = (MIGRATIONS / APPLIED[4]).read_text(encoding="utf-8").lower()
+        self.assertIn("create table public.lanu_media_objects", body)
+        self.assertIn("enable row level security", body)
+        self.assertIn("revoke all on public.lanu_media_objects from public, anon, authenticated", body)
+        self.assertIn("grant select,insert,update,delete on public.lanu_media_objects to service_role", body)
+        self.assertIn("lanu_reserve_private_media", body)
+        self.assertIn("lanu_mark_private_media_message", body)
+        self.assertIn("lanu_media_aware_events", body)
+        self.assertIn("p_owner = p_peer", body)
+        self.assertIn("owner_daily>=4", body)
+        self.assertIn("total_bytes+p_bytes>536870912", body)
+        self.assertIn("owner_bytes+p_bytes>268435456", body)
+        self.assertIn("array['application/octet-stream']", body)
+        self.assertIn("false,44040192", body)
+        self.assertIn("no anon/authenticated storage policy is created", body)
+        self.assertNotIn("to anon;", body)
+        self.assertNotIn("to authenticated;", body)
 
 
 if __name__ == "__main__":
