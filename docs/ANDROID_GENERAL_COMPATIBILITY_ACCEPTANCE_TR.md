@@ -15,7 +15,7 @@ işlevleri GMS'e zorunlu bağımlı yapmama. Samsung A55'te APK 369'un
   ancak ilerleyen dosya sağlayıcıları hatalı reddedilmez.
 - Kaynak boyut üst limiti ve InputStream kapatma korunur.
 - Kalıcı/aralıklı duraksama, sınırlama, boş dosya testleri eklendi.
-- Robolectric API 23, 29, 35 testleri manifest gizliliği, izinler,
+- Yeni Robolectric API 23 testi manifest gizliliği, izinler,
   korumalı OTA FileProvider, otomatik yedekleme ve eski sürüm crash
   tanılaması fallback'ini çalıştırır.
 - API 34 emülatör gerçek Android çalışma zamanı kontrolleri mevcut
@@ -28,9 +28,9 @@ işlevleri GMS'e zorunlu bağımlı yapmama. Samsung A55'te APK 369'un
 | Test alanı | Şimdiki otomasyon | Eksik kabul |
 | --- | --- | --- |
 | Android 6–8 (API 23–27) | Robolectric API 23 | Fiziksel eski cihaz |
-| Android 9–11 (API 28–30) | Robolectric API 29 | OEM dosya sağlayıcısı |
+| Android 9–11 (API 28–30) | Mevcut API 28 crash fallback | OEM dosya sağlaycısı / API29 kabulü |
 | Android 12–14 (API 31–34) | Android emülatör API 34 | OEM pil/arka plan |
-| Android 15–16 (API 35–36) | Robolectric API 35; hedef SDK 36 | Gerçek API 36 cihaz |
+| Android 15–16 (API 35–36) | Mevcut Robolectric API 35; hedef SDK 36 | Gerçek API 36 cihaz |
 | GMS'siz Android/Huawei HMS | GMS gerektirmeyen temel testler | Gerçek HMS cihazı |
 | Samsung/Xiaomi/Google/diğer | Genel API testleri | Fiziksel 2+ cihazda doğrulama |
 
@@ -42,3 +42,12 @@ farklı arka plan sınırları, kurulu APK üzerine OTA ve veri sürekliliği.
 bloklanabilir. Bu değişiklik art arda 0-byte döndürmeyi sınırlar;
 gerçekten bloklayan sağlayıcı için iptal ve timeout ayrı çalışmadır.
 Bu testler bütün markalarda sorunsuz çalışmanın kanıtı değildir.
+
+## CI testi izolasyonu
+
+İlk çoklu SDK Robolectric deneyiminde JVM ZIP dosya sistemi
+çakışması (FileSystemAlreadyExistsException) oluştu. Güvenlik ve
+tekrarlanabilirlik için yeni eklenen test yalnız API 23 için koşar;
+mevcut Android 34 emülatör testleri ve depodaki API35 Robolectric
+sınıfı ayrı çalışır. API29 çoklu-SDK denemesinin başarılı olduğu
+iddia edilmez; API29 gerçek kabul ayrı iş kalemidir.
