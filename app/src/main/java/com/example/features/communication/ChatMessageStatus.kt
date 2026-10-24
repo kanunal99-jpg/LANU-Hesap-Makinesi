@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -37,6 +38,12 @@ fun ChatMessageStatus(status: String, modifier: Modifier = Modifier) {
         modifier = modifier
     ) { targetStatus ->
         when (targetStatus) {
+            "FAILED" -> Icon(
+                imageVector = Icons.Default.ErrorOutline,
+                contentDescription = "Gönderilemedi. Mesaja basılı tutup yeniden deneyebilirsiniz.",
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(14.dp)
+            )
             "PENDING", "WAITING", "SENDING" -> {
                 CircularProgressIndicator(
                     modifier = Modifier

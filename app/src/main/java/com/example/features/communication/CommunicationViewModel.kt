@@ -37,6 +37,27 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
     val busy = _busy.asStateFlow()
     private val _isSending = MutableStateFlow(false)
     val isSending = _isSending.asStateFlow()
+    private val _draftText = MutableStateFlow("")
+    val draftText = _draftText.asStateFlow()
+    private var draftConversationId: String? = null
+    private var draftVersion = 0L
+    private var refreshJob: Job? = null
+
+    fun updateDraft(text: String) {
+        if (text.length > 8000) {
+            _errorMessage.value = "Mesaj en fazla 8000 karakter olabilir."
+            return
+        }
+        val id = draftConversationId ?: return
+        draftVersion++
+        _draftText.value = text
+        operation { repository.saveDraft(id, text) }
+    }
+
+    fun textQueued(text: String) {
+        // The repository atomically removes only the draft actually queued.
+        if (_draftText.value == text) _draftText.value = ""
+    }
 
     /** Volatile-only, never persisted. Survives system Photo Picker's secure lock.
      * PIN reauthentication is still required before preview or sending.
@@ -133,7 +154,10 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
             if (repository.relayConfigured) _errorMessage.value = e.message ?: "Sunucuya bağlanılamadı. Mesajlar bekliyor."
         }
     }
-    fun refresh() = operation { synchronize() }
+    fun refresh() {
+        if (refreshJob?.isActive == true) return
+        refreshJob = viewModelScope.launch { synchronize() }
+    }
     fun updateDisplayName(name: String) = operation {
         require(name.isNotBlank()) { "Görünen adı girin." }
         repository.registerUser("", name)
@@ -166,9 +190,14 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
     fun deleteContact(code: String) = operation { repository.deleteContact(code) }
     fun selectConversation(id: String) {
         messagesCollectorJob?.cancel()
+        draftConversationId = id
+        draftVersion = 0L
+        _draftText.value = ""
         messagesCollectorJob = viewModelScope.launch {
             try {
                 _activeConversation.value = repository.getConversationById(id)
+                val draft = repository.loadDraft(id)
+                if (draftConversationId == id && draftVersion == 0L) _draftText.value = draft
                 repository.markConversationOpened(id)
                 repository.getMessages(id).collectLatest { _activeMessages.value = it }
             } catch (e: Exception) {
@@ -185,6 +214,8 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
             messagesCollectorJob?.cancel()
             _activeConversation.value = null
             _activeMessages.value = emptyList()
+            draftConversationId = null
+            _draftText.value = ""
         }
     }
     fun startChat(code: String, name: String, onReady: (String) -> Unit) = operation {
@@ -221,7 +252,7 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
                         _errorMessage.value = "Mesajın otomatik gizlenmesi tamamlanamadı."
                     }
                 }
-                synchronize()
+                refresh()
             } finally {
                 _isSending.value = false
             }
@@ -245,7 +276,7 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
                 repository.sendInlineAttachment(conversation.id, envelope)
                 if (_preparedInlineMedia.value?.envelope == envelope) clearPreparedMedia()
                 onQueued()
-                synchronize()
+                refresh()
             } finally {
                 _isSending.value = false
             }
@@ -257,6 +288,7 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
     fun insertSystemMessage(partnerName: String, text: String) { /* Call UI demos never create a delivered remote message. */ }
     fun addReaction(messageId: String, emoji: String) = operation { repository.addReaction(messageId, emoji); synchronize() }
     fun deleteMessage(messageId: String) = operation { repository.deleteMessage(messageId); synchronize() }
+    fun retryMessage(messageId: String) = operation { repository.retryMessage(messageId); refresh() }
     fun editMessage(messageId: String, text: String) {
         val conversation = _activeConversation.value ?: return
         operation { repository.editMessage(messageId, conversation.id, text); synchronize() }

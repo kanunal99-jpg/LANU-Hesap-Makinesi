@@ -118,8 +118,14 @@ interface MessageDao {
 
     // The relay submits queued messages in bounded batches. Keep durable rows
     // for later sync passes; deterministic ID ordering handles equal timestamps.
-    @Query("SELECT * FROM messages WHERE status IN ('PENDING', 'WAITING') ORDER BY timestamp ASC, id ASC LIMIT 200")
-    suspend fun getPendingMessages(): List<MessageEntity>
+    @Query("""
+        SELECT messages.* FROM messages
+        LEFT JOIN app_settings retry ON retry.`key` = 'lanu_retry_after_' || messages.id
+        WHERE status IN ('PENDING', 'WAITING')
+          AND COALESCE(CAST(retry.value AS INTEGER), 0) <= :now
+        ORDER BY timestamp ASC, id ASC LIMIT :limit
+    """)
+    suspend fun getPendingMessages(now: Long = System.currentTimeMillis(), limit: Int = 200): List<MessageEntity>
 
     @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
     suspend fun getMessage(id: String): MessageEntity?
@@ -166,4 +172,3 @@ interface CallLogDao {
     @Query("DELETE FROM call_logs")
     suspend fun clearAllCallLogs()
 }
-

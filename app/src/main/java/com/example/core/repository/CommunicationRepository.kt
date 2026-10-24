@@ -6,6 +6,7 @@ import com.example.core.media.InlineMediaCodec
 import com.example.core.database.*
 import com.example.core.messaging.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -23,13 +24,17 @@ class CommunicationRepository(
     private val callLogDao: CallLogDao,
     private val identityStore: MessagingIdentityStore,
     private val relay: MessagingRelay,
-    private val database: AppDatabase
+    private val database: AppDatabase,
+    private val clock: () -> Long = System::currentTimeMillis
 ) {
     val contacts = contactDao.getAllContacts().map { list -> list.filter { UserCodes.normalize(it.phoneNumber).isNotBlank() } }
     val conversations = conversationDao.getAllConversations()
     val callLogs = callLogDao.getAllCallLogs()
     private val identityMutex = Mutex()
     private val syncMutex = Mutex()
+    private val draftMutex = Mutex()
+    private var nextSyncAt = 0L
+    private var nextSendAt = 0L
     private val _identity = MutableStateFlow<MessagingIdentity?>(null)
     val identity: StateFlow<MessagingIdentity?> = _identity.asStateFlow()
     val relayConfigured get() = relay.configured
@@ -271,32 +276,55 @@ class CommunicationRepository(
         return queueEncryptedContent(conversationId, envelope)
     }
 
-    private suspend fun queueEncryptedContent(conversationId: String, plaintext: String): String {
+    private fun draftMessageId(conversationId: String): String =
+        UUID.nameUUIDFromBytes(("LANU-draft-v1:" + conversationId).toByteArray(Charsets.UTF_8)).toString()
+
+    suspend fun loadDraft(conversationId: String): String = draftMutex.withLock {
+        val stored = settingsDao.getSettingValue("lanu_draft_$conversationId") ?: return@withLock ""
+        val own = ensureIdentity()
+        withContext(Dispatchers.Default) {
+            PeerMessageCrypto.decrypt(own, own.id, own.publicKey, draftMessageId(conversationId), own.id, stored)
+        }
+    }
+
+    suspend fun saveDraft(conversationId: String, text: String) = draftMutex.withLock {
+        require(text.length <= 8000) { "Taslak en fazla 8000 karakter olabilir." }
+        // A delayed UI write must not recreate a user-deleted conversation/draft.
+        if (conversationDao.getConversationById(conversationId) == null) return@withLock
+        if (text.isEmpty()) settingsDao.deleteSetting("lanu_draft_$conversationId")
+        else {
+            val own = ensureIdentity()
+            val encrypted = withContext(Dispatchers.Default) {
+                PeerMessageCrypto.encrypt(own, own.id, own.publicKey, draftMessageId(conversationId), text)
+            }
+            settingsDao.insertSetting(SettingsEntity("lanu_draft_$conversationId", encrypted))
+        }
+    }
+
+    private suspend fun queueEncryptedContent(conversationId: String, plaintext: String): String = draftMutex.withLock {
         val own = ensureIdentity()
         val peer = peerForConversation(conversationId) ?: throw IllegalStateException("Kişinin kodunu sunucudan doğrulayın.")
         val id = UUID.randomUUID().toString()
-        val encrypted = PeerMessageCrypto.encrypt(own, peer.getString("id"), peer.getString("publicKey"), id, plaintext)
-        messageDao.insertMessage(MessageEntity(id, conversationId, own.id, userProfileDao.getUserProfile()?.displayName ?: "Ben", encrypted, status = "PENDING"))
-        conversationDao.getConversationById(conversationId)?.let { conversationDao.insertConversation(it.copy(lastMessageText = "Şifreli mesaj", lastMessageTime = System.currentTimeMillis())) }
-        return id
+        val encrypted = withContext(Dispatchers.Default) {
+            PeerMessageCrypto.encrypt(own, peer.getString("id"), peer.getString("publicKey"), id, plaintext)
+        }
+        val savedDraft = settingsDao.getSettingValue("lanu_draft_$conversationId")
+        val clearDraft = savedDraft != null && !InlineMediaCodec.isAttachment(plaintext) && runCatching {
+            PeerMessageCrypto.decrypt(own, own.id, own.publicKey, draftMessageId(conversationId), own.id, savedDraft) == plaintext
+        }.getOrDefault(false)
+        database.withTransaction {
+            messageDao.insertMessage(MessageEntity(id, conversationId, own.id, userProfileDao.getUserProfile()?.displayName ?: "Ben", encrypted, status = "PENDING"))
+            conversationDao.getConversationById(conversationId)?.let { conversationDao.insertConversation(it.copy(lastMessageText = "Şifreli mesaj", lastMessageTime = clock())) }
+            if (clearDraft) settingsDao.deleteSetting("lanu_draft_$conversationId")
+        }
+        id
     }
 
     suspend fun synchronize(activeConversationId: String? = null) = syncMutex.withLock {
+        if (clock() < nextSyncAt) throw RelayException(429, "Bağlantı kısa süre bekletiliyor. Mesajlarınız korunuyor.", nextSyncAt - clock())
         val own = registerRemote()
-        for (contact in contacts.first()) {
-            if (savedPeer(contact.phoneNumber) == null) {
-                try { resolveContact(contact.phoneNumber) } catch (e: RelayException) { if (e.status != 404) throw e }
-            }
-        }
-        for (message in messageDao.getPendingMessages()) {
-            val peer = peerForConversation(message.conversationId) ?: continue
-            try {
-                val response = relay.request(own, "send", JSONObject().put("messageId", message.id).put("peerId", peer.getString("id")).put("content", message.content))
-                messageDao.updateMessageStatus(message.id, response.optString("status", "SENT"))
-            } catch (e: RelayException) {
-                if (e.status == 409) messageDao.updateMessageStatus(message.id, "WAITING") else throw e
-            }
-        }
+        // Receive and acknowledge BEFORE sending: one blocked/invalid outgoing
+        // message must never prevent unrelated incoming conversations arriving.
         val response = relay.request(own, "sync")
         val peers = response.getJSONArray("contacts")
         for (i in 0 until peers.length()) savePeer(peers.getJSONObject(i), peers.getJSONObject(i).optString("codeAtAdd"))
@@ -358,6 +386,75 @@ class CommunicationRepository(
             messageDao.getMessagesForConversation(activeConversationId).first().filter { it.senderPhone != own.id && it.status != "READ" }.take(200).forEach { ids.put(it.id) }
             if (ids.length() > 0) relay.request(own, "ack", JSONObject().put("eventIds", JSONArray()).put("readIds", ids))
         }
+        // Five sends plus register/sync/receipts stay below 120 requests/minute
+        // at the normal 5-second cadence. Manual rapid refresh is also bounded.
+        if (clock() < nextSendAt) return@withLock
+        nextSendAt = clock() + 5000L
+        var contactRequests = 0
+        for (contact in contacts.first()) {
+            if (savedPeer(contact.phoneNumber) != null) continue
+            val retryKey = "lanu_contact_retry_${contact.phoneNumber}"
+            if ((settingsDao.getSettingValue(retryKey)?.toLongOrNull() ?: 0L) > clock()) continue
+            contactRequests = 2 // resolveContact registers and links the peer.
+            try {
+                resolveContact(contact.phoneNumber)
+                settingsDao.deleteSetting(retryKey)
+            } catch (e: RelayException) {
+                settingsDao.insertSetting(SettingsEntity(retryKey, (clock() + 60000L).toString()))
+                if (e.status == 429) {
+                    nextSyncAt = clock() + e.retryAfterMillis.coerceIn(5000L, 120000L)
+                    return@withLock
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (_: java.io.IOException) {
+                settingsDao.insertSetting(SettingsEntity(retryKey, (clock() + 15000L).toString()))
+            }
+            break
+        }
+        for (message in messageDao.getPendingMessages(now = clock(), limit = 5 - contactRequests)) {
+            val peer = peerForConversation(message.conversationId) ?: continue
+            try {
+                val result = relay.request(own, "send", JSONObject().put("messageId", message.id).put("peerId", peer.getString("id")).put("content", message.content))
+                database.withTransaction {
+                    messageDao.updateMessageStatus(message.id, result.optString("status", "SENT"))
+                    settingsDao.deleteSetting("lanu_retry_after_${message.id}")
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: RelayException) {
+                when (e.status) {
+                    400, 403, 413, 422 -> database.withTransaction {
+                        // Preserve ciphertext for manual retry/deletion; don't poison the queue.
+                        messageDao.updateMessageStatus(message.id, "FAILED")
+                        settingsDao.deleteSetting("lanu_retry_after_${message.id}")
+                    }
+                    429 -> {
+                        nextSyncAt = clock() + e.retryAfterMillis.coerceIn(5000L, 120000L)
+                        settingsDao.insertSetting(SettingsEntity("lanu_retry_after_${message.id}", nextSyncAt.toString()))
+                        break
+                    }
+                    else -> {
+                        val delay = if (e.status == 409) 60000L else 15000L
+                        database.withTransaction {
+                            if (e.status == 409) messageDao.updateMessageStatus(message.id, "WAITING")
+                            settingsDao.insertSetting(SettingsEntity("lanu_retry_after_${message.id}", (clock() + delay).toString()))
+                        }
+                    }
+                }
+            } catch (_: java.io.IOException) {
+                settingsDao.insertSetting(SettingsEntity("lanu_retry_after_${message.id}", (clock() + 15000L).toString()))
+            }
+        }
+    }
+
+    suspend fun retryMessage(messageId: String) = syncMutex.withLock {
+        val own = ensureIdentity()
+        val message = messageDao.getMessage(messageId) ?: return@withLock
+        require(message.senderPhone == own.id && message.status == "FAILED") { "Mesaj yeniden gönderilemez." }
+        database.withTransaction {
+            messageDao.updateMessageStatus(messageId, "PENDING")
+            settingsDao.deleteSetting("lanu_retry_after_$messageId")
+        }
     }
 
     suspend fun addReaction(messageId: String, emoji: String) {
@@ -415,6 +512,7 @@ class CommunicationRepository(
             // This tombstone must precede deleting the metadata, so an unseen old
             // relay event cannot silently recreate the user-deleted thread.
             settingsDao.insertSetting(SettingsEntity("lanu_hidden_conv_$id", "true"))
+            settingsDao.deleteSetting("lanu_draft_$id")
             for (message in messageDao.getMessagesForConversation(id).first()) {
                 settingsDao.insertSetting(SettingsEntity("lanu_hidden_${message.id}", "true"))
             }
