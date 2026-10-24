@@ -3,6 +3,8 @@
 # Preserve the local privacy-safe crash frame filter after shrinking.
 -keeppackagenames com.example.**
 -keepnames class com.example.core.diagnostics.**
+# AndroidX Test's separately built tracing bridge reflects/links this public API.
+-keep class androidx.tracing.** { *; }
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.
 #
