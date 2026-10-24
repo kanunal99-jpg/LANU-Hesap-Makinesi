@@ -21,7 +21,7 @@ class PrivateMediaTransferBudgetTest {
         assertEquals(65_552L, PrivateMediaTransferBudget.encryptedBytes(65_536))
         assertEquals(65_569L, PrivateMediaTransferBudget.encryptedBytes(65_537))
         assertEquals(131_104L, PrivateMediaTransferBudget.encryptedBytes(131_072))
-        assertEquals(131_105L, PrivateMediaTransferBudget.encryptedBytes(131_073))
+        assertEquals(131_121L, PrivateMediaTransferBudget.encryptedBytes(131_073))
     }
 
     @Test fun exactProductionSqlAndStorageCapsAreRespected() {
