@@ -95,6 +95,9 @@ jobs:
           bash -n scripts/backup_stable_signing_encrypted.sh
           bash -n scripts/test_backup_stable_signing_encrypted.sh
           bash scripts/test_backup_stable_signing_encrypted.sh
+          bash -n scripts/verify_offdevice_signing_recovery.sh
+          bash -n scripts/test_verify_offdevice_signing_recovery.sh
+          bash scripts/test_verify_offdevice_signing_recovery.sh
           bash -n scripts/publish_verified_release_retry.sh
           bash -n scripts/test_publish_verified_release_retry.sh
           bash scripts/test_publish_verified_release_retry.sh
