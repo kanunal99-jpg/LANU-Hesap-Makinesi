@@ -62,7 +62,7 @@ object LanuInformation {
         ),
         InformationSection(
             "Özelliklerin sınırları",
-            "10 saniye sonra gizle özelliği, sunucu onayından sonra mesajı yalnız bu cihazda gizler. Karşı tarafın cihazından veya sunucudan silmez. Fotoğraf gönderimi ve gerçek arama henüz desteklenmez."
+            "10 saniye sonra gizle özelliği, sunucu onayından sonra mesajı yalnız bu cihazda gizler. Karşı tarafın cihazından veya sunucudan silmez. Küçük fotoğraflar, PDF ve metin ekleri 18.000 bayta kadar şifreli gönderilebilir. Büyük belge/video aktarımı ve gerçek arama ayrıca tamamlanmaktadır."
         ),
         InformationSection(
             "Kullanıcıya bildirim",
@@ -93,7 +93,7 @@ object LanuInformation {
         ),
         InformationSection(
             "Gerçek arama ve fotoğraf var mı?",
-            "Hayır. Arama ekranları yalnızca arayüz demosudur; fotoğraf aktarımı etkin değildir. Bu sürümün çalışır iletişim kanalı şifreli metin mesajlarıdır."
+            "Kamera veya galeriden küçük fotoğraf gönderilebilir. Küçük PDF ve UTF-8 metin dosyaları da desteklenir; mevcut ek sınırı 18.000 bayttır. Arama ekranları arayüz demosudur. Büyük fotoğraf, Excel, PowerPoint ve video desteği hazır olana kadar seçenekleri açılmaz."
         ),
         InformationSection(
             "Mesajı 10 sn sonra gizlemek ne demek?",

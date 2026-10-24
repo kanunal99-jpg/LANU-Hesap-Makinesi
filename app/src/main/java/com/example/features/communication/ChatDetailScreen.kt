@@ -68,7 +68,7 @@ fun ChatDetailScreen(
         it.conversationId == conversationId && it.expiresAtMillis > System.currentTimeMillis()
     }?.envelope
 
-    var textInput by remember { mutableStateOf("") }
+    val textInput by viewModel.draftText.collectAsState()
     var isSelfDestructEnabled by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     // Silent UI policy: no sound or haptic feedback for chat actions.
@@ -252,6 +252,7 @@ fun ChatDetailScreen(
                         onDelete = {
                             viewModel.deleteMessage(message.id)
                         },
+                        onRetry = { viewModel.retryMessage(message.id) },
                         onEdit = { newText ->
                             if (!InlineMediaCodec.isAttachment(message.content)) {
                                 viewModel.editMessage(message.id, newText)
@@ -287,7 +288,7 @@ fun ChatDetailScreen(
                     )
                     OutlinedTextField(
                         value = textInput,
-                        onValueChange = { textInput = it },
+                        onValueChange = { viewModel.updateDraft(it) },
                         placeholder = { Text("Şifreli mesaj yazın...") },
                         singleLine = false,
                         maxLines = 4,
@@ -312,7 +313,7 @@ fun ChatDetailScreen(
                                     text = queuedText,
                                     isSelfDestruct = isSelfDestructEnabled,
                                     destructDelaySeconds = 10,
-                                    onQueued = { if (textInput == queuedText) textInput = "" }
+                                    onQueued = { viewModel.textQueued(queuedText) }
                                 )
                             }
                         },
@@ -386,6 +387,7 @@ fun MessageBubble(
     reaction: String? = null,
     onAddReaction: (String) -> Unit = {},
     onDelete: () -> Unit = {},
+    onRetry: () -> Unit = {},
     onEdit: (String) -> Unit = {},
     onSaveAttachment: (InlineMediaCodec.Attachment) -> Unit = {}
 ) {
@@ -505,6 +507,10 @@ fun MessageBubble(
                 onDismissRequest = { showMenu = false },
                 modifier = Modifier.background(MaterialTheme.colorScheme.surface)
             ) {
+                if (isMine && status == "FAILED") DropdownMenuItem(
+                    text = { Text("Yeniden gönder") },
+                    onClick = { showMenu = false; onRetry() }
+                )
                 Row(modifier = Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                     val emojis = listOf("❤️", "👍", "😂", "😮", "😢")
                     emojis.forEach { emoji ->
