@@ -10,6 +10,12 @@
 # (observed release-test crash: NoClassDefFoundError kotlin.LazyKt).
 # Preserve the runtime library while still shrinking/obfuscating our app code.
 -keep class kotlin.** { *; }
+# Release instrumentation runs against a separately packaged AndroidJUnitRunner.
+# Its test methods invoke kotlinx.coroutines.BuildersKt (runBlocking) even when
+# no remaining production path references that JVM entrypoint. R8 stripped it
+# in CI #351, causing three data-preservation tests to fail before assertions.
+# Keeping the coroutine ABI avoids masking the regression by skipping tests.
+-keep class kotlinx.coroutines.** { *; }
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.
 #
