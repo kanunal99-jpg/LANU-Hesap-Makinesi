@@ -60,6 +60,19 @@ if verify; then echo 'Unexpected signed-backup archive member was accepted!' >&2
 grep -q 'unexpected/duplicate archive paths' "$tmp/result.log" || {
   echo 'Missing archive path safety rejection.' >&2; exit 1;
 }
+# A misleading archive with a valid cert but a corrupt private-key
+# credential must not be called recoverable.
+rm -- "$tmp/home/signing/extra"
+printf 'INCORRECT_DUMMY_KEY_CREDENTIAL' > "$tmp/home/signing/key-password"
+tar -C "$tmp/home" -czf - \
+  signing/lanu-stable.jks signing/store-password signing/key-password |
+  gpg --homedir "$tmp/home/.gnupg" --quiet --batch --yes --pinentry-mode loopback \
+      --no-tty --symmetric --cipher-algo AES256 --passphrase-fd 3 \
+      --output "$tmp/signing.tar.gz.gpg" 3<<<"$dummy_pass"
+if verify; then echo 'Corrupted signing private-key credential was accepted!' >&2; exit 1; fi
+grep -q 'store and key credentials differ' "$tmp/result.log" || {
+  echo 'Missing private-key credential validation.' >&2; exit 1;
+}
 # The verifier did not alter the generated source keystore, and the test
 # never accessed ~/.lanu/signing.
 keytool -list -keystore "$tmp/home/signing/lanu-stable.jks" \
