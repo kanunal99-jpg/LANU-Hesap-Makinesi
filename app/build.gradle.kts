@@ -1,6 +1,7 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
 
 plugins {
+  alias(libs.plugins.hilt)
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.google.devtools.ksp)
@@ -25,7 +26,7 @@ android {
     targetSdk = 36
     // CI releases advance monotonically; local builds remain installable.
     versionCode = providers.environmentVariable("LANU_VERSION_CODE").orNull?.toIntOrNull() ?: 1
-    versionName = "1.0"
+    versionName = "1.1.0"
     buildConfigField("String", "LANU_RELAY_URL", "\"${providers.environmentVariable("LANU_RELAY_URL").orNull ?: "https://talhknjcjaijqiqwdyhf.supabase.co/functions/v1/lanu-relay"}\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -54,9 +55,11 @@ android {
   buildTypes {
     release {
       isCrunchPngs = false
-      isMinifyEnabled = false
+      isMinifyEnabled = true
+      isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = signingConfigs.getByName("release")
+      // Stable owner key on trusted main, isolated key for PR/device test fixtures.
+      signingConfig = signingConfigs.getByName("debugConfig")
     }
     debug { signingConfig = signingConfigs.getByName("debugConfig") }
   }
@@ -69,6 +72,7 @@ android {
     buildConfig = true
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
+  testBuildType = providers.gradleProperty("lanuDeviceBuildType").orNull ?: "debug"
   dependenciesInfo {
     includeInApk = false
     includeInBundle = true
@@ -88,6 +92,8 @@ googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.W
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {
+  implementation(libs.hilt.android)
+  ksp(libs.hilt.compiler)
   implementation("androidx.biometric:biometric:1.2.0-alpha05")
   implementation(libs.androidx.security.crypto)
   implementation(platform(libs.androidx.compose.bom))

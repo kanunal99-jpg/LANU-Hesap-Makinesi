@@ -1,4 +1,8 @@
 # Add project specific ProGuard rules here.
+-keepattributes Signature,InnerClasses,EnclosingMethod,SourceFile,LineNumberTable,*Annotation*
+# Preserve the local privacy-safe crash frame filter after shrinking.
+-keeppackagenames com.example.**
+-keepnames class com.example.core.diagnostics.**
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.
 #

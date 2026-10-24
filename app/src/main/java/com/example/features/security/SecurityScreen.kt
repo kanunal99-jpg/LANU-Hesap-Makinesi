@@ -384,7 +384,7 @@ fun SecurityScreen(
                 Text(if (isAuthenticating) "Doğrulanıyor…" else if (!hasPin) "Devam" else "Doğrula")
             }
             if (!isReady) {
-                TextButton(onClick = { viewModel.checkPinExists() }, modifier = Modifier.fillMaxWidth()) {
+                TextButton(onClick = { viewModel.reloadAfterRestore() }, modifier = Modifier.fillMaxWidth()) {
                     Text("Güvenlik bilgilerini yeniden yükle")
                 }
             }
