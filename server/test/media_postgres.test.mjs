@@ -61,7 +61,7 @@ test('real Postgres private-media migration: RLS, quota, idempotency and legacy 
 
     // Peer must have opted into media support before any metadata is reserved.
     await assert.rejects(rpc(F,msg), /recipient media upgrade required/);
-    assert.equal((await db.query('select count(*) as n from public.lanu_media_objects')).rows[0].n, '0');
+    assert.equal(Number((await db.query('select count(*) as n from public.lanu_media_objects')).rows[0].n), 0);
     await db.query('update public.lanu_identities set private_media_version=1 where id=$1', [B]);
     const first = await rpc(F,msg);
     assert.equal(first.state,'pending');
@@ -75,7 +75,7 @@ test('real Postgres private-media migration: RLS, quota, idempotency and legacy 
     await assert.rejects(db.query(
       "insert into public.lanu_messages(id,sender_id,recipient_id,content) values ($1,$2,$3,$4)",
       [msg,A,B,'lanu2:'+'A'.repeat(40)]), /private media message not authorized/);
-    assert.equal((await db.query('select count(*) as n from public.lanu_messages')).rows[0].n,'0');
+    assert.equal(Number((await db.query('select count(*) as n from public.lanu_messages')).rows[0].n),0);
 
     // Only a *trusted server-side completed upload verification* may set ready.
     await db.query("update public.lanu_media_objects set state='ready' where file_id=$1",[F]);
@@ -84,8 +84,8 @@ test('real Postgres private-media migration: RLS, quota, idempotency and legacy 
       [msg,A,B,'lanu2:'+'A'.repeat(40)]);
     const inserted = (await db.query('select private_media from public.lanu_messages where id=$1',[msg])).rows[0];
     assert.equal(inserted.private_media, true);
-    assert.equal((await db.query('select count(*) as n from public.lanu_media_aware_events($1,0)',[B])).rows[0].n,'0');
-    assert.equal((await db.query('select count(*) as n from public.lanu_media_aware_events($1,1)',[B])).rows[0].n,'1');
+    assert.equal(Number((await db.query('select count(*) as n from public.lanu_media_aware_events($1,0)',[B])).rows[0].n),0);
+    assert.equal(Number((await db.query('select count(*) as n from public.lanu_media_aware_events($1,1)',[B])).rows[0].n),1);
 
     // Four distinct daily reservations allowed; fifth must fail without insertion.
     for (let i=0;i<3;i++) {
@@ -93,6 +93,6 @@ test('real Postgres private-media migration: RLS, quota, idempotency and legacy 
       assert.equal(row.state,'pending');
     }
     assert.deepEqual(await rpc('f'.repeat(32),randomUUID()), { quotaExceeded:true });
-    assert.equal((await db.query('select count(*) as n from public.lanu_media_objects')).rows[0].n,'4');
+    assert.equal(Number((await db.query('select count(*) as n from public.lanu_media_objects')).rows[0].n),4);
   } finally { await db.close(); }
 });
