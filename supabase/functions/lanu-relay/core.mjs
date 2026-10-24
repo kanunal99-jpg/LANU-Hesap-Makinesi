@@ -94,7 +94,16 @@ async function verify(publicKey, payload, signature) {
 }
 const messageIds = values => Array.isArray(values) && values.length <= 200 && values.every(value => typeof value === 'string' && uuid.test(value));
 const ciphertext = value => typeof value === 'string' && value.length <= 50000 && /^lanu2:[A-Za-z0-9_-]{38,}$/.test(value);
-export function createRelay(store, clock = Date.now) {
+const mediaFileId = /^[a-f0-9]{32}$/;
+const MEDIA_MAX_CIPHER_BYTES = 41953280;
+/**
+ * Reservation-only protocol. Production callers MUST explicitly pass
+ * { privateMediaReservation: true } in a reviewed deployment *after* full
+ * private Storage grant/upload/download/cleanup implementation is ready.
+ * The currently deployed Edge wrapper does not pass this option, so a LANU
+ * client cannot activate uploads or metadata reservations by guessing actions.
+ */
+export function createRelay(store, clock = Date.now, options = {}) {
   return async envelope => {
     insist(envelope && typeof envelope.payload === 'string' && envelope.payload.length <= 70000 && typeof envelope.signature === 'string', 400, 'Geçersiz istek.');
     let input;
@@ -143,6 +152,48 @@ export function createRelay(store, clock = Date.now) {
         const message = existing ?? await store.send({ id: data.messageId, senderId: owner, recipientId: data.peerId, content: data.content });
         insist(message.senderId === owner && message.recipientId === data.peerId && message.content === data.content, 409, 'Mesaj kimliği çakıştı.');
         return { status: message.status };
+      }
+      case 'reservePrivateMedia': {
+        // Disabled by default: NO signed upload URL, object grant or plaintext
+        // ever leaves this handler, including when a test enables reservations.
+        insist(options.privateMediaReservation === true, 503, 'Güvenli medya aktarımı henüz etkin değil.');
+        insist(
+          mediaFileId.test(data.fileId ?? '') && uuid.test(data.messageId ?? '') &&
+          hex64.test(data.peerId ?? '') && data.peerId !== owner &&
+          hex64.test(data.cipherSha256 ?? '') &&
+          Number.isSafeInteger(data.cipherBytes) &&
+          data.cipherBytes >= 17 && data.cipherBytes <= MEDIA_MAX_CIPHER_BYTES &&
+          Object.keys(data).sort().join(',') ===
+            'cipherBytes,cipherSha256,fileId,messageId,peerId',
+          400, 'Geçersiz şifreli medya rezervasyonu.'
+        );
+        insist(await store.mutual(owner, data.peerId), 409,
+          'Medya paylaşımı için karşılıklı kişi kaydı gerekir.');
+        insist(await store.mediaVersion(owner) === 1 &&
+          await store.mediaVersion(data.peerId) === 1, 409,
+          'Medya gönderimi için iki kullanıcının desteklenen sürüme geçmesi gerekir.');
+        const reserved = await store.reserveMedia({
+          owner, peer: data.peerId, fileId: data.fileId,
+          messageId: data.messageId, cipherBytes: data.cipherBytes,
+          cipherSha256: data.cipherSha256
+        });
+        insist(!reserved?.quotaExceeded, 429, 'Özel dosya kotası doldu.');
+        insist(reserved &&
+          reserved.file_id === data.fileId &&
+          reserved.message_id === data.messageId &&
+          reserved.sender_id === owner &&
+          reserved.recipient_id === data.peerId &&
+          Number(reserved.cipher_bytes) === data.cipherBytes &&
+          reserved.cipher_sha256 === data.cipherSha256 &&
+          (reserved.state === 'pending' || reserved.state === 'ready') &&
+          Number.isFinite(Date.parse(reserved.expires_at)) &&
+          Date.parse(reserved.expires_at) > clock(),
+          503, 'Medya rezervasyonunun güvenliği doğrulanamadı.'
+        );
+        // Zero secret-bearing fields: no object path, bucket permission,
+        // signed link, encryption key or contact public key in the response.
+        return { fileId: data.fileId, state: reserved.state,
+          cipherBytes: data.cipherBytes, expiresAt: reserved.expires_at };
       }
       case 'sync': return { contacts: await store.contacts(owner), events: await store.events(owner) };
       case 'ack': {
@@ -197,6 +248,16 @@ export class RestStore {
   async removeContact(owner, peer) { await this.query('lanu_contacts?owner_id=eq.' + owner + '&peer_id=eq.' + peer, 'DELETE'); }
   async existingPeerByCode(owner, code) { const row = (await this.query('lanu_contacts?owner_id=eq.' + owner + '&code_at_add=eq.' + encodeURIComponent(code) + '&limit=1'))[0]; return row ? this.identity(row.peer_id) : null; }
   async mutual(owner, peer) { return (await this.query('lanu_contacts?or=(and(owner_id.eq.' + owner + ',peer_id.eq.' + peer + '),and(owner_id.eq.' + peer + ',peer_id.eq.' + owner + '))&select=owner_id')).length === 2; }
+  async mediaVersion(owner) {
+    const rows = await this.query('lanu_identities?id=eq.' + owner + '&select=private_media_version&limit=1');
+    return rows.length === 1 ? rows[0].private_media_version : 0;
+  }
+  async reserveMedia({ owner, peer, fileId, messageId, cipherBytes, cipherSha256 }) {
+    return this.query('rpc/lanu_reserve_private_media', 'POST', {
+      p_owner: owner, p_peer: peer, p_file: fileId,
+      p_message: messageId, p_bytes: cipherBytes, p_sha: cipherSha256
+    });
+  }
   async contacts(owner) {
     const edges = await this.query('lanu_contacts?owner_id=eq.' + owner);
     return Promise.all(edges.map(async edge => ({ ...await this.identity(edge.peer_id), codeAtAdd: edge.code_at_add, mutual: await this.mutual(owner, edge.peer_id) })));
