@@ -552,3 +552,16 @@ Bu puanlar matematiksel sertifikasyon değil, testli geliştirme ve açık üret
 - **Güvenli geliştirme sınırı:** main→alternatif→gerçek fallback→hata yakalama→güvenli varsayılan→hassas veri içermeyen log/izleme→smoke. Kullanıcı sohbet/kimlik/PIN verisi veya keystore hiçbir çalışmada silinemez. Her önemli yayın APK + SHA256 + signer GitHub Releases'te doğrudan indirilebilir ve önceki sertifikayla aynı olmalıdır.
 
 **Raporun kaynak ve kapsam notu:** Bu bölüm repo kodu, [CI #341](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/actions/runs/40023393269), [CI #342](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/actions/runs/40024378379), önceki kullanıcı cihaz kabul beyanları ve salt okunur Supabase metadata/cron sonuçlarıyla hazırlanmıştır; bu turn içinde 342 APK'sı gerçek Android cihazda test edilmedi.
+
+
+---
+
+### 24.10.2026 — SAMSUNG A55 PIN + FOTOĞRAF + VERİ KORUNUMU EK CİHAZ KABULÜ
+
+**Yeni kullanıcı teyidi (iki kez):** “Pin fotoğraf gönderme ve veriyi koruyor.” Bu, gerçek cihaz üzerinde **PIN korumasının çalışması, fotoğraf gönderebilme ve kullanıcı verilerinin korunması** için olumlu gözlem olarak kabul edildi. 23.10.2026 tarihli önceki cihaz beyanları (“Güncelleme tamam”, “Foto çek gönder tamam”, “Galeriden Foto seç gönder tamam” ve sürüm 324'te “pın dahil herşey aktif ve doğru”) ile tutarlıdır.
+
+**Doğru kapsam:** Bugünkü mesaj tek başına kullanıcının tam olarak **343 sürümünü kurduğunu**, PIN'i kapatıp/açıp yeniden denediğini, ikinci telefonun fotoğrafı alıp kaydettiğini, büyük JPEG/video/PDF/PPT/Excel gönderdiğini veya veri saklamasının bağımsız ölçümlerle karşılaştırıldığını kanıtlamaz. Kullanıcının önceki **324 cihaz kabulü** geçerlidir; bu yeni genel teyit belli bir sürüme atfedilmez.
+
+**Takip:** [#85](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/85) büyük medya ve iki cihaz gönder/al kabulüne kadar açık. [#93](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/93) `2011.` sonrası PIN'i isteğe bağlı yapma ve aç/kapat/yeniden etkinleştirme kabulüne kadar açık. [#82](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/82) çökme kök nedeni ve [#83](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/83) özel imzalama anahtarının güvenli cihaz dışı yedeği halen açık. [#88](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/88) eski medya seçimi dönüşü PIN tercihi olarak ayrı ve önceki 324 kullanıcı kabulüyle kapatılmıştır; bugün açık/kapalı iki senaryo test edildi diye **yeni kanıt uydurulmaz**.
+
+**Güncel kamuya açık yayın (repo kontrolü):** [v1.1.0-signed.343](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/releases/tag/v1.1.0-signed.343), [Actions #343](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/actions/runs/40025323705) SUCCESS. Bu **otomatik yayın kanıtıdır**; kullanıcının kurulu sürümünün 343 olduğunu göstermez. Büyük dosya AES-GCM protokol kodu olsa da yetkili canlı dosya depolaması ve E2EE anahtar teslimi ile gerçek video gönderimi tamamlanmış sayılmaz.
