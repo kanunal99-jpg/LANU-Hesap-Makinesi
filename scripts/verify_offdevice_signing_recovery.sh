@@ -11,7 +11,7 @@ if [[ $# -ne 2 ]]; then
 fi
 archive="$1"
 signer="$2"
-for binary in gpg tar mktemp keytool openssl grep sort awk sed tr stat; do
+for binary in gpg tar mktemp keytool openssl grep sort awk sed tr stat cmp; do
   command -v "$binary" >/dev/null 2>&1 || { echo "Missing recovery dependency: $binary" >&2; exit 1; }
 done
 [[ -f "$archive" && ! -L "$archive" && -s "$archive" &&
@@ -81,9 +81,25 @@ for name in lanu-stable.jks store-password key-password; do
   }
 done
 
+# The LANU PKCS12 bootstrap intentionally uses one password for the store
+# and private key. A mismatched/corrupted key-password cannot be a recovery.
+cmp -s "$scratch/signing/store-password" "$scratch/signing/key-password" || {
+  echo 'RECOVERY FAILED: recovered store and key credentials differ.' >&2
+  exit 1
+}
 STORE_PASSWORD="$(cat "$scratch/signing/store-password")"
 [[ -n "$STORE_PASSWORD" ]] || { echo 'Recovered store password is empty.' >&2; exit 1; }
 export STORE_PASSWORD
+# A matching public certificate without its private key is not recoverable.
+# Verify the PKCS12 alias is a PrivateKeyEntry, not a trusted cert-only entry.
+key_entry="$(keytool -list -v -alias lanu \
+  -keystore "$scratch/signing/lanu-stable.jks" -storepass:env STORE_PASSWORD)"
+[[ "$key_entry" == *"Entry type: PrivateKeyEntry"* ]] || {
+  unset key_entry
+  echo 'RECOVERY FAILED: signing private-key entry is unavailable.' >&2
+  exit 1
+}
+unset key_entry
 # Use the same alias as bootstrap_stable_signing.sh. Key data and credentials
 # never appear in process arguments, stdout, GitHub artifacts or network traffic.
 actual="$(keytool -exportcert -rfc -alias lanu \
