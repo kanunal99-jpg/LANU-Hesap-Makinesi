@@ -5,6 +5,11 @@
 -keepnames class com.example.core.diagnostics.**
 # AndroidX Test's separately built tracing bridge reflects/links this public API.
 -keep class androidx.tracing.** { *; }
+# AndroidJUnitRunner runs in a separate instrumentation APK. Its Kotlin runtime
+# is resolved from the target APK; R8 can otherwise strip unused stdlib APIs
+# (observed release-test crash: NoClassDefFoundError kotlin.LazyKt).
+# Preserve the runtime library while still shrinking/obfuscating our app code.
+-keep class kotlin.** { *; }
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.
 #
