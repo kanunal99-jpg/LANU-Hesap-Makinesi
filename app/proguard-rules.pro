@@ -21,6 +21,11 @@
 # APK; CI #354 proved the normal app can build while Room.class was stripped.
 -keep class androidx.room.** { *; }
 -keep class androidx.sqlite.** { *; }
+# Tests in the separate instrumentation APK explicitly instantiate the
+# current v4 AppDatabase and its DAO/entity classes. Keep this ABI stable for
+# destructive-migration regression checks on the minified release variant.
+# This does not migrate or reset the existing user's Room database.
+-keep class com.example.core.database.** { *; }
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.
 #
