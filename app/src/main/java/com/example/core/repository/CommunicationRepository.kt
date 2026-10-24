@@ -77,6 +77,10 @@ class CommunicationRepository(
                 UserCodes.create().also(identityStore::save)
             }
         }
+        val restoredOwner = settingsDao.getSettingValue("lanu_full_restore_identity")
+        check(restoredOwner == null || restoredOwner == current.id) {
+            "Geri yüklenen arşiv ile kimlik eşleşmiyor. Kayıtlar korunuyor; doğru kimlik yedeğini geri yükleyin."
+        }
         val old = userProfileDao.getUserProfile()
         if (old?.phoneNumber != current.code) {
             if (old != null && UserCodes.normalize(old.phoneNumber).isBlank()) messageDao.migrateSender(old.phoneNumber, current.id)
@@ -132,6 +136,58 @@ class CommunicationRepository(
 
     suspend fun exportIdentity(password: String): String = withContext(Dispatchers.Default) {
         IdentityBackup.export(ensureIdentity(), password)
+    }
+
+    suspend fun exportFullBackup(password: String): ByteArray = syncMutex.withLock {
+        val own = ensureIdentity()
+        val snapshot = database.withTransaction {
+            FullDataBackup.capture(database.openHelper.writableDatabase, own)
+        }
+        withContext(Dispatchers.Default) { FullDataBackup.seal(snapshot, password) }
+    }
+
+    suspend fun restoreFullBackup(bytes: ByteArray, password: String): FullDataBackup.Summary = syncMutex.withLock {
+        val opened = withContext(Dispatchers.Default) { FullDataBackup.open(bytes, password) }
+        identityMutex.withLock {
+            val previous = _identity.value ?: withContext(Dispatchers.IO) { identityStore.read() }
+            val hasCommunicationRows = conversationDao.getAllConversations().first().isNotEmpty() ||
+                contactDao.getAllContacts().first().isNotEmpty() || messageDao.countMessages() > 0 || callLogDao.countCallLogs() > 0
+            if (hasCommunicationRows) {
+                require(previous?.id == opened.identity.id || (previous == null && userProfileDao.getUserProfile()?.phoneNumber == opened.identity.code)) {
+                    "Bu cihazdaki sohbetler farklı bir kimliğe ait. Kayıtların üzerine yazılmadı."
+                }
+            }
+            var identitySaved = false
+            try {
+                database.withTransaction {
+                    FullDataBackup.checkConflicts(database.openHelper.writableDatabase, opened)
+                    val protectedPinSettings = if (settingsDao.getSettingValue("pin_hash") != null) {
+                        mapOf(
+                            "entry_pin_enabled" to when (settingsDao.getSettingValue("entry_pin_enabled")) { "false" -> "false"; else -> "true" },
+                            "pin_attempt_state" to (settingsDao.getSettingValue("pin_attempt_state") ?: "0:0"),
+                            "pin_lockout_strikes" to (settingsDao.getSettingValue("pin_lockout_strikes") ?: "0")
+                        )
+                    } else emptyMap()
+                    // Verified encrypted preferences commit precedes database commit.
+                    // The durable owner marker prevents a rolled-back Keystore from
+                    // silently rebinding a restored archive after a power failure.
+                    withContext(Dispatchers.IO) { identityStore.save(opened.identity) }
+                    identitySaved = true
+                    FullDataBackup.importMissing(database.openHelper.writableDatabase, opened)
+                    for ((key, value) in protectedPinSettings) settingsDao.insertSetting(SettingsEntity(key, value))
+                    val existingName = userProfileDao.getUserProfile()?.displayName.takeIf { previous?.id == opened.identity.id }
+                    userProfileDao.replaceProfile(UserProfileEntity(opened.identity.code, existingName ?: opened.displayName()))
+                    settingsDao.insertSetting(SettingsEntity("lanu_full_restore_identity", opened.identity.id))
+                }
+            } catch (e: Exception) {
+                if (identitySaved && previous != null && previous != opened.identity) {
+                    withContext(Dispatchers.IO) { identityStore.save(previous) }
+                }
+                throw e
+            }
+            _identity.value = opened.identity
+            opened.summary
+        }
     }
     suspend fun restoreIdentity(backup: String, password: String): MessagingIdentity = syncMutex.withLock {
         val restored = withContext(Dispatchers.Default) { IdentityBackup.restore(backup, password) }

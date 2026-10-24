@@ -39,7 +39,7 @@ object LanuInformation {
         ),
         InformationSection(
             "Yedekleme, silme ve veri kaybı",
-            "Hassas uygulama verileri Android otomatik yedeklemesine ve cihaz aktarımına dahil edilmez. Ayarlardan ayrı parola ile şifrelenen bir kimlik yedeği dışa aktarılabilir; bu yedek sohbet arşivini içermez. Bir sohbeti cihazda temizlemek, tüm sunucu kayıtlarını otomatik silmez. Uygulamayı kaldırmak yerel verileri kaybettirebilir."
+            "Hassas uygulama verileri Android otomatik yedeklemesine ve cihaz aktarımına dahil edilmez. Kimlik yedeği yalnız hesabı taşır. Ayrıca Ayarlar > Tam şifreli yedek ile kimlik, sohbetler, kişiler, hesap geçmişi ve ayarlar 32 MiB'ye kadar parolalı arşivlenebilir. Tam yedeğin kaydı yeniden okunarak doğrulanır; geri yükleme mevcut kayıtları silmez ve çakışmada durur. Bir sohbeti cihazda temizlemek tüm sunucu kayıtlarını otomatik silmez."
         ),
         InformationSection(
             "Yayın öncesi hukuki inceleme",
@@ -89,7 +89,7 @@ object LanuInformation {
         ),
         InformationSection(
             "Telefon değiştirirsem?",
-            "Önce Ayarlar > Kimliğimi yedekle ile güçlü parolalı kimlik dosyası oluşturun. Yeni cihazda geri yükleyin. Yedek sohbet geçmişini taşımaz. Önceki APK'lerin farklı debug imzaları nedeniyle güncellemeden önce mevcut kurulumunuzu kaldırmayın."
+            "Ayarlar > Tam şifreli yedek ile sohbet ve rehberi de içeren parolalı dosyayı telefon dışında saklayın. Yeni cihazda dosyayı seçip parolasıyla geri yükleyin. Yalnız Kimliğimi yedekle seçeneği sohbet geçmişini taşımaz. Mevcut kurulumunuzu ve eski cihazdaki kayıtları, geri yüklemeyi doğrulamadan kaldırmayın."
         ),
         InformationSection(
             "Gerçek arama ve fotoğraf var mı?",

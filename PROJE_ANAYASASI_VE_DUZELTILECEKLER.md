@@ -1,5 +1,13 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 24.10.2026 — Güncel kullanıcı kabulü ve dayanıklılık çalışması
+
+- Kullanıcı açıkça **"Pin tamamen isteğe bağlı çalışıyor"** diye teyit etti. `2011.` sonrası isteğe bağlı PIN gereksinimi **kullanıcı kabul edildi**; önceki "PIN tercihinin çalıştığı teyit edilmedi" notları bu yeni beyanla güncellenir. Yeni beyan belirli bir APK numarasına veya tek tek belgelenmemiş ek senaryolara atfedilmez.
+- [PR #101](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/pull/101) birleştirildi; PR CI #345 birim/Robolectric, lint ve API34 Room kabulü başarılı. Gelen mesajlar önce alınır; giden kuyruk sınırlı partiler ve kalıcı retry zamanı kullanır. Kalıcı hatalı mesajlar silinmeden ayrılır ve kullanıcı tekrar deneyebilir. Metin taslakları kimlikle şifreli saklanır; gönderim transaction'ı yalnız gerçekten kuyruğa alınan taslağı temizler. Android relay yanıtında decompressed boyut/UTF-8/call-timeout sınırları var. Yardım metinleri küçük fotoğraf/PDF/TXT desteğini doğru açıklar.
+- Tam şifreli yedek geliştirmesi: kimlik + yedi Room tablosu + küçük inline ekler + şifreli taslak; 32 MiB arşiv; parolalı AES-GCM/PBKDF2; kaydedilen dosyada read-back SHA; çakışmada üzerine yazmayan ve mevcut PIN'i koruyan transaction restore. Ayrıntı `docs/FULL_DATA_BACKUP_TR.md`. Bu paketin CI/yayın ve A55/ikinci telefon kabulü ayrı doğrulanır.
+- Açık fiziksel/harici kapılar: #82 eski çökmenin gerçek cihaz kök nedeni; #83 gerçek signing key'in cihaz dışı şifreli yedeği ve geri yükleme; yeni tam yedeğin iki telefonda kabulü; #85 büyük medya; bağımsız kriptografi incelemesi. Bunlar kod/betik testiyle tamamlandı yazılmaz.
+
+
 Bu belge mevcut ANAYASA.md, docs/ANAYASA.md, AGENTS.md ve proje belgelerini **silmez veya geçersiz kılmaz**; çelişkide daha güvenli/katı kural uygulanır, karar ADR'de belgelenir.
 
 ## Değişmez çalışma kuralları
