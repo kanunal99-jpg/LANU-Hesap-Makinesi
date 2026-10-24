@@ -37,6 +37,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.example.core.media.InlineMediaPreparer
 import com.example.core.media.InlineMediaCodec
+import com.example.core.messaging.FullDataBackup
+import java.io.File
+import java.io.FileOutputStream
+import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
@@ -58,6 +62,117 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     private lateinit var calcViewModel: CalculatorViewModel
     private lateinit var securityViewModel: SecurityViewModel
     private lateinit var commViewModel: CommunicationViewModel
+    private var fullBackupBusy by mutableStateOf(false)
+    private var fullBackupMessage by mutableStateOf<String?>(null)
+    private var fullRestoreUri by mutableStateOf<Uri?>(null)
+    private var pendingFullBackupFile: File? = null
+
+    private val fullBackupExportPicker = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        val file = pendingFullBackupFile
+        pendingFullBackupFile = null
+        completeExternalPickerResult()
+        if (uri != null && file != null) lifecycleScope.launch {
+            fullBackupBusy = true
+            try {
+                withContext(Dispatchers.IO) {
+                    contentResolver.openOutputStream(uri, "w")?.use { output -> file.inputStream().use { it.copyTo(output) } }
+                        ?: error("Yedek dosyası açılamadı.")
+                    val expected = file.inputStream().use { sha256Stream(it) }
+                    val actual = contentResolver.openInputStream(uri)?.use { sha256Stream(it) }
+                        ?: error("Kaydedilen yedek yeniden okunamadı.")
+                    check(expected.contentEquals(actual)) { "Kaydedilen yedek doğrulanamadı." }
+                }
+                fullBackupMessage = "Tam şifreli yedek kaydedildi ve yeniden okunarak doğrulandı."
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (_: Exception) { fullBackupMessage = "Yedek kaydı doğrulanamadı. Yeniden kaydedin; uygulamadaki kayıtlarınız korunuyor." }
+            finally { file.delete(); fullBackupBusy = false }
+        } else {
+            file?.delete()
+            fullBackupMessage = if (uri == null) "Yedek kaydetme iptal edildi." else "İşlem yeniden başlatılmalı; tam yedeği tekrar oluşturun."
+        }
+    }
+
+    private val fullBackupImportPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        completeExternalPickerResult()
+        fullRestoreUri = uri
+        fullBackupMessage = if (uri != null) "Tam yedek seçildi. Gizli alanın Ayarlar bölümünden parolasıyla geri yükleyebilirsiniz." else "Yedek seçimi iptal edildi."
+    }
+
+    private fun privateBackupAllowed(): Boolean = ::securityViewModel.isInitialized && !securityViewModel.isLocked.value && !fullBackupBusy
+
+    private fun createFullBackup(password: String) {
+        if (!privateBackupAllowed()) return
+        fullBackupBusy = true
+        lifecycleScope.launch {
+            var staged: File? = null
+            try {
+                val repository = (application as LanuApplication).container.communicationRepository
+                val encrypted = repository.exportFullBackup(password)
+                staged = withContext(Dispatchers.IO) {
+                    val directory = File(cacheDir, "full-backups").apply { check(isDirectory || mkdirs()) }
+                    directory.listFiles()?.filter { it.name.startsWith("lanu-full-") }?.forEach { it.delete() }
+                    File.createTempFile("lanu-full-", ".enc", directory).also { file ->
+                        try { FileOutputStream(file).use { it.write(encrypted); it.fd.sync() } }
+                        finally { encrypted.fill(0) }
+                    }
+                }
+                pendingFullBackupFile = staged
+                beginExternalPicker()
+                fullBackupExportPicker.launch("LANU-tam-yedek-${System.currentTimeMillis()}.lanubak")
+            } catch (e: kotlinx.coroutines.CancellationException) { staged?.delete(); throw e }
+            catch (e: IllegalArgumentException) { staged?.delete(); pendingFullBackupFile = null; fullBackupMessage = e.message ?: "Yedek oluşturulamadı; kayıtlar korunuyor." }
+            catch (_: Exception) { staged?.delete(); pendingFullBackupFile = null; fullBackupMessage = "Tam yedek oluşturulamadı. Parolayı ve boş alanı kontrol edin; kayıtlar korunuyor." }
+            finally { fullBackupBusy = false }
+        }
+    }
+
+    private fun chooseFullBackup() {
+        if (!privateBackupAllowed()) return
+        try {
+            beginExternalPicker()
+            fullBackupImportPicker.launch(arrayOf("application/octet-stream", "application/x-lanu-backup", "*/*"))
+        } catch (_: Exception) { fullBackupMessage = "Android yedek seçicisi açılamadı." }
+    }
+
+    private fun restoreFullBackup(password: String) {
+        if (!privateBackupAllowed()) return
+        val uri = fullRestoreUri ?: return
+        fullBackupBusy = true
+        lifecycleScope.launch {
+            try {
+                val bytes = withContext(Dispatchers.IO) {
+                    contentResolver.openInputStream(uri)?.use { FullDataBackup.readFile(it) } ?: error("Yedek okunamadı.")
+                }
+                val summary = try { (application as LanuApplication).container.communicationRepository.restoreFullBackup(bytes, password) }
+                    finally { bytes.fill(0) }
+                fullRestoreUri = null
+                fullBackupMessage = "Tam yedek doğrulandı: ${summary.description()}. Mevcut kayıtlar silinmedi."
+                securityViewModel.reloadAfterRestore()
+                commViewModel.checkRegistration()
+                returnToCalculator()
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: IllegalArgumentException) { fullBackupMessage = e.message ?: "Yedek geri yüklenemedi; mevcut kayıtlar korunuyor." }
+            catch (_: Exception) { fullBackupMessage = "Yedek geri yüklenemedi; mevcut kayıtlar korunuyor. Dosyayı, parolayı ve boş alanı kontrol edin." }
+            finally { fullBackupBusy = false }
+        }
+    }
+
+    private fun sha256Stream(input: java.io.InputStream): ByteArray {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(8192)
+        var total = 0L
+        var stalled = 0
+        while (true) {
+            val n = input.read(buffer)
+            if (n < 0) break
+            if (n == 0) { check(++stalled < 3); continue }
+            stalled = 0
+            total += n
+            check(total <= FullDataBackup.MAX_BYTES + 56L)
+            digest.update(buffer, 0, n)
+        }
+        return digest.digest()
+    }
 
     // The Activity (not the disposable chat Composable) owns picker result
     // callbacks. Opening a system picker must not bypass PIN/FLAG_SECURE.
@@ -256,6 +371,15 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        savedInstanceState?.getString("lanu_pending_full_backup")?.takeIf {
+            it.matches(Regex("lanu-full-[A-Za-z0-9_-]+\\.enc"))
+        }?.let { name ->
+            File(File(cacheDir, "full-backups"), name).takeIf { it.isFile && it.length() in 58L..(FullDataBackup.MAX_BYTES + 56L) }
+                ?.let { pendingFullBackupFile = it }
+        }
+        savedInstanceState?.getString("lanu_pending_full_restore")?.let { raw ->
+            runCatching { Uri.parse(raw) }.getOrNull()?.takeIf { it.scheme == "content" }?.let { fullRestoreUri = it }
+        }
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         enableEdgeToEdge()
 
@@ -471,7 +595,14 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                     },
                                     onNavigateToCalculator = {
                                         returnToCalculator()
-                                    }
+                                    },
+                                    backupBusy = fullBackupBusy,
+                                    pendingFullRestore = fullRestoreUri != null,
+                                    backupMessage = fullBackupMessage,
+                                    onExportFullBackup = ::createFullBackup,
+                                    onChooseFullBackup = ::chooseFullBackup,
+                                    onRestoreFullBackup = ::restoreFullBackup,
+                                    onCancelFullRestore = { fullRestoreUri = null }
                                 )
                             }
                             is Screen.ChatDetail -> {
@@ -576,6 +707,13 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                 navigationBackstack.add(Screen.Calculator)
             }
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        pendingFullBackupFile?.let { outState.putString("lanu_pending_full_backup", it.name) }
+        fullRestoreUri?.let { outState.putString("lanu_pending_full_restore", it.toString()) }
+        // Passwords, decrypted rows and key material never enter saved instance state.
+        super.onSaveInstanceState(outState)
     }
 
     override fun onStart() {

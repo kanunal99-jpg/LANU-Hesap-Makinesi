@@ -56,7 +56,14 @@ fun CommunicationScreen(
     viewModel: CommunicationViewModel,
     securityViewModel: SecurityViewModel,
     onNavigateToChat: (String) -> Unit,
-    onNavigateToCalculator: () -> Unit
+    onNavigateToCalculator: () -> Unit,
+    backupBusy: Boolean = false,
+    pendingFullRestore: Boolean = false,
+    backupMessage: String? = null,
+    onExportFullBackup: (String) -> Unit = {},
+    onChooseFullBackup: () -> Unit = {},
+    onRestoreFullBackup: (String) -> Unit = {},
+    onCancelFullRestore: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val code by viewModel.userPhone.collectAsState()
@@ -64,6 +71,7 @@ fun CommunicationScreen(
     val network by viewModel.networkState.collectAsState()
     val error by viewModel.errorMessage.collectAsState()
     var tab by remember { mutableIntStateOf(0) }
+    LaunchedEffect(pendingFullRestore) { if (pendingFullRestore) tab = 2 }
     var showAdd by remember { mutableStateOf(false) }
     // Silent UI policy for contacts, chats, and settings.
     val vibrate: () -> Unit = {}
@@ -117,7 +125,8 @@ fun CommunicationScreen(
                     when (tab) {
                         0 -> ChatsTab(viewModel, vibrate, onNavigateToChat)
                         1 -> ContactsTab(viewModel, vibrate, onNavigateToChat)
-                        2 -> SettingsTab(viewModel, securityViewModel, vibrate)
+                        2 -> SettingsTab(viewModel, securityViewModel, vibrate, backupBusy, pendingFullRestore,
+                            backupMessage, onExportFullBackup, onChooseFullBackup, onRestoreFullBackup, onCancelFullRestore)
                         3 -> UpdateCheckScreen()
                     }
                 }
@@ -579,7 +588,12 @@ fun ContactsTab(
 }
 
 @Composable
-fun SettingsTab(viewModel: CommunicationViewModel, securityViewModel: SecurityViewModel, triggerVibration: () -> Unit) {
+fun SettingsTab(
+    viewModel: CommunicationViewModel, securityViewModel: SecurityViewModel, triggerVibration: () -> Unit,
+    backupBusy: Boolean = false, pendingFullRestore: Boolean = false, backupMessage: String? = null,
+    onExportFullBackup: (String) -> Unit = {}, onChooseFullBackup: () -> Unit = {},
+    onRestoreFullBackup: (String) -> Unit = {}, onCancelFullRestore: () -> Unit = {}
+) {
     val code by viewModel.userPhone.collectAsState()
     val name by viewModel.userName.collectAsState()
     val busy by viewModel.busy.collectAsState()
@@ -622,6 +636,8 @@ fun SettingsTab(viewModel: CommunicationViewModel, securityViewModel: SecurityVi
         Text("Uygulamayı silmeden veya cihaz değiştirmeden önce kimliğini yedekle. Parolalı yedeği geri yükleyerek aynı kodu kullanabilirsin.", fontSize = 12.sp)
         OutlinedButton(onClick = { backupAction = "export" }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Kimliğimi yedekle") }
         OutlinedButton(onClick = { backupAction = "restore" }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Kimlik yedeğini geri yükle") }
+        com.example.features.security.FullBackupPanel(backupBusy, pendingFullRestore, backupMessage,
+            onExportFullBackup, onChooseFullBackup, onRestoreFullBackup, onCancelFullRestore)
         com.example.features.security.SettingsScreen(securityViewModel, triggerVibration)
     }
     if (showRotate) AlertDialog(onDismissRequest = { showRotate = false }, title = { Text("Yeni kullanıcı kodu oluşturulsun mu?") },

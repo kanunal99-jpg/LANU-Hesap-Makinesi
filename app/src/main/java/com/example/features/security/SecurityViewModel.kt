@@ -127,6 +127,11 @@ class SecurityViewModel(
         }
     }
 
+    fun reloadAfterRestore() {
+        checkPinExists()
+        loadSettings()
+    }
+
     /**
      * "2011." opens the hidden area. PIN verification is performed only when
      * the durable, user-managed entry protection is enabled. No caller may
