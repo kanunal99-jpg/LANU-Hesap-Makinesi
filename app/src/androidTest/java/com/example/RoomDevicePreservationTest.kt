@@ -76,7 +76,12 @@ class RoomDevicePreservationTest {
                 assertEquals("LANU-OWNER", reopened.userProfileDao().getUserProfile()?.phoneNumber)
                 assertTrue(reopened.contactDao().getContactByPhone("LANU-FRIEND")!!.isBlocked)
                 assertEquals(2, reopened.conversationDao().getConversationById("thread")?.unreadCount)
-                val queued = reopened.messageDao().getPendingMessages().single()
+                // Instrumentation is packaged separately from the R8-minified release APK.
+                // Pass defaults explicitly: default-argument synthetic bridges are
+                // not a stable externally linked ABI under whole-program shrinking.
+                val queued = reopened.messageDao().getPendingMessages(
+                    now = System.currentTimeMillis(), limit = 200
+                ).single()
                 assertEquals("queued", queued.id)
                 assertEquals("lanu2:ciphertext", queued.content)
                 assertEquals("PENDING", queued.status)
