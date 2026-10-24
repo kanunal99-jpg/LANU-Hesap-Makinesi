@@ -16,6 +16,11 @@
 # in CI #351, causing three data-preservation tests to fail before assertions.
 # Keeping the coroutine ABI avoids masking the regression by skipping tests.
 -keep class kotlinx.coroutines.** { *; }
+# The same release instrumentation suite also constructs temporary Room databases.
+# Preserve the database/SQLite public ABI referenced only by the separate test
+# APK; CI #354 proved the normal app can build while Room.class was stripped.
+-keep class androidx.room.** { *; }
+-keep class androidx.sqlite.** { *; }
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.
 #
