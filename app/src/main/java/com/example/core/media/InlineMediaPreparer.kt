@@ -70,10 +70,20 @@ object InlineMediaPreparer {
         require(maxBytes in 1..MAX_SOURCE_IMAGE_BYTES)
         val output = ByteArrayOutputStream()
         val buffer = ByteArray(4096)
+        var stalledReads = 0
         while (true) {
             val count = input.read(buffer)
             if (count < 0) break
-            if (count == 0) continue
+            if (count == 0) {
+                // OEM/cloud SAF providers may incorrectly return 0 for a
+                // nonempty read request. Never spin forever on an untrusted
+                // ContentResolver stream; tolerate short transient stalls.
+                require(++stalledReads < 3) {
+                    "Android dosya sağlayıcısı veri göndermiyor."
+                }
+                continue
+            }
+            stalledReads = 0
             require(output.size().toLong() + count <= maxBytes.toLong()) {
                 "Dosya izin verilen boyutu aşıyor."
             }

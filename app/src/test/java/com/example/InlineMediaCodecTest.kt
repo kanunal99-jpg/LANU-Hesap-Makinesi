@@ -93,6 +93,48 @@ class InlineMediaCodecTest {
         }
     }
 
+    @Test fun permanentlyStalledSafProviderIsRejectedWithoutInfiniteLoop() {
+        var calls = 0
+        val provider = object : ByteArrayInputStream(ByteArray(512)) {
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                calls++
+                return 0
+            }
+        }
+        reject { InlineMediaPreparer.readBoundedInput(provider, 512) }
+        assertEquals("A stalled OEM/cloud provider must have a finite retry limit.", 3, calls)
+    }
+
+    @Test fun intermittentlyStalledSafProviderPreservesDocumentBytes() {
+        val original = ByteArray(12_001) { (it * 17).toByte() }
+        val provider = object : ByteArrayInputStream(original) {
+            var calls = 0
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                calls++
+                if (calls % 3 == 1) return 0
+                return super.read(b, off, minOf(len, 97))
+            }
+        }
+        assertArrayEquals(original, InlineMediaPreparer.readBoundedInput(provider, original.size))
+    }
+
+    @Test fun providerStallCountResetsAfterProgressButBoundIsStillStrict() {
+        val original = ByteArray(512) { (it and 0xff).toByte() }
+        val provider = object : ByteArrayInputStream(original) {
+            var calls = 0
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                calls++
+                if (calls == 1 || calls == 2 || calls == 4 || calls == 5) return 0
+                return super.read(b, off, len)
+            }
+        }
+        assertArrayEquals(original, InlineMediaPreparer.readBoundedInput(provider, original.size))
+        // Empty providers must return an empty bounded file without hanging.
+        assertArrayEquals(byteArrayOf(), InlineMediaPreparer.readBoundedInput(
+            ByteArrayInputStream(byteArrayOf()), 1024
+        ))
+    }
+
     @Test fun emptyOrMalformedMediaNeverQueueAsAnAttachment() {
         reject { InlineMediaCodec.encode("empty.pdf", "application/pdf", byteArrayOf()) }
         reject { InlineMediaCodec.decode("lanu-media-v1:" + "{}") }
