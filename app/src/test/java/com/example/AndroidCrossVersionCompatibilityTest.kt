@@ -49,11 +49,10 @@ class AndroidCrossVersionCompatibilityTest {
         assertEquals(
             0, context.applicationInfo.flags and ApplicationInfo.FLAG_ALLOW_BACKUP
         )
-    }
-
-    @Test fun installedOtaVersionAndCrashFallbackAvoidUnsupportedPlatformApi() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        assertTrue("Version code must be readable", SecureOtaUpdater.installedVersion(context) >= 0L)
+        // Use the already obtained PackageInfo rather than re-opening
+        // Robolectric's package ZIP filesystem on different SDK sandboxes.
+        // This also checks the pre-28 versionCode compatibility branch.
+        assertTrue(SecureOtaUpdater.versionCode(info) >= 0L)
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             assertNull("Old Android lacks ApplicationExitInfo API",
                 CrashDiagnostics.mostRecentAbnormalExit(context))
