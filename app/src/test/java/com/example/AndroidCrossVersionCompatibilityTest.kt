@@ -18,11 +18,11 @@ import org.robolectric.annotation.Config
  * Platform compatibility regression, NOT manufacturer hardware certification.
  *
  * Verify the unchanged core app manifest/OTA/diagnostics assumptions against
- * old Android (API 23), pre-scoped-storage (29), and recent Android (35).
+ * old Android (API 23). API 34/35 regressions run in separate existing test classes.
  * No Google Play Services dependency or real device is required by this test.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [23, 29, 35])
+@Config(sdk = [23])
 class AndroidCrossVersionCompatibilityTest {
     @Test fun appManifestDoesNotRequireBroadMediaCameraOrMicPermissions() {
         val context = ApplicationProvider.getApplicationContext<Context>()
