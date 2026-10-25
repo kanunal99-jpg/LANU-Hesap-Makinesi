@@ -294,7 +294,14 @@ class NativeCallEngine(
         videoEnabled = value
         localVideo?.setEnabled(value)
     } }
-    override fun switchCamera() { scope.launch { capturer?.switchCamera(null) } }
+    override fun switchCamera() {
+        scope.launch {
+            // Double-check on the same RTC dispatcher as camera(false): a UI
+            // request already queued before camera-off must not reopen capture.
+            if (closing.get() || !videoEnabled) return@launch
+            capturer?.switchCamera(null)
+        }
+    }
     fun chooseRoute(route: CallAudioRoutePolicy.Route) { scope.launch { router.choose(route) } }
     fun refreshRoutes() { scope.launch { router.refresh() } }
 
