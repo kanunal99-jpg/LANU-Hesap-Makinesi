@@ -117,7 +117,7 @@ fun NativeCallHost(model: NativeCallViewModel, request: Pair<String, Boolean>?, 
                     }
                     if (engine != null && !ended) {
                         val controlsReady = state.phase in setOf(NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING)
-                        CallAudioRouteControls(engine!!)
+                        CallAudioRouteControls(engine!!, enabled = controlsReady)
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             FilledTonalIconButton(onClick = model::muted, enabled = controlsReady) { Icon(if (state.muted) Icons.Default.MicOff else Icons.Default.Mic, if (state.muted) "Mikrofonu aç" else "Mikrofonu sustur") }
                             if (state.video) {
@@ -160,14 +160,15 @@ private fun CallVideo(engine: NativeCallEngine, remote: Boolean, modifier: Modif
 }
 
 @Composable
-private fun CallAudioRouteControls(engine: NativeCallEngine) {
+private fun CallAudioRouteControls(engine: NativeCallEngine, enabled: Boolean) {
     val route by engine.router.state.collectAsState()
     val context = LocalContext.current
     var menu by remember { mutableStateOf(false) }
+    LaunchedEffect(enabled) { if (!enabled) menu = false }
     val bluetooth = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { engine.refreshRoutes() }
     Box {
-        TextButton(onClick = { menu = true }) { Text("Ses çıkışı: ${route.selected?.name?.let(::routeName) ?: "Sistem"}") }
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+        TextButton(onClick = { menu = true }, enabled = enabled) { Text("Ses çıkışı: ${route.selected?.name?.let(::routeName) ?: "Sistem"}") }
+        DropdownMenu(expanded = menu && enabled, onDismissRequest = { menu = false }) {
             for (item in route.available) DropdownMenuItem(text = { Text(routeName(item.name)) }, onClick = { menu = false; engine.chooseRoute(item) })
             if (Build.VERSION.SDK_INT >= 31 && ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)
                 DropdownMenuItem(text = { Text("Bluetooth kulaklığa izin ver") }, onClick = { menu = false; bluetooth.launch(Manifest.permission.BLUETOOTH_CONNECT) })
