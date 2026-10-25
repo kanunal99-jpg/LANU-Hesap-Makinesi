@@ -39,6 +39,9 @@ jobs:
       - name: Verify relay protocol and Postgres security
         run: npm ci --prefix server && npm test --prefix server
 
+      - name: Test privacy-safe WebRTC native failure explanations
+        run: python3 -m unittest discover -s scripts -p 'test_rtc_failure_diagnose.py'
+
       - name: Verify deployed Supabase migration IDs and bounded retention schedule
         run: python3 -m unittest discover -s scripts -p 'test_verify_supabase_migrations.py'
 
@@ -70,6 +73,11 @@ jobs:
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: |
             ${{ runner.os }}-gradle-
+
+      # Independent regression gate: fresh bidirectional audio RTP after ICE
+      # reconnect, rejecting stale async statistics and counter resets.
+      - name: Verify real call packet freshness after reconnect
+        run: ./gradlew :app:testDebugUnitTest --tests 'com.example.CallRtpEvidenceTrackerTest' --no-daemon --stacktrace
 
       - name: Run Unit and Robolectric Tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
@@ -329,7 +337,7 @@ jobs:
           disable-animations: true
           script: |
             ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
-            ./gradlew -PlanuDeviceBuildType=release :app:connectedReleaseAndroidTest --no-daemon --stacktrace
+            bash scripts/ci_release_runtime.sh
 
       - name: Upload device-runtime acceptance report
         if: always()

@@ -1,5 +1,23 @@
 # Add project specific ProGuard rules here.
 -keepattributes Signature,InnerClasses,EnclosingMethod,SourceFile,LineNumberTable,*Annotation*
+# WebRTC JNI resolves Java names/callbacks. Verified by a native DTLS loopback
+# test on both debug and minified release, not by disabling R8.
+-keep class org.webrtc.** { *; }
+# Keep the concrete, JNI-invoked override adapter across minified releases.
+# Without these explicit methods, older Android desugaring may attempt an
+# Observer$-CC companion that is not present in the release APK (CI #412).
+-keep class com.example.core.calls.EmptyPeerObserver { *; }
+# The release instrumentation APK invokes our retained production EGL entry
+# point rather than independently linking an incompatible static-interface
+# desugaring bridge for EglBase.create() on minSdk 23.
+-keep class com.example.core.calls.WebRtcEglFactory { *; }
+# WebRTC M150 JNI_OnLoad also resolves org.jni_zero.JniZero by its original name.
+-keep class org.jni_zero.** { *; }
+# The vendor WebRTC M150 AAR references a code-generated bridge that it does not
+# package. The JNI runtime registers native methods from its .so; only this
+# missing, non-instantiated class is optional. Keep all real JNI Zero classes.
+# CI must still execute actual native debug + minified-release ICE/DTLS tests.
+-dontwarn org.jni_zero.JniZeroJni
 # Preserve the local privacy-safe crash frame filter after shrinking.
 -keeppackagenames com.example.**
 -keepnames class com.example.core.diagnostics.**

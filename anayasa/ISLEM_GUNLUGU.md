@@ -611,3 +611,21 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - Kök neden: Kotlin instrumentation çağrısı `WorkManager.Companion.getInstance` yolunu kullanıyor; dış sınıf/JvmStatic keep kuralı companion metodunu korumuyordu. Bu Android scheduler/identity/network hatası değil, R8 sonrası ayrı instrumentation APK'sının public ABI bağımlılığıdır.
 - Düzeltme: yalnız `androidx.work.WorkManager$Companion` public ABI'si de korunur; test kaldırılmaz, minify kapatılmaz, geniş paket keep ile kısaltılmaz. Yeni PR/main CI, release cihaz testi ve APK kamu indirmesi yeniden doğrulanır.
 
+
+
+### [25-10-2026] — Gerçek sesli/görüntülü arama
+- **İşlem:** Native WebRTC motoru, izin ve karşılıklı kabul kapısı, sohbet arama simgeleri, ses çıkışı/kamera/susturma kontrolleri; ayrı şifreli ve kısa ömürlü sunucu sinyalleşmesi eklendi. Gelen davet mevcut senkronizasyona eklenir; eski istemcinin yanıtı değişmez.
+- **Koruma:** İsteğe bağlı PIN, mevcut anahtar, Room v4 ve E2EE mesaj kuyruğu korunur. Mikrofon/kamera önceden açılmaz. Ücretli TURN eklenmez.
+- **Test:** Yerel Node/PGlite 54/54 geçti; sinyal zarfı, izin/accept ve kaynak temizleme Robolectric testleri, gerçek native DTLS paket/ICE restart Android testi eklendi. Android CI ve canlı smoke henüz doğrulanmadan başarı ilan edilmez.
+- **Açık:** Fiziksel Samsung/Xiaomi çift yönlü medya/ENC kalite ve OTA; katı NAT için ayrıca onaylı TURN, kapalı uygulamaya gelen arama. #3 açık kalır.
+
+- **Canlı sunucu kanıtı:** Additive geçiş `20261025123907_private_call_signaling`, Edge v4 etkin; üç geçici ECDSA kimliğiyle E2EE davet, eski istemci yanıtı, yetki, idempotency, yalnız alıcı ACK ve kişi iptali smoke geçti. RLS/grant kontrolü kapalı doğrudan erişimi doğruladı.
+
+- **CI #404 bulgusu:** Birim/Robolectric ve lint geçti; ilk native Android testi boş ilk ICE COMPLETE nedeniyle timeout verdi. Android ağ callback'i gelmeden boş SDP alınabiliyordu. Motor ve test artık gerçek aday oluşmasını ve güncel gathering durumunu bekler; başarısız koşu yayınlanmadı.
+
+- **Çağrı UX:** Gelen ön plan aramasında sistem zil sesi; kabul/red/çıkışta deterministik durdurma. Yerel kamera önizlemesi video yüzeyinin üzerinde gösterilir. Native logger kapalı sink ile devre dışıdır; SDP/ICE sırları logcat içinde tutulmaz.
+
+- **Gecikmeli ağ düzeltmesi:** ACCEPT sunucuya ulaşmışken istemcide HTTP yanıtı bekleniyorsa gelen OFFER artık kaybolmaz; sırayla işlenir. İlk görüşme + bir ICE restart ile sınırlanır. Kapanış bütün bekleyen görüşme işlerini iptal eder. Gecikmeli kabul ve beklerken kapatma için iki regresyon testi eklendi. Gelen arama ekranında da P2P/IP açıklaması görünür.
+
+- **CI #406:** Birim/Robolectric 322 test, 0 hata, 1 mevcut screenshot atlama; lint/release build geçti. API34 debug 7/7 gerçek native DTLS/ICE dahil geçti. Minified release yüklemesinde JNI_OnLoad `java_class == null` çökmesi yakalandı. AAR consumer ProGuard dosyası içermiyor; native olarak ismiyle çağrılan `org.jni_zero.JniZero` için `org.webrtc` yanında `org.jni_zero` da korunur. Hatalı paket yayımlanmadı.
+- **Video yaşam döngüsü:** SurfaceViewRenderer ana thread init şartı ayrı üretim sahibiyle sağlanır; mutex ile bind/close sıralanır, EGL renderer kapanmadan bırakılmaz. Gerçek EGL/SurfaceViewRenderer bind/rebind/close API34 debug ve release testi eklendi. Kamera HAL disconnect/freeze/error callback artık kullanıcıya gerçek hata verir ve kaynakları kapatır; asenkron medya hatası testi eklendi.

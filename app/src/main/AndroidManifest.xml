@@ -7,6 +7,10 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Normal permission used only by real user-initiated VoIP audio routing. -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- Bluetooth audio is optional: non-Bluetooth calls continue if permission denied.
          Real call UX must ask the user for Nearby Devices only when needed. -->
     <uses-permission android:name="android.permission.BLUETOOTH"
@@ -17,8 +21,8 @@
     <!-- Only for a user-tapped APK update; Android requires separate installer consent. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
-    <!-- Calls are UI-only demos. Speech recognition runs in the user's external
-         Android speech recognition app via RecognizerIntent; no app mic/camera permission. -->
+    <!-- Only explicit accepted real calls request microphone/camera at runtime.
+         Camera remains optional; no background recording or foreground bypass. -->
 
     <application
         android:name=".LanuApplication"

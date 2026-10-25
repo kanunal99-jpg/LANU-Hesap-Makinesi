@@ -34,6 +34,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -52,6 +53,8 @@ fun ChatDetailScreen(
     viewModel: CommunicationViewModel,
     conversationId: String,
     onNavigateBack: () -> Unit,
+    onVoiceCall: () -> Unit,
+    onVideoCall: () -> Unit,
     onChoosePhoto: () -> Unit = {},
     onTakePhoto: () -> Unit = {},
     onChooseDocument: () -> Unit = {},
@@ -98,7 +101,7 @@ fun ChatDetailScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
                                 .size(36.dp)
@@ -114,11 +117,13 @@ fun ChatDetailScreen(
                             )
                         }
                         Spacer(modifier = Modifier.width(12.dp))
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = activeConversation?.partnerName ?: "Yükleniyor...",
                                 fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
@@ -131,7 +136,9 @@ fun ChatDetailScreen(
                                 Text(
                                     text = "Uçtan Uca Şifreli (AES-GCM)",
                                     fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -146,19 +153,11 @@ fun ChatDetailScreen(
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = {
-                            triggerVibration()
-                            isSelfDestructEnabled = !isSelfDestructEnabled
-                            val msg = if (isSelfDestructEnabled) R.string.self_destruct_on else R.string.self_destruct_off
-                            Toast.makeText(context, context.getString(msg), Toast.LENGTH_SHORT).show()
-                        }
-                    ) {
-                        Icon(
-                            imageVector = if (isSelfDestructEnabled) Icons.Default.Timer else Icons.Default.TimerOff,
-                            contentDescription = "Yalnız bu telefondaki mesajı 10 saniye sonra gizle",
-                            tint = if (isSelfDestructEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                        )
+                    IconButton(onClick = onVoiceCall, modifier = Modifier.testTag("private_voice_call_button")) {
+                        Icon(Icons.Default.Call, contentDescription = "Sesli ara")
+                    }
+                    IconButton(onClick = onVideoCall, modifier = Modifier.testTag("private_video_call_button")) {
+                        Icon(Icons.Default.Videocam, contentDescription = "Görüntülü ara")
                     }
                     var showMenu by remember { mutableStateOf(false) }
                     IconButton(onClick = { showMenu = true }) {
@@ -168,6 +167,17 @@ fun ChatDetailScreen(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false }
                     ) {
+                        DropdownMenuItem(
+                            text = { Text(if (isSelfDestructEnabled) "10 saniyede gizlemeyi kapat" else "Bu telefonda 10 saniyede gizle") },
+                            leadingIcon = { Icon(Icons.Default.Timer, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                            onClick = {
+                                showMenu = false
+                                triggerVibration()
+                                isSelfDestructEnabled = !isSelfDestructEnabled
+                                val msg = if (isSelfDestructEnabled) R.string.self_destruct_on else R.string.self_destruct_off
+                                Toast.makeText(context, context.getString(msg), Toast.LENGTH_SHORT).show()
+                            }
+                        )
                         DropdownMenuItem(
                             text = { Text("Sohbeti Temizle") },
                             leadingIcon = { Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp)) },
@@ -598,3 +608,4 @@ fun MessageBubble(
         )
     }
 }
+

@@ -24,7 +24,7 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [23])
 class AndroidCrossVersionCompatibilityTest {
-    @Test fun appManifestDoesNotRequireBroadMediaCameraOrMicPermissions() {
+    @Test fun appManifestUsesExplicitCallMediaPermissionsWithoutBroadStorageAccess() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val info = context.packageManager.getPackageInfo(
             context.packageName,
@@ -32,8 +32,8 @@ class AndroidCrossVersionCompatibilityTest {
         )
         val permissions = info.requestedPermissions.orEmpty().toSet()
         assertTrue(Manifest.permission.INTERNET in permissions)
-        assertFalse(Manifest.permission.CAMERA in permissions)
-        assertFalse(Manifest.permission.RECORD_AUDIO in permissions)
+        assertTrue(Manifest.permission.CAMERA in permissions)
+        assertTrue(Manifest.permission.RECORD_AUDIO in permissions)
         assertFalse(Manifest.permission.READ_EXTERNAL_STORAGE in permissions)
         assertFalse(Manifest.permission.WRITE_EXTERNAL_STORAGE in permissions)
         assertFalse("android.permission.READ_MEDIA_IMAGES" in permissions)
@@ -59,3 +59,4 @@ class AndroidCrossVersionCompatibilityTest {
         }
     }
 }
+

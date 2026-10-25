@@ -92,6 +92,7 @@ googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.W
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {
+  implementation("io.github.webrtc-sdk:android:150.7871.04")
   // 2.12 raises minSdk to 24; keep Android 6/API 23 support with the maintained 2.11 line.
   implementation("androidx.work:work-runtime-ktx:2.11.2")
   testImplementation("androidx.work:work-testing:2.11.2")

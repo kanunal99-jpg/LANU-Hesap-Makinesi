@@ -1,5 +1,16 @@
 # 🧪 LANU VAULT & SECURE CHAT - ÖZELLİK TESTLERİ VE SONUÇLARI
 
+
+## 25.10.2026 — Gerçek arama için yeni doğrulama kapıları
+
+- Yerel sunucu/Postgres: **54/54 geçti**, mevcut 48 regresyon + 6 call protokol/SQL testi. RLS/grant, yetki, karşılıklı kişi, sürüm/presence, süre, idempotency, kota ve eski istemci yanıtı korunur.
+- `CallSignalingTest`: AAD alan ayrımı, zarf/sürüm/süre/boyut, yanlış peer, gerçek paket şartı.
+- `NativeCallStateTest`: izin yokken sıfır capture/invite, kabul öncesi OFFER, eski callId, gerçek paket olmadan CONNECTED olmama, motor başlatma hatasında temizleme ve güvenli alandan çıkış.
+- `WebRtcNativeAcceptanceTest`: iki gerçek native PeerConnection ile ICE/DTLS/SCTP paket alışverişi ve ICE credentials değişimi; hem debug hem minified release. Mikrofon/kamera veya fiziksel iki telefon kalitesi bu testle kanıtlanmaz.
+- `CallVideoRendererAcceptanceTest`: gerçek EGL/SurfaceViewRenderer, worker üzerinden ana thread init, yeniden bağlama ve EGL öncesi kaynak temizliği; debug + release. Gecikmeli ACCEPT/erken OFFER, bekleyen iş iptali ve asenkron kamera/ses hatası regresyonları da eklenir.
+- CI #406 debug native 7/7 geçti; release JNI namespace eksik koruması nedeniyle engellendi, düzeltme yeniden doğrulanacaktır.
+- Android derleme, CI sonucu ve yayın kanıtı ayrı kaydedilecektir; yeni test eklenmesi onların geçtiği anlamına gelmez.
+
 ## 25.10.2026 — Güncel kanıt ile tarihî kontrol listelerinin ayrımı
 
 - Ana dal **CI #393 / `36a9a26a`** raporu: 289 testin 288'i geçti, 1 screenshot testi atlandı; relay 48/48; API34 Android debug 5/5 ve minified release 5/5. Lint 0 hata, 162 uyarı, 2 ipucu. APK `v1.1.0-signed.393` imza/SHA ve anonim public byte read-back başarılı.

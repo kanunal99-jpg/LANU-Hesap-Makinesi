@@ -1,5 +1,15 @@
 # PROJE ANAYASASI — 15.10.2026
 
+
+## 25.10.2026 — Gerçek ön plan WebRTC araması uygulaması
+
+- **Uygulama:** Sohbet üstünde sesli/görüntülü arama düğmeleri; gerçek native WebRTC kamera/mikrofon, karşılıklı kabul, sustur/kamera kapat/çevir, ahize/hoparlör/kulaklık yönlendirme ve güvenli tam ekran görüşme. Eski demo yolu gerçek arama kanıtı sayılmaz.
+- **Sinyalleşme:** ECDSA kimlik doğrulaması, karşılıklı kişiler, E2EE ve çağrıya özel AAD; mesaj tablosundan ayrı 90 saniyelik RLS korumalı sinyaller. Gelen davetler mevcut ön plan eşitlemesine eklenir; boşta ek polling yok. Etkin görüşmede 2 saniye kontrol, gönderim bütçesi ve gerçek ICE restart vardır.
+- **Medya:** Sabit `io.github.webrtc-sdk:android:150.7871.04`, BSD-3-Clause; dört ABI, minSdk21 bağımlılığı ile uygulama API23 desteği korunur. ARM64 ELF yükleme hizaları 16KiB doğrulandı. R8 JNI kuralları ve debug/release gerçek DTLS paket testi eklendi. AEC/NS/AGC motoru kullanılır; sahte dB/kalite/bağlandı değeri yok. CONNECTED için transport + çift yönlü gerçek ses paket sayacı gerekir.
+- **Güvenli varsayılan:** Açık kabul ve Android izni olmadan medya açılmaz; özel alandan çıkışta kaynaklar kapanır. PIN isteğe bağlı; kimlik, Room v4, geçmiş, E2EE kuyruk ve APK imzası korunur. Yeni ücretli hizmet açılmaz.
+- **Kabul sınırı:** Ücretsiz STUN/P2P vardır, TURN yoktur; katı NAT/ağlarda hata mümkündür. İki güncel uygulama güvenli alanda açık olmalıdır; kapalı uygulamaya gelen arama yoktur. Samsung/Xiaomi iki fiziksel cihaz ses/video, gürültü ve OTA kabulü ayrıca açıktır. #3 bütün bu kabul kapıları tamamlanmadan kapanmaz.
+- **Kanıt:** Yerel relay/Postgres 54/54 geçti. Android CI, ana dal yayını ve canlı smoke sonuçları doğrulandıkça işlem günlüğüne eklenir; bu uygulama kaydı tek başına yayın/cihaz kabulü değildir. Ayrıntı: `docs/FOREGROUND_WEBRTC_CALLS_TR.md`.
+
 ## 25.10.2026 — Premium teslimat merkezi ve GMS bağımsız arka plan kontrolü
 
 - **Kullanıcı talebi:** Önemli açıkları profesyonelce ele al; premium kullanım ve dayanıklılık ekle. Ücretli plan, yeni backend ve zorunlu PIN açılmaz.

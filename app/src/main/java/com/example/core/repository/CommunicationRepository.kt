@@ -14,6 +14,8 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.json.JSONArray
 import java.util.UUID
+import com.example.core.calls.*
+import kotlinx.coroutines.channels.Channel
 
 class CommunicationRepository(
     private val contactDao: ContactDao,
@@ -32,12 +34,87 @@ class CommunicationRepository(
     val callLogs = callLogDao.getAllCallLogs()
     private val identityMutex = Mutex()
     private val syncMutex = Mutex()
+    // Serializes overlapping foreground sync and callSync polls, protecting
+    // enqueue -> ACK ordering across both paths without locking the chat sync.
+    private val callDeliveryMutex = Mutex()
     private val draftMutex = Mutex()
     private var nextSyncAt = 0L
     private var nextSendAt = 0L
     private val _identity = MutableStateFlow<MessagingIdentity?>(null)
     val identity: StateFlow<MessagingIdentity?> = _identity.asStateFlow()
     val relayConfigured get() = relay.configured
+    @Volatile private var callingForeground = false
+    @Volatile private var callInProgress = false
+    fun setCallInProgress(active: Boolean) { callInProgress = active }
+    // Bounded, lossless queue: if full, leave signals on the relay unacknowledged for retry.
+    // DROP_OLDEST previously acknowledged signals that were silently discarded.
+    private val callInbox = Channel<ReceivedCallSignal>(64)
+    val callSignals = callInbox.receiveAsFlow()
+    fun setCallingForeground(enabled: Boolean) {
+        callingForeground = enabled
+        if (!enabled) while (callInbox.tryReceive().isSuccess) { /* discard ephemeral stale invites */ }
+    }
+
+    suspend fun prepareCalling() { synchronize(requireExistingIdentity = true) }
+
+    suspend fun callPeerForConversation(id: String): CallPeer {
+        val peer = peerForConversation(id) ?: error("Önce karşılıklı kişi kaydını tamamlayın.")
+        return verifiedCallPeer(peer.getString("id")) ?: error("Arama için karşılıklı kişi kaydı gerekir.")
+    }
+
+    suspend fun verifiedCallPeer(id: String): CallPeer? {
+        val peer = settingsDao.getSettingValue("lanu_peer_id_$id")?.let(::JSONObject) ?: return null
+        val contact = contactDao.getContactByPhone(peer.getString("code")) ?: return null
+        if (contact.isBlocked || !peer.optBoolean("mutual")) return null
+        require(peer.getString("id") == id && UserCodes.id(peer.getString("publicKey")) == id)
+        return CallPeer(id, contact.phoneNumber, contact.name, peer.getString("publicKey"))
+    }
+
+    suspend fun sendCallSignal(peer: CallPeer, signal: CallSignal) {
+        val own = loadIdentity(allowCreate = false)
+        require(verifiedCallPeer(peer.id)?.publicKey == peer.publicKey) { "Kişinin güvenlik kaydı değişti." }
+        val cipher = PeerMessageCrypto.encrypt(own, peer.id, peer.publicKey, CallSignaling.aadId(signal.id), CallSignaling.encode(signal))
+        require(cipher.length <= 32768)
+        val data = JSONObject().put("id", signal.id).put("callId", signal.callId).put("peerId", peer.id).put("content", cipher)
+        // Same opaque signal ID/content on retry: never enqueue a stale call as chat.
+        try { relay.request(own, "callSend", data) }
+        catch (e: CancellationException) { throw e }
+        catch (e: RelayException) { throw e }
+        catch (_: java.io.IOException) { relay.request(own, "callSend", data) }
+    }
+
+    suspend fun pollCallSignals() {
+        check(callingForeground)
+        val own = loadIdentity(allowCreate = false)
+        val response = relay.request(own, "callSync")
+        require(response.getInt("version") == CallSignaling.VERSION)
+        decodeCallSignals(own, response.getJSONArray("signals"))
+    }
+
+    private suspend fun decodeCallSignals(own: MessagingIdentity, rows: JSONArray) = callDeliveryMutex.withLock {
+        require(rows.length() <= 24)
+        val ack = JSONArray()
+        for (i in 0 until rows.length()) {
+            val row = rows.getJSONObject(i)
+            val id = row.optString("id")
+            if (!CallSignaling.validId(id)) continue
+            try {
+                require(row.getString("recipientId") == own.id && row.getLong("expiresAt") > clock())
+                require(row.getLong("expiresAt") <= clock() + 120_000L)
+                val peer = verifiedCallPeer(row.getString("senderId")) ?: throw IllegalArgumentException("Unverified call peer")
+                val cipher = row.getString("content")
+                require(cipher.length <= 32768)
+                val plain = PeerMessageCrypto.decrypt(own, peer.id, peer.publicKey, CallSignaling.aadId(id), peer.id, cipher)
+                val signal = ReceivedCallSignal(peer, CallSignaling.decode(plain, id, row.getString("callId"), clock()))
+                // ACK only once the foreground consumer queue actually owns the signal.
+                // No silent loss on saturation; relay retention permits next poll to retry.
+                if (!callingForeground || callInbox.trySend(signal).isFailure) break
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* Drop invalid/expired ephemeral control data, never log SDP/identity. */ }
+            ack.put(id)
+        }
+        if (ack.length() > 0) relay.request(own, "callAck", JSONObject().put("ids", ack))
+    }
 
     /** Background maintenance must never mint or replace an identity. */
     suspend fun hasStoredIdentity(): Boolean = identityMutex.withLock {
@@ -389,9 +466,20 @@ class CommunicationRepository(
         val own = registerRemote(requireExistingIdentity = requireExistingIdentity)
         // Receive and acknowledge BEFORE sending: one blocked/invalid outgoing
         // message must never prevent unrelated incoming conversations arriving.
-        val response = relay.request(own, "sync")
+        val response = relay.request(own, "sync", JSONObject().apply {
+            if (callingForeground) put("callVersion", CallSignaling.VERSION)
+        })
         val peers = response.getJSONArray("contacts")
         for (i in 0 until peers.length()) savePeer(peers.getJSONObject(i), peers.getJSONObject(i).optString("codeAtAdd"))
+        if (callingForeground && response.has("calls")) {
+            // Call ACK is independent of durable chat delivery. A transient call
+            // relay failure must never prevent encrypted messages from being
+            // persisted and acknowledged in this very same sync response.
+            // The call relay retains unacknowledged controls for bounded retry.
+            try { decodeCallSignals(own, response.getJSONArray("calls")) }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* chat continues; call controls retry separately */ }
+        }
         val events = response.getJSONArray("events")
         val ack = JSONArray()
         val read = JSONArray()
@@ -456,6 +544,7 @@ class CommunicationRepository(
         nextSendAt = clock() + 5000L
         var contactRequests = 0
         for (contact in contacts.first()) {
+            if (callInProgress) break // Keep nonce/request budget for live call control.
             if (savedPeer(contact.phoneNumber) != null) continue
             val retryKey = "lanu_contact_retry_${contact.phoneNumber}"
             if ((settingsDao.getSettingValue(retryKey)?.toLongOrNull() ?: 0L) > clock()) continue
@@ -475,7 +564,7 @@ class CommunicationRepository(
             }
             break
         }
-        for (message in messageDao.getPendingMessages(now = clock(), limit = 5 - contactRequests)) {
+        for (message in messageDao.getPendingMessages(now = clock(), limit = if (callInProgress) 1 else 5 - contactRequests)) {
             val peer = peerForConversation(message.conversationId) ?: continue
             try {
                 val result = relay.request(own, "send", JSONObject().put("messageId", message.id).put("peerId", peer.getString("id")).put("content", message.content))
