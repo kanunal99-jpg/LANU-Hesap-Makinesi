@@ -124,6 +124,28 @@ export function createRelay(store, clock = Date.now, options = {}) {
     insist(identity, 401, 'Kimlik bulunamadı.');
     insist(await store.consumeNonce(owner, requestId, clock()), 409, 'Bu istek daha önce işlendi.');
     switch (action) {
+      case 'callSync': {
+        insist(options.calls === true, 503, 'Arama sunucusu henüz etkin değil.');
+        return { version: 1, signals: await store.callPoll(owner) };
+      }
+      case 'callSend': {
+        insist(options.calls === true, 503, 'Arama sunucusu henüz etkin değil.');
+        insist(uuid.test(data.id ?? '') && uuid.test(data.callId ?? '') &&
+          hex64.test(data.peerId ?? '') && data.peerId !== owner &&
+          ciphertext(data.content) && data.content.length <= 32768 &&
+          Object.keys(data).sort().join(',') === 'callId,content,id,peerId', 400, 'Geçersiz arama sinyali.');
+        insist(await store.mutual(owner, data.peerId), 409, 'Arama için karşılıklı kişi kaydı gerekir.');
+        const result = await store.callSend(owner, data.peerId, data.id, data.callId, data.content);
+        insist(!result.unavailable, 409, 'İki telefonda da güncel LANU güvenli alanı açık olmalıdır.');
+        insist(!result.limited, 429, 'Arama sınırına ulaşıldı; biraz bekleyin.');
+        insist(result.accepted === true, 409, 'Arama sinyali kimliği çakıştı.');
+        return { accepted: true };
+      }
+      case 'callAck': {
+        insist(options.calls === true, 503, 'Arama sunucusu henüz etkin değil.');
+        insist(messageIds(data.ids) && data.ids.length <= 24, 400, 'Geçersiz arama bildirimi.');
+        await store.callAck(owner, data.ids); return { acknowledged: true };
+      }
       case 'register': return { code: identity.code, nonce: identity.nonce };
       case 'rotate': {
         insist(noncePattern.test(data.nonce ?? '') && data.expectedCode === identity.code, 409, 'Kod değişti; kimliği yenileyip tekrar deneyin.');
@@ -195,7 +217,13 @@ export function createRelay(store, clock = Date.now, options = {}) {
         return { fileId: data.fileId, state: reserved.state,
           cipherBytes: data.cipherBytes, expiresAt: reserved.expires_at };
       }
-      case 'sync': return { contacts: await store.contacts(owner), events: await store.events(owner) };
+      case 'sync': {
+        const result = { contacts: await store.contacts(owner), events: await store.events(owner) };
+        // New foreground clients piggyback presence/invites on normal chat sync.
+        // Legacy/background clients do not wake an extra call polling loop.
+        if (options.calls === true && data.callVersion === 1) result.calls = await store.callPoll(owner);
+        return result;
+      }
       case 'ack': {
         const eventIds = data.eventIds ?? [], readIds = data.readIds ?? [];
         insist(messageIds(eventIds) && messageIds(readIds), 400, 'Geçersiz teslim bildirimi.');
@@ -271,4 +299,16 @@ export class RestStore {
   async events(owner) { return (await this.query('lanu_events?owner_id=eq.' + owner + '&acked=eq.false&order=created_at.asc,id.asc&limit=200')).map(row => ({ id: row.id, message: row.snapshot })); }
   async ack(owner, eventIds, readIds) { await this.query('rpc/lanu_ack', 'POST', { p_owner: owner, p_event_ids: eventIds, p_read_ids: readIds }); }
   async updateMessage(id, changes) { await this.query('lanu_messages?id=eq.' + id, 'PATCH', changes); }
+  async callPoll(owner) {
+    const rows = await this.query('rpc/lanu_call_poll', 'POST', { p_owner: owner });
+    return rows.map(row => ({ id: row.id, callId: row.call_id, senderId: row.sender_id,
+      recipientId: row.recipient_id, content: row.content, createdAt: Date.parse(row.created_at),
+      expiresAt: Date.parse(row.expires_at) }));
+  }
+  async callSend(owner, peer, id, callId, content) {
+    return this.query('rpc/lanu_call_send', 'POST', { p_owner: owner, p_peer: peer,
+      p_id: id, p_call: callId, p_content: content });
+  }
+  async callAck(owner, ids) { await this.query('rpc/lanu_call_ack', 'POST', { p_owner: owner, p_ids: ids }); }
 }
+

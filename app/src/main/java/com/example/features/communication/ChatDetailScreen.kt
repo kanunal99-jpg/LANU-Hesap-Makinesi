@@ -52,6 +52,8 @@ fun ChatDetailScreen(
     viewModel: CommunicationViewModel,
     conversationId: String,
     onNavigateBack: () -> Unit,
+    onVoiceCall: () -> Unit = {},
+    onVideoCall: () -> Unit = {},
     onChoosePhoto: () -> Unit = {},
     onTakePhoto: () -> Unit = {},
     onChooseDocument: () -> Unit = {},
@@ -146,20 +148,8 @@ fun ChatDetailScreen(
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = {
-                            triggerVibration()
-                            isSelfDestructEnabled = !isSelfDestructEnabled
-                            val msg = if (isSelfDestructEnabled) R.string.self_destruct_on else R.string.self_destruct_off
-                            Toast.makeText(context, context.getString(msg), Toast.LENGTH_SHORT).show()
-                        }
-                    ) {
-                        Icon(
-                            imageVector = if (isSelfDestructEnabled) Icons.Default.Timer else Icons.Default.TimerOff,
-                            contentDescription = "Yalnız bu telefondaki mesajı 10 saniye sonra gizle",
-                            tint = if (isSelfDestructEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                        )
-                    }
+                    IconButton(onClick = onVoiceCall) { Icon(Icons.Default.Call, contentDescription = "Sesli ara") }
+                    IconButton(onClick = onVideoCall) { Icon(Icons.Default.Videocam, contentDescription = "Görüntülü ara") }
                     var showMenu by remember { mutableStateOf(false) }
                     IconButton(onClick = { showMenu = true }) {
                         Icon(Icons.Default.MoreVert, contentDescription = "Seçenekler")
@@ -168,6 +158,17 @@ fun ChatDetailScreen(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false }
                     ) {
+                        DropdownMenuItem(
+                            text = { Text(if (isSelfDestructEnabled) "10 saniyede gizlemeyi kapat" else "Bu telefonda 10 saniyede gizle") },
+                            leadingIcon = { Icon(Icons.Default.Timer, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                            onClick = {
+                                showMenu = false
+                                triggerVibration()
+                                isSelfDestructEnabled = !isSelfDestructEnabled
+                                val msg = if (isSelfDestructEnabled) R.string.self_destruct_on else R.string.self_destruct_off
+                                Toast.makeText(context, context.getString(msg), Toast.LENGTH_SHORT).show()
+                            }
+                        )
                         DropdownMenuItem(
                             text = { Text("Sohbeti Temizle") },
                             leadingIcon = { Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp)) },
@@ -598,3 +599,4 @@ fun MessageBubble(
         )
     }
 }
+

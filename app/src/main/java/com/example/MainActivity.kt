@@ -53,6 +53,8 @@ import com.example.features.calculator.FinanceScreen
 import com.example.features.communication.ChatDetailScreen
 import com.example.features.communication.CommunicationScreen
 import com.example.features.communication.CommunicationViewModel
+import com.example.features.communication.NativeCallViewModel
+import com.example.features.communication.NativeCallHost
 import com.example.features.security.SecurityScreen
 import com.example.features.security.SecurityViewModel
 import com.example.ui.theme.MyApplicationTheme
@@ -62,6 +64,8 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     private lateinit var calcViewModel: CalculatorViewModel
     private lateinit var securityViewModel: SecurityViewModel
     private lateinit var commViewModel: CommunicationViewModel
+    private lateinit var nativeCallViewModel: NativeCallViewModel
+    private var pendingCall by mutableStateOf<Pair<String, Boolean>?>(null)
     private var fullBackupBusy by mutableStateOf(false)
     private var fullBackupMessage by mutableStateOf<String?>(null)
     private var fullRestoreUri by mutableStateOf<Uri?>(null)
@@ -401,6 +405,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         calcViewModel = ViewModelProvider(this, CalculatorViewModel.Factory(container.calculatorRepository))[CalculatorViewModel::class.java]
         securityViewModel = ViewModelProvider(this, SecurityViewModel.Factory(container.securityRepository, container.securityEventTracker))[SecurityViewModel::class.java]
         commViewModel = ViewModelProvider(this, CommunicationViewModel.Factory(container.communicationRepository))[CommunicationViewModel::class.java]
+        nativeCallViewModel = ViewModelProvider(this, NativeCallViewModel.Factory(this, container.communicationRepository))[NativeCallViewModel::class.java]
 
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
@@ -463,6 +468,11 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                 val isLocked by securityViewModel.isLocked.collectAsState()
 
                 val currentScreen = navigationBackstack.lastOrNull() ?: Screen.Calculator
+                if (!isLocked && isSecureScreen(currentScreen)) {
+                    NativeCallHost(nativeCallViewModel, pendingCall, onRequestConsumed = { pendingCall = null })
+                } else {
+                    LaunchedEffect(currentScreen, isLocked) { pendingCall = null; nativeCallViewModel.deactivate() }
+                }
                 // The decoy calculator and public utilities allow screenshots.
                 // PIN and every private area ALWAYS block screenshots, independently
                 // of the user's legacy optional screen-protection preference.
@@ -608,6 +618,8 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                             is Screen.ChatDetail -> {
                                 ChatDetailScreen(
                                     viewModel = commViewModel,
+                                    onVoiceCall = { pendingCall = screen.conversationId to false },
+                                    onVideoCall = { pendingCall = screen.conversationId to true },
                                     conversationId = screen.conversationId,
                                     onNavigateBack = {
                                         navigateBack()
@@ -791,4 +803,5 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         data class ChatDetail(val conversationId: String) : Screen()
     }
 }
+
 

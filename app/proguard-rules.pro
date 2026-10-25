@@ -1,5 +1,8 @@
 # Add project specific ProGuard rules here.
 -keepattributes Signature,InnerClasses,EnclosingMethod,SourceFile,LineNumberTable,*Annotation*
+# WebRTC JNI resolves Java names/callbacks. Verified by a native DTLS loopback
+# test on both debug and minified release, not by disabling R8.
+-keep class org.webrtc.** { *; }
 # Preserve the local privacy-safe crash frame filter after shrinking.
 -keeppackagenames com.example.**
 -keepnames class com.example.core.diagnostics.**

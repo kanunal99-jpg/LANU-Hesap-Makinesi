@@ -611,3 +611,10 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - Kök neden: Kotlin instrumentation çağrısı `WorkManager.Companion.getInstance` yolunu kullanıyor; dış sınıf/JvmStatic keep kuralı companion metodunu korumuyordu. Bu Android scheduler/identity/network hatası değil, R8 sonrası ayrı instrumentation APK'sının public ABI bağımlılığıdır.
 - Düzeltme: yalnız `androidx.work.WorkManager$Companion` public ABI'si de korunur; test kaldırılmaz, minify kapatılmaz, geniş paket keep ile kısaltılmaz. Yeni PR/main CI, release cihaz testi ve APK kamu indirmesi yeniden doğrulanır.
 
+
+
+### [25-10-2026] — Gerçek sesli/görüntülü arama
+- **İşlem:** Native WebRTC motoru, izin ve karşılıklı kabul kapısı, sohbet arama simgeleri, ses çıkışı/kamera/susturma kontrolleri; ayrı şifreli ve kısa ömürlü sunucu sinyalleşmesi eklendi. Gelen davet mevcut senkronizasyona eklenir; eski istemcinin yanıtı değişmez.
+- **Koruma:** İsteğe bağlı PIN, mevcut anahtar, Room v4 ve E2EE mesaj kuyruğu korunur. Mikrofon/kamera önceden açılmaz. Ücretli TURN eklenmez.
+- **Test:** Yerel Node/PGlite 54/54 geçti; sinyal zarfı, izin/accept ve kaynak temizleme Robolectric testleri, gerçek native DTLS paket/ICE restart Android testi eklendi. Android CI ve canlı smoke henüz doğrulanmadan başarı ilan edilmez.
+- **Açık:** Fiziksel Samsung/Xiaomi çift yönlü medya/ENC kalite ve OTA; katı NAT için ayrıca onaylı TURN, kapalı uygulamaya gelen arama. #3 açık kalır.

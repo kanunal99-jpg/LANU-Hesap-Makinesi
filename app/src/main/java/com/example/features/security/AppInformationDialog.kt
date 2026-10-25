@@ -35,7 +35,7 @@ object LanuInformation {
         ),
         InformationSection(
             "İzinler ve hizmet sağlayıcısı",
-            "İnternet ve bağlantı durumu izinleri mesajlaşma içindir. Biyometri isteğe bağlıdır; titreşim dokunsal geri bildirim içindir. Mikrofon/kamera izinleri istenmez; arama ekranı bir demodur. Mesajlaşma altyapısı Supabase tarafından barındırılır; altyapı hizmetine ait teknik bağlantı günlükleri bulunabilir."
+            "İnternet ve bağlantı durumu izinleri mesajlaşma içindir. Biyometri isteğe bağlıdır; titreşim dokunsal geri bildirim içindir. Mikrofon izni yalnız sesli/görüntülü arama başlatırken veya kabul ederken, kamera izni yalnız görüntülü arama için istenir. Mikrofon ve kamera karşı tarafın kabulü sonrası açılır. Aramalar WebRTC ile doğrudandır; IP adresiniz karşı tarafa ve STUN hizmetine görünür. Şifreli bağlantı sinyalleri sunucuda kısa süreli tutulur. Mesajlaşma altyapısı Supabase tarafından barındırılır; altyapı hizmetine ait teknik bağlantı günlükleri bulunabilir."
         ),
         InformationSection(
             "Yedekleme, silme ve veri kaybı",
@@ -50,7 +50,7 @@ object LanuInformation {
     val terms = listOf(
         InformationSection(
             "Ürünün kapsamı",
-            "LANU bu sürümde hesaplama araçları ve LANU koduyla çalışan şifreli metin mesajlaşması sunar. Ortak çalışma ve ses/görüntü arama alanları gerçek çok kullanıcılı servis değildir; demo olarak işaretlenmiştir."
+            "LANU bu sürümde hesaplama araçları ve LANU koduyla çalışan şifreli metin mesajlaşması sunar. Sohbetin üstündeki telefon ve kamera simgeleri gerçek WebRTC görüşmesi başlatır. İki telefonda güncel uygulama ve güvenli alan açık olmalıdır. Ortak çalışma alanı gerçek çok kullanıcılı servis değildir; demo olarak işaretlenmiştir."
         ),
         InformationSection(
             "Mesaj teslimi",
@@ -62,7 +62,7 @@ object LanuInformation {
         ),
         InformationSection(
             "Özelliklerin sınırları",
-            "10 saniye sonra gizle özelliği, sunucu onayından sonra mesajı yalnız bu cihazda gizler. Karşı tarafın cihazından veya sunucudan silmez. Küçük fotoğraflar, PDF ve metin ekleri 18.000 bayta kadar şifreli gönderilebilir. Büyük belge/video aktarımı ve gerçek arama ayrıca tamamlanmaktadır."
+            "10 saniye sonra gizle özelliği, sunucu onayından sonra mesajı yalnız bu cihazda gizler. Karşı tarafın cihazından veya sunucudan silmez. Küçük fotoğraflar, PDF ve metin ekleri 18.000 bayta kadar şifreli gönderilebilir. Büyük belge/video dosyası aktarımı ayrıca tamamlanmaktadır. Doğrudan arama bazı mobil ağlarda veya katı güvenlik duvarlarında kurulamayabilir; farklı Wi-Fi deneyin. Güvenli alan kapatılırsa görüşme biter. Kapalı uygulamaya gelen arama bildirimi yoktur. Gürültü/yankı azaltma cihaz ve ortama bağlıdır; tüm seslerin bastırılması veya kulaklık ANC kontrolü vaat edilmez."
         ),
         InformationSection(
             "Kullanıcıya bildirim",
@@ -93,7 +93,7 @@ object LanuInformation {
         ),
         InformationSection(
             "Gerçek arama ve fotoğraf var mı?",
-            "Kamera veya galeriden küçük fotoğraf gönderilebilir. Küçük PDF ve UTF-8 metin dosyaları da desteklenir; mevcut ek sınırı 18.000 bayttır. Arama ekranları arayüz demosudur. Büyük fotoğraf, Excel, PowerPoint ve video desteği hazır olana kadar seçenekleri açılmaz."
+            "Kamera veya galeriden küçük fotoğraf gönderilebilir. Küçük PDF ve UTF-8 metin dosyaları da desteklenir; mevcut ek sınırı 18.000 bayttır. Sohbetin üstündeki telefon/kamera simgesinden gerçek arama başlatılır. İki taraf da güncel sürümü kullanmalı, birbirini kaydetmeli ve güvenli alanı açık tutmalıdır. Gelen arama bu alanda kabul edilir; mikrofon/kamera için Android izni gerekir. Bazı ağlarda doğrudan bağlantı kurulamaz. Büyük fotoğraf, Excel, PowerPoint ve video desteği hazır olana kadar seçenekleri açılmaz."
         ),
         InformationSection(
             "Mesajı 10 sn sonra gizlemek ne demek?",

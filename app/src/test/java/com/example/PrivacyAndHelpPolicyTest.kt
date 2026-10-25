@@ -34,13 +34,15 @@ class PrivacyAndHelpPolicyTest {
     }
 
     @Test
-    fun `unfinished demo calls do not require microphone or camera permissions`() {
+    fun `real calls declare runtime media permissions but no broad gallery access`() {
         val permissions = context.packageManager.getPackageInfo(
             context.packageName,
             PackageManager.GET_PERMISSIONS
         ).requestedPermissions.orEmpty().toSet()
-        assertFalse("Demo call must not request device microphone", "android.permission.RECORD_AUDIO" in permissions)
-        assertFalse("Demo call must not request camera", "android.permission.CAMERA" in permissions)
+        assertTrue("Real calls require explicit Android microphone permission", "android.permission.RECORD_AUDIO" in permissions)
+        assertTrue("Real video calls require explicit Android camera permission", "android.permission.CAMERA" in permissions)
+        assertFalse("No broad image library permission", "android.permission.READ_MEDIA_IMAGES" in permissions)
+        assertFalse("No broad storage permission", "android.permission.READ_EXTERNAL_STORAGE" in permissions)
         assertTrue("Encrypted LANU relay requires internet", "android.permission.INTERNET" in permissions)
     }
 
@@ -68,3 +70,4 @@ class PrivacyAndHelpPolicyTest {
         return result
     }
 }
+

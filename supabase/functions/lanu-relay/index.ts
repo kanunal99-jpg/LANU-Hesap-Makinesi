@@ -12,10 +12,11 @@ Deno.serve(async (request: Request) => {
     if (!url || !key) return new Response(JSON.stringify({ error: 'Sunucu yapılandırması eksik.' }), { status: 503, headers });
     let envelope;
     try { envelope = JSON.parse(raw); } catch { return new Response(JSON.stringify({ error: 'Geçersiz JSON.' }), { status: 400, headers }); }
-    const result = await createRelay(new RestStore(url, key))(envelope);
+    const result = await createRelay(new RestStore(url, key), Date.now, { calls: true })(envelope);
     return new Response(JSON.stringify(result), { status: 200, headers });
   } catch (error) {
     const known = error instanceof RelayError;
     return new Response(JSON.stringify({ error: known ? error.message : 'Sunucu işlemi tamamlayamadı.' }), { status: known ? error.status : 503, headers });
   }
 });
+
