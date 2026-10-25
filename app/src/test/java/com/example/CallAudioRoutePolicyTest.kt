@@ -1,0 +1,64 @@
+package com.example
+
+import com.example.core.calls.CallAudioRoutePolicy
+import com.example.core.calls.CallAudioRoutePolicy.Route
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class CallAudioRoutePolicyTest {
+    @Test fun automaticallyUsesConnectedHeadsetsBeforePhoneAudio() {
+        val routes = setOf(
+            Route.WIRED_HEADSET, Route.BLUETOOTH_HEADSET,
+            Route.EARPIECE, Route.SPEAKER
+        )
+        assertEquals(Route.WIRED_HEADSET,
+            CallAudioRoutePolicy.priorities(routes, false).first())
+        assertEquals(Route.WIRED_HEADSET,
+            CallAudioRoutePolicy.priorities(routes, true).first())
+        val btOnly = routes - Route.WIRED_HEADSET
+        assertEquals(Route.BLUETOOTH_HEADSET,
+            CallAudioRoutePolicy.priorities(btOnly, false).first())
+        assertEquals(Route.BLUETOOTH_HEADSET,
+            CallAudioRoutePolicy.priorities(btOnly, true).first())
+    }
+
+    @Test fun withoutAccessoriesVoiceUsesEarpieceAndVideoUsesSpeaker() {
+        val phone = setOf(Route.EARPIECE, Route.SPEAKER)
+        assertEquals(Route.EARPIECE,
+            CallAudioRoutePolicy.priorities(phone, false).first())
+        assertEquals(Route.SPEAKER,
+            CallAudioRoutePolicy.priorities(phone, true).first())
+    }
+
+    @Test fun headsetDisconnectionFallsBackWithoutStaleRoute() {
+        val bt = setOf(Route.BLUETOOTH_HEADSET, Route.EARPIECE, Route.SPEAKER)
+        assertEquals(Route.BLUETOOTH_HEADSET,
+            CallAudioRoutePolicy.priorities(bt, false).first())
+        val disconnected = bt - Route.BLUETOOTH_HEADSET
+        assertEquals(Route.EARPIECE,
+            CallAudioRoutePolicy.priorities(disconnected, false).first())
+        assertEquals(Route.SPEAKER,
+            CallAudioRoutePolicy.priorities(disconnected, true).first())
+    }
+
+    @Test fun userOverrideIsRespectedOnlyWhenAvailable() {
+        val routes = setOf(Route.BLUETOOTH_HEADSET, Route.EARPIECE, Route.SPEAKER)
+        assertEquals(Route.SPEAKER,
+            CallAudioRoutePolicy.priorities(routes, false, Route.SPEAKER).first())
+        assertEquals(Route.BLUETOOTH_HEADSET,
+            CallAudioRoutePolicy.priorities(routes, false, Route.WIRED_HEADSET).first())
+        assertEquals(Route.EARPIECE,
+            CallAudioRoutePolicy.priorities(
+                routes - Route.BLUETOOTH_HEADSET, false, Route.BLUETOOTH_HEADSET
+            ).first())
+    }
+
+    @Test fun absenceOfDeviceFailsClosedWithoutInventingBluetoothSupport() {
+        assertTrue(CallAudioRoutePolicy.priorities(emptySet(), false).isEmpty())
+        assertEquals(listOf(Route.SPEAKER),
+            CallAudioRoutePolicy.priorities(setOf(Route.SPEAKER), false))
+        assertEquals(listOf(Route.EARPIECE),
+            CallAudioRoutePolicy.priorities(setOf(Route.EARPIECE), true))
+    }
+}
