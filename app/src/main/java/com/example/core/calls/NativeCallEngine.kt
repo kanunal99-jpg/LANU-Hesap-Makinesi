@@ -14,6 +14,7 @@ import org.webrtc.*
 import org.webrtc.audio.JavaAudioDeviceModule
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -58,6 +59,9 @@ class NativeCallEngine(
     private var localVideo: VideoTrack? = null
     private var remoteVideo: VideoTrack? = null
     private var capturer: CameraVideoCapturer? = null
+    // Per-camera token prevents late errors from an abandoned OEM capturer
+    // from terminating a newly recovered camera session.
+    private val cameraGeneration = AtomicInteger()
     private var texture: SurfaceTextureHelper? = null
     private var videoEnabled = false
     // Thread-safe evidence tracker rejects cumulative RTP packets from prior ICE epochs.
@@ -151,6 +155,13 @@ class NativeCallEngine(
             }
             runCatching { Camera1Enumerator(false) }.getOrNull()?.let { add(it) }
         }
+        // The camera may exist yet fail synchronously during initialize/open.
+        // Create one source/texture, then retry *real* Camera2 or Camera1
+        // capturers and dispose each failed candidate before moving on.
+        videoSource = factory!!.createVideoSource(false)
+        texture = checkNotNull(SurfaceTextureHelper.create("LANU-Camera", egl!!.eglBaseContext)) {
+            "Kamera yüzeyi açılamadı."
+        }
         capturer = CallCameraFallback.select(
             enumerate = enumerators.map { cameraEnumerator ->
                 {
@@ -162,14 +173,27 @@ class NativeCallEngine(
                     }
                 }
             },
-            open = { index, device -> enumerators[index].createCapturer(device.name, cameraEvents) }
+            open = { index, device ->
+                val generation = cameraGeneration.incrementAndGet()
+                val candidate = enumerators[index].createCapturer(device.name, cameraEvents(generation))
+                    ?: return@select null
+                try {
+                    check(!closing.get())
+                    candidate.initialize(texture, context, videoSource!!.capturerObserver)
+                    candidate.startCapture(1280, 720, 24)
+                    check(!closing.get())
+                    candidate
+                } catch (e: Exception) {
+                    // Invalidate late callbacks from the rejected camera before
+                    // trying another OEM HAL; never leak a native capturer.
+                    cameraGeneration.incrementAndGet()
+                    runCatching { candidate.stopCapture() }
+                    runCatching { candidate.dispose() }
+                    null
+                }
+            }
         )
         checkNotNull(capturer) { "Kamera kullanılamadı; sesli aramayı deneyin." }
-        videoSource = factory!!.createVideoSource(false)
-        texture = SurfaceTextureHelper.create("LANU-Camera", egl!!.eglBaseContext)
-        capturer!!.initialize(texture, context, videoSource!!.capturerObserver)
-        check(!closing.get())
-        capturer!!.startCapture(1280, 720, 24)
         videoEnabled = true
         localVideo = factory!!.createVideoTrack("lanu-video", videoSource).also { track ->
             track.setEnabled(true)
@@ -178,10 +202,13 @@ class NativeCallEngine(
         updateBindings()
     }
 
-    private val cameraEvents = object : CameraVideoCapturer.CameraEventsHandler {
-        override fun onCameraError(error: String) = cameraFailure()
-        override fun onCameraDisconnected() = cameraFailure()
-        override fun onCameraFreezed(error: String) = cameraFailure()
+    private fun cameraEvents(generation: Int) = object : CameraVideoCapturer.CameraEventsHandler {
+        private fun activeFailure() {
+            if (generation == cameraGeneration.get()) cameraFailure()
+        }
+        override fun onCameraError(error: String) = activeFailure()
+        override fun onCameraDisconnected() = activeFailure()
+        override fun onCameraFreezed(error: String) = activeFailure()
         override fun onCameraOpening(name: String) {}
         override fun onFirstFrameAvailable() {}
         override fun onCameraClosed() {}
