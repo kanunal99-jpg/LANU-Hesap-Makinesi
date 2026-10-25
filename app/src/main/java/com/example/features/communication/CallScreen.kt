@@ -340,7 +340,7 @@ fun CallScreen(
                             AncLevel.ADAPTIVE -> stringResource(R.string.anc_level_adaptive)
                         }
                         Text(
-                            text = stringResource(R.string.anc_active_badge, levelText),
+                            text = "ENC AYARI (DEMO) — $levelText",
                             color = Color(0xFFE040FB),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Medium
@@ -512,7 +512,7 @@ fun CallScreen(
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = stringResource(R.string.anc_toggle),
+                            text = "ENC / Gürültü azaltma tercihi (önizleme)",
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp
@@ -537,7 +537,7 @@ fun CallScreen(
                         onCheckedChange = { checked ->
                             triggerVibration()
                             isAncEnabled = checked
-                            val msg = if (checked) ancEnabledText else ancDisabledText
+                            val msg = "Önizleme ayarı: gerçek mikrofon bağlantısı henüz yok."
                             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                         },
                         colors = SwitchDefaults.colors(
@@ -672,7 +672,7 @@ fun CallScreen(
                                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
                                         Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF4CAF50), modifier = Modifier.size(14.dp))
-                                        Text(text = stringResource(R.string.anc_hardware_ok), color = Color(0xFF4CAF50), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                        Text(text = "Gerçek mikrofon NS etkisi etkin", color = Color(0xFF4CAF50), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                                     }
                                 } else {
                                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -681,14 +681,14 @@ fun CallScreen(
                                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                                         ) {
                                             Icon(Icons.Default.Info, contentDescription = null, tint = Color(0xFFFFB74D), modifier = Modifier.size(14.dp))
-                                            Text(text = stringResource(R.string.anc_hardware_unsupported), color = Color(0xFFFFB74D), fontSize = 11.sp)
+                                            Text(text = "Canlı mikrofon oturumu yok; cihaz NS desteği: ${dspTelemetry.isHardwareSupported}", color = Color(0xFFFFB74D), fontSize = 11.sp)
                                         }
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                                         ) {
                                             Icon(Icons.Default.AutoFixHigh, contentDescription = null, tint = Color(0xFF4CAF50), modifier = Modifier.size(14.dp))
-                                            Text(text = stringResource(R.string.anc_software_fallback, 88), color = Color(0xFF4CAF50), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text(text = "WebRTC/RNNoise henüz bağlı değil; otomatik fallback aktif DEĞİL.", color = Color(0xFFFFB74D), fontSize = 11.sp)
                                         }
                                     }
                                 }
@@ -743,17 +743,17 @@ fun CallScreen(
                                     verticalArrangement = Arrangement.spacedBy(3.dp)
                                 ) {
                                     Text(text = "Aktif Motor: ${dspTelemetry.activeAlgorithm}", color = Color.White.copy(alpha = 0.85f), fontSize = 10.sp)
-                                    Text(text = "DSP Gecikmesi: ${String.format(Locale.getDefault(), "%.1f ms (Oboe Ultra-Low Latency)", dspTelemetry.latencyMs)}", color = Color.White.copy(alpha = 0.85f), fontSize = 10.sp)
-                                    Text(text = "Gürültü Baskılama Oranı: -${dspTelemetry.suppressionRatioDb} dB", color = Color.White.copy(alpha = 0.85f), fontSize = 10.sp)
-                                    Text(text = "Ortam Gürültü Tabanı: ${String.format(Locale.getDefault(), "%.1f dBFS", dspTelemetry.noiseFloorDbfs)}", color = Color.White.copy(alpha = 0.85f), fontSize = 10.sp)
-                                    Text(text = "Ses Netlik İndeksi: %${dspTelemetry.voiceClarityScore} (Mükemmel)", color = Color(0xFF81C784), fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                                    Text(text = "DSP gecikmesi: ölçülmedi (demo)", color = Color.White.copy(alpha = 0.85f), fontSize = 10.sp)
+                                    Text(text = "Gürültü baskılama oranı: ölçülmedi (demo)", color = Color.White.copy(alpha = 0.85f), fontSize = 10.sp)
+                                    Text(text = "Ortam gürültüsü: mikrofon açık değil (demo)", color = Color.White.copy(alpha = 0.85f), fontSize = 10.sp)
+                                    Text(text = "Ses netliği: ölçülmedi (demo)", color = Color.White.copy(alpha = 0.85f), fontSize = 10.sp, fontWeight = FontWeight.Medium)
                                 }
                             }
 
                             1 -> {
                                 // TAB 1: Network, Latency & Lip-Sync
                                 Text(
-                                    text = stringResource(R.string.net_diagnostics_title),
+                                    text = "Temsili ağ göstergeleri — canlı WebRTC ölçümü değil",
                                     color = Color.White,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold
@@ -811,7 +811,7 @@ fun CallScreen(
                                     onClick = {
                                         triggerVibration()
                                         syncEngine.triggerIceRestart {
-                                            Toast.makeText(context, "Ağ geçişi tamamlandı (Relay TLS :443) - Çağrı kesilmedi!", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Demo ICE geçiş animasyonu; gerçek bağlantı kurulmadı.", Toast.LENGTH_SHORT).show()
                                         }
                                     },
                                     modifier = Modifier.fillMaxWidth(),

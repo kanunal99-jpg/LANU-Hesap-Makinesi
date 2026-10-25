@@ -17,13 +17,17 @@ import org.robolectric.annotation.Config
 class CommunicationAndDspTest {
 
     @Test
-    fun testAudioDspProcessor_fallbackToSoftwareWhenNoHardware() = runTest {
+    fun testAudioDspProcessor_doesNotClaimUnconnectedHardwareOrSoftwareNoiseSuppression() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val dsp = AudioDspProcessor(context)
 
         val telemetry = dsp.telemetry.value
-        // In emulator/robolectric without hardware DSP chip, software DSP must automatically be active!
-        assertTrue("Software DSP must be active or supported", telemetry.isSoftwareActive || telemetry.isHardwareActive)
+        // A demo screen without an AudioRecord cannot claim NS/AEC/AGC or RNNoise.
+        assertFalse(telemetry.isSoftwareActive)
+        assertFalse(telemetry.isHardwareActive)
+        assertEquals(0, telemetry.suppressionRatioDb)
+        assertEquals(0f, telemetry.latencyMs)
+        assertTrue(telemetry.activeAlgorithm.contains("Etkin değil"))
 
         // Verify buffer filtering works
         val testBuffer = ShortArray(256) { (it % 100).toShort() }
@@ -33,7 +37,7 @@ class CommunicationAndDspTest {
         // Switching mode
         dsp.setDspMode(DspProcessingMode.SOFTWARE_DSP)
         assertEquals(DspProcessingMode.SOFTWARE_DSP, dsp.telemetry.value.mode)
-        assertTrue(dsp.telemetry.value.isSoftwareActive)
+        assertFalse(dsp.telemetry.value.isSoftwareActive)
     }
 
     @Test
