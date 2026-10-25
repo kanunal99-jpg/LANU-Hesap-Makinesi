@@ -622,3 +622,5 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - **Canlı sunucu kanıtı:** Additive geçiş `20261025123907_private_call_signaling`, Edge v4 etkin; üç geçici ECDSA kimliğiyle E2EE davet, eski istemci yanıtı, yetki, idempotency, yalnız alıcı ACK ve kişi iptali smoke geçti. RLS/grant kontrolü kapalı doğrudan erişimi doğruladı.
 
 - **CI #404 bulgusu:** Birim/Robolectric ve lint geçti; ilk native Android testi boş ilk ICE COMPLETE nedeniyle timeout verdi. Android ağ callback'i gelmeden boş SDP alınabiliyordu. Motor ve test artık gerçek aday oluşmasını ve güncel gathering durumunu bekler; başarısız koşu yayınlanmadı.
+
+- **Çağrı UX:** Gelen ön plan aramasında sistem zil sesi; kabul/red/çıkışta deterministik durdurma. Yerel kamera önizlemesi video yüzeyinin üzerinde gösterilir. Native logger kapalı sink ile devre dışıdır; SDP/ICE sırları logcat içinde tutulmaz.

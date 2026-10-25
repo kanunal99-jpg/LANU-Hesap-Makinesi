@@ -2,6 +2,8 @@ package com.example.features.communication
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.os.Build
 import android.os.SystemClock
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -37,9 +39,23 @@ fun NativeCallHost(model: NativeCallViewModel, request: Pair<String, Boolean>?, 
     val engine = media as? NativeCallEngine
     val notice by model.notice.collectAsState()
     val context = LocalContext.current
+    LifecycleStartEffect(state.callId, state.phase, context) {
+        val ringtone = if (state.phase == NativeCallPhase.RINGING) runCatching {
+            RingtoneManager.getRingtone(context, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))?.apply {
+                audioAttributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
+                if (Build.VERSION.SDK_INT >= 28) isLooping = true
+                play()
+            }
+        }.getOrNull() else null
+        onStopOrDispose { runCatching { ringtone?.stop() } }
+    }
     var confirm by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     var permissionTarget by remember { mutableStateOf<Triple<String, Boolean, Boolean>?>(null) }
-    LifecycleStartEffect(model) { model.activate(); onStopOrDispose { model.deactivate() } }
+    LifecycleStartEffect(model) {
+        model.activate()
+        onStopOrDispose { permissionTarget = null; confirm = null; model.deactivate() }
+    }
     LaunchedEffect(request) { if (request != null) { confirm = request; onRequestConsumed() } }
     LaunchedEffect(state.callId) {
         if (state.phase == NativeCallPhase.RINGING) { confirm = null; permissionTarget = null }
@@ -132,7 +148,10 @@ fun NativeCallHost(model: NativeCallViewModel, request: Pair<String, Boolean>?, 
 @Composable
 private fun CallVideo(engine: NativeCallEngine, remote: Boolean, modifier: Modifier) {
     key(engine, remote) {
-        AndroidView(factory = { context -> SurfaceViewRenderer(context).also { engine.bind(it, remote) } },
+        AndroidView(factory = { context -> SurfaceViewRenderer(context).also {
+            it.setZOrderMediaOverlay(!remote)
+            engine.bind(it, remote)
+        } },
             modifier = modifier, onRelease = { engine.unbind(it) })
     }
 }
