@@ -15,6 +15,8 @@ Arka plan kontrolü ilk kurulumda **kapalı**, kotasız ağ tercihi **açık** g
 5. Yerel izleme: yalnız boolean tercihler, zaman damgası ve fixed outcome enum. Mesaj, kod, anahtar, PIN, ham exception, SDP veya uzaktan telemetri yoktur. WorkManager veritabanına hassas payload yazılmaz; otomatik Android backup korumaları sürer.
 6. Smoke: yeni testler + bütün mevcut JUnit/Robolectric/lint, API34 debug/release veritabanı kabulü, minified release APK, aynı sertifika/SHA256 ve anonim public download read-back. Fiziksel kabul ayrı kapıdır.
 
+`DeliveryDeviceAcceptanceTest` gerçek Android WorkManager üzerinden worker'ı reflection ile başlatır ve opt-out halinde ne kimlik/ağ akışına girildiğini ne de başarı zamanı yazıldığını doğrular. Bu test debug ve R8 release APK üzerinde çalışır; R8 sonrası worker adı/constructor ve özel WorkManager initialization yolu da bu kabulün parçasıdır. Test yalnız izole emulator/test kurulumunda çalıştırılır, gerçek hesap veya backend fixture kullanmaz.
+
 ## Sınırlar ve maliyet
 
 - WorkManager **2.11.2** sabittir; 2.12 API24 minimum istediği için API23 desteğini kıracak yükseltme yapılmadı. `work-gcm`, FCM veya yeni cloud servis eklenmedi.

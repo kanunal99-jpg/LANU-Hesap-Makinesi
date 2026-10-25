@@ -26,6 +26,17 @@
 # destructive-migration regression checks on the minified release variant.
 # This does not migrate or reset the existing user's Room database.
 -keep class com.example.core.database.** { *; }
+# The separate debug/release instrumentation APK starts a real opt-out worker.
+# Preserve only the public WorkManager ABI it links; implementation still shrinks.
+-keep class androidx.work.WorkManager { public *; }
+-keep class androidx.work.WorkInfo { public *; }
+-keep class androidx.work.WorkInfo$State { *; }
+-keep class androidx.work.WorkRequest { public *; }
+-keep class androidx.work.WorkRequest$Builder { public protected *; }
+-keep class androidx.work.OneTimeWorkRequest { public *; }
+-keep class androidx.work.OneTimeWorkRequest$Builder { public protected *; }
+-keep class androidx.work.Operation { public *; }
+-keep class androidx.work.Data { public *; }
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.
 #
@@ -46,3 +57,4 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
