@@ -407,6 +407,22 @@ class NativeCallStateTest {
         assertTrue("The camera may show active after native startup succeeds",vm.state.value.cameraOn)
     }
 
+    @Test fun leavingPrivateAreaWhileVideoStartsCannotReviveCameraOrSendOffer() = runBlocking {
+        vm.outgoing(UserCodes.conversationId(own.id,peer.id),true,true)
+        val invite=awaitSent(CallSignalKind.INVITE)
+        startGate=CompletableDeferred()
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,true))
+        withTimeout(3000) { while (starts==0) delay(10) }
+        assertFalse(vm.state.value.cameraOn)
+
+        vm.deactivate()
+        startGate!!.complete(Unit)
+        assertEquals(NativeCallPhase.IDLE,vm.state.value.phase)
+        assertFalse("Private-area exit must not re-enable camera",vm.state.value.cameraOn)
+        assertEquals("Ended call must never signal an offer",0,sent.value.count { it.kind==CallSignalKind.OFFER })
+        assertEquals(1,closes)
+    }
+
     @Test fun failedVideoStartupNeverClaimsCameraActive() = runBlocking {
         failStart=true
         vm.outgoing(UserCodes.conversationId(own.id,peer.id),true,true)
