@@ -79,6 +79,11 @@ jobs:
       - name: Verify real call packet freshness after reconnect
         run: ./gradlew :app:testDebugUnitTest --tests 'com.example.CallRtpEvidenceTrackerTest' --no-daemon --stacktrace
 
+      # Independent anti-replay regression gate: no false BUSY during a
+      # retransmitted INVITE and no re-ring after the call has ended.
+      - name: Verify call invitation replay and busy handling
+        run: ./gradlew :app:testDebugUnitTest --tests 'com.example.NativeCallStateTest' --no-daemon --stacktrace
+
       - name: Run Unit and Robolectric Tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
 
