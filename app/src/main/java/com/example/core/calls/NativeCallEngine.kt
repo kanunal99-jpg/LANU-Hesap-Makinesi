@@ -74,8 +74,16 @@ class NativeCallEngine(
         router.start(realCallAuthorized = true, isVideo = video)
         egl = WebRtcEglFactory.create()
         renderers = CallVideoRendererBindings(egl!!.eglBaseContext)
+        // Query AEC and NS independently. WebRTC ADM selects its software APM
+        // path if an OEM lacks a built-in effect; do not stack a second Android
+        // AudioEffect or report an unmeasured dB/ANC improvement.
+        val audioProcessing = CallAudioProcessingPolicy.choose(
+            aecReported = runCatching { JavaAudioDeviceModule.isBuiltInAcousticEchoCancelerSupported() }.getOrDefault(false),
+            nsReported = runCatching { JavaAudioDeviceModule.isBuiltInNoiseSuppressorSupported() }.getOrDefault(false)
+        )
         adm = JavaAudioDeviceModule.builder(context).setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
-            .setUseHardwareAcousticEchoCanceler(true).setUseHardwareNoiseSuppressor(true)
+            .setUseHardwareAcousticEchoCanceler(audioProcessing.hardwareAec)
+            .setUseHardwareNoiseSuppressor(audioProcessing.hardwareNs)
             .setAudioRecordErrorCallback(object : JavaAudioDeviceModule.AudioRecordErrorCallback {
                 override fun onWebRtcAudioRecordInitError(error: String) = audioFailure()
                 override fun onWebRtcAudioRecordStartError(code: JavaAudioDeviceModule.AudioRecordStartErrorCode, error: String) = audioFailure()
@@ -130,10 +138,29 @@ class NativeCallEngine(
     }
 
     private fun startCamera() {
-        val enum: CameraEnumerator = if (Camera2Enumerator.isSupported(context)) Camera2Enumerator(context) else Camera1Enumerator(false)
-        val ordered = enum.deviceNames.sortedBy { if (enum.isFrontFacing(it)) 0 else 1 }
-        capturer = ordered.firstNotNullOfOrNull { enum.createCapturer(it, cameraEvents) }
-            ?: Camera1Enumerator(false).let { fallback -> fallback.deviceNames.firstNotNullOfOrNull { fallback.createCapturer(it, cameraEvents) } }
+        // On some OEM devices the Camera2 capability probe, enumeration, or
+        // individual createCapturer call can throw even when Camera2 reports
+        // supported. Prefer Camera2, but actually enumerate/open Camera1 as
+        // a fallback rather than treating a capability flag as success.
+        val enumerators = buildList<CameraEnumerator> {
+            if (runCatching { Camera2Enumerator.isSupported(context) }.getOrDefault(false)) {
+                runCatching { Camera2Enumerator(context) }.getOrNull()?.let { add(it) }
+            }
+            runCatching { Camera1Enumerator(false) }.getOrNull()?.let { add(it) }
+        }
+        capturer = CallCameraFallback.select(
+            enumerate = enumerators.map { cameraEnumerator ->
+                {
+                    cameraEnumerator.deviceNames.map { device ->
+                        CallCameraFallback.Device(
+                            device,
+                            runCatching { cameraEnumerator.isFrontFacing(device) }.getOrDefault(false)
+                        )
+                    }
+                }
+            },
+            open = { index, device -> enumerators[index].createCapturer(device.name, cameraEvents) }
+        )
         checkNotNull(capturer) { "Kamera kullanılamadı; sesli aramayı deneyin." }
         videoSource = factory!!.createVideoSource(false)
         texture = SurfaceTextureHelper.create("LANU-Camera", egl!!.eglBaseContext)
