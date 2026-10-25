@@ -306,7 +306,7 @@ class NativeCallViewModel(
         workJobs.toList().forEach { it.cancel() }; workJobs.clear()
         _media.value?.close(); _media.value = null
         val previous = _state.value
-        _state.value = previous.copy(phase = NativeCallPhase.ENDED, message = message)
+        _state.value = previous.copy(phase = NativeCallPhase.ENDED, message = message, muted = false, cameraOn = false)
         viewModelScope.launch {
             if (notify) runCatching { send(current, kind) }
             if (previous.connectedAt > 0) runCatching {
