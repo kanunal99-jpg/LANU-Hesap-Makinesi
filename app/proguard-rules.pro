@@ -3,6 +3,10 @@
 # WebRTC JNI resolves Java names/callbacks. Verified by a native DTLS loopback
 # test on both debug and minified release, not by disabling R8.
 -keep class org.webrtc.** { *; }
+# Keep the concrete, JNI-invoked override adapter across minified releases.
+# Without these explicit methods, older Android desugaring may attempt an
+# Observer$-CC companion that is not present in the release APK (CI #412).
+-keep class com.example.core.calls.EmptyPeerObserver { *; }
 # The release instrumentation APK invokes our retained production EGL entry
 # point rather than independently linking an incompatible static-interface
 # desugaring bridge for EglBase.create() on minSdk 23.
