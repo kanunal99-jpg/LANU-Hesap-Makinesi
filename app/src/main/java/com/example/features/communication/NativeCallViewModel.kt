@@ -34,6 +34,9 @@ class NativeCallViewModel(
     private class Session(val id: String, val peer: CallPeer, val video: Boolean, val outgoing: Boolean) {
         var restarting = false
         var offers = 0
+        // Only accept one authenticated ANSWER for each locally generated OFFER.
+        // A unique replayed ANSWER after CONNECTED must not re-enter stable SDP.
+        var awaitingAnswer = false
     }
     private var session: Session? = null
     private var foreground = false
@@ -146,7 +149,10 @@ class NativeCallViewModel(
                     val engine = createEngine(current)
                     _media.value = engine
                     engine.start(current.video)
-                    send(current, CallSignalKind.OFFER, engine.offer())
+                    val offerSdp = engine.offer()
+                    if (session !== current || !foreground) return@guarded
+                    current.awaitingAnswer = true
+                    send(current, CallSignalKind.OFFER, offerSdp)
                 }
             }
             CallSignalKind.OFFER -> if (!current.outgoing && _state.value.phase in setOf(
@@ -165,7 +171,12 @@ class NativeCallViewModel(
                     send(current, CallSignalKind.ANSWER, engine.answer(s.sdp))
                 }
             }
-            CallSignalKind.ANSWER -> if (current.outgoing && _media.value != null) {
+            CallSignalKind.ANSWER -> if (current.outgoing && current.awaitingAnswer &&
+                _media.value != null && _state.value.phase in setOf(
+                    NativeCallPhase.CONNECTING, NativeCallPhase.RECONNECTING)) {
+                // Claim the one outstanding answer slot synchronously on the UI
+                // dispatcher. An extra ANSWER with a fresh signal UUID is ignored.
+                current.awaitingAnswer = false
                 pipeline = guarded(current) { _media.value?.remoteAnswer(s.sdp) }
             }
             CallSignalKind.REJECT -> finish("Karşı taraf aramayı reddetti.", notify = false)
@@ -187,7 +198,13 @@ class NativeCallViewModel(
                 deadline(current, 25_000, "Ağ bağlantısı kesildi.")
                 if (current.outgoing && !current.restarting) {
                     current.restarting = true
-                    pipeline = guarded(current) { send(current, CallSignalKind.OFFER, _media.value!!.offer(restart = true)) }
+                    pipeline = guarded(current) {
+                        val engine = _media.value ?: return@guarded
+                        val offerSdp = engine.offer(restart = true)
+                        if (session !== current || !foreground) return@guarded
+                        current.awaitingAnswer = true
+                        send(current, CallSignalKind.OFFER, offerSdp)
+                    }
                 }
             }
         } }, { message -> viewModelScope.launch { if (session === current) fail(message) } })

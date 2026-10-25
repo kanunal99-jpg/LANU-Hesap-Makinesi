@@ -36,6 +36,7 @@ class NativeCallStateTest {
     private var closes=0
     private var mediaCreated=0
     private var iceRestarts=0
+    private var remoteAnswers=0
     private var failStart=false
     private var failCallAck=false
     private var incomingChatEvent: JSONObject? = null
@@ -90,7 +91,7 @@ class NativeCallStateTest {
                 override suspend fun start(video:Boolean) { starts++;check(!failStart) }
                 override suspend fun offer(restart:Boolean):String { if(restart) iceRestarts++;return sdp }
                 override suspend fun answer(remote:String)=sdp
-                override suspend fun remoteAnswer(remote:String) {}
+                override suspend fun remoteAnswer(remote:String) { remoteAnswers++ }
                 override fun mute(value:Boolean) {}
                 override fun camera(value:Boolean) {}
                 override fun switchCamera() {}
@@ -252,6 +253,47 @@ class NativeCallStateTest {
         assertEquals(1,iceRestarts)
         vm.end();waitPhase(NativeCallPhase.ENDED)
         assertEquals(1,closes)
+    }
+
+    @Test fun duplicateAndLateAnswerCannotReapplyRemoteSdpAfterCallConnected() = runBlocking {
+        vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
+        val invite=awaitSent(CallSignalKind.INVITE)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,false))
+        awaitSent(CallSignalKind.OFFER)
+
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ANSWER,false,sdp))
+        withTimeout(3000) { while(remoteAnswers < 1) delay(10) }
+        assertEquals(1,remoteAnswers)
+
+        // Each forged/retried response carries a new authenticated envelope UUID.
+        // Applying a second answer to a stable SDP state would fail real WebRTC.
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ANSWER,false,sdp))
+        assertEquals("A single OFFER must consume no more than one ANSWER",1,remoteAnswers)
+
+        report!!(CallMediaEvidence(true,10,10));waitPhase(NativeCallPhase.CONNECTED)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ANSWER,false,sdp))
+        assertEquals(1,remoteAnswers)
+        assertEquals(NativeCallPhase.CONNECTED,vm.state.value.phase)
+    }
+
+    @Test fun legitimateIceRestartMayConsumeItsOwnSecondAnswerExactlyOnce() = runBlocking {
+        vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
+        val invite=awaitSent(CallSignalKind.INVITE)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,false))
+        awaitSent(CallSignalKind.OFFER)
+
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ANSWER,false,sdp))
+        withTimeout(3000) { while(remoteAnswers < 1) delay(10) }
+        report!!(CallMediaEvidence(true,10,10));waitPhase(NativeCallPhase.CONNECTED)
+        report!!(CallMediaEvidence(false,10,10));waitPhase(NativeCallPhase.RECONNECTING)
+        withTimeout(3000) { sent.first { events -> events.count { it.kind==CallSignalKind.OFFER } == 2 } }
+        assertEquals(1,iceRestarts)
+
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ANSWER,false,sdp))
+        withTimeout(3000) { while(remoteAnswers < 2) delay(10) }
+        assertEquals(2,remoteAnswers)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ANSWER,false,sdp))
+        assertEquals(2,remoteAnswers)
     }
 
     @Test fun ordinaryChatCiphertextCannotCreateAnIncomingCall() = runBlocking {
