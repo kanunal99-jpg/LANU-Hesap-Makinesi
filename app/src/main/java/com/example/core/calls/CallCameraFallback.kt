@@ -1,5 +1,7 @@
 package com.example.core.calls
 
+import java.util.concurrent.CancellationException
+
 /**
  * OEM camera capability is not a guarantee that the HAL can enumerate or open
  * a capturer. Try every enumerated front-facing then rear camera, then the
@@ -16,9 +18,13 @@ internal object CallCameraFallback {
         open: (sourceIndex: Int, device: Device) -> T?
     ): T? {
         for ((index, source) in enumerate.withIndex()) {
-            val devices = try { source() } catch (_: Exception) { continue }
+            val devices = try { source() }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { continue }
             for (device in devices.sortedBy { if (it.frontFacing) 0 else 1 }) {
-                val selected = try { open(index, device) } catch (_: Exception) { null }
+                val selected = try { open(index, device) }
+                catch (e: CancellationException) { throw e }
+                catch (_: Exception) { null }
                 if (selected != null) return selected
             }
         }

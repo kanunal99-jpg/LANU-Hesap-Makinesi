@@ -145,6 +145,9 @@ class NativeCallEngine(
     }
 
     private fun startCamera() {
+        // Closing is an aborted user session, never a recoverable camera HAL
+        // failure. The fallback policy preserves CancellationException.
+        if (closing.get()) throw CancellationException("Call camera startup cancelled")
         // On some OEM devices the Camera2 capability probe, enumeration, or
         // individual createCapturer call can throw even when Camera2 reports
         // supported. Prefer Camera2, but actually enumerate/open Camera1 as
@@ -165,6 +168,7 @@ class NativeCallEngine(
         capturer = CallCameraFallback.select(
             enumerate = enumerators.map { cameraEnumerator ->
                 {
+                    if (closing.get()) throw CancellationException("Call camera enumeration cancelled")
                     cameraEnumerator.deviceNames.map { device ->
                         CallCameraFallback.Device(
                             device,
@@ -174,6 +178,7 @@ class NativeCallEngine(
                 }
             },
             open = { index, device ->
+                if (closing.get()) throw CancellationException("Call camera fallback cancelled")
                 val generation = cameraGeneration.incrementAndGet()
                 // Some OEM callbacks report startup failure before startCapture
                 // returns. Retry that camera rather than closing the entire call.
@@ -184,10 +189,10 @@ class NativeCallEngine(
                 CallCameraStartupPolicy.tryStart(
                     candidate,
                     start = { camera ->
-                        check(!closing.get())
+                        if (closing.get()) throw CancellationException("Call camera startup cancelled")
                         camera.initialize(texture, context, videoSource!!.capturerObserver)
                         camera.startCapture(1280, 720, 24)
-                        check(!closing.get())
+                        if (closing.get()) throw CancellationException("Call camera startup cancelled")
                         check(!failed.get()) { "Kamera açılışında hata." }
                         starting.set(false)
                     },
@@ -201,6 +206,7 @@ class NativeCallEngine(
                 )
             }
         )
+        if (closing.get()) throw CancellationException("Call camera startup cancelled")
         checkNotNull(capturer) { "Kamera kullanılamadı; sesli aramayı deneyin." }
         videoEnabled = true
         localVideo = factory!!.createVideoTrack("lanu-video", videoSource).also { track ->

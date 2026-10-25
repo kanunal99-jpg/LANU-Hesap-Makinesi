@@ -1,6 +1,7 @@
 package com.example
 
 import com.example.core.calls.CallCameraFallback
+import com.example.core.calls.CallCameraStartupPolicy
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -45,5 +46,63 @@ class CallCameraFallbackTest {
     @Test fun noSourcesOrAllEnumerationCrashesFailsClosed() {
         assertNull(CallCameraFallback.select(emptyList<() -> List<CallCameraFallback.Device>>()) { _, _ -> "fake" })
         assertNull(CallCameraFallback.select(listOf({ throw RuntimeException("HAL") })) { _, _ -> "fake" })
+    }
+
+    @Test fun cancellationDuringEnumerationStopsAllFallbackProviders() {
+        var secondEnumerated = false
+        try {
+            CallCameraFallback.select(
+                listOf(
+                    { throw java.util.concurrent.CancellationException("private area closed") },
+                    { secondEnumerated = true; listOf(front) }
+                )
+            ) { _, _ -> "camera" }
+            fail("Cancellation must propagate")
+        } catch (_: java.util.concurrent.CancellationException) {}
+        assertFalse("No alternate camera may start after cancellation", secondEnumerated)
+    }
+
+    @Test fun cancellationDuringOpenNeverAttemptsAnotherHal() {
+        val opened = mutableListOf<String>()
+        try {
+            CallCameraFallback.select(
+                listOf({ listOf(front, back) }, { listOf(back) })
+            ) { index, d ->
+                opened += "$index:${d.name}"
+                throw java.util.concurrent.CancellationException("call ended")
+            }
+            fail("Cancellation must propagate")
+        } catch (_: java.util.concurrent.CancellationException) {}
+        assertEquals(listOf("0:front"), opened)
+    }
+
+
+    @Test fun realCallClosureDuringCameraStartupReleasesCaptureAndNeverOpensCamera1() {
+        val released = mutableListOf<String>()
+        val opened = mutableListOf<String>()
+        var closed = false
+        try {
+            CallCameraFallback.select(
+                listOf(
+                    { listOf(front) },
+                    { listOf(back) }
+                )
+            ) { index, device ->
+                if (closed) throw java.util.concurrent.CancellationException("call ended")
+                opened += "$index:${device.name}"
+                CallCameraStartupPolicy.tryStart(device,
+                    start = {
+                        // Simulate user leaving the private area after Camera2
+                        // opened but before startCapture reports success.
+                        closed = true
+                        if (closed) throw java.util.concurrent.CancellationException("private area closed")
+                    },
+                    releaseFailed = { released += it.name }
+                )
+            }
+            fail("Real cancellation must abort alternate HAL startup")
+        } catch (_: java.util.concurrent.CancellationException) {}
+        assertEquals(listOf("0:front"), opened)
+        assertEquals(listOf("front"), released)
     }
 }
