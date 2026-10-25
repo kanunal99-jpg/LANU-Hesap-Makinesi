@@ -23,18 +23,10 @@ class WebRtcNativeAcceptanceTest {
         override fun onCreateFailure(value:String?) {}
         override fun onSetFailure(value:String?) {}
     }
-    private open class Observer : PeerConnection.Observer {
-        override fun onSignalingChange(s:PeerConnection.SignalingState) {}
-        override fun onIceConnectionChange(s:PeerConnection.IceConnectionState) {}
-        override fun onIceConnectionReceivingChange(b:Boolean) {}
-        override fun onIceGatheringChange(s:PeerConnection.IceGatheringState) {}
-        override fun onIceCandidate(c:IceCandidate) {}
-        override fun onIceCandidatesRemoved(c:Array<out IceCandidate>) {}
-        override fun onAddStream(s:MediaStream) {}
-        override fun onRemoveStream(s:MediaStream) {}
-        override fun onDataChannel(d:DataChannel) {}
-        override fun onRenegotiationNeeded() {}
-    }
+    // Inherit the production adapter. Do not compile androidTest-specific
+    // calls to PeerConnection.Observer default -CC companions: release APK
+    // shrinks those separately, causing a fatal JNI error, not a test failure.
+    private open class Observer : com.example.core.calls.EmptyPeerObserver() {}
     private suspend fun create(block:(SdpObserver)->Unit):SessionDescription=suspendCancellableCoroutine { c ->
         block(object:Sdp() {
             override fun onCreateSuccess(value:SessionDescription) { if(c.isActive)c.resume(value) }
