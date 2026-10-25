@@ -20,6 +20,15 @@ class DatabaseEncryptionPreflightTest {
         ByteArray(size) { (it % 101).toByte() }.also { body ->
             "SQLite format 3\u0000".toByteArray(Charsets.US_ASCII)
                 .copyInto(body, endIndex = 16)
+            // SQLite 4096-byte pages, WAL-capable read/write versions, fixed
+            // payload fractions required by SQLite file-format header.
+            body[16] = 0x10
+            body[17] = 0
+            body[18] = 2
+            body[19] = 2
+            body[21] = 64
+            body[22] = 32
+            body[23] = 32
         }
 
     @Test fun existingSqliteAndJournalRemainByteForByteUntouched() {
@@ -81,7 +90,7 @@ class DatabaseEncryptionPreflightTest {
         val bytes = sqlite()
         db.writeBytes(bytes)
         File(db.path + "-wal").writeBytes(ByteArray(8192))
-        val required = 16L * 1024 * 1024 + 2L * 16384
+        val required = 64L * 1024 * 1024 + 2L * 16384
         val failed = DatabaseEncryptionPreflight.inspect(db, required - 1)
         assertEquals(required, failed.conservativeRequiredBytes)
         assertFalse(failed.sufficientDiskSpace)
@@ -105,6 +114,36 @@ class DatabaseEncryptionPreflightTest {
         assertEquals(State.UNREADABLE, snapshot.state)
         assertFalse(snapshot.safeToBeginOfflineMigrationDesign)
         assertArrayEquals(sqlite(), db.readBytes())
+    }
+
+    @Test fun forgedSqliteMagicAndInvalidPageLayoutsFailClosed() {
+        val db = database()
+        val badCases = listOf(
+            sqlite(8192).also { it[16] = 0; it[17] = 3 }, // non power-of-two
+            sqlite(8192).also { it[16] = 0; it[17] = 0 }, // invalid page size
+            sqlite(8192).also { it[18] = 3 }, // unsupported write format
+            sqlite(8192).also { it[19] = 0 }, // unsupported read format
+            sqlite(8192).also { it[21] = 63 }, // payload fraction
+            sqlite(8192).also { it[22] = 0 }, // payload fraction
+            sqlite(8192).also { it[23] = 0 }, // payload fraction
+            sqlite(8193), // partial final page
+            sqlite(100), // magic alone is not a complete database
+        )
+        for (bytes in badCases) {
+            db.writeBytes(bytes)
+            val snapshot = DatabaseEncryptionPreflight.inspect(db, 128L * 1024 * 1024)
+            assertEquals(State.UNKNOWN_OR_TRUNCATED, snapshot.state)
+            assertFalse(snapshot.safeToBeginOfflineMigrationDesign)
+            assertArrayEquals(bytes, db.readBytes())
+        }
+    }
+
+    @Test fun unknownAvailableSpaceNeverQualifiesAsSufficient() {
+        val db = database()
+        db.writeBytes(sqlite())
+        val snapshot = DatabaseEncryptionPreflight.inspect(db, -1)
+        assertFalse(snapshot.sufficientDiskSpace)
+        assertFalse(snapshot.safeToBeginOfflineMigrationDesign)
     }
 
     @Test fun reportCannotAccidentallyDiscloseContentPinOrDatabasePath() {
