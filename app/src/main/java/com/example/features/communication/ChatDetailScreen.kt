@@ -34,6 +34,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -52,8 +53,8 @@ fun ChatDetailScreen(
     viewModel: CommunicationViewModel,
     conversationId: String,
     onNavigateBack: () -> Unit,
-    onVoiceCall: () -> Unit = {},
-    onVideoCall: () -> Unit = {},
+    onVoiceCall: () -> Unit,
+    onVideoCall: () -> Unit,
     onChoosePhoto: () -> Unit = {},
     onTakePhoto: () -> Unit = {},
     onChooseDocument: () -> Unit = {},
@@ -100,7 +101,7 @@ fun ChatDetailScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
                                 .size(36.dp)
@@ -116,11 +117,13 @@ fun ChatDetailScreen(
                             )
                         }
                         Spacer(modifier = Modifier.width(12.dp))
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = activeConversation?.partnerName ?: "Yükleniyor...",
                                 fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
@@ -133,7 +136,9 @@ fun ChatDetailScreen(
                                 Text(
                                     text = "Uçtan Uca Şifreli (AES-GCM)",
                                     fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -148,8 +153,12 @@ fun ChatDetailScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = onVoiceCall) { Icon(Icons.Default.Call, contentDescription = "Sesli ara") }
-                    IconButton(onClick = onVideoCall) { Icon(Icons.Default.Videocam, contentDescription = "Görüntülü ara") }
+                    IconButton(onClick = onVoiceCall, modifier = Modifier.testTag("private_voice_call_button")) {
+                        Icon(Icons.Default.Call, contentDescription = "Sesli ara")
+                    }
+                    IconButton(onClick = onVideoCall, modifier = Modifier.testTag("private_video_call_button")) {
+                        Icon(Icons.Default.Videocam, contentDescription = "Görüntülü ara")
+                    }
                     var showMenu by remember { mutableStateOf(false) }
                     IconButton(onClick = { showMenu = true }) {
                         Icon(Icons.Default.MoreVert, contentDescription = "Seçenekler")
