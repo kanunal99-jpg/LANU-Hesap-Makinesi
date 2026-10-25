@@ -56,8 +56,13 @@ class NativeCallStateTest {
                 "sync" -> JSONObject().put("contacts",JSONArray().put(peerJson)).put("events",JSONArray()).apply {
                     if(data.optInt("callVersion")==1) put("calls",JSONArray(inbox.toList()))
                 }
-                "callSync" -> JSONObject().put("version",1).put("signals",JSONArray(inbox.toList()))
-                "callAck" -> { inbox.clear();JSONObject().put("acknowledged",true) }
+                "callSync" -> JSONObject().put("version",1).put("signals",JSONArray(inbox.take(24)))
+                "callAck" -> {
+                    val ids=data.getJSONArray("ids")
+                    val accepted=(0 until ids.length()).map { ids.getString(it) }.toSet()
+                    inbox.removeAll { it.optString("id") in accepted }
+                    JSONObject().put("acknowledged",true)
+                }
                 "callSend" -> {
                     val id=data.getString("id")
                     val plain=PeerMessageCrypto.decrypt(peer,own.id,own.publicKey,CallSignaling.aadId(id),own.id,data.getString("content"))
@@ -101,6 +106,39 @@ class NativeCallStateTest {
             .put("content",cipher).put("createdAt",System.currentTimeMillis()).put("expiresAt",System.currentTimeMillis()+90_000)
         repo.synchronize()
     }
+    @Test fun fullCallQueueKeepsUnreadSignalsAtRelayUntilCapacityReturns() = runBlocking {
+        // Force a genuinely full foreground queue without a UI collector. An
+        // old DROP_OLDEST queue silently ACKed and discarded accepted calls.
+        vm.deactivate()
+        repo.setCallingForeground(true)
+        val ids=(0 until 66).map {
+            val signal=CallSignaling.create(UUID.randomUUID().toString(),CallSignalKind.INVITE,false)
+            val cipher=PeerMessageCrypto.encrypt(peer,own.id,own.publicKey,
+                CallSignaling.aadId(signal.id),CallSignaling.encode(signal))
+            inbox += JSONObject().put("id",signal.id).put("callId",signal.callId)
+                .put("senderId",peer.id).put("recipientId",own.id).put("content",cipher)
+                .put("createdAt",System.currentTimeMillis())
+                .put("expiresAt",System.currentTimeMillis()+90_000L)
+            signal.id
+        }
+        repo.pollCallSignals()
+        assertEquals(42,inbox.size)
+        repo.pollCallSignals()
+        assertEquals(18,inbox.size)
+        repo.pollCallSignals()
+        assertEquals("Only enqueued signals may be acknowledged",2,inbox.size)
+        assertEquals(ids[64],inbox[0].getString("id"))
+        assertEquals(ids[65],inbox[1].getString("id"))
+        assertEquals(ids[0],withTimeout(1000) { repo.callSignals.first() }.signal.id)
+        repo.pollCallSignals()
+        assertEquals(1,inbox.size)
+        assertEquals(ids[65],inbox.single().getString("id"))
+        assertEquals(ids[1],withTimeout(1000) { repo.callSignals.first() }.signal.id)
+        repo.pollCallSignals()
+        assertEquals(0,inbox.size)
+        repo.setCallingForeground(false)
+    }
+
     @Test fun outgoingWithoutPermissionCannotSendAnInviteOrStartMedia() = runBlocking {
         vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,false)
         assertEquals(NativeCallPhase.IDLE,vm.state.value.phase)
