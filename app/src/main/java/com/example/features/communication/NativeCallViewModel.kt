@@ -41,12 +41,32 @@ class NativeCallViewModel(
     private var session: Session? = null
     private var foreground = false
     private var receiving: Job? = null
+    // Foreground preparation can suspend on the relay; cancel it on exit so
+    // a late response cannot race later call-queue owners or private-area UI.
+    private var preparation: Job? = null
     private var activePoll: Job? = null
     private var pipeline: Job? = null
     private var starting: Job? = null
     private var timeout: Job? = null
     private val workJobs = mutableSetOf<Job>()
     private val seen = LinkedHashSet<String>()
+    // Call-level tombstones complement signal UUID dedupe: a replayed INVITE
+    // with a NEW envelope ID cannot reopen an already ended call.
+    // Bound both age and size; never persist peer/call metadata to disk.
+    private val closedCalls = LinkedHashMap<String, Long>()
+
+    private fun callKey(peerId: String, callId: String) = "$peerId:$callId"
+
+    private fun pruneClosedCalls(now: Long = android.os.SystemClock.elapsedRealtime()) {
+        val staleBefore = now - 2 * CallSignaling.TTL_MILLIS
+        closedCalls.entries.removeAll { it.value < staleBefore }
+        while (closedCalls.size > 512) closedCalls.remove(closedCalls.keys.first())
+    }
+
+    private fun recentlyClosed(peerId: String, callId: String): Boolean {
+        pruneClosedCalls()
+        return callKey(peerId, callId) in closedCalls
+    }
 
     fun activate() {
         if (foreground) return
@@ -55,7 +75,7 @@ class NativeCallViewModel(
         receiving = viewModelScope.launch {
             repository.callSignals.collect { handle(it) }
         }
-        viewModelScope.launch {
+        preparation = viewModelScope.launch {
             try { repository.prepareCalling() }
             catch (e: CancellationException) { throw e }
             catch (_: Exception) { /* Existing foreground chat sync will retry; no idle extra loop. */ }
@@ -67,6 +87,7 @@ class NativeCallViewModel(
         repository.setCallingForeground(false)
         repository.setCallInProgress(false)
         receiving?.cancel(); receiving = null
+        preparation?.cancel(); preparation = null
         starting?.cancel()
         finish("Güvenli alandan çıkıldığı için görüşme kapatıldı.")
         _state.value = NativeCallUiState()
@@ -126,6 +147,10 @@ class NativeCallViewModel(
         while (seen.size > 512) seen.remove(seen.first())
         if (s.kind == CallSignalKind.INVITE) {
             if (System.currentTimeMillis() - s.createdAt > 45_000) return
+            // Retry with another signal UUID is still the SAME call. Sending
+            // BUSY here would terminate the caller's valid ringing session.
+            if (session?.let { it.id == s.callId && it.peer.id == incoming.peer.id } == true) return
+            if (recentlyClosed(incoming.peer.id, s.callId)) return
             if (session != null) {
                 val busy = Session(s.callId, incoming.peer, s.video, false)
                 viewModelScope.launch { runCatching { send(busy, CallSignalKind.BUSY) } }
@@ -245,6 +270,9 @@ class NativeCallViewModel(
     }
     private fun finish(message: String, kind: CallSignalKind = CallSignalKind.END, notify: Boolean = true) {
         val current = session ?: return
+        pruneClosedCalls()
+        closedCalls[callKey(current.peer.id, current.id)] = android.os.SystemClock.elapsedRealtime()
+        pruneClosedCalls()
         session = null
         repository.setCallInProgress(false)
         pipeline?.cancel(); starting?.cancel(); activePoll?.cancel(); timeout?.cancel()
