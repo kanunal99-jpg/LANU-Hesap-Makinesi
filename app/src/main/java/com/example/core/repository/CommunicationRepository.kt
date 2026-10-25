@@ -88,7 +88,7 @@ class CommunicationRepository(
         decodeCallSignals(own, response.getJSONArray("signals"))
     }
 
-    private suspend fun decodeCallSignals(own: MessagingIdentity, rows: JSONArray): List<ReceivedCallSignal> {
+    private suspend fun decodeCallSignals(own: MessagingIdentity, rows: JSONArray) {
         require(rows.length() <= 24)
         val ack = JSONArray()
         for (i in 0 until rows.length()) {
