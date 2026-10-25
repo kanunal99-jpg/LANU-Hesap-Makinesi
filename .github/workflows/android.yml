@@ -39,6 +39,9 @@ jobs:
       - name: Verify relay protocol and Postgres security
         run: npm ci --prefix server && npm test --prefix server
 
+      - name: Test privacy-safe WebRTC native failure explanations
+        run: python3 -m unittest discover -s scripts -p 'test_rtc_failure_diagnose.py'
+
       - name: Verify deployed Supabase migration IDs and bounded retention schedule
         run: python3 -m unittest discover -s scripts -p 'test_verify_supabase_migrations.py'
 
