@@ -135,9 +135,15 @@ class NativeCallViewModel(
         engine.mute(value); _state.value = _state.value.copy(muted = value)
     }
     fun camera() {
+        // A stale UI action or an audio-only call must not start camera capture.
+        // The engine also enforces foreground close / Android camera permission.
+        val current = _state.value
+        if (!foreground || !current.video || current.phase !in setOf(
+                NativeCallPhase.CONNECTING, NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING)) return
         val engine = _media.value ?: return
-        val value = !_state.value.cameraOn
-        engine.camera(value); _state.value = _state.value.copy(cameraOn = value)
+        val value = !current.cameraOn
+        engine.camera(value)
+        _state.value = current.copy(cameraOn = value)
     }
     fun switchCamera() {
         // Camera-off is a privacy boundary. Some OEM switchCamera implementations
