@@ -84,8 +84,8 @@ jobs:
       - name: Verify call invitation replay and busy handling
         run: ./gradlew :app:testDebugUnitTest --tests 'com.example.NativeCallStateTest' --no-daemon --stacktrace
 
-      - name: Verify OEM camera fallback and AEC/NS policy
-        run: ./gradlew :app:testDebugUnitTest --tests 'com.example.CallCameraFallbackTest' --tests 'com.example.CallAudioProcessingPolicyTest' --no-daemon --stacktrace
+      - name: Verify OEM camera, audio AEC/NS and multi-provider STUN policy
+        run: ./gradlew :app:testDebugUnitTest --tests 'com.example.CallCameraFallbackTest' --tests 'com.example.CallAudioProcessingPolicyTest' --tests 'com.example.CallIceServerPolicyTest' --no-daemon --stacktrace
 
       - name: Run Unit and Robolectric Tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
