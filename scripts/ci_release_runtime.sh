@@ -8,11 +8,13 @@ if ./gradlew -PlanuDeviceBuildType=release :app:connectedReleaseAndroidTest --no
   exit 0
 fi
 
-# Never dump the normal logcat buffer: SDP, ICE and user identities may appear there.
-# Read only the Android crash buffer and select exception types / stack-frame names.
-printf '%s\n' '::group::Filtered Android runtime crash diagnostics'
-(adb logcat -d -b crash -t 300 2>/dev/null || true) |
-  grep -E 'FATAL EXCEPTION|JNI DETECTED|Fatal signal|NoSuchMethodError|NoClassDefFoundError|UnsatisfiedLinkError|Caused by:|org\.webrtc|org\.jni_zero|at com\.example' |
-  tail -n 80 || true
+# Never print general logcat: it could include SDP, candidates or private data.
+# Only fixed LANU-RTC-SMOKE stage labels and native/JNI fatal exception types
+# from this disposable emulator test may reach GitHub Actions logs.
+printf '%s\n' '::group::Bounded native WebRTC crash diagnostics'
+(adb logcat -d -b main -b system -b crash -t 1500 2>/dev/null || true) |
+  grep -E 'LANU-RTC-SMOKE|FATAL EXCEPTION|Fatal error in:|Check failed:|JNI DETECTED ERROR|JNI exception|Fatal signal|NoSuchMethodError|NoClassDefFoundError|ClassNotFoundException|UnsatisfiedLinkError' |
+  sed -E 's/(a=candidate:|a=fingerprint:|a=ice-ufrag:|a=ice-pwd:)[^ ]+/[redacted]/g' |
+  tail -n 100 || true
 printf '%s\n' '::endgroup::'
 exit 1
