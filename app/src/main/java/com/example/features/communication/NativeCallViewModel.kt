@@ -33,6 +33,7 @@ class NativeCallViewModel(
     val notice = _notice.asStateFlow()
     private class Session(val id: String, val peer: CallPeer, val video: Boolean, val outgoing: Boolean) {
         var restarting = false
+        var offers = 0
     }
     private var session: Session? = null
     private var foreground = false
@@ -41,6 +42,7 @@ class NativeCallViewModel(
     private var pipeline: Job? = null
     private var starting: Job? = null
     private var timeout: Job? = null
+    private val workJobs = mutableSetOf<Job>()
     private val seen = LinkedHashSet<String>()
 
     fun activate() {
@@ -149,8 +151,14 @@ class NativeCallViewModel(
             }
             CallSignalKind.OFFER -> if (!current.outgoing && _state.value.phase in setOf(
                 NativeCallPhase.CONNECTING, NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING)) {
-                if (pipeline?.isActive == true) return
+                // The caller can receive ACCEPT before our HTTP response comes back.
+                // Retain that OFFER instead of ACKing and losing it while ACCEPT is pending.
+                if (current.offers >= 2) return // Initial negotiation plus one ICE restart.
+                current.offers++
+                val previous = pipeline
                 pipeline = guarded(current) {
+                    previous?.join()
+                    if (session !== current || !foreground) return@guarded
                     val engine = _media.value ?: createEngine(current).also {
                         _media.value = it; it.start(current.video)
                     }
@@ -184,11 +192,16 @@ class NativeCallViewModel(
             }
         } }, { message -> viewModelScope.launch { if (session === current) fail(message) } })
 
-    private fun guarded(current: Session, block: suspend () -> Unit) = viewModelScope.launch {
-        try { if (session === current && foreground) block() }
-        catch (e: CancellationException) { throw e }
-        catch (_: LinkageError) { if (session === current) fail("Bu cihazda görüşme motoru açılamadı.") }
-        catch (e: Exception) { if (session === current) fail(safeError(e)) }
+    private fun guarded(current: Session, block: suspend () -> Unit): Job {
+        val job = viewModelScope.launch {
+            try { if (session === current && foreground) block() }
+            catch (e: CancellationException) { throw e }
+            catch (_: LinkageError) { if (session === current) fail("Bu cihazda görüşme motoru açılamadı.") }
+            catch (e: Exception) { if (session === current) fail(safeError(e)) }
+        }
+        workJobs += job
+        job.invokeOnCompletion { workJobs -= job }
+        return job
     }
     private fun startActivePoll(current: Session) {
         activePoll?.cancel()
@@ -218,6 +231,7 @@ class NativeCallViewModel(
         session = null
         repository.setCallInProgress(false)
         pipeline?.cancel(); starting?.cancel(); activePoll?.cancel(); timeout?.cancel()
+        workJobs.toList().forEach { it.cancel() }; workJobs.clear()
         _media.value?.close(); _media.value = null
         val previous = _state.value
         _state.value = previous.copy(phase = NativeCallPhase.ENDED, message = message)

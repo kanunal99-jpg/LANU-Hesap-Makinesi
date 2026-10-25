@@ -7,6 +7,8 @@
 - `CallSignalingTest`: AAD alan ayrımı, zarf/sürüm/süre/boyut, yanlış peer, gerçek paket şartı.
 - `NativeCallStateTest`: izin yokken sıfır capture/invite, kabul öncesi OFFER, eski callId, gerçek paket olmadan CONNECTED olmama, motor başlatma hatasında temizleme ve güvenli alandan çıkış.
 - `WebRtcNativeAcceptanceTest`: iki gerçek native PeerConnection ile ICE/DTLS/SCTP paket alışverişi ve ICE credentials değişimi; hem debug hem minified release. Mikrofon/kamera veya fiziksel iki telefon kalitesi bu testle kanıtlanmaz.
+- `CallVideoRendererAcceptanceTest`: gerçek EGL/SurfaceViewRenderer, worker üzerinden ana thread init, yeniden bağlama ve EGL öncesi kaynak temizliği; debug + release. Gecikmeli ACCEPT/erken OFFER, bekleyen iş iptali ve asenkron kamera/ses hatası regresyonları da eklenir.
+- CI #406 debug native 7/7 geçti; release JNI namespace eksik koruması nedeniyle engellendi, düzeltme yeniden doğrulanacaktır.
 - Android derleme, CI sonucu ve yayın kanıtı ayrı kaydedilecektir; yeni test eklenmesi onların geçtiği anlamına gelmez.
 
 ## 25.10.2026 — Güncel kanıt ile tarihî kontrol listelerinin ayrımı

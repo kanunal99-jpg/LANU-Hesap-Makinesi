@@ -10,13 +10,13 @@ Gelen davetler mevcut ön plan chat sync yanıtına yalnız v1 isteyen istemcide
 
 ## Medya ve dayanıklılık
 
-`io.github.webrtc-sdk:android:150.7871.04` sabittir. AudioDeviceModule VOICE_COMMUNICATION, destekli donanım AEC/NS ve WebRTC APM/AGC kullanır; mevcut bağımsız Android DSP adaptörü aynı ses oturumuna ikinci kez eklenmez. Cihaz/HAL hatasında görüşme güvenli kapanır. Kamera2, gerekirse Kamera1 ve codec donanım/yazılım alternatifleri bulunur. Ses odağı ve rota kapanışta geri bırakılır. Kamera kapatıldığında capture durur. Renderer, track, capturer, PeerConnection, EGL ve audio module temizlenir.
+`io.github.webrtc-sdk:android:150.7871.04` sabittir. AudioDeviceModule VOICE_COMMUNICATION, destekli donanım AEC/NS ve WebRTC APM/AGC kullanır; mevcut bağımsız Android DSP adaptörü aynı ses oturumuna ikinci kez eklenmez. Cihaz/HAL hatasında görüşme güvenli kapanır. Kamera2, gerekirse Kamera1 ve codec donanım/yazılım alternatifleri bulunur. Ses odağı ve rota kapanışta geri bırakılır. Kamera kapatıldığında capture durur. Renderer ana thread üzerinde başlatılır; mutex ile yaşam döngüsü sıralanır ve renderer kapanmadan EGL bırakılmaz. Track, capturer, PeerConnection, EGL ve audio module temizlenir. Kamera HAL hataları açıkça görüşmeyi sonlandırır.
 
 Bağlandı yalnız gerçek transport ve iki yönde ses paketleriyle gösterilir. Davet 45 saniye, kurulum 35 saniye, kopma 25 saniye bütçelidir. Arayan taraf bir gerçek ICE restart deneyebilir. Ücretsiz Google STUN kullanılır; TURN yoktur. Katı NAT veya operatör ağlarında bağlantı kurulamayabilir; kullanıcı farklı ağ deneyebilir. Ücretli altyapı otomatik açılmaz. ANC veya ölçülmüş gürültü dB iddiası yapılmaz.
 
 ## Bağımlılık kabulü
 
-Maven Central POM'unda BSD-3-Clause; AAR manifest minSdk21; armeabi-v7a, arm64-v8a, x86 ve x86_64 native kitaplıkları doğrulandı. ARM64 ELF PT_LOAD hizaları 16384 bayt olarak kontrol edildi. App minSdk23 değişmedi. `org.webrtc` JNI ABI R8'de korunur. Native lib BSD lisansı ve sürüme sabitlenmiş üçüncü taraf bildirimleri APK içinde `assets/licenses` altında dağıtılır (`WebRTC-third-party-notices.md` SHA256 `d1f9382c6878ac024155fd6d44a5977329108bb8b0a01cea40e4a2f1d7de252e`, kaynak `webrtc-sdk/android/v150.7871.04/Licenses/WEBRTC.md`); kaynaklar: https://repo.maven.apache.org/maven2/io/github/webrtc-sdk/android/150.7871.04/ ve https://webrtc.googlesource.com/src/+/refs/heads/main/LICENSE.
+Maven Central POM'unda BSD-3-Clause; AAR manifest minSdk21; armeabi-v7a, arm64-v8a, x86 ve x86_64 native kitaplıkları doğrulandı. ARM64 ELF PT_LOAD hizaları 16384 bayt olarak kontrol edildi. App minSdk23 değişmedi. `org.webrtc` ve `org.jni_zero` JNI ABI R8 içinde korunur. Native lib BSD lisansı ve sürüme sabitlenmiş üçüncü taraf bildirimleri APK içinde `assets/licenses` altında dağıtılır (`WebRTC-third-party-notices.md` SHA256 `d1f9382c6878ac024155fd6d44a5977329108bb8b0a01cea40e4a2f1d7de252e`, kaynak `webrtc-sdk/android/v150.7871.04/Licenses/WEBRTC.md`); kaynaklar: https://repo.maven.apache.org/maven2/io/github/webrtc-sdk/android/150.7871.04/ ve https://webrtc.googlesource.com/src/+/refs/heads/main/LICENSE.
 
 ## Kabul ve geri dönüş
 

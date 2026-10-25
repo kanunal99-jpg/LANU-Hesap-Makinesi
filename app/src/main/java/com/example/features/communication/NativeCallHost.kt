@@ -127,6 +127,8 @@ fun NativeCallHost(model: NativeCallViewModel, request: Pair<String, Boolean>?, 
                         Text("WebRTC gürültü ve yankı azaltma · kalite cihaza ve ortama bağlıdır", style = MaterialTheme.typography.bodySmall)
                     }
                     if (state.phase == NativeCallPhase.RINGING) {
+                        Text("Doğrudan görüşmede IP adresiniz karşı tarafla paylaşılır. Güvenli alandan çıkarsanız görüşme biter.",
+                            style = MaterialTheme.typography.bodySmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                             Button(onClick = { authorize(state.callId, state.video, true) }) { Text("Kabul et") }
                             OutlinedButton(onClick = model::reject) { Text("Reddet") }

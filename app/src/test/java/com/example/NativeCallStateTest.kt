@@ -36,7 +36,9 @@ class NativeCallStateTest {
     private var closes=0
     private var mediaCreated=0
     private var failStart=false
+    private var acceptGate:CompletableDeferred<Unit>?=null
     private var report: ((CallMediaEvidence)->Unit)?=null
+    private var mediaFailure: ((String)->Unit)?=null
     private val sdp="v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=fingerprint:sha-256 AA:BB\r\n"
 
     @Before fun setup() = runBlocking {
@@ -61,6 +63,7 @@ class NativeCallStateTest {
                     val plain=PeerMessageCrypto.decrypt(peer,own.id,own.publicKey,CallSignaling.aadId(id),own.id,data.getString("content"))
                     val signal=CallSignaling.decode(plain,id,data.getString("callId"),System.currentTimeMillis())
                     sent.value=sent.value+signal
+                    if(signal.kind==CallSignalKind.ACCEPT) acceptGate?.await()
                     JSONObject().put("accepted",true)
                 }
                 else -> JSONObject()
@@ -70,8 +73,8 @@ class NativeCallStateTest {
             object:MessagingIdentityStore { override fun read()=own;override fun save(identity:MessagingIdentity) { error("No key replacement") } },relay,db)
         repo.ensureIdentity()
         repo.synchronize()
-        vm=NativeCallViewModel(context,repo) { evidence,_ ->
-            mediaCreated++;report=evidence
+        vm=NativeCallViewModel(context,repo) { evidence,failure ->
+            mediaCreated++;report=evidence;mediaFailure=failure
             object:CallMediaSession {
                 override suspend fun start(video:Boolean) { starts++;check(!failStart) }
                 override suspend fun offer(restart:Boolean)=sdp
@@ -134,6 +137,27 @@ class NativeCallStateTest {
         inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,false));awaitSent(CallSignalKind.OFFER)
         assertEquals(1,starts)
     }
+    @Test fun offerIsRetainedWhenAcceptWasDeliveredButItsHttpResponseIsStillPending() = runBlocking {
+        acceptGate=CompletableDeferred()
+        val call=UUID.randomUUID().toString()
+        inject(CallSignaling.create(call,CallSignalKind.INVITE,false));waitPhase(NativeCallPhase.RINGING)
+        vm.accept(call,true);awaitSent(CallSignalKind.ACCEPT)
+        inject(CallSignaling.create(call,CallSignalKind.OFFER,false,sdp))
+        assertEquals(0,starts)
+        acceptGate!!.complete(Unit)
+        awaitSent(CallSignalKind.ANSWER)
+        assertEquals(1,starts)
+    }
+    @Test fun endingWhileAnOfferWaitsForAcceptCannotStartMediaLater() = runBlocking {
+        acceptGate=CompletableDeferred()
+        val call=UUID.randomUUID().toString()
+        inject(CallSignaling.create(call,CallSignalKind.INVITE,false));waitPhase(NativeCallPhase.RINGING)
+        vm.accept(call,true);awaitSent(CallSignalKind.ACCEPT)
+        inject(CallSignaling.create(call,CallSignalKind.OFFER,false,sdp))
+        vm.end();acceptGate!!.complete(Unit)
+        awaitSent(CallSignalKind.END)
+        assertEquals(0,starts);assertEquals(NativeCallPhase.ENDED,vm.state.value.phase)
+    }
     @Test fun failedMediaInitializationStillReleasesOwnedResources() = runBlocking {
         failStart=true
         vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
@@ -144,6 +168,14 @@ class NativeCallStateTest {
     @Test fun ordinaryChatCiphertextCannotCreateAnIncomingCall() = runBlocking {
         inject(CallSignaling.create(UUID.randomUUID().toString(),CallSignalKind.INVITE,false),badAad=true)
         assertEquals(NativeCallPhase.IDLE,vm.state.value.phase);assertEquals(0,starts)
+    }
+    @Test fun asynchronousCameraOrAudioFailureClosesMediaAndShowsAnHonestError() = runBlocking {
+        vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
+        val invite=awaitSent(CallSignalKind.INVITE)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,false));awaitSent(CallSignalKind.OFFER)
+        mediaFailure!!("Kamera kullanılamadı; sesli aramayı deneyin.")
+        waitPhase(NativeCallPhase.FAILED)
+        assertEquals(1,closes);assertTrue(vm.state.value.message.contains("Kamera kullanılamadı"))
     }
     @Test fun leavingPrivateAreaStopsMediaAndInvalidatesLateCallbacks() = runBlocking {
         vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)

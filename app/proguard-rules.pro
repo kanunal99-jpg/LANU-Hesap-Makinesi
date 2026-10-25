@@ -3,6 +3,8 @@
 # WebRTC JNI resolves Java names/callbacks. Verified by a native DTLS loopback
 # test on both debug and minified release, not by disabling R8.
 -keep class org.webrtc.** { *; }
+# WebRTC M150 JNI_OnLoad also resolves org.jni_zero.JniZero by its original name.
+-keep class org.jni_zero.** { *; }
 # Preserve the local privacy-safe crash frame filter after shrinking.
 -keeppackagenames com.example.**
 -keepnames class com.example.core.diagnostics.**

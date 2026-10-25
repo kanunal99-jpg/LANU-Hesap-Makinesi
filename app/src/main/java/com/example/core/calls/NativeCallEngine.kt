@@ -62,8 +62,7 @@ class NativeCallEngine(
     private var videoEnabled = false
     @Volatile private var transportConnected = false
     @Volatile private var lastCandidateAt = 0L
-    private data class Binding(val renderer: SurfaceViewRenderer, val remote: Boolean, var track: VideoTrack? = null)
-    private val bindings = mutableListOf<Binding>()
+    private var renderers: CallVideoRendererBindings? = null
 
     override suspend fun start(video: Boolean): Unit = withContext(dispatcher) {
         check(!closing.get())
@@ -73,6 +72,7 @@ class NativeCallEngine(
         requestFocus()
         router.start(realCallAuthorized = true, isVideo = video)
         egl = EglBase.create()
+        renderers = CallVideoRendererBindings(egl!!.eglBaseContext)
         adm = JavaAudioDeviceModule.builder(context).setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
             .setUseHardwareAcousticEchoCanceler(true).setUseHardwareNoiseSuppressor(true)
             .setAudioRecordErrorCallback(object : JavaAudioDeviceModule.AudioRecordErrorCallback {
@@ -131,8 +131,8 @@ class NativeCallEngine(
     private fun startCamera() {
         val enum: CameraEnumerator = if (Camera2Enumerator.isSupported(context)) Camera2Enumerator(context) else Camera1Enumerator(false)
         val ordered = enum.deviceNames.sortedBy { if (enum.isFrontFacing(it)) 0 else 1 }
-        capturer = ordered.firstNotNullOfOrNull { enum.createCapturer(it, null) }
-            ?: Camera1Enumerator(false).let { fallback -> fallback.deviceNames.firstNotNullOfOrNull { fallback.createCapturer(it, null) } }
+        capturer = ordered.firstNotNullOfOrNull { enum.createCapturer(it, cameraEvents) }
+            ?: Camera1Enumerator(false).let { fallback -> fallback.deviceNames.firstNotNullOfOrNull { fallback.createCapturer(it, cameraEvents) } }
         checkNotNull(capturer) { "Kamera kullanılamadı; sesli aramayı deneyin." }
         videoSource = factory!!.createVideoSource(false)
         texture = SurfaceTextureHelper.create("LANU-Camera", egl!!.eglBaseContext)
@@ -146,6 +146,16 @@ class NativeCallEngine(
         }
         updateBindings()
     }
+
+    private val cameraEvents = object : CameraVideoCapturer.CameraEventsHandler {
+        override fun onCameraError(error: String) = cameraFailure()
+        override fun onCameraDisconnected() = cameraFailure()
+        override fun onCameraFreezed(error: String) = cameraFailure()
+        override fun onCameraOpening(name: String) {}
+        override fun onFirstFrameAvailable() {}
+        override fun onCameraClosed() {}
+    }
+    private fun cameraFailure() { if (!closing.get()) failure("Kamera kullanılamadı; sesli aramayı deneyin.") }
 
     override suspend fun offer(restart: Boolean): String = withContext(dispatcher) {
         val pc = checkNotNull(connection)
@@ -214,32 +224,14 @@ class NativeCallEngine(
 
     fun bind(renderer: SurfaceViewRenderer, remote: Boolean) {
         if (closing.get()) return
-        scope.launch {
-            if (closing.get()) return@launch
-            renderer.init(checkNotNull(egl).eglBaseContext, null)
-            renderer.setMirror(!remote)
-            bindings += Binding(renderer, remote)
-            updateBindings()
-        }
+        scope.launch { if (!closing.get()) renderers?.bind(renderer, remote) }
     }
     fun unbind(renderer: SurfaceViewRenderer) {
         if (closing.get()) return
-        scope.launch {
-            bindings.filter { it.renderer === renderer }.forEach { b ->
-                runCatching { b.track?.removeSink(b.renderer) }; runCatching { b.renderer.release() }
-            }
-            bindings.removeAll { it.renderer === renderer }
-        }
+        scope.launch { renderers?.unbind(renderer) }
     }
     private fun updateBindings() {
-        for (b in bindings) {
-            val track = if (b.remote) remoteVideo else localVideo
-            if (b.track !== track) {
-                runCatching { b.track?.removeSink(b.renderer) }
-                b.track = track
-                track?.addSink(b.renderer)
-            }
-        }
+        scope.launch { renderers?.tracks(localVideo, remoteVideo) }
     }
 
     private fun collectEvidence() {
@@ -274,8 +266,7 @@ class NativeCallEngine(
         runCatching { localAudio?.setEnabled(false) }; runCatching { localVideo?.setEnabled(false) }
         scope.launch {
             try {
-                bindings.forEach { b -> runCatching { b.track?.removeSink(b.renderer) }; runCatching { b.renderer.release() } }
-                bindings.clear()
+                runCatching { renderers?.close() }
                 runCatching { capturer?.stopCapture() }; runCatching { capturer?.dispose() }
                 runCatching { connection?.close() }; runCatching { connection?.dispose() }
                 runCatching { localAudio?.dispose() }; runCatching { source?.dispose() }

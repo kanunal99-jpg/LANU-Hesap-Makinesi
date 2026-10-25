@@ -24,7 +24,7 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [23])
 class AndroidCrossVersionCompatibilityTest {
-    @Test fun appManifestDoesNotRequireBroadMediaCameraOrMicPermissions() {
+    @Test fun appManifestUsesExplicitCallMediaPermissionsWithoutBroadStorageAccess() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val info = context.packageManager.getPackageInfo(
             context.packageName,
