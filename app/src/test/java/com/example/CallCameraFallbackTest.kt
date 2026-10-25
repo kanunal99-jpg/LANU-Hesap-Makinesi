@@ -46,4 +46,33 @@ class CallCameraFallbackTest {
         assertNull(CallCameraFallback.select(emptyList<() -> List<CallCameraFallback.Device>>()) { _, _ -> "fake" })
         assertNull(CallCameraFallback.select(listOf({ throw RuntimeException("HAL") })) { _, _ -> "fake" })
     }
+
+    @Test fun cancellationDuringEnumerationStopsAllFallbackProviders() {
+        var secondEnumerated = false
+        try {
+            CallCameraFallback.select(
+                listOf(
+                    { throw java.util.concurrent.CancellationException("private area closed") },
+                    { secondEnumerated = true; listOf(front) }
+                )
+            ) { _, _ -> "camera" }
+            fail("Cancellation must propagate")
+        } catch (_: java.util.concurrent.CancellationException) {}
+        assertFalse("No alternate camera may start after cancellation", secondEnumerated)
+    }
+
+    @Test fun cancellationDuringOpenNeverAttemptsAnotherHal() {
+        val opened = mutableListOf<String>()
+        try {
+            CallCameraFallback.select(
+                listOf({ listOf(front, back) }, { listOf(back) })
+            ) { index, d ->
+                opened += "$index:${d.name}"
+                throw java.util.concurrent.CancellationException("call ended")
+            }
+            fail("Cancellation must propagate")
+        } catch (_: java.util.concurrent.CancellationException) {}
+        assertEquals(listOf("0:front"), opened)
+    }
+
 }
