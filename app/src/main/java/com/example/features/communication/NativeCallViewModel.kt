@@ -139,7 +139,14 @@ class NativeCallViewModel(
         val value = !_state.value.cameraOn
         engine.camera(value); _state.value = _state.value.copy(cameraOn = value)
     }
-    fun switchCamera() { _media.value?.switchCamera() }
+    fun switchCamera() {
+        // Camera-off is a privacy boundary. Some OEM switchCamera implementations
+        // attempt to open another camera even if capture was stopped.
+        val current = _state.value
+        if (!foreground || !current.video || !current.cameraOn ||
+            current.phase !in setOf(NativeCallPhase.CONNECTING, NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING)) return
+        _media.value?.switchCamera()
+    }
 
     private fun handle(incoming: ReceivedCallSignal) {
         val s = incoming.signal
