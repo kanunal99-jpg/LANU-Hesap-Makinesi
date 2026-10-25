@@ -56,4 +56,25 @@ class CallCameraStartupPolicyTest {
             start = { invoked = true }, releaseFailed = { invoked = true }))
         assertFalse(invoked)
     }
+
+    @Test fun cancellationCleansCandidateAndPropagatesWithoutRetry() {
+        val discarded = mutableListOf<String>()
+        try {
+            CallCameraStartupPolicy.tryStart(Handle("camera2"),
+                start = { throw java.util.concurrent.CancellationException("user left private area") },
+                releaseFailed = { discarded += it.id })
+            fail("Cancelled video startup cannot be handled as ordinary OEM error")
+        } catch (_: java.util.concurrent.CancellationException) {}
+        assertEquals(listOf("camera2"), discarded)
+    }
+
+    @Test fun cancellationSurvivesOemCleanupException() {
+        try {
+            CallCameraStartupPolicy.tryStart(Handle("camera2"),
+                start = { throw java.util.concurrent.CancellationException("ended") },
+                releaseFailed = { throw IllegalStateException("HAL cleanup failed") })
+            fail("Cancellation must not be swallowed by a broken OEM cleaner")
+        } catch (_: java.util.concurrent.CancellationException) {}
+    }
+
 }
