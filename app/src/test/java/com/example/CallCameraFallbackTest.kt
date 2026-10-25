@@ -1,6 +1,7 @@
 package com.example
 
 import com.example.core.calls.CallCameraFallback
+import com.example.core.calls.CallCameraStartupPolicy
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -75,4 +76,33 @@ class CallCameraFallbackTest {
         assertEquals(listOf("0:front"), opened)
     }
 
+
+    @Test fun realCallClosureDuringCameraStartupReleasesCaptureAndNeverOpensCamera1() {
+        val released = mutableListOf<String>()
+        val opened = mutableListOf<String>()
+        var closed = false
+        try {
+            CallCameraFallback.select(
+                listOf(
+                    { listOf(front) },
+                    { listOf(back) }
+                )
+            ) { index, device ->
+                if (closed) throw java.util.concurrent.CancellationException("call ended")
+                opened += "$index:${device.name}"
+                CallCameraStartupPolicy.tryStart(device,
+                    start = {
+                        // Simulate user leaving the private area after Camera2
+                        // opened but before startCapture reports success.
+                        closed = true
+                        if (closed) throw java.util.concurrent.CancellationException("private area closed")
+                    },
+                    releaseFailed = { released += it.name }
+                )
+            }
+            fail("Real cancellation must abort alternate HAL startup")
+        } catch (_: java.util.concurrent.CancellationException) {}
+        assertEquals(listOf("0:front"), opened)
+        assertEquals(listOf("front"), released)
+    }
 }
