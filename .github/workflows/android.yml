@@ -329,16 +329,7 @@ jobs:
           disable-animations: true
           script: |
             ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
-            if ! ./gradlew -PlanuDeviceBuildType=release :app:connectedReleaseAndroidTest --no-daemon --stacktrace; then
-              # Only crash-category/error identifiers; never upload general logcat,
-              # which can contain message bodies, ICE candidates or user identities.
-              echo '::group::Filtered Android runtime crash diagnostics'
-              (adb logcat -d -b crash -t 300 2>/dev/null || true) |
-                grep -E 'FATAL EXCEPTION|JNI DETECTED|Fatal signal|NoSuchMethodError|NoClassDefFoundError|UnsatisfiedLinkError|Caused by:|org\.webrtc|org\.jni_zero|at com\.example' |
-                tail -n 80 || true
-              echo '::endgroup::'
-              exit 1
-            fi
+            bash scripts/ci_release_runtime.sh
 
       - name: Upload device-runtime acceptance report
         if: always()
