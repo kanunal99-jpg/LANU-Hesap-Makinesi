@@ -178,6 +178,51 @@ class NativeCallStateTest {
         assertEquals(NativeCallPhase.IDLE,vm.state.value.phase)
         assertEquals(0,mediaCreated);assertTrue(sent.value.isEmpty())
     }
+    @Test fun replayedInviteWithFreshSignalIdDoesNotSendBusyForTheActiveCall() = runBlocking {
+        val id=UUID.randomUUID().toString()
+        inject(CallSignaling.create(id,CallSignalKind.INVITE,false))
+        waitPhase(NativeCallPhase.RINGING)
+        val oldBusy=sent.value.count { it.kind==CallSignalKind.BUSY }
+        // Idempotency must operate at callId+peer, not only signal envelope UUID.
+        inject(CallSignaling.create(id,CallSignalKind.INVITE,false))
+        assertEquals(NativeCallPhase.RINGING,vm.state.value.phase)
+        assertEquals(id,vm.state.value.callId)
+        assertEquals(oldBusy,sent.value.count { it.kind==CallSignalKind.BUSY })
+        assertEquals(0,mediaCreated)
+    }
+
+    @Test fun newCallerWhileBusyGetsBusyButSameCallRetryDoesNot() = runBlocking {
+        val first=UUID.randomUUID().toString()
+        val second=UUID.randomUUID().toString()
+        inject(CallSignaling.create(first,CallSignalKind.INVITE,false))
+        waitPhase(NativeCallPhase.RINGING)
+        inject(CallSignaling.create(first,CallSignalKind.INVITE,false))
+        assertTrue(sent.value.none { it.kind==CallSignalKind.BUSY })
+        inject(CallSignaling.create(second,CallSignalKind.INVITE,false))
+        withTimeout(3000) { sent.first { rows -> rows.any { it.kind==CallSignalKind.BUSY && it.callId==second } } }
+        assertEquals(1,sent.value.count { it.kind==CallSignalKind.BUSY })
+        assertEquals(first,vm.state.value.callId)
+        assertEquals(NativeCallPhase.RINGING,vm.state.value.phase)
+    }
+
+    @Test fun closedCallTombstoneBlocksLateInviteWithoutBlockingGenuinelyNewCall() = runBlocking {
+        val ended=UUID.randomUUID().toString()
+        inject(CallSignaling.create(ended,CallSignalKind.INVITE,false))
+        waitPhase(NativeCallPhase.RINGING)
+        vm.reject()
+        waitPhase(NativeCallPhase.ENDED)
+        awaitSent(CallSignalKind.REJECT)
+        // Different signal UUID, same previously rejected call ID.
+        inject(CallSignaling.create(ended,CallSignalKind.INVITE,false))
+        assertEquals(NativeCallPhase.ENDED,vm.state.value.phase)
+        assertEquals(0,mediaCreated)
+        // Distinct new call IDs from the same verified peer are still allowed.
+        val fresh=UUID.randomUUID().toString()
+        inject(CallSignaling.create(fresh,CallSignalKind.INVITE,false))
+        waitPhase(NativeCallPhase.RINGING)
+        assertEquals(fresh,vm.state.value.callId)
+    }
+
     @Test fun incomingOfferCannotCaptureBeforeExplicitAcceptanceAndPermission() = runBlocking {
         val call=UUID.randomUUID().toString()
         inject(CallSignaling.create(call,CallSignalKind.INVITE,true))
