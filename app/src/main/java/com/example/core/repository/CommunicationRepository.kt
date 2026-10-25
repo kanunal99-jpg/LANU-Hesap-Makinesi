@@ -98,7 +98,7 @@ class CommunicationRepository(
             try {
                 require(row.getString("recipientId") == own.id && row.getLong("expiresAt") > clock())
                 require(row.getLong("expiresAt") <= clock() + 120_000L)
-                val peer = verifiedCallPeer(row.getString("senderId")) ?: continue
+                val peer = verifiedCallPeer(row.getString("senderId")) ?: throw IllegalArgumentException("Unverified call peer")
                 val cipher = row.getString("content")
                 require(cipher.length <= 32768)
                 val plain = PeerMessageCrypto.decrypt(own, peer.id, peer.publicKey, CallSignaling.aadId(id), peer.id, cipher)
