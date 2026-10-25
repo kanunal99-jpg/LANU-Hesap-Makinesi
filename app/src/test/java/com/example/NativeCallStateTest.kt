@@ -37,6 +37,7 @@ class NativeCallStateTest {
     private var mediaCreated=0
     private var iceRestarts=0
     private var remoteAnswers=0
+    private var cameraSwitches=0
     private var failStart=false
     private var startGate:CompletableDeferred<Unit>?=null
     private var cameraGate:CompletableDeferred<Unit>?=null
@@ -115,7 +116,7 @@ class NativeCallStateTest {
                     cameraCommands += value
                     cameraGate?.await()
                 }
-                override fun switchCamera() {}
+                override fun switchCamera() { cameraSwitches++ }
                 override fun close() { closes++ }
             }
         }
@@ -400,6 +401,8 @@ class NativeCallStateTest {
         assertFalse("Native camera startup is still pending",vm.state.value.cameraOn)
         vm.camera()
         vm.muted()
+        vm.switchCamera()
+        assertEquals("Connecting state must reject camera switch",0,cameraSwitches)
         assertTrue("Connecting controls must not touch unready media",cameraCommands.isEmpty())
         assertTrue("Connecting controls must not touch unready audio",muteCommands.isEmpty())
         startGate!!.complete(Unit)
@@ -440,6 +443,8 @@ class NativeCallStateTest {
         inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,true))
         awaitSent(CallSignalKind.OFFER)
         report!!(CallMediaEvidence(true,7,7));waitPhase(NativeCallPhase.CONNECTED)
+        vm.switchCamera()
+        assertEquals("Live video may switch only after camera is running",1,cameraSwitches)
 
         cameraGate=CompletableDeferred()
         vm.camera()
@@ -450,6 +455,8 @@ class NativeCallStateTest {
         withTimeout(3000) { vm.state.first { !it.cameraOn } }
         assertEquals(NativeCallPhase.CONNECTED,vm.state.value.phase)
         assertEquals(listOf(false),cameraCommands)
+        vm.switchCamera()
+        assertEquals("Camera switch must stay disabled when capture is off",1,cameraSwitches)
     }
 
     @Test fun endedVideoCallClearsCameraAndMicrophoneIndicators() = runBlocking {
@@ -504,7 +511,9 @@ class NativeCallStateTest {
         awaitSent(CallSignalKind.OFFER)
         report!!(CallMediaEvidence(true,3,3));waitPhase(NativeCallPhase.CONNECTED)
         vm.camera()
+        vm.switchCamera()
         assertTrue(cameraCommands.isEmpty())
+        assertEquals("An audio-only call cannot switch camera",0,cameraSwitches)
         assertFalse("Audio-only call cannot report camera enabled",vm.state.value.cameraOn)
         assertEquals(NativeCallPhase.CONNECTED,vm.state.value.phase)
     }
