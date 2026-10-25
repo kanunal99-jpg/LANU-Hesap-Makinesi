@@ -99,10 +99,13 @@ class NativeCallEngine(
             .setVideoEncoderFactory(DefaultVideoEncoderFactory(egl!!.eglBaseContext, true, true))
             .setVideoDecoderFactory(DefaultVideoDecoderFactory(egl!!.eglBaseContext)).createPeerConnectionFactory()
         ensureActive(); check(!closing.get())
-        val config = PeerConnection.RTCConfiguration(listOf(
-            PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
-            PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer()
-        )).apply { sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN }
+        // Separate provider protects STUN discovery from a single provider
+        // outage. No TURN credentials, hidden billing or guaranteed NAT relay.
+        val config = PeerConnection.RTCConfiguration(
+            CallIceServerPolicy.stunUrls.map {
+                PeerConnection.IceServer.builder(it).createIceServer()
+            }
+        ).apply { sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN }
         connection = checkNotNull(factory!!.createPeerConnection(config, observer)) { "Bağlantı motoru açılamadı." }
         val audioConstraints = MediaConstraints().apply {
             optional.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
