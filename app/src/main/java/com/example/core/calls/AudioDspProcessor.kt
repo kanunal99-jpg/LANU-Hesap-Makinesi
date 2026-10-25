@@ -23,12 +23,12 @@ data class DspTelemetry(
     val mode: DspProcessingMode = DspProcessingMode.AUTO_HYBRID,
     val isHardwareSupported: Boolean = false,
     val isHardwareActive: Boolean = false,
-    val isSoftwareActive: Boolean = true,
-    val noiseFloorDbfs: Float = -52f,
-    val suppressionRatioDb: Int = 34,
-    val latencyMs: Float = 4.2f,
-    val voiceClarityScore: Int = 96,
-    val activeAlgorithm: String = "Yazılımsal Akıllı Spektral Filtre"
+    val isSoftwareActive: Boolean = false,
+    val noiseFloorDbfs: Float = 0f,
+    val suppressionRatioDb: Int = 0,
+    val latencyMs: Float = 0f,
+    val voiceClarityScore: Int = 0,
+    val activeAlgorithm: String = "Etkin değil — canlı mikrofon oturumu yok"
 )
 
 /**
@@ -48,6 +48,7 @@ class AudioDspProcessor(
     private var isAecAvailable: Boolean = false
     private var isAgcAvailable: Boolean = false
 
+    private val callAudio = CallAudioPreprocessor()
     private var currentNoiseFloorRms: Float = 0.02f
 
     init {
@@ -78,50 +79,50 @@ class AudioDspProcessor(
         updateTelemetryState()
     }
 
+    /**
+     * Preference only. No live call exists on this screen; suppressions,
+     * latency and clarity MUST NOT be invented from a selected slider level.
+     */
     fun updateAncParameters(isAncEnabled: Boolean, level: String) {
-        val suppressionDb = when (level.uppercase()) {
-            "LOW" -> 16
-            "MEDIUM" -> 26
-            "HIGH" -> 38
-            "ADAPTIVE" -> 32
-            else -> 28
-        }
-        val latency = when {
-            !isAncEnabled -> 1.2f
-            _telemetry.value.isHardwareActive -> 2.4f
-            else -> 4.1f
-        }
-        val clarity = if (isAncEnabled) 97 else 82
+        // No effect is started solely by selecting an ENC preference.
+        updateTelemetryState()
+    }
 
-        _telemetry.update { current ->
-            current.copy(
-                suppressionRatioDb = if (isAncEnabled) suppressionDb else 0,
-                latencyMs = latency,
-                voiceClarityScore = clarity
-            )
+    /**
+     * Only a real, permission-approved AudioRecord/ WebRTC capture owner may
+     * provide its audioSessionId. This preparatory adapter is not connected
+     * to the existing demo. Avoid double AEC/NS when WebRTC software APM is on.
+     */
+    fun bindToRealAudioSession(audioSessionId: Int, microphonePermissionGranted: Boolean) {
+        if (_telemetry.value.mode == DspProcessingMode.SOFTWARE_DSP) {
+            callAudio.close()
+        } else {
+            callAudio.attach(audioSessionId, microphonePermissionGranted)
         }
+        updateTelemetryState()
+    }
+
+    fun releaseAudioSession() {
+        callAudio.close()
+        updateTelemetryState()
     }
 
     private fun updateTelemetryState() {
         _telemetry.update { current ->
-            val mode = current.mode
-            val useHardware = when (mode) {
-                DspProcessingMode.HARDWARE_PREF -> isHardwareAvailable
-                DspProcessingMode.AUTO_HYBRID -> isHardwareAvailable
-                DspProcessingMode.SOFTWARE_DSP -> false
-            }
-            val useSoftware = !useHardware
-
-            val algoName = when {
-                useHardware -> "Android Donanımsal DSP (Qualcomm/MTK APM)"
-                else -> "LANU Akıllı Yazılımsal Spektral Filtreleme (RNNoise/WebRTC)"
-            }
-
+            val session = callAudio.status
+            val active = session.hasAnyActiveEffect
             current.copy(
                 isHardwareSupported = isHardwareAvailable,
-                isHardwareActive = useHardware,
-                isSoftwareActive = useSoftware,
-                activeAlgorithm = algoName
+                isHardwareActive = session.noiseSuppressionActive,
+                isSoftwareActive = false, // no RNNoise/WebRTC processing is wired in this demo
+                suppressionRatioDb = 0, // no measured figures
+                latencyMs = 0f,
+                voiceClarityScore = 0,
+                activeAlgorithm = if (active) {
+                    "Android NS=${session.noiseSuppressionActive}, " +
+                        "AEC=${session.echoCancellationActive}, " +
+                        "AGC=${session.automaticGainActive}"
+                } else "Etkin değil — canlı mikrofon oturumu yok"
             )
         }
     }
