@@ -1,5 +1,55 @@
 # PROJE ANAYASASI — 15.10.2026
 
+
+## 25.10.2026 — Claude bağımsız inceleme bulguları, kodla çapraz doğrulama ve değişmez PIN kararı
+
+**KULLANICI KARARI / DEĞİŞMEZ KURAL (25.10.2026):** Gizli alana `2011.` üzerinden girildiğinde **PIN isteğe bağlı kalacaktır**. PIN olmayan kurulumun otomatik zorunlu PIN kurulumuna geçirilmesi, mevcut kullanıcının PIN'siz giriş tercihinin değiştirilmesi, arka kapı niteliğinde ayrı bir master PIN eklenmesi **yasaktır**. Var olan PIN'i kapatmak isteyen kullanıcı için mevcut PIN ile onay zorunluluğu, kalıcı deneme kilidi ve PIN yeniden açma seçeneği korunur. PIN kapatıldığında giriş yöntemini bilen kişilerin özel alana erişebileceği güvenlik uyarısı **açıkça görünür**; bu bilinçli ödünleşim kullanıcıya aittir. Bilinmeyen/bozuk tercih, PIN korumasını sessizce kaldırmaz. PIN/kimlik/Room verileri hiçbir güncellemede silinmez. `app/src/main/java/com/example/core/repository/Repositories.kt`, `SecurityViewModel.kt`, `SettingsScreen.kt` ve `OptionalPrivatePinTest.kt` mevcut uyumluluk dayanaklarıdır.
+
+**Kanıt düzeyi:** Claude değerlendirmesi tek başına kod denetimi değildir. Aşağıdaki kayıtlar 25.10.2026 tarihinde güncel `main` Android kaynakları, release/CI durumu ve önceki issue kayıtlarıyla çapraz doğrulandı. Puanlama yalnız yönetsel ön değerlendirmedir; "uygulandı", "CI başarılı" ve "gerçek cihazda kabul" birbirinden farklıdır.
+
+| Kod | Önem | Doğrulanan eksik / risk | Güncel kanıt ve tamamlanma şartı | Durum |
+| --- | --- | --- | --- | --- |
+| CR-01 | **P0** | **Room veritabanı (ve SQLite WAL/SHM) SQLCipher ile tam disk-üstü şifreli değil.** E2EE mesaj gövdesi ve Keystore/EncryptedSharedPreferences kimliği ayrı korunur; fakat tablo metaverisi, kullanıcı tercihleri, hesaplama geçmişi ve olası geçmiş/veri izi aynı bütün-disk şifrelemesine sahip değildir. | `AppDatabase.kt` standart `Room.databaseBuilder(...,"lanu_calculator_db")` çağırıyor, SQLCipher factory yok. Önce kayıpsız migration tasarımı, SQLite/WAL checkpoint ve Keystore-sarılı rastgele DB anahtarı; kopyada dönüşüm/geri okuma, süreç kesilmesi ve disk-dolu senaryoları; *eski DB asla silinmeden* atomik geçiş ve geri dönüş. SQLCipher kitaplık güncelliği/API23+/16KiB sayfa uyumu ayrıca doğrulanacak. | **AÇIK — kodlama ve fiziksel kabul yapılmadı** |
+| CR-02 | **P0** | **Stable APK imzalama anahtarının fiziksel cihaz dışı kurtarma kanıtı yok.** | #83: Şifreli yedek/geri yükleme **test betikleri mevcut ve CI'da testli**, ancak gerçek PKCS12+parola kaynaklarının ikinci güvenilir ortamda izole geri yüklenmesi ve sertifika SHA-256 eşitliği kullanıcı gözetiminde henüz doğrulanmadı. Sırlar/loglar/GitHub/sohbet/CDN'ye ASLA konmaz. | **AÇIK — gerçek kurtarma kanıtı eksik** |
+| CR-03 | **P1** | **Forward secrecy / post-compromise security yok.** | `MessagingIdentity.kt` içindeki `PeerMessageCrypto`, uzun ömürlü statik ECDH + SHA-256 + rastgele AES-GCM IV kullanır; her mesajda ratchet key güncellenmez. ECDSA imza ve E2EE var ama Double Ratchet/X3DH yok. Tehdit modeli, protokol sürümü, çoklu cihaz/eskilerle uyumluluk, anahtar yedeği, olası AGPL lisans analizi, güvenlik regresyonu ve kriptografik inceleme zorunlu. | **AÇIK** |
+| CR-04 | **P1** | **Arka planda güvenilir mesaj teslimi/push ve üretici/GMS alternatifleri** doğrulanmadı. | `CommunicationViewModel` aktif sahipler için senkronizasyon yapar; genel Android/Huawei/HMS/GMS'siz cihazlar için garantili uyandırma ve arka plan teslimi kanıtı yok. FCM tek başına tüm Android için kapsayıcı değil. Mesaj içeriği ve anahtar push yüküne girmez. | **AÇIK** |
+| CR-05 | **P1** | **Gerçek iki cihaz arasında sesli/görüntülü WebRTC arama yok**; demo çağrı gerçek hizmet diye sunulmamalı. | `CallScreen`, `ExampleRobolectricTest` demo etiketleri; signaling, STUN/TURN, mikrofon/kamera izinleri ve karşılıklı bağlantı ayrı güvenli geliştirme, maliyet ve kabul aşaması. | **AÇIK** |
+| CR-06 | **P1** | **Büyük medya gerçek upload/download henüz çalışmıyor.** | Mevcut `InlineMediaCodec` üzerinden **şifreli 18KB fotoğraf/PDF/TXT** gönderim yolu var. #85/PR #108-#110: 40MiB kadar yerel şifreleme/bütçe, private storage rezervasyon ve sunucu SHA256 doğrulama **hazırlığı** var, fakat canlı storage grant, atomik `pending→ready`, alıcıya güvenli indirme, TTL temizliği ve 2 cihaz kabulü tamamlanmadı. | **AÇIK — küçük dosyayı yok sayma** |
+| CR-07 | **P1** | **Bağımsız kriptografi/protokol incelemesi, KVKK kapsamı ve veri yaşam döngüsü kanıtı eksik.** | ECDH KDF ve AAD, kimlik güven sabitleme, anahtar rotasyonu, metadata, kullanıcı onayı, silme/retention, yedek ve logların bağımsız denetimi; yalnız birim testi veya RLS bu inceleme değildir. | **AÇIK** |
+| CR-08 | **P1** | **Eski `CryptoUtils.decrypt` deterministik IV/MD5-türevli legacy okuma yolu** kaldırılmadan önce göç kanıtı gerekiyor. | Yeni `encrypt` rastgele 12-byte GCM IV üretir; legacy decrypt uyumluluğu mevcut. Mevcut kayıtların sayımı, versiyonlu şifreleme zarfı, doğrulanmış yeniden şifreleme ve geriye dönük açma testi olmadan legacy kod silinemez. | **AÇIK — migration tasarlanmalı** |
+| CR-09 | **P1** | **Üretici/Android sürümü/genel cihaz performansı ve çökme kabulü eksik.** | #82 kök neden bulunmadı; kullanıcı A55 APK 369 kurulduktan sonra yeniden çökme görmediğini bildirdi. CI #380/API34 emülatör ve API23/28/34/35 üzerindeki belirli Robolectric testleri olumlu; bu düzeylerin hepsinde tam uçtan uca senaryo kanıtı yok; fiziksel Xiaomi, Huawei/HMS, GMS'siz/Google Pixel, Android eski/yeni, arka plan/bellek/insets/OTA testleri YAPILMADI. Gizlilik onaylı Crashlytics veya alternatif uzaktan raporlama üretim kabulü eksik. | **AÇIK** |
+| CR-10 | **P2** | **README/proje mimarisi ADR'si ve sürdürülebilir dokümantasyon** yetersiz. | Repo kökünde README.md 25.10 kontrolünde yok, GitHub açıklaması yalnız "Hesap Makinesi", anayasa yaklaşık 576 satırdı. Ürünün relay kullanmasıyla ilk "telefondan telefona / Supabase'siz" hedefi arasındaki değişiklik **onaylanmış varsayılmamalı**; bağımlılık, güven modeli, anonim/polling teslim ve işletme maliyeti ADR'de netleştirilmeli. | **AÇIK** |
+
+### Claude raporunda artık geçerli olmayan / yanlış durumlar
+
+- **Hilt yok**: GÜNCELDE YANLIŞ. `LanuApplication` @HiltAndroidApp; `ApplicationModule` ve singleton `AppContainer` Hilt ile yönetiliyor. DI göçü için eski TODO kapatılmalı; sınır testleri sürmeli.
+- **R8 üretimde yok**: GÜNCELDE YANLIŞ. `app/build.gradle.kts` release için `isMinifyEnabled=true`, `isShrinkResources=true`; CI `assembleRelease`, API34 connectedReleaseAndroidTest, signer+SHA256 kamu indirme kapısı çalışıyor.
+- **Çoklu cihaz testi yalnız A55**: TAM doğru değil; API34 gerçek Android emülatörü, API23/29/35 Robolectric çalışıyor, **fiziksel çok üretici kabulü** eksik. Cihaz uyumluluğu tek telefon modeli için tasarlanamaz.
+- **Medya hiç yok**: YANLIŞ; 18KB uçtan uca şifreli küçük ekler çalışıyor; **büyük medya** kapalı.
+- **PIN kapalı özelliği kaldırılmalı**: KULLANICI KARARINA AYKIRI. Opsiyonel PIN korunur, risk şeffaf gösterilir.
+
+### Kanıtlı son durum (25.10.2026)
+
+- Son yeşil `main` CI **#380**, `v1.1.0-signed.380` Release: APK, SHA256 ve signer doğrudan indirilebilir; fiziksel cihazda #380 OTA kabulü henüz yok.
+- CI #379 ile PR #111 genel Android dosya sağlayıcısının tekrarlı 0-byte duraksamasında sonsuz döngü güvenli kapatıldı; daha önceki test altyapısı ZIP kaynaklı hataları düzeltildikten sonra birleştirildi. Dış sağlayıcının bir `read()` çağrısında sonsuza kadar bloklamasına özel timeout hâlâ araştırılmalı.
+- Supabase relay yalnız kontrol edilen servis üzerinden mesaj iletir, doğrudan DB anon/authenticated okuma/yazma izni yok. Canlı large-media uçtan uca aktarım henüz açılmadı.
+- Şu metindeki eksikler **"yapıldı" olarak işaretlenmeyecek**; ilgili PR CI/yayın ve gerçek cihaz kabul kanıtı gelince ayrı kayıtla güncellenecek.
+
+### 25.10.2026 — Bağımlılığa göre yürütülecek geliştirme sırası
+
+1. **P0 — Mevcut veri/OTA/opsiyonel PIN'i koru.** 369'un A55 cihazındaki olumlu geri bildirimi referans; yeni sürümde PIN açık ve PIN kapalı senaryoları veri silmeden test edilir. Geri dönüşü olmayan migration, kimlik sıfırlama, otomatik PIN zorunluluğu YASAK.
+2. **P0 — #83 gerçek signing key kurtarma kabulü.** Mevcut CI'da testli şifreli yedek scripti kullanılarak sahibin ikinci güvenli ortamda izole restore ve public sertifika eşleştirmesi; üretim anahtarına dokunulmaz.
+3. **P0 — CR-01 SQLCipher'a kayıpsız, kademeli geçiş.** Önce sadece dosya/boş alan/journal/WAL/DB kimlik analizli READ-ONLY preflight+test; sonra Android API23/29/34/35 + kesinti/geri dönüş özellikli izole migration; fiziksel veri/PIN/mesaj kabulü olmadan ana veritabanını değiştirme.
+4. **P1 — #82/CR-09 platform kararlılık ve gizlilik destekli hata tanılama.** Gerçek crash kanıtı yokken rastgele kod değiştirme; isteğe bağlı anonim tanılama; üretici, eski Android, arka plan, düşük bellek ve OTA testleri.
+5. **P1 — CR-03/CR-07 ileri gizlilik protokolü ve bağımsız kripto kontrolü.** Lisans/versiyon/uyumluluk kararı, E2EE kimlik sürekliliği, anahtar yenileme, metadata, güvenlik testleri.
+6. **P1 — #85 kontrollü büyük medya.** Private Storage grant, sunucuda doğrulama, atomik ready, kısa süreli alıcı indirme, retry/TTL ve iki cihaz testleri; kullanıcının onayı olmadan ödeme/ücretli plan yok.
+7. **P1 — CR-04 arka plan teslimi.** GMS bağımsız fallback; push üzerinde sadece içeriksiz uyandırma, eski/yeni cihazların pil ve süreç kısıtları.
+8. **P1/P2 — CR-05 gerçek arama, hesap makinesi kenar durumları, UX/erişilebilirlik ve performans.** Gerçek WebRTC sinyal/TURN tasarımı ayrı kabul ve maliyet kapısından geçer.
+9. **P2 — CR-08 eski şifreleme formatı güvenli göçü, CR-10 README+ADR, bağımsız KVKK metni.** Şifreli eski kayıtlar kanıtlı biçimde açılmadan legacy decrypt yolu kaldırılmaz.
+
+**Geliştirme sırası bağımlılık bazlıdır:** README/ADR gibi düşük riskli işler paralel yapılabilir; kritik geçişler birbiriyle karıştırılmaz. Her adımda önce kanıt, sonra PR/CI, merge ve gerçek yayın, gerekirse fiziksel kabul.
+
+
 ## 24.10.2026 — Güncel kullanıcı kabulü ve dayanıklılık çalışması
 
 - Kullanıcı açıkça **"Pin tamamen isteğe bağlı çalışıyor"** diye teyit etti. `2011.` sonrası isteğe bağlı PIN gereksinimi **kullanıcı kabul edildi**; önceki "PIN tercihinin çalıştığı teyit edilmedi" notları bu yeni beyanla güncellenir. Yeni beyan belirli bir APK numarasına veya tek tek belgelenmemiş ek senaryolara atfedilmez.
