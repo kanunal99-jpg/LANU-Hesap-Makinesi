@@ -35,8 +35,11 @@ class DeliveryRunTest {
     @Test fun disabledOrUnreadablePreferencesNeverConstructARepository() = runTest {
         for (snapshot in listOf(DeliverySnapshot(), DeliverySnapshot(available = false))) {
             val store = Store(snapshot)
-            val run = DeliveryRun(store, { error("Must not access identity or network") })
+            var constructed = 0
+            val run = DeliveryRun(store, { constructed++; Target() })
             assertEquals(DeliveryRun.Disposition.COMPLETE, run.execute(false, 0))
+            assertEquals(0, constructed)
+            assertEquals(DeliveryOutcome.NEVER, store.value.outcome)
             assertEquals(0L, store.value.lastCheckedAt)
             assertEquals(0L, store.value.lastAttemptAt)
         }
@@ -117,7 +120,9 @@ class DeliveryRunTest {
 
     @Test fun persistenceFailureStopsBeforeAnyNetworkOrIdentityAccess() = runTest {
         val store = Store().apply { rejectWrites = true }
-        DeliveryRun(store, { error("Must not access credentials") }).execute(true, 0)
+        var constructed = 0
+        DeliveryRun(store, { constructed++; Target() }).execute(true, 0)
+        assertEquals(0, constructed)
         assertEquals(0L, store.value.lastCheckedAt)
     }
 

@@ -37,6 +37,7 @@ class DeliveryDeviceAcceptanceTest {
             assertTrue(result.outputData.keyValueMap.isEmpty())
             assertEquals(0L, preferences.getLong("last_attempt_at", 0L))
             assertEquals(0L, preferences.getLong("last_checked_at", 0L))
+            assertFalse(preferences.contains("last_outcome"))
         } finally {
             manager.cancelWorkById(request.id).result.get(10, TimeUnit.SECONDS)
             preferences.edit().clear().commit()

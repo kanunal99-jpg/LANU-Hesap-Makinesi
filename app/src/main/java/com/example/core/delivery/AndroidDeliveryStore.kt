@@ -7,10 +7,12 @@ import kotlinx.coroutines.flow.callbackFlow
 
 /** Not a credential store. No message, peer code, PIN, token or key belongs here. */
 class AndroidDeliveryStore(context: Context) : DeliveryStore {
-    private val preferences = context.applicationContext.getSharedPreferences(NAME, Context.MODE_PRIVATE)
+    private val preferences = try {
+        context.applicationContext.getSharedPreferences(NAME, Context.MODE_PRIVATE)
+    } catch (_: Exception) { null }
 
     override fun read(): DeliverySnapshot = try {
-        val all = preferences.all
+        val all = checkNotNull(preferences).all
         val enabled = all[ENABLED]
         val unmetered = all[UNMETERED]
         check(enabled == null || enabled is Boolean)
@@ -24,25 +26,29 @@ class AndroidDeliveryStore(context: Context) : DeliveryStore {
     } catch (_: Exception) { DeliverySnapshot(available = false) }
 
     override fun saveOptions(options: DeliveryOptions) {
-        check(preferences.edit().putBoolean(ENABLED, options.enabled)
+        check(checkNotNull(preferences).edit().putBoolean(ENABLED, options.enabled)
             .putBoolean(UNMETERED, options.unmeteredOnly).commit()) { "Teslimat tercihi kaydedilemedi." }
     }
 
     override fun attempt(at: Long) {
-        check(preferences.edit().putLong(ATTEMPT, at.coerceAtLeast(0L)).commit())
+        check(checkNotNull(preferences).edit().putLong(ATTEMPT, at.coerceAtLeast(0L)).commit())
     }
 
     override fun finish(outcome: DeliveryOutcome, at: Long) {
-        val edit = preferences.edit().putString(OUTCOME, outcome.name)
+        val edit = checkNotNull(preferences).edit().putString(OUTCOME, outcome.name)
         if (outcome == DeliveryOutcome.CHECKED) edit.putLong(CHECKED, at.coerceAtLeast(0L))
         check(edit.commit())
     }
 
     fun changes() = callbackFlow {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> trySend(read()) }
-        preferences.registerOnSharedPreferenceChangeListener(listener)
-        trySend(read())
-        awaitClose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
+        try {
+            preferences?.registerOnSharedPreferenceChangeListener(listener)
+            trySend(read())
+        } catch (_: Exception) { trySend(DeliverySnapshot(available = false)) }
+        awaitClose {
+            try { preferences?.unregisterOnSharedPreferenceChangeListener(listener) } catch (_: Exception) { }
+        }
     }
 
     companion object {

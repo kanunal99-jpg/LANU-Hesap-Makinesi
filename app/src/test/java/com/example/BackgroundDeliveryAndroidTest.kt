@@ -2,6 +2,8 @@ package com.example
 
 import android.app.Application
 import android.content.Context
+import android.content.ContextWrapper
+import android.content.SharedPreferences
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.ListenableWorker
 import androidx.work.NetworkType
@@ -50,6 +52,12 @@ class BackgroundDeliveryAndroidTest {
             .edit().putString("background_enabled", "true").commit()
         assertFalse(store.read().available)
         assertFalse(store.read().options.enabled)
+        val brokenContext = object : ContextWrapper(context) {
+            override fun getApplicationContext(): Context = this
+            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences =
+                throw IllegalStateException("Simulated unavailable storage")
+        }
+        assertFalse(AndroidDeliveryStore(brokenContext).read().available)
     }
 
     @Test fun networkConstraintsRespectOptInMobileData() {
@@ -67,8 +75,14 @@ class BackgroundDeliveryAndroidTest {
             }).build()
 
     @Test fun realWorkerAdapterDoesNothingWhenOwnerOptedOut() = runTest {
-        val result = worker(false) { error("No target may be created") }.doWork()
+        var constructed = 0
+        val result = worker(false) {
+            constructed++
+            error("No target may be created")
+        }.doWork()
         assertEquals(ListenableWorker.Result.success(), result)
+        assertEquals(0, constructed)
+        assertEquals(DeliveryOutcome.NEVER, store.read().outcome)
         assertEquals(0L, store.read().lastCheckedAt)
     }
 
