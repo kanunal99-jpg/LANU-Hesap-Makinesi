@@ -16,10 +16,12 @@ Bağlandı yalnız gerçek transport ve iki yönde ses paketleriyle gösterilir.
 
 ## Bağımlılık kabulü
 
-Maven Central POM'unda BSD-3-Clause; AAR manifest minSdk21; armeabi-v7a, arm64-v8a, x86 ve x86_64 native kitaplıkları doğrulandı. ARM64 ELF PT_LOAD hizaları 16384 bayt olarak kontrol edildi. App minSdk23 değişmedi. `org.webrtc` JNI ABI R8'de korunur. Native lib ve üçüncü taraf codec lisansları dağıtımda korunmalıdır; kaynaklar: https://repo.maven.apache.org/maven2/io/github/webrtc-sdk/android/150.7871.04/ ve https://webrtc.googlesource.com/src/+/refs/heads/main/LICENSE.
+Maven Central POM'unda BSD-3-Clause; AAR manifest minSdk21; armeabi-v7a, arm64-v8a, x86 ve x86_64 native kitaplıkları doğrulandı. ARM64 ELF PT_LOAD hizaları 16384 bayt olarak kontrol edildi. App minSdk23 değişmedi. `org.webrtc` JNI ABI R8'de korunur. Native lib BSD lisansı ve sürüme sabitlenmiş üçüncü taraf bildirimleri APK içinde `assets/licenses` altında dağıtılır (`WebRTC-third-party-notices.md` SHA256 `d1f9382c6878ac024155fd6d44a5977329108bb8b0a01cea40e4a2f1d7de252e`, kaynak `webrtc-sdk/android/v150.7871.04/Licenses/WEBRTC.md`); kaynaklar: https://repo.maven.apache.org/maven2/io/github/webrtc-sdk/android/150.7871.04/ ve https://webrtc.googlesource.com/src/+/refs/heads/main/LICENSE.
 
 ## Kabul ve geri dönüş
 
 Node/PGlite protokol/SQL, Robolectric durum makinesi ve API34 debug/release gerçek native paket testi zorunludur. Samsung ve Xiaomi arasında iki yönlü ses/video, mute, kamera çevirme, kulaklık/ahize/hoparlör, izin reddi, ağ geçişi, gürültü ve eski APK'dan veri kayıpsız OTA ayrıca fiziksel olarak doğrulanır. Bu testler yapılmadan tüm cihaz/ağ/ENC kalitesi tamamlandı denmez.
 
 Sunucu değişikliği yalnız yeni tablo/sütun/RPC ekler; mevcut mesaj verisine dokunmaz. Gerekirse Edge wrapper'da calls seçeneği kapatılır, eski messaging çalışır; yeni tablo bırakılır. Kurulu uygulama kaldırılmaz, Room veya kimlik sıfırlanmaz; APK geriye sürüm düşürülmez.
+
+Canlı Supabase geçişi `20261025123907_private_call_signaling`, Edge `lanu-relay` v4: gerçek ECDSA imzalı üç geçici kimlikle eski sync formatı, E2EE davet, idempotency, yetkisiz çağrı/ACK reddi, karşılıklı kişi iptali ve sıfır sohbet kontaminasyonu smoke geçti. RLS açık; anon/authenticated tablo ve üç RPC erişimi yok. Güvenlik danışmanı yalnız tasarım gereği server-only yedi tabloda INFO `rls_enabled_no_policy` bildirir; herkese açık policy eklenmez. Rehber: https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy.

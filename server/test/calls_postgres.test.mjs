@@ -9,7 +9,7 @@ before(async()=>{
  db=new PGlite();
  await db.exec('create role anon; create role authenticated; create role service_role bypassrls;');
  await db.exec(await readFile(new URL('../../supabase/migrations/20261019073855_persistent_user_code_messaging.sql',import.meta.url),'utf8'));
- await db.exec(await readFile(new URL('../../supabase/migrations/20261025122407_private_call_signaling.sql',import.meta.url),'utf8'));
+ await db.exec(await readFile(new URL('../../supabase/migrations/20261025123907_private_call_signaling.sql',import.meta.url),'utf8'));
  for(const [id,k] of [[a,'A'],[b,'B'],[c,'C']]) await db.query('insert into lanu_identities(id,code,nonce,public_key) values($1,$2,$3,$4)',[id,'LANU-'+Array(5).fill(k.repeat(4)).join('-'),'A'.repeat(22),'test']);
  await db.query('insert into lanu_contacts(owner_id,peer_id,code_at_add) values($1,$2,$3),($2,$1,$4)',[a,b,'LANU-'+Array(5).fill('BBBB').join('-'),'LANU-'+Array(5).fill('AAAA').join('-')]);
 });

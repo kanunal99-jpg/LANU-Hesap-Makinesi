@@ -618,3 +618,7 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - **Koruma:** İsteğe bağlı PIN, mevcut anahtar, Room v4 ve E2EE mesaj kuyruğu korunur. Mikrofon/kamera önceden açılmaz. Ücretli TURN eklenmez.
 - **Test:** Yerel Node/PGlite 54/54 geçti; sinyal zarfı, izin/accept ve kaynak temizleme Robolectric testleri, gerçek native DTLS paket/ICE restart Android testi eklendi. Android CI ve canlı smoke henüz doğrulanmadan başarı ilan edilmez.
 - **Açık:** Fiziksel Samsung/Xiaomi çift yönlü medya/ENC kalite ve OTA; katı NAT için ayrıca onaylı TURN, kapalı uygulamaya gelen arama. #3 açık kalır.
+
+- **Canlı sunucu kanıtı:** Additive geçiş `20261025123907_private_call_signaling`, Edge v4 etkin; üç geçici ECDSA kimliğiyle E2EE davet, eski istemci yanıtı, yetki, idempotency, yalnız alıcı ACK ve kişi iptali smoke geçti. RLS/grant kontrolü kapalı doğrudan erişimi doğruladı.
+
+- **CI #404 bulgusu:** Birim/Robolectric ve lint geçti; ilk native Android testi boş ilk ICE COMPLETE nedeniyle timeout verdi. Android ağ callback'i gelmeden boş SDP alınabiliyordu. Motor ve test artık gerçek aday oluşmasını ve güncel gathering durumunu bekler; başarısız koşu yayınlanmadı.

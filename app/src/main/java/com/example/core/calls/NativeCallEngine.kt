@@ -61,7 +61,7 @@ class NativeCallEngine(
     private var texture: SurfaceTextureHelper? = null
     private var videoEnabled = false
     @Volatile private var transportConnected = false
-    private var iceDone = CompletableDeferred<Unit>()
+    @Volatile private var lastCandidateAt = 0L
     private data class Binding(val renderer: SurfaceViewRenderer, val remote: Boolean, var track: VideoTrack? = null)
     private val bindings = mutableListOf<Binding>()
 
@@ -150,7 +150,7 @@ class NativeCallEngine(
     override suspend fun offer(restart: Boolean): String = withContext(dispatcher) {
         val pc = checkNotNull(connection)
         if (restart) pc.restartIce()
-        iceDone = CompletableDeferred()
+        lastCandidateAt = 0L
         val constraints = MediaConstraints().apply { if (restart) mandatory.add(MediaConstraints.KeyValuePair("IceRestart", "true")) }
         val sdp = createSdp { pc.createOffer(it, constraints) }
         setSdp { pc.setLocalDescription(it, sdp) }
@@ -161,7 +161,7 @@ class NativeCallEngine(
     override suspend fun answer(remote: String): String = withContext(dispatcher) {
         val pc = checkNotNull(connection)
         setSdp { pc.setRemoteDescription(it, SessionDescription(SessionDescription.Type.OFFER, remote)) }
-        iceDone = CompletableDeferred()
+        lastCandidateAt = 0L
         val sdp = createSdp { pc.createAnswer(it, MediaConstraints()) }
         setSdp { pc.setLocalDescription(it, sdp) }
         awaitIce(pc)
@@ -172,8 +172,17 @@ class NativeCallEngine(
         setSdp { connection!!.setRemoteDescription(it, SessionDescription(SessionDescription.Type.ANSWER, remote)) }
     }
     private suspend fun awaitIce(pc: PeerConnection) {
-        if (pc.iceGatheringState() != PeerConnection.IceGatheringState.COMPLETE)
-            withTimeoutOrNull(8_000) { iceDone.await() }
+        // Android's network callback can arrive AFTER an initial empty COMPLETE.
+        // Non-trickle SDP must include real candidates, never that empty snapshot.
+        withTimeoutOrNull(8_000) {
+            while (isActive) {
+                val hasCandidate = pc.localDescription?.description?.contains("a=candidate:") == true
+                if (hasCandidate && pc.iceGatheringState() == PeerConnection.IceGatheringState.COMPLETE &&
+                    android.os.SystemClock.elapsedRealtime() - lastCandidateAt >= 250) return@withTimeoutOrNull
+                delay(50)
+            }
+        }
+        check(pc.localDescription?.description?.contains("a=candidate:") == true) { "Ağ bağlantısı için aday bulunamadı." }
     }
     private suspend fun createSdp(start: (SdpObserver) -> Unit): SessionDescription = suspendCancellableCoroutine { c ->
         start(object : EmptySdpObserver() {
@@ -247,9 +256,7 @@ class NativeCallEngine(
         }
     }
     private val observer = object : EmptyPeerObserver() {
-        override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {
-            if (state == PeerConnection.IceGatheringState.COMPLETE) iceDone.complete(Unit)
-        }
+        override fun onIceCandidate(candidate: IceCandidate) { lastCandidateAt = android.os.SystemClock.elapsedRealtime() }
         override fun onConnectionChange(state: PeerConnection.PeerConnectionState) {
             transportConnected = state == PeerConnection.PeerConnectionState.CONNECTED
             if (state == PeerConnection.PeerConnectionState.FAILED && !closing.get()) failure("Ağlar arasında doğrudan bağlantı kurulamadı. Farklı bir ağ deneyin.")
@@ -287,8 +294,9 @@ class NativeCallEngine(
         @Synchronized fun initialize(context: Context) {
             if (initialized) return
             PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions.builder(context.applicationContext)
-                .setEnableInternalTracer(false).createInitializationOptions())
-            Logging.enableLogToDebugOutput(Logging.Severity.LS_NONE)
+                .setEnableInternalTracer(false)
+                .setInjectableLogger({ _, _, _ -> }, Logging.Severity.LS_NONE)
+                .createInitializationOptions())
             initialized = true
         }
     }

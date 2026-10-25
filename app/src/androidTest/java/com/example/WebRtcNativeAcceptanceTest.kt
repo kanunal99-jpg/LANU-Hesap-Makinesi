@@ -44,22 +44,28 @@ class WebRtcNativeAcceptanceTest {
             override fun onSetFailure(value:String?) { if(c.isActive)c.resumeWithException(IllegalStateException("SDP application failed")) }
         })
     }
+    private suspend fun gathered(pc:PeerConnection):String=withTimeout(10_000L) {
+        while (true) {
+            val sdp=pc.localDescription?.description.orEmpty()
+            if(sdp.contains("a=candidate:") && pc.iceGatheringState()==PeerConnection.IceGatheringState.COMPLETE) return@withTimeout sdp
+            delay(50)
+        }
+        error("Unreachable")
+    }
     @Test fun nativePeersExchangeRealEncryptedPacketsAndRestartIceOnDebugAndRelease()=runBlocking {
         withTimeout(45_000L) {
             val context=InstrumentationRegistry.getInstrumentation().targetContext
             PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions.builder(context)
-                .setEnableInternalTracer(false).createInitializationOptions())
-            Logging.enableLogToDebugOutput(Logging.Severity.LS_NONE)
+                .setEnableInternalTracer(false)
+                .setInjectableLogger({ _, _, _ -> }, Logging.Severity.LS_NONE)
+                .createInitializationOptions())
             val factory=PeerConnectionFactory.builder().createPeerConnectionFactory()
-            val aIce=CompletableDeferred<Unit>(); val bIce=CompletableDeferred<Unit>()
             val received=CompletableDeferred<String>(); val opened=CompletableDeferred<Unit>()
+            val remoteReady=CompletableDeferred<Unit>()
             var remoteChannel:DataChannel?=null
             val cfg=PeerConnection.RTCConfiguration(emptyList()).apply { sdpSemantics=PeerConnection.SdpSemantics.UNIFIED_PLAN }
-            val a=checkNotNull(factory.createPeerConnection(cfg,object:Observer() {
-                override fun onIceGatheringChange(s:PeerConnection.IceGatheringState) { if(s==PeerConnection.IceGatheringState.COMPLETE)aIce.complete(Unit) }
-            }))
+            val a=checkNotNull(factory.createPeerConnection(cfg,object:Observer() {}))
             val b=checkNotNull(factory.createPeerConnection(cfg,object:Observer() {
-                override fun onIceGatheringChange(s:PeerConnection.IceGatheringState) { if(s==PeerConnection.IceGatheringState.COMPLETE)bIce.complete(Unit) }
                 override fun onDataChannel(d:DataChannel) {
                     remoteChannel=d
                     d.registerObserver(object:DataChannel.Observer {
@@ -70,6 +76,7 @@ class WebRtcNativeAcceptanceTest {
                             received.complete(String(bytes,Charsets.UTF_8))
                         }
                     })
+                    remoteReady.complete(Unit)
                 }
             }))
             val channel=a.createDataChannel("lanu-native-smoke",DataChannel.Init())
@@ -80,14 +87,16 @@ class WebRtcNativeAcceptanceTest {
                     override fun onMessage(buffer:DataChannel.Buffer) {}
                 })
                 val offer=create { a.createOffer(it,MediaConstraints()) }
-                set { a.setLocalDescription(it,offer) };aIce.await()
-                val first=a.localDescription.description
+                set { a.setLocalDescription(it,offer) }
+                val first=gathered(a)
                 assertTrue(first.contains("a=fingerprint:sha-256 "))
                 set { b.setRemoteDescription(it,SessionDescription(SessionDescription.Type.OFFER,first)) }
                 val answer=create { b.createAnswer(it,MediaConstraints()) }
-                set { b.setLocalDescription(it,answer) };bIce.await()
-                set { a.setRemoteDescription(it,b.localDescription) }
+                set { b.setLocalDescription(it,answer) }
+                val fullAnswer=gathered(b)
+                set { a.setRemoteDescription(it,SessionDescription(SessionDescription.Type.ANSWER,fullAnswer)) }
                 if(channel.state()!=DataChannel.State.OPEN)opened.await()
+                remoteReady.await()
                 assertTrue(channel.send(DataChannel.Buffer(ByteBuffer.wrap("native-verified".toByteArray()),false)))
                 assertEquals("native-verified",received.await())
                 a.restartIce()
