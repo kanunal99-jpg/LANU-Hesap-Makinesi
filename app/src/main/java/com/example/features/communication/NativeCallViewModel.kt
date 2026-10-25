@@ -233,9 +233,12 @@ class NativeCallViewModel(
     // A late completion from an ended/hidden call must not revive its state.
     private suspend fun startConfirmedMedia(current: Session, engine: CallMediaSession) {
         engine.start(current.video)
-        if (session === current && foreground && current.video) {
-            _state.value = _state.value.copy(cameraOn = true)
+        // Native startup may complete after the user ended the call. Do not
+        // continue SDP negotiation with a disposed session or revive its UI.
+        if (session !== current || !foreground) {
+            throw CancellationException("Call ended while media was starting")
         }
+        if (current.video) _state.value = _state.value.copy(cameraOn = true)
     }
 
     private fun createEngine(current: Session): CallMediaSession = mediaFactory(
