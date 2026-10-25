@@ -48,6 +48,8 @@ class NativeCallViewModel(
     private var pipeline: Job? = null
     private var starting: Job? = null
     private var timeout: Job? = null
+    private var muteChange: Job? = null
+    private var cameraChange: Job? = null
     private val workJobs = mutableSetOf<Job>()
     private val seen = LinkedHashSet<String>()
     // Call-level tombstones complement signal UUID dedupe: a replayed INVITE
@@ -130,14 +132,29 @@ class NativeCallViewModel(
     fun dismiss() { if (session == null) _state.value = NativeCallUiState(); _notice.value = null }
     fun clearNotice() { _notice.value = null }
     fun muted() {
+        val current = session ?: return
         val engine = _media.value ?: return
-        val value = !_state.value.muted
-        engine.mute(value); _state.value = _state.value.copy(muted = value)
+        if (!foreground || muteChange?.isActive == true) return
+        val target = !_state.value.muted
+        muteChange = guarded(current) {
+            engine.mute(target)
+            // Only actual microphone success for the same live call changes UI.
+            if (session === current && foreground)
+                _state.value = _state.value.copy(muted = target)
+        }
     }
     fun camera() {
+        val current = session ?: return
         val engine = _media.value ?: return
-        val value = !_state.value.cameraOn
-        engine.camera(value); _state.value = _state.value.copy(cameraOn = value)
+        if (!foreground || !current.video || cameraChange?.isActive == true) return
+        val target = !_state.value.cameraOn
+        cameraChange = guarded(current) {
+            engine.camera(target)
+            // No false camera indication on permission/HAL failure or a late
+            // callback from a call already closed in the private area.
+            if (session === current && foreground)
+                _state.value = _state.value.copy(cameraOn = target)
+        }
     }
     fun switchCamera() { _media.value?.switchCamera() }
 

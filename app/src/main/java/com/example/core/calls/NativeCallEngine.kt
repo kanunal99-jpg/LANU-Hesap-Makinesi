@@ -24,8 +24,8 @@ interface CallMediaSession {
     suspend fun offer(restart: Boolean = false): String
     suspend fun answer(remote: String): String
     suspend fun remoteAnswer(remote: String)
-    fun mute(value: Boolean)
-    fun camera(value: Boolean)
+    suspend fun mute(value: Boolean)
+    suspend fun camera(value: Boolean)
     fun switchCamera()
     fun close()
 }
@@ -283,17 +283,31 @@ class NativeCallEngine(
         })
     }
 
-    override fun mute(value: Boolean) { scope.launch { adm?.setMicrophoneMute(value); localAudio?.setEnabled(!value) } }
-    override fun camera(value: Boolean) { scope.launch {
-        if (closing.get()) return@launch
-        if (value == videoEnabled) return@launch
+    // A suspended control completes only after the native media operation
+    // actually succeeded. The UI must never optimistically claim mute/camera.
+    override suspend fun mute(value: Boolean): Unit = withContext(dispatcher) {
+        check(!closing.get()) { "Görüşme sonlandırıldı." }
+        checkNotNull(adm) { "Mikrofon kullanılamıyor." }.setMicrophoneMute(value)
+        check(checkNotNull(localAudio) { "Ses kanalı bulunamadı." }.setEnabled(!value)) {
+            "Mikrofon durumu değiştirilemedi."
+        }
+        check(!closing.get()) { "Görüşme sonlandırıldı." }
+    }
+    override suspend fun camera(value: Boolean): Unit = withContext(dispatcher) {
+        check(!closing.get()) { "Görüşme sonlandırıldı." }
+        if (value == videoEnabled) return@withContext
+        val camera = checkNotNull(capturer) { "Kamera akışı açılamadı." }
+        val track = checkNotNull(localVideo) { "Görüntü kanalı bulunamadı." }
         if (value) {
-            check(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
-            capturer?.startCapture(1280,720,24)
-        } else capturer?.stopCapture()
+            check(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                "Kamera izni gerekiyor."
+            }
+            camera.startCapture(1280, 720, 24)
+        } else camera.stopCapture()
+        check(!closing.get()) { "Görüşme sonlandırıldı." }
+        check(track.setEnabled(value)) { "Kamera durumu değiştirilemedi." }
         videoEnabled = value
-        localVideo?.setEnabled(value)
-    } }
+    }
     override fun switchCamera() { scope.launch { capturer?.switchCamera(null) } }
     fun chooseRoute(route: CallAudioRoutePolicy.Route) { scope.launch { router.choose(route) } }
     fun refreshRoutes() { scope.launch { router.refresh() } }

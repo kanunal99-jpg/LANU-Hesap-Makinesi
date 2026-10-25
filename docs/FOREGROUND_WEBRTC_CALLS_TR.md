@@ -13,6 +13,12 @@ Mevcut ECDSA imzalı relay, ayrı 90 saniyelik opaque sinyal tablosu ve karşıl
 
 Gelen davetler mevcut ön plan chat sync yanıtına yalnız v1 isteyen istemcide eklenir. Boşta yeni Edge polling döngüsü yoktur. Arama esnasında 2 saniyelik callSync, sınırlı mesaj gönderim bütçesi ve maksimum kısa ömürlü sinyaller vardır. Eski istemci yanıt formatı aynı kalır. Android arka plan worker'ı çağrı açamaz.
 
+## Mikrofon/kamera kontrolünün doğrulanması
+
+Görüşmede mikrofonu susturma ve kamerayı kapatma/açma işlemi yalnız gerçek WebRTC ADM/AudioTrack veya kamera capturer + VideoTrack işlemi başarıyla tamamlandıktan sonra arayüzde güncellenir. Önceye ait iyimser kamera/mikrofon ikon değişimi kaldırıldı. Aynı kontrolün art arda iki kez basılması bir önceki medya komutunu bitmeden çoğaltmaz. Kamera açma/kapama komutu devam ederken özel alan kapanırsa geç cevap eski UI durumunu değiştiremez. İzin/HAL hatasında başarısızlık kullanıcıya bildirilir ve görüşme güvenli kapatılır; hiçbir başarısızlık 'kamera kapandı' veya 'mikrofon susturuldu' başarı göstergesi üretemez. Sesli görüşmede sonradan izinsiz kamera açılması desteklenmez.
+
+Bu değişiklik yalnız yerel medya/UI yaşam döngüsü doğrulamasıdır; gürültü azaltma dB kazanımı, fiziksel OEM kamera güvenilirliği veya SQLCipher'ı kanıtlamaz.
+
 ## Medya ve dayanıklılık
 
 `io.github.webrtc-sdk:android:150.7871.04` sabittir. AudioDeviceModule VOICE_COMMUNICATION, destekli donanım AEC/NS ve WebRTC APM/AGC kullanır; mevcut bağımsız Android DSP adaptörü aynı ses oturumuna ikinci kez eklenmez. Cihaz/HAL hatasında görüşme güvenli kapanır. Kamera2, gerekirse Kamera1 ve codec donanım/yazılım alternatifleri bulunur. Ses odağı ve rota kapanışta geri bırakılır. Kamera kapatıldığında capture durur. Renderer ana thread üzerinde başlatılır; mutex ile yaşam döngüsü sıralanır ve renderer kapanmadan EGL bırakılmaz. Track, capturer, PeerConnection, EGL ve audio module temizlenir. Kamera HAL hataları açıkça görüşmeyi sonlandırır.

@@ -38,6 +38,11 @@ class NativeCallStateTest {
     private var iceRestarts=0
     private var remoteAnswers=0
     private var failStart=false
+    private var cameraGate:CompletableDeferred<Unit>?=null
+    private var muteGate:CompletableDeferred<Unit>?=null
+    private var failMute=false
+    private val cameraCommands=mutableListOf<Boolean>()
+    private val muteCommands=mutableListOf<Boolean>()
     private var failCallAck=false
     private var incomingChatEvent: JSONObject? = null
     private var chatAckCount=0
@@ -100,8 +105,15 @@ class NativeCallStateTest {
                 override suspend fun offer(restart:Boolean):String { if(restart) iceRestarts++;return sdp }
                 override suspend fun answer(remote:String)=sdp
                 override suspend fun remoteAnswer(remote:String) { remoteAnswers++ }
-                override fun mute(value:Boolean) {}
-                override fun camera(value:Boolean) {}
+                override suspend fun mute(value:Boolean) {
+                    muteCommands += value
+                    muteGate?.await()
+                    if(failMute) error("Simulated native audio HAL mute failure")
+                }
+                override suspend fun camera(value:Boolean) {
+                    cameraCommands += value
+                    cameraGate?.await()
+                }
                 override fun switchCamera() {}
                 override fun close() { closes++ }
             }
@@ -372,6 +384,64 @@ class NativeCallStateTest {
         assertEquals(2,remoteAnswers)
         inject(CallSignaling.create(invite.callId,CallSignalKind.ANSWER,false,sdp))
         assertEquals(2,remoteAnswers)
+    }
+
+    @Test fun cameraUiChangesOnlyAfterConfirmedNativeCaptureOperation() = runBlocking {
+        vm.outgoing(UserCodes.conversationId(own.id,peer.id),true,true)
+        val invite=awaitSent(CallSignalKind.INVITE)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,true))
+        awaitSent(CallSignalKind.OFFER)
+        report!!(CallMediaEvidence(true,7,7));waitPhase(NativeCallPhase.CONNECTED)
+
+        cameraGate=CompletableDeferred()
+        vm.camera()
+        assertTrue("Camera remains on while hardware is still processing",vm.state.value.cameraOn)
+        vm.camera()
+        assertEquals("Double taps must not queue duplicate camera commands",listOf(false),cameraCommands)
+        cameraGate!!.complete(Unit)
+        withTimeout(3000) { vm.state.first { !it.cameraOn } }
+        assertEquals(NativeCallPhase.CONNECTED,vm.state.value.phase)
+        assertEquals(listOf(false),cameraCommands)
+    }
+
+    @Test fun failedMicrophoneMuteDoesNotReportMutedAndReleasesTheCall() = runBlocking {
+        vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
+        val invite=awaitSent(CallSignalKind.INVITE)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,false))
+        awaitSent(CallSignalKind.OFFER)
+        report!!(CallMediaEvidence(true,2,3));waitPhase(NativeCallPhase.CONNECTED)
+        failMute=true
+        vm.muted()
+        waitPhase(NativeCallPhase.FAILED)
+        assertEquals(listOf(true),muteCommands)
+        assertFalse("Never claim mic is muted when the HAL rejected the operation",vm.state.value.muted)
+        assertEquals(1,closes)
+    }
+
+    @Test fun leavingPrivateAreaCancelsPendingCameraCommandWithoutReopeningUi() = runBlocking {
+        vm.outgoing(UserCodes.conversationId(own.id,peer.id),true,true)
+        val invite=awaitSent(CallSignalKind.INVITE)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,true))
+        awaitSent(CallSignalKind.OFFER)
+        report!!(CallMediaEvidence(true,5,5));waitPhase(NativeCallPhase.CONNECTED)
+        cameraGate=CompletableDeferred()
+        vm.camera()
+        vm.deactivate()
+        cameraGate!!.complete(Unit)
+        assertEquals(NativeCallPhase.IDLE,vm.state.value.phase)
+        assertEquals(listOf(false),cameraCommands)
+        assertEquals(1,closes)
+    }
+
+    @Test fun audioOnlyCallCannotTurnOnUnallocatedVideoHardware() = runBlocking {
+        vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
+        val invite=awaitSent(CallSignalKind.INVITE)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,false))
+        awaitSent(CallSignalKind.OFFER)
+        report!!(CallMediaEvidence(true,3,3));waitPhase(NativeCallPhase.CONNECTED)
+        vm.camera()
+        assertTrue(cameraCommands.isEmpty())
+        assertEquals(NativeCallPhase.CONNECTED,vm.state.value.phase)
     }
 
     @Test fun ordinaryChatCiphertextCannotCreateAnIncomingCall() = runBlocking {
