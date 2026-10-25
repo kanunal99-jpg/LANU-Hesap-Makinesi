@@ -472,7 +472,13 @@ class CommunicationRepository(
         val peers = response.getJSONArray("contacts")
         for (i in 0 until peers.length()) savePeer(peers.getJSONObject(i), peers.getJSONObject(i).optString("codeAtAdd"))
         if (callingForeground && response.has("calls")) {
-            decodeCallSignals(own, response.getJSONArray("calls"))
+            // Call ACK is independent of durable chat delivery. A transient call
+            // relay failure must never prevent encrypted messages from being
+            // persisted and acknowledged in this very same sync response.
+            // The call relay retains unacknowledged controls for bounded retry.
+            try { decodeCallSignals(own, response.getJSONArray("calls")) }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* chat continues; call controls retry separately */ }
         }
         val events = response.getJSONArray("events")
         val ack = JSONArray()
