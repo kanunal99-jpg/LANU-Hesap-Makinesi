@@ -1,5 +1,71 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 25.10.2026 — LANU 447 bağımsız mühendislik puanlaması, 0–6 puan güvenlik öncelikleri ve ses/video/NS programı
+
+> **Kayıt ilkesi:** Aşağıdaki puanlar kod, GitHub Actions ve açık riskler üzerinden yapılan **öznel teknik ön değerlendirmedir**; sızma testi, cihaz ölçümü, güvenlik sertifikası veya garantili çalışma oranı değildir. `0–6` ifadesi 10 üzerinden **puanı 6,0 veya altında kalan kategoriler** için hedeflenen güçlendirme grubudur. 6,6/6,8/7,0 puanlı ses-video-gürültü başlıkları kullanıcı talebiyle bu gruba **eklenmiştir**. Puanları hedef değere otomatik yükseltmek yasaktır.
+
+**Doğrulama anı:** 25.10.2026, `main` commit `7a481f2a719bcd12682973d4fdd7d6fea542b92a`; son doğrulanmış yayımlı `v1.1.0-signed.447`; CI `40219653126` başarılı. Android 14 emülatör debug/release ve yerel test geçişi, fiziksel iki cihazda gerçek ses/video veya eskiden yeniye veri kayıpsız yükseltmenin kanıtı **değildir**. İmzalı APK'nin yayın sonrası HTTPS/SHA256 read-back'i CI içinde geçmiştir. Puanlama aralığı genel **7,2 / 10**; yalnızca başlangıç karşılaştırması.
+
+### Kalem kalem 24 değerlendirme başlığı
+
+| # | Bileşen | Başlangıç puanı /10 | Temel kanıt ve açık sınır |
+|---|---|---:|---|
+| 01 | Android mimarisi (MVVM/Hilt/Flow) | 8,0 | Compose/Hilt/Flow var; büyük katman/sınıf sorumlulukları temizlenmeli |
+| 02 | Modülerlik ve bakım | 7,0 | Büyük repository/screen sınıfları bölünmeli, contract testleri artırılmalı |
+| 03 | Jetpack Compose arayüz | 8,0 | Modern arayüz; çoklu OEM/ekran erişilebilirlik kabulü açık |
+| 04 | Hesap makinesi/dönüştürücü | 8,6 | İşlev/testler var; uç BigDecimal matematik #5 açık |
+| 05 | Gizli alan/PIN/biyometri | 7,5 | PIN isteğe bağlı kullanıcı kararı **değişmez**; kapalı PIN gizlilik riski açık anlatılır |
+| 06 | E2EE mesaj şifrelemesi | 8,0 | ECDH/AES-GCM AAD/kimlik/relay doğrulama var; bağımsız kripto inceleme yok |
+| 07 | İleri gizlilik/Double Ratchet | **3,5** | #114 açık; kalıcı ECDH, ratchet ve post-compromise recovery yok |
+| 08 | Room/WAL/SHM disk şifrelemesi | **4,5** | #113 açık; standart Room SQLite, SQLCipher yok; eski veri **silinemez** |
+| 09 | Supabase/relay yetki ve RLS | 8,0 | İmzalı istek, karşılıklı kişi, RLS protokol/sunucu testleri var |
+| 10 | Mesaj teslimi/çevrimdışı | 7,0 | E2EE kuyruk + isteğe bağlı WorkManager; anlık background teslim yok |
+| 11 | Gerçek WebRTC ses | 7,0 | Native ICE/DTLS emülatör, mikrofon izni/ön plan kontrolü var; fiziksel ses testleri açık |
+| 12 | Gerçek WebRTC görüntü | 6,8 | Kamera2/1 ve renderer var; fiziksel görüntü/çevirme/uzun kullanım testleri açık |
+| 13 | AEC/NS/AGC, gürültü kontrolü | 6,6 | WebRTC APM/uyumlu donanım; gürültü dB kazanımı ölçülmedi; kulaklık ANC **iddia edilmez** |
+| 14 | Zor NAT/TURN/ağ değişimi | **4,5** | Ücretsiz STUN/ICE restart var; TURN yok; P2P bütün ağlarda garanti edilemez |
+| 15 | Fotoğraf/belge/büyük medya | **5,0** | Küçük E2EE içerik var; büyük dosya storage grant/atomic ready/TTL/indirme #85 açık |
+| 16 | Şifreli yedekleme/kurtarma | 7,0 | Parolalı kullanıcı yedeği var; fiziksel geri yükleme matrisi eksik |
+| 17 | OTA/uygulama içi güncelleme | 8,6 | Sertifika, sürüm, SHA ve şüpheli URL reddi var; fiziksel veri koruma kabulü açık |
+| 18 | APK imza anahtarı felaket kurtarma | **4,0** | #83 açık; gerçek PKCS12'nin bağımsız ortamdaki şifreli geri yükleme kanıtı yok |
+| 19 | CI/CD, R8, yayın doğrulama | 9,3 | Test/emülatör/sha/signing/live Release read-back; fiziksel OEM yerine geçmez |
+| 20 | Çökme/gizlilik odaklı izleme | **6,0** | Yerel sanitizasyon/diagnostic var; izinli üretim crash telemetry bütünlüğü eksik |
+| 21 | Samsung/Xiaomi/Huawei OEM kabulü | **4,5** | Eski APK cihaz gözlemleri var; **447** gerçek çağrı, GMS'siz ve yeni OTA matrisi açık |
+| 22 | Performans/pil/bellek | **6,0** | Coroutines/R8/cleanup; uzun çağrı, ısı, CPU, pil ve gecikme ölçümü eksik |
+| 23 | ADR/dokümantasyon | 6,5 | Anayasa ve test kayıtları kapsamlı; eski demo/açık durumlar tarihsel etiketlenmeli |
+| 24 | Lisans/ABI/16KiB uyumluluğu | 8,0 | WebRTC BSD, dört ABI, ARM64 hizası ve JNI-R8 koruma kontrolleri mevcut |
+
+**Test olgunluğu (başarı yüzdesi değil, değerlendirme puanı):** birim/Robolectric 9,3; CI/CD 9,3; Android emülatör kabulü 8,7; fiziksel cihaz/ağ 4,5; gerçek veriyle kurtarma/OTA 5,0. Bir testin geçmesi tüm üretim koşullarının sağlandığı anlamına gelmez.
+
+### 0–6 puanlı alanlar + istenen ses/video/gürültü sağlamlaştırması
+
+| Öncelik | Alan, başlangıç puanı | Güçlendirme mimarisi ve güvenlik kapısı | Tamamlama kanıtı |
+|---|---|---|---|
+| **P0** | Room 4,5 | SQLCipher üzerinde sürümlü, **kayıpsız**, iki aşamalı/atomik geçiş; WAL checkpoint + veri bütünlüğü; Keystore-sarılı anahtar, düşük alan/süreç öldürme kurtarma; **geri dönüşte eski DB tutulur** | Kopya veritabanında satır/ek/hash karşılaştırma, kill/disk-full/rollback, Samsung/Xiaomi OTA; bunlar yokken **MIGRASYON AÇILMAZ** |
+| **P0** | İmza felaket kurtarma 4,0 | İkinci güvenli ortamda gerçek PKCS12 şifreli yedek, test geri yükleme, aynı sertifika SHA256; sırların GitHub/chat/CI loglarına **asla çıkmaması** | Sahip kontrollü bağımsız restore kanıtı; CI'daki sahte fixture testi gerçek kurtarma değildir |
+| **P1** | Forward secrecy 3,5 | Bağımsız tehdit modeli, çift ratchet/X3DH veya denetlenmiş muadil, sürüm/old-client birlikte çalışma; yeni kriptoyu el yordamıyla yazma yok | Bağımsız kripto incelemesi, downgrade/replay/rotasyon testleri, kimlik/yedek uyumluluğu |
+| **P1** | Zor NAT/TURN 4,5 | Önce ücretsiz STUN, sınırlı ICE restart, bağlantı zaman aşımı ve kullanıcıya dürüst hata; maliyet onaysız TURN yok | Farklı operatör/hücresel/Wi-Fi, simetrik NAT, IPv6 ve 25s kopma cihaz matrisi |
+| **P1** | Medya paylaşımı 5,0 | Streaming E2EE, sınırlı boyut/MIME, dosya imzası, TLS, private storage, pending→ready atomiklik, TTL/anahtar/log ayrımı | Şifreli upload/download, sahte URL/bozuk payload, ağ kesme, kota, iki gerçek cihaz |
+| **P1** | OEM 4,5 | A55, Xiaomi ve Huawei/GMS'siz: mikrofon, kamera, izin iptali, kulaklık/BT, Doze, Android 23–36, 16KiB, OTA | Modelli fiziksel test/ekran kaydı/ölçüm; emülatör ≠ OEM kabulü |
+| **P1** | Crash/diagnostic 6,0 | Gizlilik korumalı yerel sabit hata kodları; uzaktan toplama varsa açık tercih ve **sır/SDP/IP/mesaj yok**; Crashlytics seçeneği veri politikasıyla | Sentetik crash/redaction testleri; üretim telemetry gizlilik incelemesi |
+| **P1** | Performans 6,0 | Görüşme sırasında bounded queue, RTC kaynak yaşam döngüsü, kamera HAL fallback, ağ/termal/bellek değişimi, ≤2–3 sn UI tepki **hedefi** | Ölçülmüş p50/p95, pil/ısınma/bellek, 30–60 dk görüşme, bağlantı ağ geçişi |
+| **P1** | WebRTC ses 7,0 / video 6,8 | Kullanıcı kabulünden sonra capture; camera2→camera1 gerçek fallback; foreground kapanışta tüm medya/renderer/EGL bırakılır; ICE/DTLS-SRTP gerçek paket kanıtı | Android 14 debug+R8 release; iki OEM'de karşılıklı ses/video, mute/flip/rota/hata |
+| **P1** | AEC/NS/AGC 6,6 | WebRTC JavaAudioDeviceModule/AudioProcessing, cihazda varsa donanım AEC/NS; yoksa WebRTC yazılım yolu; iki farklı AEC/NS motorunu üst üste bağlama yok | Sessiz/gürültülü A/B ses kaydı, MOS/PESQ veya nesnel referans, yankı ve ses anlaşılırlığı; **kanıtsız dB/ANC vaadi yasak** |
+
+**Evrensel kritik zincir:** ana yol → doğrulanmış alternatif → gerçek fallback → sınırlandırılmış hata → güvenli varsayılan → hassas verisiz tanılama → birim+emülatör smoke → fiziksel kabul. Her değişiklikte 429/rate-limit, kötü ağ, cancel/timeout, anahtar/sertifika uyuşmazlığı, bozuk dosya, yetkisiz karşı taraf, kamera HAL ve batarya/bellek senaryoları ayrı kapıdır. **Sahte başarı, placeholder fallback ve ücretli otomatik altyapı yasaktır.**
+
+**Paket güncelleme sınırı:** kullanıcı PIN tercihi ve gizli giriş davranışı **değişmez**; mevcut kimlik, E2EE mesaj, Room veri, hesap geçmişi veya imza silinmez. `v1.1.0-signed.447` referans geri dönüş sürümüdür; sonrakinin yayımlandığı yalnız GitHub CI başarı + Release asset + anonim HTTPS/SHA read-back ile söylenir. Fiziksel iki telefon ve veri kayıpsız OTA açık kaldıkça **tam 9–10 puan veya tüm cihazlarda garanti** iddia edilmez.
+
+### Eylem / statü protokolü
+
+- **DOĞRULANDI:** 447 üzerinde başarılı CI; repo listesi, kullanıcı izinleri, Android 14 gerçek native WebRTC emülatör testi.
+- **YAPILACAK:** emülatör ve birim testleri eklenirken kamera fallback, AEC/NS capability kararları, güvenlik regression kapıları güçlendirilir; PR kendi CI tamamlanmadan `main`'e girmez.
+- **AYRI PROJE/KABUL:** SQLCipher kayıpsız migration, Double Ratchet protokol yükseltmesi, gerçek anahtar restore, ücretsiz TURN erişilebilirlik değerlendirmesi, büyük medya E2EE depolama ve fiziksel cihaz kabulü. Yapılmamış özellikler etkinmiş gibi açıklanamaz.
+- **Puan güncelleme kuralı:** yalnız somut commit, test sonucu, üretim ve fiziksel kanıt ile yeniden puanlanır; salt plan/yorum puan artırmaz.
+
+---
+
+
 
 ## 25.10.2026 — Gerçek ön plan WebRTC araması uygulaması
 

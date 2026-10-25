@@ -84,11 +84,19 @@ jobs:
       - name: Verify call invitation replay and busy handling
         run: ./gradlew :app:testDebugUnitTest --tests 'com.example.NativeCallStateTest' --no-daemon --stacktrace
 
+      - name: Verify OEM camera, audio AEC/NS and multi-provider STUN policy
+        run: ./gradlew :app:testDebugUnitTest --tests 'com.example.CallCameraFallbackTest' --tests 'com.example.CallAudioProcessingPolicyTest' --tests 'com.example.CallIceServerPolicyTest' --no-daemon --stacktrace
+
       - name: Run Unit and Robolectric Tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
 
       - name: Unit test Room schema verification guard
         run: python3 -m unittest discover -s scripts -p 'test_verify_room_schema.py'
+
+      - name: Reject destructive Room migration and protect E2EE history
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_verify_room_migration_safety.py'
+          python3 scripts/verify_room_migration_safety.py
 
       - name: Verify current Room v4 schema export
         run: python3 scripts/verify_room_schema.py app/schemas/com.example.core.database.AppDatabase/4.json docs/ROOM_V4_SCHEMA.sha256

@@ -83,7 +83,7 @@ fun NativeCallHost(model: NativeCallViewModel, request: Pair<String, Boolean>?, 
     if (confirm != null) {
         val target = confirm!!
         AlertDialog(onDismissRequest = { confirm = null }, title = { Text(if (target.second) "Görüntülü arama" else "Sesli arama") },
-            text = { Text("İki telefonda da güncel LANU ve güvenli alan açık olmalıdır. Doğrudan görüşmede IP adresiniz karşı tarafla paylaşılır. Mikrofon ve kamera yalnız görüşme kabul edilince açılır. Güvenli alandan çıkarsanız görüşme kapanır.") },
+            text = { Text("İki telefonda da güncel LANU ve güvenli alan açık olmalıdır. Doğrudan görüşmede IP adresinizi karşı taraf ve Google/Cloudflare STUN hizmetleri görebilir. Mikrofon ve kamera yalnız görüşme kabul edilince açılır. Güvenli alandan çıkarsanız görüşme kapanır.") },
             confirmButton = { TextButton(onClick = { confirm = null; authorize(target.first, target.second, false) }) { Text("Aramayı başlat") } },
             dismissButton = { TextButton(onClick = { confirm = null }) { Text("Vazgeç") } })
     }
@@ -127,7 +127,7 @@ fun NativeCallHost(model: NativeCallViewModel, request: Pair<String, Boolean>?, 
                         Text("WebRTC gürültü ve yankı azaltma · kalite cihaza ve ortama bağlıdır", style = MaterialTheme.typography.bodySmall)
                     }
                     if (state.phase == NativeCallPhase.RINGING) {
-                        Text("Doğrudan görüşmede IP adresiniz karşı tarafla paylaşılır. Güvenli alandan çıkarsanız görüşme biter.",
+                        Text("Doğrudan görüşmede IP adresinizi karşı taraf ve Google/Cloudflare STUN hizmetleri görebilir. Güvenli alandan çıkarsanız görüşme biter.",
                             style = MaterialTheme.typography.bodySmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                             Button(onClick = { authorize(state.callId, state.video, true) }) { Text("Kabul et") }
