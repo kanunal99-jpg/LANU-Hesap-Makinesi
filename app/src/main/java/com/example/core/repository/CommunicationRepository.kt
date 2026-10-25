@@ -16,7 +16,6 @@ import org.json.JSONArray
 import java.util.UUID
 import com.example.core.calls.*
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.BufferOverflow
 
 class CommunicationRepository(
     private val contactDao: ContactDao,
@@ -44,7 +43,9 @@ class CommunicationRepository(
     @Volatile private var callingForeground = false
     @Volatile private var callInProgress = false
     fun setCallInProgress(active: Boolean) { callInProgress = active }
-    private val callInbox = Channel<ReceivedCallSignal>(64, BufferOverflow.DROP_OLDEST)
+    // Bounded, lossless queue: if full, leave signals on the relay unacknowledged for retry.
+    // DROP_OLDEST previously acknowledged signals that were silently discarded.
+    private val callInbox = Channel<ReceivedCallSignal>(64)
     val callSignals = callInbox.receiveAsFlow()
     fun setCallingForeground(enabled: Boolean) {
         callingForeground = enabled
@@ -79,23 +80,21 @@ class CommunicationRepository(
         catch (_: java.io.IOException) { relay.request(own, "callSend", data) }
     }
 
-    suspend fun pollCallSignals(): List<ReceivedCallSignal> {
+    suspend fun pollCallSignals() {
         check(callingForeground)
         val own = loadIdentity(allowCreate = false)
         val response = relay.request(own, "callSync")
         require(response.getInt("version") == CallSignaling.VERSION)
-        return decodeCallSignals(own, response.getJSONArray("signals"))
+        decodeCallSignals(own, response.getJSONArray("signals"))
     }
 
     private suspend fun decodeCallSignals(own: MessagingIdentity, rows: JSONArray): List<ReceivedCallSignal> {
         require(rows.length() <= 24)
         val ack = JSONArray()
-        val result = mutableListOf<ReceivedCallSignal>()
         for (i in 0 until rows.length()) {
             val row = rows.getJSONObject(i)
             val id = row.optString("id")
             if (!CallSignaling.validId(id)) continue
-            ack.put(id)
             try {
                 require(row.getString("recipientId") == own.id && row.getLong("expiresAt") > clock())
                 require(row.getLong("expiresAt") <= clock() + 120_000L)
@@ -103,12 +102,15 @@ class CommunicationRepository(
                 val cipher = row.getString("content")
                 require(cipher.length <= 32768)
                 val plain = PeerMessageCrypto.decrypt(own, peer.id, peer.publicKey, CallSignaling.aadId(id), peer.id, cipher)
-                result += ReceivedCallSignal(peer, CallSignaling.decode(plain, id, row.getString("callId"), clock()))
+                val signal = ReceivedCallSignal(peer, CallSignaling.decode(plain, id, row.getString("callId"), clock()))
+                // ACK only once the foreground consumer queue actually owns the signal.
+                // No silent loss on saturation; relay retention permits next poll to retry.
+                if (!callingForeground || callInbox.trySend(signal).isFailure) break
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { /* Drop invalid/expired ephemeral control data, never log SDP/identity. */ }
+            ack.put(id)
         }
         if (ack.length() > 0) relay.request(own, "callAck", JSONObject().put("ids", ack))
-        return result
     }
 
     /** Background maintenance must never mint or replace an identity. */
@@ -467,9 +469,7 @@ class CommunicationRepository(
         val peers = response.getJSONArray("contacts")
         for (i in 0 until peers.length()) savePeer(peers.getJSONObject(i), peers.getJSONObject(i).optString("codeAtAdd"))
         if (callingForeground && response.has("calls")) {
-            decodeCallSignals(own, response.getJSONArray("calls")).forEach {
-                if (callingForeground) callInbox.trySend(it)
-            }
+            decodeCallSignals(own, response.getJSONArray("calls"))
         }
         val events = response.getJSONArray("events")
         val ack = JSONArray()
