@@ -180,23 +180,25 @@ class NativeCallEngine(
                 val starting = AtomicBoolean(true)
                 val failed = AtomicBoolean(false)
                 val candidate = enumerators[index].createCapturer(device.name,
-                    cameraEvents(generation, starting, failed)) ?: return@select null
-                try {
-                    check(!closing.get())
-                    candidate.initialize(texture, context, videoSource!!.capturerObserver)
-                    candidate.startCapture(1280, 720, 24)
-                    check(!closing.get())
-                    check(!failed.get()) { "Kamera açılışında hata." }
-                    starting.set(false)
-                    candidate
-                } catch (e: Exception) {
-                    // Invalidate late callbacks from the rejected camera before
-                    // trying another OEM HAL; never leak a native capturer.
-                    cameraGeneration.incrementAndGet()
-                    runCatching { candidate.stopCapture() }
-                    runCatching { candidate.dispose() }
-                    null
-                }
+                    cameraEvents(generation, starting, failed))
+                CallCameraStartupPolicy.tryStart(
+                    candidate,
+                    start = { camera ->
+                        check(!closing.get())
+                        camera.initialize(texture, context, videoSource!!.capturerObserver)
+                        camera.startCapture(1280, 720, 24)
+                        check(!closing.get())
+                        check(!failed.get()) { "Kamera açılışında hata." }
+                        starting.set(false)
+                    },
+                    releaseFailed = { camera ->
+                        // Invalidate late callbacks before disposing the failed
+                        // native camera, then retry an actual alternate HAL.
+                        cameraGeneration.incrementAndGet()
+                        runCatching { camera.stopCapture() }
+                        runCatching { camera.dispose() }
+                    }
+                )
             }
         )
         checkNotNull(capturer) { "Kamera kullanılamadı; sesli aramayı deneyin." }
