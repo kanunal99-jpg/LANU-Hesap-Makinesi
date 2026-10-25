@@ -3,6 +3,10 @@
 # WebRTC JNI resolves Java names/callbacks. Verified by a native DTLS loopback
 # test on both debug and minified release, not by disabling R8.
 -keep class org.webrtc.** { *; }
+# The release instrumentation APK invokes our retained production EGL entry
+# point rather than independently linking an incompatible static-interface
+# desugaring bridge for EglBase.create() on minSdk 23.
+-keep class com.example.core.calls.WebRtcEglFactory { *; }
 # WebRTC M150 JNI_OnLoad also resolves org.jni_zero.JniZero by its original name.
 -keep class org.jni_zero.** { *; }
 # The vendor WebRTC M150 AAR references a code-generated bridge that it does not
