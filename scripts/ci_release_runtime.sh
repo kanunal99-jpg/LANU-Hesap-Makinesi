@@ -8,13 +8,10 @@ if ./gradlew -PlanuDeviceBuildType=release :app:connectedReleaseAndroidTest --no
   exit 0
 fi
 
-# Never print general logcat: it could include SDP, candidates or private data.
-# Only fixed LANU-RTC-SMOKE stage labels and native/JNI fatal exception types
-# from this disposable emulator test may reach GitHub Actions logs.
-printf '%s\n' '::group::Bounded native WebRTC crash diagnostics'
-(adb logcat -d -b main -b system -b crash -t 1500 2>/dev/null || true) |
-  grep -E 'LANU-RTC-SMOKE|FATAL EXCEPTION|Fatal error in:|Check failed:|JNI DETECTED ERROR|JNI exception|Fatal signal|NoSuchMethodError|NoClassDefFoundError|ClassNotFoundException|UnsatisfiedLinkError' |
-  sed -E 's/(a=candidate:|a=fingerprint:|a=ice-ufrag:|a=ice-pwd:)[^ ]+/[redacted]/g' |
-  tail -n 100 || true
+# The native crash log can contain addresses, SDP or other sensitive strings.
+# Pipe it directly into the fixed-code classifier; never print unfiltered logcat.
+printf '%s\n' '::group::Safe WebRTC native failure explanation'
+adb logcat -d -b main -b system -b crash -t 2400 2>/dev/null |
+  python3 scripts/rtc_failure_diagnose.py || true
 printf '%s\n' '::endgroup::'
 exit 1
