@@ -3,6 +3,7 @@ package com.example
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.core.calls.CallVideoRendererBindings
+import com.example.core.calls.WebRtcEglFactory
 import kotlinx.coroutines.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -15,7 +16,7 @@ class CallVideoRendererAcceptanceTest {
     @Test fun realRendererCanBindFromWorkerAndReleaseBeforeEglOnDebugAndRelease() = runBlocking {
         withTimeout(15_000L) {
             val context = InstrumentationRegistry.getInstrumentation().targetContext
-            val egl = withContext(Dispatchers.Default) { EglBase.create() }
+            val egl = withContext(Dispatchers.Default) { WebRtcEglFactory.create() }
             val owner = CallVideoRendererBindings(egl.eglBaseContext)
             val local = withContext(Dispatchers.Main) { SurfaceViewRenderer(context) }
             val remote = withContext(Dispatchers.Main) { SurfaceViewRenderer(context) }
