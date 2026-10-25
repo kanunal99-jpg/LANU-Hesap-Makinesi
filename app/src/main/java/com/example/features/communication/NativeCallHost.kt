@@ -116,12 +116,13 @@ fun NativeCallHost(model: NativeCallViewModel, request: Pair<String, Boolean>?, 
                         } else Icon(if (state.video) Icons.Default.Videocam else Icons.Default.Call, null, Modifier.size(72.dp))
                     }
                     if (engine != null && !ended) {
+                        val controlsReady = state.phase in setOf(NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING)
                         CallAudioRouteControls(engine!!)
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            FilledTonalIconButton(onClick = model::muted) { Icon(if (state.muted) Icons.Default.MicOff else Icons.Default.Mic, if (state.muted) "Mikrofonu aç" else "Mikrofonu sustur") }
+                            FilledTonalIconButton(onClick = model::muted, enabled = controlsReady) { Icon(if (state.muted) Icons.Default.MicOff else Icons.Default.Mic, if (state.muted) "Mikrofonu aç" else "Mikrofonu sustur") }
                             if (state.video) {
-                                FilledTonalIconButton(onClick = model::camera) { Icon(if (state.cameraOn) Icons.Default.Videocam else Icons.Default.VideocamOff, "Kamerayı aç/kapat") }
-                                FilledTonalIconButton(onClick = model::switchCamera) { Icon(Icons.Default.Cameraswitch, "Ön/arka kamera") }
+                                FilledTonalIconButton(onClick = model::camera, enabled = controlsReady) { Icon(if (state.cameraOn) Icons.Default.Videocam else Icons.Default.VideocamOff, "Kamerayı aç/kapat") }
+                                FilledTonalIconButton(onClick = model::switchCamera, enabled = controlsReady && state.cameraOn) { Icon(Icons.Default.Cameraswitch, "Ön/arka kamera") }
                             }
                         }
                         Text("WebRTC gürültü ve yankı azaltma · kalite cihaza ve ortama bağlıdır", style = MaterialTheme.typography.bodySmall)
