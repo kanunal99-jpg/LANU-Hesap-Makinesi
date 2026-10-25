@@ -121,10 +121,10 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
             audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         } catch (_: SecurityException) {
             resetBeforeStart()
-            return _state.value.copy(status = "PERMISSION_DENIED")
+            return State(status = "PERMISSION_DENIED").also { _state.value = it }
         } catch (_: RuntimeException) {
             resetBeforeStart()
-            return _state.value.copy(status = "AUDIO_MODE_UNAVAILABLE")
+            return State(status = "AUDIO_MODE_UNAVAILABLE").also { _state.value = it }
         }
         running = true
         try {
@@ -296,6 +296,10 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
                                 scoRequested = true
                                 scoConfirmed = false
                                 scheduleScoTimeout()
+                            }
+                            if (scoConfirmed) {
+                                return State(true, route, null, available, "ROUTED")
+                                    .also { _state.value = it }
                             }
                             // Must wait for SCO_AUDIO_STATE_CONNECTED broadcast.
                             return State(true, null, route, available, "BLUETOOTH_PENDING")
