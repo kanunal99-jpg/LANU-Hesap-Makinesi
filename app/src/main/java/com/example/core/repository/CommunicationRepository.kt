@@ -39,6 +39,11 @@ class CommunicationRepository(
     val identity: StateFlow<MessagingIdentity?> = _identity.asStateFlow()
     val relayConfigured get() = relay.configured
 
+    /** Background maintenance must never mint or replace an identity. */
+    suspend fun hasStoredIdentity(): Boolean = identityMutex.withLock {
+        withContext(Dispatchers.IO) { identityStore.read() != null }
+    }
+
     /**
      * A missing Keystore identity with existing communication data is NOT a fresh
      * install: minting a new identity would silently orphan encrypted messages.
@@ -68,9 +73,12 @@ class CommunicationRepository(
         return true
     }
 
-    suspend fun ensureIdentity(): MessagingIdentity = identityMutex.withLock {
+    suspend fun ensureIdentity(): MessagingIdentity = loadIdentity(allowCreate = true)
+
+    private suspend fun loadIdentity(allowCreate: Boolean): MessagingIdentity = identityMutex.withLock {
         val current = _identity.value ?: withContext(Dispatchers.IO) {
             identityStore.read() ?: run {
+                check(allowCreate) { "Arka plan için mevcut LANU kimliği bulunamadı. Kayıtlar korunuyor." }
                 check(!hasExistingAccountEvidence() || canMigrateLegacyPhoneProfile()) {
                     "Önceki LANU kimliği bulunamadı. Sohbetler ve kayıtlar korunuyor; kimlik yedeğini geri yükleyin."
                 }
@@ -104,8 +112,8 @@ class CommunicationRepository(
     }
     suspend fun logout() { /* Identity intentionally survives leaving the private space. */ }
 
-    private suspend fun registerRemote(): MessagingIdentity {
-        val own = ensureIdentity()
+    private suspend fun registerRemote(requireExistingIdentity: Boolean = false): MessagingIdentity {
+        val own = loadIdentity(allowCreate = !requireExistingIdentity)
         val response = relay.request(own, "register", JSONObject().put("code", own.code).put("nonce", own.nonce).put("publicKey", own.publicKey))
         val code = response.getString("code")
         val nonce = response.getString("nonce")
@@ -376,9 +384,9 @@ class CommunicationRepository(
         id
     }
 
-    suspend fun synchronize(activeConversationId: String? = null) = syncMutex.withLock {
+    suspend fun synchronize(activeConversationId: String? = null, requireExistingIdentity: Boolean = false) = syncMutex.withLock {
         if (clock() < nextSyncAt) throw RelayException(429, "Bağlantı kısa süre bekletiliyor. Mesajlarınız korunuyor.", nextSyncAt - clock())
-        val own = registerRemote()
+        val own = registerRemote(requireExistingIdentity = requireExistingIdentity)
         // Receive and acknowledge BEFORE sending: one blocked/invalid outgoing
         // message must never prevent unrelated incoming conversations arriving.
         val response = relay.request(own, "sync")
@@ -582,3 +590,4 @@ class CommunicationRepository(
     suspend fun deleteCallLog(id: Long) { callLogDao.deleteCallLog(id) }
     suspend fun clearAllCallLogs() { callLogDao.clearAllCallLogs() }
 }
+

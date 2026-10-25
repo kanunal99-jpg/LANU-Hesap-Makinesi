@@ -1,5 +1,17 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 25.10.2026 — Premium teslimat merkezi ve GMS bağımsız arka plan kontrolü
+
+- **Kullanıcı talebi:** Önemli açıkları profesyonelce ele al; premium kullanım ve dayanıklılık ekle. Ücretli plan, yeni backend ve zorunlu PIN açılmaz.
+- **Uygulandı:** Güvenli alanın üst çubuğunda **Teslimat merkezi**; MVVM/Flow tabanlı durum, gerçek son başarılı sunucu kontrol zamanı, açık kullanıcı tercihiyle arka plan kontrolü, Wi-Fi/kotasız ağ seçimi, manuel kontrol, uygulama açıkken mevcut senkronizasyona çalışan alternatif.
+- **Güvenli varsayılan:** Arka plan kontrolü **kapalı**, ağ tercihi **kotasız** başlar. İş WorkManager 2.11.2 ile API23+ JobScheduler üzerinden, en az 15 dakika aralıkla ve düşük pil korumasıyla planlanır. GMS/FCM/HMS SDK veya yeni ücretli altyapı eklenmez. Periyodik kontrol anlık push veya zorla durdurulmuş uygulamaya teslim garantisi değildir.
+- **Kimlik/veri koruma:** Worker yeni kimlik oluşturamaz; eksik/bozuk kimlik veya tercih güvenli durur. Aynı repository/Room transaction, E2EE kuyruğu ve sınırlı gönderim yolu kullanılır; arka planda aktif sohbet/okundu onayı gönderilmez. İşe mesaj, kişi kodu, PIN veya anahtar eklenmez. Room şeması, PIN tercihi ve OTA sertifikası değişmez; SQLCipher **henüz etkin değil**.
+- **Dayanıklılık:** Açık uygulama senkronizasyonu ana yol; kullanıcı açarsa Android periyodik iş alternatif; planlayıcı hatasında ön planda yenileme fallback. Ağ/429 için en fazla iki artan aralıklı retry, 90 saniye işlem bütçesi ve iptal aktarımı vardır. Yalnız gerçek sunucu kontrolü başarı zamanını günceller; kullanıcı kapatınca işler iptal edilir. Daha katı ağ tercihi eski işin ağ koşulunu da yeniden kontrol eder.
+- **Test kapsamı:** `DeliveryRunTest`, `BackgroundDeliveryAndroidTest`, `BackgroundIdentityPreservationTest`; iptal/ebeveyn timeout, kota, disk/pref hatası, kimlik üretmeme, WorkManager constructor, opt-out, gerçek worker adaptörü ve veri saklama. Başarı yalnız ilgili GitHub CI + ana dal APK yayın kapısından sonra raporlanır; **Samsung/Xiaomi fiziksel arka plan/Doze/OTA kabulü ayrıca açık**.
+- **Önceki açık dal:** PR #118 birim/Robolectric/lint + API34 debug/release kapıları yeşilken `637f0fa3a75cd9c5afeee36593372324bbefa096` ile birleştirildi. Bu ses yönlendirme hazırlığı gerçek WebRTC ses/video aktarımı değildir; #3 açık.
+- Ayrıntı: [Teslimat ve arka plan kabul planı](docs/PREMIUM_DELIVERY_CENTER_TR.md). #83 gerçek signing kurtarma, #113 SQLCipher ve #82 eski çökme kökü kapanmış sayılmaz.
+
+
 ## 25.10.2026 — Gerçek sesli/görüntülü görüşme ve ENC/AEC/AGC talebi
 
 **Kullanıcı hedefi:** Samsung ve Xiaomi dahil farklı Android telefonlarında gerçek iki yönlü **WebRTC sesli/görüntülü arama**; konuşma mikrofonundan motor/fan/rüzgâr vb. ortam sesini mümkün olduğunca azaltan **ENC/Noise Suppression**, konuşma yankısını bastıran **AEC**, dengeli ses için **AGC**. **Kulaklık ANC** cihaz/kulaklık donanımıdır; uygulamada tüm telefonlarda açılacağı vaat edilemez. İnsan konuşması ve tüm ortam sesleri kesinlikle sıfırlanır iddiası yasak.
@@ -645,3 +657,4 @@ Bu puanlar matematiksel sertifikasyon değil, testli geliştirme ve açık üret
 **Takip:** [#85](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/85) büyük medya ve iki cihaz gönder/al kabulüne kadar açık. [#93](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/93) `2011.` sonrası PIN'i isteğe bağlı yapma ve aç/kapat/yeniden etkinleştirme kabulüne kadar açık. [#82](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/82) çökme kök nedeni ve [#83](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/83) özel imzalama anahtarının güvenli cihaz dışı yedeği halen açık. [#88](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/88) eski medya seçimi dönüşü PIN tercihi olarak ayrı ve önceki 324 kullanıcı kabulüyle kapatılmıştır; bugün açık/kapalı iki senaryo test edildi diye **yeni kanıt uydurulmaz**.
 
 **Güncel kamuya açık yayın (repo kontrolü):** [v1.1.0-signed.343](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/releases/tag/v1.1.0-signed.343), [Actions #343](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/actions/runs/40025323705) SUCCESS. Bu **otomatik yayın kanıtıdır**; kullanıcının kurulu sürümünün 343 olduğunu göstermez. Büyük dosya AES-GCM protokol kodu olsa da yetkili canlı dosya depolaması ve E2EE anahtar teslimi ile gerçek video gönderimi tamamlanmış sayılmaz.
+

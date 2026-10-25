@@ -11,9 +11,13 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
+import androidx.work.Configuration
+import com.example.core.delivery.DeliveryCoordinator
 
 @HiltAndroidApp
-class LanuApplication : Application() {
+class LanuApplication : Application(), Configuration.Provider {
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder().setMinimumLoggingLevel(android.util.Log.ERROR).build()
     @Inject lateinit var container: AppContainer
     private val credentialMigrationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -38,5 +42,13 @@ class LanuApplication : Application() {
                 // Never log secrets or attempt a plaintext storage fallback.
             }
         }
+        credentialMigrationScope.launch {
+            // No identity is generated and no network work is requested unless
+            // the owner explicitly enabled background delivery in the private UI.
+            try { DeliveryCoordinator(this@LanuApplication).reconcile() }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (_: Exception) { /* Foreground messaging remains available. */ }
+        }
     }
 }
+
