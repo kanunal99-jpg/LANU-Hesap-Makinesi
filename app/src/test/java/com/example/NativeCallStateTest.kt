@@ -37,6 +37,7 @@ class NativeCallStateTest {
     private var mediaCreated=0
     private var iceRestarts=0
     private var failStart=false
+    private var failCallAck=false
     private var acceptGate:CompletableDeferred<Unit>?=null
     private var report: ((CallMediaEvidence)->Unit)?=null
     private var mediaFailure: ((String)->Unit)?=null
@@ -59,6 +60,7 @@ class NativeCallStateTest {
                 }
                 "callSync" -> JSONObject().put("version",1).put("signals",JSONArray(inbox.take(24)))
                 "callAck" -> {
+                    if (failCallAck) throw java.io.IOException("simulated call ACK outage")
                     val ids=data.getJSONArray("ids")
                     val accepted=(0 until ids.length()).map { ids.getString(it) }.toSet()
                     inbox.removeAll { it.optString("id") in accepted }
@@ -138,6 +140,22 @@ class NativeCallStateTest {
         repo.pollCallSignals()
         assertEquals(0,inbox.size)
         repo.setCallingForeground(false)
+    }
+
+    @Test fun callAckOutageDoesNotInterruptMessageSynchronizationOrDuplicateInvites() = runBlocking {
+        failCallAck=true
+        val signal=CallSignaling.create(UUID.randomUUID().toString(),CallSignalKind.INVITE,false)
+        inject(signal)
+        waitPhase(NativeCallPhase.RINGING)
+        assertEquals("Call ACK failure retains relay signal for retry",1,inbox.size)
+        // A failed call ACK must not abort regular sync or invalidate the E2EE identity.
+        repo.synchronize()
+        assertEquals(1,inbox.size)
+        failCallAck=false
+        repo.synchronize()
+        assertTrue(inbox.isEmpty())
+        assertEquals("Retried signal must not restart the same ringing call",signal.callId,vm.state.value.callId)
+        assertEquals(NativeCallPhase.RINGING,vm.state.value.phase)
     }
 
     @Test fun outgoingWithoutPermissionCannotSendAnInviteOrStartMedia() = runBlocking {
