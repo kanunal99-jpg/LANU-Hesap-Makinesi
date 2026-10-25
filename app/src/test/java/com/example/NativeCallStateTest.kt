@@ -42,6 +42,8 @@ class NativeCallStateTest {
     private var incomingChatEvent: JSONObject? = null
     private var chatAckCount=0
     private var acceptGate:CompletableDeferred<Unit>?=null
+    private var preparationGate:CompletableDeferred<Unit>?=null
+    private var preparationEntered:CompletableDeferred<Unit>?=null
     private var report: ((CallMediaEvidence)->Unit)?=null
     private var mediaFailure: ((String)->Unit)?=null
     private val sdp="v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=fingerprint:sha-256 AA:BB\r\n"
@@ -58,8 +60,14 @@ class NativeCallStateTest {
             override val configured=true
             override suspend fun request(identity: MessagingIdentity,action:String,data:JSONObject):JSONObject = when(action) {
                 "register" -> JSONObject().put("code",own.code).put("nonce",own.nonce)
-                "sync" -> JSONObject().put("contacts",JSONArray().put(peerJson)).put("events",JSONArray().apply { incomingChatEvent?.let { put(it) } }).apply {
-                    if(data.optInt("callVersion")==1) put("calls",JSONArray(inbox.toList()))
+                "sync" -> {
+                    if (data.optInt("callVersion")==1) {
+                        preparationEntered?.complete(Unit)
+                        preparationGate?.await()
+                    }
+                    JSONObject().put("contacts",JSONArray().put(peerJson))
+                        .put("events",JSONArray().apply { incomingChatEvent?.let { put(it) } })
+                        .apply { if(data.optInt("callVersion")==1) put("calls",JSONArray(inbox.toList())) }
                 }
                 "callSync" -> JSONObject().put("version",1).put("signals",JSONArray(inbox.take(24)))
                 "callAck" -> {
@@ -113,6 +121,31 @@ class NativeCallStateTest {
             .put("content",cipher).put("createdAt",System.currentTimeMillis()).put("expiresAt",System.currentTimeMillis()+90_000)
         repo.synchronize()
     }
+    @Test fun privateAreaExitCancelsInFlightForegroundPreparationBeforeRelayReturns() = runBlocking {
+        vm.deactivate()
+        preparationGate=CompletableDeferred()
+        preparationEntered=CompletableDeferred()
+        vm.activate()
+        withTimeout(3000) { preparationEntered!!.await() }
+
+        // Exit while a trusted but slow relay is still preparing a call sync.
+        vm.deactivate()
+        val signal=CallSignaling.create(UUID.randomUUID().toString(),CallSignalKind.INVITE,false)
+        val cipher=PeerMessageCrypto.encrypt(peer,own.id,own.publicKey,
+            CallSignaling.aadId(signal.id),CallSignaling.encode(signal))
+        inbox+=JSONObject().put("id",signal.id).put("callId",signal.callId)
+            .put("senderId",peer.id).put("recipientId",own.id).put("content",cipher)
+            .put("createdAt",System.currentTimeMillis())
+            .put("expiresAt",System.currentTimeMillis()+90_000)
+        repo.setCallingForeground(true)
+        preparationGate!!.complete(Unit)
+        delay(50)
+        assertEquals("Cancelled private-area prep must never ACK a subsequent signal",1,inbox.size)
+        repo.pollCallSignals()
+        assertEquals("Explicit foreground consumer owns delivery",0,inbox.size)
+        repo.setCallingForeground(false)
+    }
+
     @Test fun fullCallQueueKeepsUnreadSignalsAtRelayUntilCapacityReturns() = runBlocking {
         // Force a genuinely full foreground queue without a UI collector. An
         // old DROP_OLDEST queue silently ACKed and discarded accepted calls.
