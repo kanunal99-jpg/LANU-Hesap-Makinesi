@@ -47,6 +47,23 @@ class NativeCallViewModel(
     private var timeout: Job? = null
     private val workJobs = mutableSetOf<Job>()
     private val seen = LinkedHashSet<String>()
+    // Call-level tombstones complement signal UUID dedupe: a replayed INVITE
+    // with a NEW envelope ID cannot reopen an already ended call.
+    // Bound both age and size; never persist peer/call metadata to disk.
+    private val closedCalls = LinkedHashMap<String, Long>()
+
+    private fun callKey(peerId: String, callId: String) = "$peerId:$callId"
+
+    private fun pruneClosedCalls(now: Long = android.os.SystemClock.elapsedRealtime()) {
+        val staleBefore = now - 2 * CallSignaling.TTL_MILLIS
+        closedCalls.entries.removeAll { it.value < staleBefore }
+        while (closedCalls.size > 512) closedCalls.remove(closedCalls.keys.first())
+    }
+
+    private fun recentlyClosed(peerId: String, callId: String): Boolean {
+        pruneClosedCalls()
+        return callKey(peerId, callId) in closedCalls
+    }
 
     fun activate() {
         if (foreground) return
@@ -126,6 +143,10 @@ class NativeCallViewModel(
         while (seen.size > 512) seen.remove(seen.first())
         if (s.kind == CallSignalKind.INVITE) {
             if (System.currentTimeMillis() - s.createdAt > 45_000) return
+            // Retry with another signal UUID is still the SAME call. Sending
+            // BUSY here would terminate the caller's valid ringing session.
+            if (session?.let { it.id == s.callId && it.peer.id == incoming.peer.id } == true) return
+            if (recentlyClosed(incoming.peer.id, s.callId)) return
             if (session != null) {
                 val busy = Session(s.callId, incoming.peer, s.video, false)
                 viewModelScope.launch { runCatching { send(busy, CallSignalKind.BUSY) } }
@@ -245,6 +266,9 @@ class NativeCallViewModel(
     }
     private fun finish(message: String, kind: CallSignalKind = CallSignalKind.END, notify: Boolean = true) {
         val current = session ?: return
+        pruneClosedCalls()
+        closedCalls[callKey(current.peer.id, current.id)] = android.os.SystemClock.elapsedRealtime()
+        pruneClosedCalls()
         session = null
         repository.setCallInProgress(false)
         pipeline?.cancel(); starting?.cancel(); activePoll?.cancel(); timeout?.cancel()
