@@ -52,7 +52,7 @@ def main() -> None:
     assert_room_migration_safe(source)
     app_sources = ROOT / "app/src/main"
     sources = {
-        str(path.relative_to(ROOT)).replace("\\\\", "/"): path.read_text(encoding="utf-8")
+        path.relative_to(ROOT).as_posix(): path.read_text(encoding="utf-8")
         for path in sorted(app_sources.rglob("*"))
         if path.is_file() and path.suffix in {".kt", ".java"}
     }
