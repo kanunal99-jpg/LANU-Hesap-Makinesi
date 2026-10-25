@@ -110,7 +110,7 @@ fun NativeCallHost(model: NativeCallViewModel, request: Pair<String, Boolean>?, 
                         Text("${elapsed/60}:${(elapsed%60).toString().padStart(2,'0')}")
                     }
                     Box(Modifier.weight(1f).fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(24.dp)), contentAlignment = Alignment.Center) {
-                        if (state.video && engine != null && !ended) {
+                        if (canRenderNativeCallVideo(state, engine != null)) {
                             CallVideo(engine!!, true, Modifier.fillMaxSize())
                             if (state.cameraOn) CallVideo(engine!!, false, Modifier.align(Alignment.TopEnd).padding(12.dp).width(112.dp).height(152.dp))
                         } else Icon(if (state.video) Icons.Default.Videocam else Icons.Default.Call, null, Modifier.size(72.dp))
@@ -175,6 +175,12 @@ private fun CallAudioRouteControls(engine: NativeCallEngine, enabled: Boolean) {
         }
     }
 }
+/** Suppress early renderer initialization: the native EGL/RTC tracks may not
+ * exist until start() succeeds. Audio/RTP proof is authoritative for CONNECTED.
+ */
+internal fun canRenderNativeCallVideo(state: NativeCallUiState, enginePresent: Boolean): Boolean =
+    enginePresent && state.video && state.phase == NativeCallPhase.CONNECTED
+
 private fun routeName(name: String) = when (name) {
     "WIRED_HEADSET" -> "Kablolu / USB kulaklık"
     "BLUETOOTH_HEADSET" -> "Bluetooth kulaklık"
