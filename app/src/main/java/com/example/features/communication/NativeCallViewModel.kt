@@ -156,7 +156,12 @@ class NativeCallViewModel(
                 _state.value = _state.value.copy(cameraOn = target)
         }
     }
-    fun switchCamera() { _media.value?.switchCamera() }
+    fun switchCamera() {
+        if (session?.video != true || !foreground || !_state.value.cameraOn ||
+            _state.value.phase !in setOf(NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING) ||
+            cameraChange?.isActive == true) return
+        _media.value?.switchCamera()
+    }
 
     private fun handle(incoming: ReceivedCallSignal) {
         val s = incoming.signal
