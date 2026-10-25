@@ -5,6 +5,11 @@
 -keep class org.webrtc.** { *; }
 # WebRTC M150 JNI_OnLoad also resolves org.jni_zero.JniZero by its original name.
 -keep class org.jni_zero.** { *; }
+# The vendor WebRTC M150 AAR references a code-generated bridge that it does not
+# package. The JNI runtime registers native methods from its .so; only this
+# missing, non-instantiated class is optional. Keep all real JNI Zero classes.
+# CI must still execute actual native debug + minified-release ICE/DTLS tests.
+-dontwarn org.jni_zero.JniZeroJni
 # Preserve the local privacy-safe crash frame filter after shrinking.
 -keeppackagenames com.example.**
 -keepnames class com.example.core.diagnostics.**
