@@ -1,5 +1,16 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 25.10.2026 — Gerçek sesli/görüntülü görüşme ve ENC/AEC/AGC talebi
+
+**Kullanıcı hedefi:** Samsung ve Xiaomi dahil farklı Android telefonlarında gerçek iki yönlü **WebRTC sesli/görüntülü arama**; konuşma mikrofonundan motor/fan/rüzgâr vb. ortam sesini mümkün olduğunca azaltan **ENC/Noise Suppression**, konuşma yankısını bastıran **AEC**, dengeli ses için **AGC**. **Kulaklık ANC** cihaz/kulaklık donanımıdır; uygulamada tüm telefonlarda açılacağı vaat edilemez. İnsan konuşması ve tüm ortam sesleri kesinlikle sıfırlanır iddiası yasak.
+
+- **DOĞRULANDI / eksik:** 387 çağrı ekranı ve `CallManager` yalnız **demo/simülasyon**; ağ/dB/netlik değerleri temsili, gerçek medya veya WebRTC PeerConnection yok. `AudioDspProcessor` içindeki basit PCM gate, RNNoise veya ölçülmüş canlı ENC değildir.
+- **AŞAMA 1 uygulanıyor:** [Ses/videolu arama + ENC yol haritası](docs/REAL_WEBRTC_VOICE_VIDEO_ENC_ANC_TR.md); gerçek audio-session ID alabilen Android NS/AEC/AGC adaptörü, izin/HAL hata fallback'ı, kaynak temizliği, birim testi, yanlış 'aktif ANC / RNNoise / 34 dB' göstergelerinin dürüst demo olarak düzeltilmesi. **Bu tek başına gerçek çağrı veya gerçek ENC testi değildir**; main CI ve APK olmadan başarı ilan edilmez.
+- **AŞAMA 2–4 AÇIK:** Lisans/ABI/R8 doğrulamalı native WebRTC medya motoru + güvenli şifreli offer/answer/ICE sinyalleşmesi + STUN/kimlikli TURN + gerçek kamera/mikrofon izinleri + iki fiziksel üretici üzerinde ses/video, ağ geçişi, gürültü karşılaştırmalı kabul. Bağlantı yalnız transport kanıtıyla **CONNECTED** olur; sahte 'ağ iyileşti' iddiası yasak. Kullanıcı onayı olmadan ücretli TURN ve altyapı yok.
+- **Mevcut PIN değişmez:** `2011.` gizli alanında PIN tamamen **isteğe bağlı** kalır. Çağrı entegrasyonu mesaj, geçmiş, anahtar, veri ve kurulu APK'yı silmez.
+- **Durum:** [#3](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/3) gerçek ses/görüntü ve ENC kabulü bitene kadar **AÇIK**.
+
+
 ## 25.10.2026 — APK 387 Samsung + Xiaomi kullanıcı cihaz teyidi
 
 **Kullanıcı beyanı:** “387 tamam samsung ve xiaomi de de.” Yayın `v1.1.0-signed.387` için Samsung ve Xiaomi olmak üzere **iki Android üreticisinde olumlu fiziksel cihaz gözlemi** vardır. Bu, cihaz/model veya otomatik CI çıkarımı değil, **kullanıcının doğrudan teyididir**.
