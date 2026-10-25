@@ -74,6 +74,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
+      # Independent regression gate: fresh bidirectional audio RTP after ICE
+      # reconnect, rejecting stale async statistics and counter resets.
+      - name: Verify real call packet freshness after reconnect
+        run: ./gradlew :app:testDebugUnitTest --tests 'com.example.CallRtpEvidenceTrackerTest' --no-daemon --stacktrace
+
       - name: Run Unit and Robolectric Tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
 
