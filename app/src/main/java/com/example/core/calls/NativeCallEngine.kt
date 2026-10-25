@@ -60,7 +60,8 @@ class NativeCallEngine(
     private var capturer: CameraVideoCapturer? = null
     private var texture: SurfaceTextureHelper? = null
     private var videoEnabled = false
-    @Volatile private var transportConnected = false
+    // Thread-safe evidence tracker rejects cumulative RTP packets from prior ICE epochs.
+    private val rtpEvidence = CallRtpEvidenceTracker()
     @Volatile private var lastCandidateAt = 0L
     private var renderers: CallVideoRendererBindings? = null
 
@@ -235,6 +236,9 @@ class NativeCallEngine(
     }
 
     private fun collectEvidence() {
+        // Capture transport epoch BEFORE async getStats, not inside its callback.
+        // Otherwise a late old result could be attributed to a newer connection.
+        val snapshotEpoch = rtpEvidence.currentEpoch()
         connection?.getStats { report ->
             if (closing.get()) return@getStats
             var received = 0L; var sent = 0L
@@ -244,15 +248,18 @@ class NativeCallEngine(
                 if (stat.type == "inbound-rtp") received += (stat.members["packetsReceived"] as? Number)?.toLong() ?: 0L
                 if (stat.type == "outbound-rtp") sent += (stat.members["packetsSent"] as? Number)?.toLong() ?: 0L
             }
-            evidence(CallMediaEvidence(transportConnected, received, sent))
+            rtpEvidence.observe(snapshotEpoch, received, sent)?.let(evidence)
         }
     }
     private val observer = object : EmptyPeerObserver() {
         override fun onIceCandidate(candidate: IceCandidate) { lastCandidateAt = android.os.SystemClock.elapsedRealtime() }
         override fun onConnectionChange(state: PeerConnection.PeerConnectionState) {
-            transportConnected = state == PeerConnection.PeerConnectionState.CONNECTED
-            if (state == PeerConnection.PeerConnectionState.FAILED && !closing.get()) failure("Ağlar arasında doğrudan bağlantı kurulamadı. Farklı bir ağ deneyin.")
-            if (state == PeerConnection.PeerConnectionState.DISCONNECTED) evidence(CallMediaEvidence())
+            if (closing.get()) return
+            // Only fresh inbound AND outbound RTP after this transport epoch
+            // can restore the "Connected" label following an ICE interruption.
+            evidence(rtpEvidence.updateTransport(state == PeerConnection.PeerConnectionState.CONNECTED))
+            if (state == PeerConnection.PeerConnectionState.FAILED)
+                failure("Ağlar arasında doğrudan bağlantı kurulamadı. Farklı bir ağ deneyin.")
         }
         override fun onTrack(transceiver: RtpTransceiver) {
             val track = transceiver.receiver.track()
