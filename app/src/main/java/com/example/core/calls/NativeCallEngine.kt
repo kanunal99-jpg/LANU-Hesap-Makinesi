@@ -299,15 +299,32 @@ open class EmptySdpObserver : SdpObserver {
     override fun onCreateFailure(error: String?) {}
     override fun onSetFailure(error: String?) {}
 }
+/**
+ * Explicitly implement every WebRTC Observer default callback instead of relying on
+ * the Android 23 default-interface desugaring companion (Observer$-CC).
+ *
+ * CI 40203471771 proved the missing companion throws NoClassDefFoundError
+ * on native's signaling thread after setLocalDescription(answer), then JNI
+ * terminates the entire process with SIGABRT. R8 stays ENABLED.
+ * This adapter is shared by production peers and release instrumentation peers.
+ */
+@androidx.annotation.Keep
 open class EmptyPeerObserver : PeerConnection.Observer {
     override fun onSignalingChange(state: PeerConnection.SignalingState) {}
     override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {}
+    override fun onStandardizedIceConnectionChange(state: PeerConnection.IceConnectionState) {}
+    override fun onConnectionChange(state: PeerConnection.PeerConnectionState) {}
     override fun onIceConnectionReceivingChange(receiving: Boolean) {}
     override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {}
     override fun onIceCandidate(candidate: IceCandidate) {}
+    override fun onIceCandidateError(event: IceCandidateErrorEvent) {}
     override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>) {}
+    override fun onSelectedCandidatePairChanged(event: CandidatePairChangeEvent) {}
     override fun onAddStream(stream: MediaStream) {}
     override fun onRemoveStream(stream: MediaStream) {}
     override fun onDataChannel(channel: DataChannel) {}
     override fun onRenegotiationNeeded() {}
+    override fun onAddTrack(receiver: RtpReceiver, mediaStreams: Array<MediaStream>) {}
+    override fun onRemoveTrack(receiver: RtpReceiver) {}
+    override fun onTrack(transceiver: RtpTransceiver) {}
 }
