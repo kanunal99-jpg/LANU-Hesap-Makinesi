@@ -41,6 +41,9 @@ class NativeCallViewModel(
     private var session: Session? = null
     private var foreground = false
     private var receiving: Job? = null
+    // Foreground preparation can suspend on the relay; cancel it on exit so
+    // a late response cannot race later call-queue owners or private-area UI.
+    private var preparation: Job? = null
     private var activePoll: Job? = null
     private var pipeline: Job? = null
     private var starting: Job? = null
@@ -72,7 +75,7 @@ class NativeCallViewModel(
         receiving = viewModelScope.launch {
             repository.callSignals.collect { handle(it) }
         }
-        viewModelScope.launch {
+        preparation = viewModelScope.launch {
             try { repository.prepareCalling() }
             catch (e: CancellationException) { throw e }
             catch (_: Exception) { /* Existing foreground chat sync will retry; no idle extra loop. */ }
@@ -84,6 +87,7 @@ class NativeCallViewModel(
         repository.setCallingForeground(false)
         repository.setCallInProgress(false)
         receiving?.cancel(); receiving = null
+        preparation?.cancel(); preparation = null
         starting?.cancel()
         finish("Güvenli alandan çıkıldığı için görüşme kapatıldı.")
         _state.value = NativeCallUiState()
