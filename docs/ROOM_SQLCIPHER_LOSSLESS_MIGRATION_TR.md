@@ -6,8 +6,8 @@
 
 - Üretim veritabanı: `lanu_calculator_db` (`AppDatabase.kt`, Room v4).
 - Veri dosyasına ek olarak SQLite `-wal`, `-shm`, `-journal` kalıntıları bulunabilir. WAL son commit'leri ana DB'ye henüz taşımamış olabilir.
-- Güvenli ilk kapı: `DatabaseEncryptionPreflight.inspect(context)` **uygulamanın açılışında otomatik çalışmaz**. Dosya üstverisi ile yalnız 16 bayt SQLite header'ı kontrol eder; dosya/taşıma/Keystore üzerinde herhangi bir yazma yapmaz.
-- Eski SQLite header'ını ve en az 100 bayt dosyayı tanır; kesik/şüpheli dosya, yetim WAL, güvenli olmayan yardımcı dosya ve iki kopya+16MiB tahmini boş alan yetersizliği güvenli reddedilir.
+- Güvenli ilk kapı: `DatabaseEncryptionPreflight.inspect(context)` **uygulamanın açılışında otomatik çalışmaz**. Dosya üstverisi ile SQLite başlığının 100 baytını, geçerli sayfa boyutunu, sayfa hizasını ve dosya biçimi alanlarını denetler; dosya/taşıma/Keystore üzerinde herhangi bir yazma yapmaz.
+- En az bir tam SQLite sayfası olan eski dosyayı tanır; kesik/şüpheli dosya, yetim WAL, güvenli olmayan yardımcı dosya ve iki kopya+64MiB ihtiyatlı boş alan yetersizliği güvenli reddedilir.
 - Sonuçta yol, mesaj, tablo/PIN, anahtar veya dosya içeriği bulunmaz; yalnız risk durumu/byte sayımı vardır.
 - `safeToBeginOfflineMigrationDesign=true` yalnız **tasarıma/kapalı test aşamasına geçilebilir** demektir; gerçek veri taşımaya izin veren koşul **DEĞİLDİR**.
 
