@@ -77,6 +77,8 @@ class AudioDspProcessor(
     }
 
     fun setDspMode(mode: DspProcessingMode) {
+        // Never keep a platform filter attached when its pipeline is deselected.
+        if (mode == DspProcessingMode.SOFTWARE_DSP) callAudio.close()
         _telemetry.update { it.copy(mode = mode) }
         updateTelemetryState()
     }
