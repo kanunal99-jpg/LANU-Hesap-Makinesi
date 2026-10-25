@@ -64,3 +64,17 @@ class CallVideoRendererBindings(private val context: EglBase.Context) {
         runCatching { binding.renderer.release() }
     }
 }
+
+/**
+ * Shared production EGL entry point. Both the actual call engine and the
+ * separately compiled release instrumentation APK use this SAME target-APK
+ * method. Calling EglBase.create() directly from androidTest can link against
+ * an incompatible desugared static-interface bridge on API 23 minSdk builds.
+ * Never suppress the real renderer test or switch off R8 to hide that failure.
+ */
+@Keep
+object WebRtcEglFactory {
+    @JvmStatic
+    @Keep
+    fun create(): EglBase = EglBase.create()
+}
