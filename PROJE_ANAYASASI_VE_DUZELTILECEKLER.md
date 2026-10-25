@@ -1,5 +1,15 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 25.10.2026 — APK 387 iki üreticide kullanıcı kabulü (Samsung + Xiaomi)
+
+- Kullanıcı **“387 tamam samsung ve xiaomi de de”** diyerek **v1.1.0-signed.387** sürümünün hem **Samsung** hem **Xiaomi** telefonda çalıştığını bildirdi. **KULLANICI KABULÜ:** en az iki Android üreticisinden olumlu temel cihaz kullanımı teyidi. Önceki yalnız Samsung A55 odaklı anlatım bu beyanla genişletilir.
+- Başarılı [CI #387](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/actions/runs/40171770068) ve [Release #387](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/releases/tag/v1.1.0-signed.387) **otomatik test/yayın kanıtıdır**; bu mesaj ise ayrı kullanıcı cihaz kabul kanıtıdır.
+- **Kanıtlanmayanlar:** Xiaomi kesin model ve Android sürümü, tek tek PIN açık/kapalı, iki cihaz karşılıklı mesaj/fotoğraf, kesintili ağ, uzunca arka plan kullanımı, çökme/ANR istatistikleri, yerinde OTA'da tüm veri bütünlüğü, Huawei/HMS ve tüm marka/sürümler. Kullanıcı tüm alt senaryoları test etti diye iddia edilemez.
+- **Değişmez kullanıcı kararı:** PIN tamamen **isteğe bağlı kalır**; otomatik PIN zorunluluğu, zorunlu giriş şifresi veya silme yok. PIN kapalı girişte güvenlik uyarısı devam eder.
+- **P0/P1 sınırları:** #82 tarihsel çökme kök nedeni ve #113 SQLCipher/Room v4 güvenli geçişi **açık**; APK 387 mevcut SQLite ile çalışır ve iki telefonda çalışması SQLCipher dönüşümünün yapıldığını kanıtlamaz. #83 gerçek signing key cihaz dışı restore kanıtı da açıktır.
+- Referans: [Android üretici bağımsız kabul matrisi](docs/ANDROID_GENERAL_COMPATIBILITY_ACCEPTANCE_TR.md).
+
+
 
 ## 25.10.2026 — Claude bağımsız inceleme bulguları, kodla çapraz doğrulama ve değişmez PIN kararı
 
