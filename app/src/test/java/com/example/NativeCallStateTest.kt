@@ -38,6 +38,8 @@ class NativeCallStateTest {
     private var iceRestarts=0
     private var failStart=false
     private var failCallAck=false
+    private var incomingChatEvent: JSONObject? = null
+    private var chatAckCount=0
     private var acceptGate:CompletableDeferred<Unit>?=null
     private var report: ((CallMediaEvidence)->Unit)?=null
     private var mediaFailure: ((String)->Unit)?=null
@@ -55,7 +57,7 @@ class NativeCallStateTest {
             override val configured=true
             override suspend fun request(identity: MessagingIdentity,action:String,data:JSONObject):JSONObject = when(action) {
                 "register" -> JSONObject().put("code",own.code).put("nonce",own.nonce)
-                "sync" -> JSONObject().put("contacts",JSONArray().put(peerJson)).put("events",JSONArray()).apply {
+                "sync" -> JSONObject().put("contacts",JSONArray().put(peerJson)).put("events",JSONArray().apply { incomingChatEvent?.let { put(it) } }).apply {
                     if(data.optInt("callVersion")==1) put("calls",JSONArray(inbox.toList()))
                 }
                 "callSync" -> JSONObject().put("version",1).put("signals",JSONArray(inbox.take(24)))
@@ -66,6 +68,7 @@ class NativeCallStateTest {
                     inbox.removeAll { it.optString("id") in accepted }
                     JSONObject().put("acknowledged",true)
                 }
+                "ack" -> { chatAckCount++; JSONObject().put("acknowledged",true) }
                 "callSend" -> {
                     val id=data.getString("id")
                     val plain=PeerMessageCrypto.decrypt(peer,own.id,own.publicKey,CallSignaling.aadId(id),own.id,data.getString("content"))
@@ -144,8 +147,19 @@ class NativeCallStateTest {
 
     @Test fun callAckOutageDoesNotInterruptMessageSynchronizationOrDuplicateInvites() = runBlocking {
         failCallAck=true
+        val messageId=UUID.randomUUID().toString()
+        val conversationId=UserCodes.conversationId(own.id,peer.id)
+        incomingChatEvent=JSONObject().put("id",UUID.randomUUID().toString()).put("message",
+            JSONObject().put("id",messageId).put("senderId",peer.id).put("recipientId",own.id)
+                .put("revision",1).put("status","SENT").put("createdAt",System.currentTimeMillis())
+                .put("content",PeerMessageCrypto.encrypt(peer,own.id,own.publicKey,messageId,
+                    "Özel mesaj görüşme ACK kesintisinde de korunur")))
         val signal=CallSignaling.create(UUID.randomUUID().toString(),CallSignalKind.INVITE,false)
         inject(signal)
+        assertNotNull("Call ACK outage must not block encrypted chat persistence",db.messageDao().getMessage(messageId))
+        assertTrue("Durable message ACK must still be emitted",chatAckCount>0)
+        assertEquals("Özel mesaj görüşme ACK kesintisinde de korunur",
+            repo.getMessages(conversationId).first().single { it.id==messageId }.content)
         waitPhase(NativeCallPhase.RINGING)
         assertEquals("Call ACK failure retains relay signal for retry",1,inbox.size)
         // A failed call ACK must not abort regular sync or invalidate the E2EE identity.
