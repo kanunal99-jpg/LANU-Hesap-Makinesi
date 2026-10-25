@@ -61,7 +61,7 @@ def diagnose(log: str) -> str:
         hint = "JNI callback failed; inspect concrete native callbacks and release class retention."
     elif abort:
         code = "RTC-NATIVE-ABORT-005"
-        hint = "Native SIGABRT without classified Java cause; inspect fixed stage and private on-device tombstone."
+        hint = "Native SIGABRT without classified Java cause; inspect fixed stage and local on-device native crash report."
     else:
         code = "RTC-RELEASE-UNKNOWN-999"
         hint = "Release acceptance failed without a recognized native signature; inspect test report."
