@@ -208,7 +208,7 @@ class NativeCallViewModel(
         activePoll = viewModelScope.launch {
             while (isActive && session === current && foreground) {
                 var delayMs = 2000L
-                try { repository.pollCallSignals().forEach(::handle) }
+                try { repository.pollCallSignals() /* Repository enqueues before relay ACK; callSignals flow delivers. */ }
                 catch (e: CancellationException) { throw e }
                 catch (e: RelayException) { if (e.status == 429) delayMs = e.retryAfterMillis.coerceIn(5_000, 120_000) }
                 catch (_: Exception) { /* P2P media may continue; native evidence/deadline remains authoritative. */ }
