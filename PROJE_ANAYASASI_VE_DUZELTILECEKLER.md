@@ -1,5 +1,16 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 25.10.2026 — APK 387 Samsung + Xiaomi kullanıcı cihaz teyidi
+
+**Kullanıcı beyanı:** “387 tamam samsung ve xiaomi de de.” Yayın `v1.1.0-signed.387` için Samsung ve Xiaomi olmak üzere **iki Android üreticisinde olumlu fiziksel cihaz gözlemi** vardır. Bu, cihaz/model veya otomatik CI çıkarımı değil, **kullanıcının doğrudan teyididir**.
+
+- [CI #387](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/actions/runs/40171770068) başarılı: Android birim ve API34 emülatör kabulü, APK yayın ve doğrulama.
+- [APK 387 Release](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/releases/tag/v1.1.0-signed.387) yayımlı; SHA256 ve imza raporu var.
+- **Kanıt sınırı:** Samsung/Xiaomi tam model, Android sürümü, eski→yeni OTA zinciri, PIN açık/kapalı senaryoları, 2 cihazda E2EE gönder/al, Room/veri karşılaştırması ve kapsamlı stres testleri ayrıca tek tek bildirilmedi. Bu başlıkların doğrulandığı varsayılmaz.
+- Önceki A55/369 kararlılık gözlemi ayrı kabul kaydıdır; yeni beyanı otomatik olarak A55 387 ayrıntılı teste dönüştürmeyin.
+- **İsteğe bağlı PIN kararı değişmez.** SQLCipher gerçek migrasyonu henüz yapılmadı; #113, imza anahtarının cihaz dışı gerçek kurtarma #83 ve eski çökme kök nedeni #82 açık tutulur. “Bütün Android cihazlarda sorunsuz” iddiası yapılmaz.
+
+
 
 ## 25.10.2026 — Claude bağımsız inceleme bulguları, kodla çapraz doğrulama ve değişmez PIN kararı
 
