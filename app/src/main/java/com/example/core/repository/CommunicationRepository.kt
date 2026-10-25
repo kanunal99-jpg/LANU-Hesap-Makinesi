@@ -34,6 +34,9 @@ class CommunicationRepository(
     val callLogs = callLogDao.getAllCallLogs()
     private val identityMutex = Mutex()
     private val syncMutex = Mutex()
+    // Serializes overlapping foreground sync and callSync polls, protecting
+    // enqueue -> ACK ordering across both paths without locking the chat sync.
+    private val callDeliveryMutex = Mutex()
     private val draftMutex = Mutex()
     private var nextSyncAt = 0L
     private var nextSendAt = 0L
@@ -88,7 +91,7 @@ class CommunicationRepository(
         decodeCallSignals(own, response.getJSONArray("signals"))
     }
 
-    private suspend fun decodeCallSignals(own: MessagingIdentity, rows: JSONArray) {
+    private suspend fun decodeCallSignals(own: MessagingIdentity, rows: JSONArray) = callDeliveryMutex.withLock {
         require(rows.length() <= 24)
         val ack = JSONArray()
         for (i in 0 until rows.length()) {
