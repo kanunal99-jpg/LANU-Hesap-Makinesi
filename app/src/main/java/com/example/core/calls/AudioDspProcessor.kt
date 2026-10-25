@@ -32,10 +32,12 @@ data class DspTelemetry(
 )
 
 /**
- * AudioDspProcessor provides robust Hybrid Audio Processing (Hardware + Software Fallback).
- * Even if the device lacks a hardware NoiseSuppressor chip (e.g. emulators or budget devices),
- * this processor seamlessly executes real-time software audio DSP (spectral noise gating,
- * bandpass vocal preservation, and dynamic floor tracking).
+ * Call audio preference and diagnostics adapter.
+ * No real audio transport has been connected in this demo. Hardware effect
+ * availability is NOT evidence that any live audio is being processed; actual
+ * activity requires an AudioRecord session with RECORD_AUDIO permission.
+ * The optional processPcmBuffer helper below is only a basic amplitude gate,
+ * not spectral DSP, RNNoise, WebRTC APM, headset ANC or a guaranteed fallback.
  */
 class AudioDspProcessor(
     private val context: Context,
@@ -128,8 +130,8 @@ class AudioDspProcessor(
     }
 
     /**
-     * Real-time DSP filtering pipeline:
-     * Applies noise gate, spectral noise reduction, and bandpass vocal emphasis.
+     * Basic testable PCM amplitude gate; NOT wired into live WebRTC capture.
+     * It is not spectral noise suppression and cannot replace WebRTC APM.
      */
     fun processPcmBuffer(
         buffer: ShortArray,
@@ -149,7 +151,7 @@ class AudioDspProcessor(
         currentNoiseFloorRms = 0.95f * currentNoiseFloorRms + 0.05f * rms
         val dbfs = (20 * log10(currentNoiseFloorRms.coerceAtLeast(0.0001f))).coerceIn(-80f, 0f)
 
-        // Threshold-based spectral attenuation
+        // Simple amplitude attenuation; this is not a spectral algorithm.
         val gateThreshold = (currentNoiseFloorRms * 1.5f).coerceAtLeast(0.005f)
         val attenuationFactor = (1f - (suppressionStrength * 0.75f)).coerceIn(0.15f, 1f)
 
