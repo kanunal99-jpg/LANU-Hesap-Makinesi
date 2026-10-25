@@ -436,6 +436,22 @@ class NativeCallStateTest {
         assertEquals(listOf(false),cameraCommands)
     }
 
+    @Test fun endedVideoCallClearsCameraAndMicrophoneIndicators() = runBlocking {
+        vm.outgoing(UserCodes.conversationId(own.id,peer.id),true,true)
+        val invite=awaitSent(CallSignalKind.INVITE)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,true))
+        awaitSent(CallSignalKind.OFFER)
+        report!!(CallMediaEvidence(true,4,4));waitPhase(NativeCallPhase.CONNECTED)
+        assertTrue(vm.state.value.cameraOn)
+        vm.muted()
+        withTimeout(3000) { vm.state.first { it.muted } }
+        vm.end()
+        waitPhase(NativeCallPhase.ENDED)
+        assertFalse("Closed camera hardware cannot remain marked active",vm.state.value.cameraOn)
+        assertFalse("Closed microphone cannot remain marked muted",vm.state.value.muted)
+        assertEquals(1,closes)
+    }
+
     @Test fun failedMicrophoneMuteDoesNotReportMutedAndReleasesTheCall() = runBlocking {
         vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
         val invite=awaitSent(CallSignalKind.INVITE)
