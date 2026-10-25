@@ -29,6 +29,9 @@
 # The separate debug/release instrumentation APK starts a real opt-out worker.
 # Preserve only the public WorkManager ABI it links; implementation still shrinks.
 -keep class androidx.work.WorkManager { public *; }
+# Kotlin callers use the Companion method, not only the @JvmStatic bridge.
+# CI #401 proved release instrumentation needs both ABIs after R8 inlining.
+-keep class androidx.work.WorkManager$Companion { public *; }
 -keep class androidx.work.WorkInfo { public *; }
 -keep class androidx.work.WorkInfo$State { *; }
 -keep class androidx.work.WorkRequest { public *; }

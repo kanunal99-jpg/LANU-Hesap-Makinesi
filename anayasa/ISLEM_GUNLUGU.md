@@ -606,3 +606,8 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - 17 yeni birim/Android worker/kimlik regresyonu eklendi. Kesin sonuç ve release kanıtı ilgili PR/main CI artifact'larından alınır; fiziksel iki üretici kabulü yapılmış sayılmaz.
 - Detay ve kapanış kriterleri: `docs/PREMIUM_DELIVERY_CENTER_TR.md`. SQLCipher, signing key gerçek kurtarma, bağımsız kripto, büyük medya ve gerçek WebRTC açık kalır.
 
+### [25-10-2026] — Teslimat release testi: R8 Kotlin Companion ABI
+- CI #401 (`da74b763`) unit/Robolectric/lint ve debug Android scheduler kabulünü geçti. API34 release testinde `WorkManager.getInstance(Context)` için `NoSuchMethodError` oluştu.
+- Kök neden: Kotlin instrumentation çağrısı `WorkManager.Companion.getInstance` yolunu kullanıyor; dış sınıf/JvmStatic keep kuralı companion metodunu korumuyordu. Bu Android scheduler/identity/network hatası değil, R8 sonrası ayrı instrumentation APK'sının public ABI bağımlılığıdır.
+- Düzeltme: yalnız `androidx.work.WorkManager$Companion` public ABI'si de korunur; test kaldırılmaz, minify kapatılmaz, geniş paket keep ile kısaltılmaz. Yeni PR/main CI, release cihaz testi ve APK kamu indirmesi yeniden doğrulanır.
+
