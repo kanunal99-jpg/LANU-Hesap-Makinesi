@@ -121,7 +121,9 @@ fun NativeCallHost(model: NativeCallViewModel, request: Pair<String, Boolean>?, 
                             FilledTonalIconButton(onClick = model::muted) { Icon(if (state.muted) Icons.Default.MicOff else Icons.Default.Mic, if (state.muted) "Mikrofonu aç" else "Mikrofonu sustur") }
                             if (state.video) {
                                 FilledTonalIconButton(onClick = model::camera) { Icon(if (state.cameraOn) Icons.Default.Videocam else Icons.Default.VideocamOff, "Kamerayı aç/kapat") }
-                                FilledTonalIconButton(onClick = model::switchCamera) { Icon(Icons.Default.Cameraswitch, "Ön/arka kamera") }
+                                FilledTonalIconButton(onClick = model::switchCamera, enabled = state.cameraOn) {
+                                    Icon(Icons.Default.Cameraswitch, "Ön/arka kamera")
+                                }
                             }
                         }
                         Text("WebRTC gürültü ve yankı azaltma · kalite cihaza ve ortama bağlıdır", style = MaterialTheme.typography.bodySmall)
