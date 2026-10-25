@@ -71,7 +71,7 @@ class NativeCallEngine(
         initialize(context)
         requestFocus()
         router.start(realCallAuthorized = true, isVideo = video)
-        egl = EglBase.create()
+        egl = WebRtcEglFactory.create()
         renderers = CallVideoRendererBindings(egl!!.eglBaseContext)
         adm = JavaAudioDeviceModule.builder(context).setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
             .setUseHardwareAcousticEchoCanceler(true).setUseHardwareNoiseSuppressor(true)
