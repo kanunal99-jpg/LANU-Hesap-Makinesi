@@ -135,6 +135,21 @@ class NativeCallStateTest {
             .put("content",cipher).put("createdAt",System.currentTimeMillis()).put("expiresAt",System.currentTimeMillis()+90_000)
         repo.synchronize()
     }
+    @Test fun nativeVideoRendererIsBoundOnlyAfterRealConnectionEvidence() {
+        val base=NativeCallUiState(callId="test-call",video=true)
+        assertFalse(canRenderNativeCallVideo(base,true))
+        assertFalse(canRenderNativeCallVideo(base.copy(phase=NativeCallPhase.RINGING),true))
+        assertFalse(canRenderNativeCallVideo(base.copy(phase=NativeCallPhase.DIALING),true))
+        assertFalse(canRenderNativeCallVideo(base.copy(phase=NativeCallPhase.CONNECTING,cameraOn=true),true))
+        assertFalse(canRenderNativeCallVideo(base.copy(phase=NativeCallPhase.CONNECTED),false))
+        assertFalse(canRenderNativeCallVideo(base.copy(phase=NativeCallPhase.CONNECTED,video=false),true))
+        assertFalse(canRenderNativeCallVideo(base.copy(phase=NativeCallPhase.RECONNECTING),true))
+        assertFalse(canRenderNativeCallVideo(base.copy(phase=NativeCallPhase.ENDED),true))
+        assertTrue(canRenderNativeCallVideo(base.copy(phase=NativeCallPhase.CONNECTED),true))
+        // The peer's video remains visible if the local camera is switched off.
+        assertTrue(canRenderNativeCallVideo(base.copy(phase=NativeCallPhase.CONNECTED,cameraOn=false),true))
+    }
+
     @Test fun privateAreaExitCancelsInFlightForegroundPreparationBeforeRelayReturns() = runBlocking {
         vm.deactivate()
         preparationGate=CompletableDeferred()
