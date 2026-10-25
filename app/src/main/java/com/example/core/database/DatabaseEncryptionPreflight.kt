@@ -18,8 +18,8 @@ import java.io.FileInputStream
  */
 object DatabaseEncryptionPreflight {
     private const val DATABASE_FILE = "lanu_calculator_db"
-    private const val MIN_SQLITE_BYTES = 100L
-    private const val HEADROOM_BYTES = 16L * 1024 * 1024
+    private const val MIN_SQLITE_BYTES = 512L
+    private const val HEADROOM_BYTES = 64L * 1024 * 1024
     private val SQLITE_HEADER = "SQLite format 3\u0000".toByteArray(Charsets.US_ASCII)
 
     enum class State {
@@ -51,7 +51,7 @@ object DatabaseEncryptionPreflight {
         inspect(context.getDatabasePath(DATABASE_FILE))
 
     /**
-     * File metadata and the fixed SQLite 16-byte header only. A caller may
+     * File metadata and the fixed SQLite 100-byte header only. A caller may
      * pass an explicit availableBytes value for deterministic low-disk tests.
      */
     fun inspect(database: File, availableBytes: Long =
@@ -74,7 +74,10 @@ object DatabaseEncryptionPreflight {
             !database.isFile || unsafeCompanion -> State.UNREADABLE
             dbBytes < MIN_SQLITE_BYTES -> State.UNKNOWN_OR_TRUNCATED
             else -> try {
-                val header = ByteArray(SQLITE_HEADER.size)
+                // A 16-byte magic marker can be forged or survive file corruption.
+                // Validate immutable SQLite format markers and plausible page
+                // boundaries, without reading any table, PIN or user content.
+                val header = ByteArray(100)
                 val read = FileInputStream(database).use { input ->
                     var n = 0
                     while (n < header.size) {
@@ -84,7 +87,7 @@ object DatabaseEncryptionPreflight {
                     }
                     n
                 }
-                if (read == header.size && header.contentEquals(SQLITE_HEADER)) {
+                if (read == header.size && hasValidSqliteHeader(header, dbBytes)) {
                     State.PLAINTEXT_SQLITE
                 } else State.UNKNOWN_OR_TRUNCATED
             } catch (_: Exception) {
@@ -107,6 +110,26 @@ object DatabaseEncryptionPreflight {
             sufficientDiskSpace = spaceOkay,
             needsWalCheckpoint = walBytes > 0L || shmBytes > 0L || journalBytes > 0L
         )
+    }
+
+    private fun hasValidSqliteHeader(header: ByteArray, fileBytes: Long): Boolean {
+        if (!header.copyOfRange(0, SQLITE_HEADER.size).contentEquals(SQLITE_HEADER)) {
+            return false
+        }
+        val storedPageSize = ((header[16].toInt() and 0xff) shl 8) or
+            (header[17].toInt() and 0xff)
+        val pageSize = if (storedPageSize == 1) 65536 else storedPageSize
+        if (pageSize !in 512..65536 || pageSize and (pageSize - 1) != 0 ||
+            fileBytes < pageSize || fileBytes % pageSize != 0L) {
+            return false
+        }
+        // SQLite: write/read format must be rollback-journal=1 or WAL=2.
+        // Fixed per-page payload fractions are 64, 32 and 32.
+        return (header[18].toInt() and 0xff) in 1..2 &&
+            (header[19].toInt() and 0xff) in 1..2 &&
+            (header[21].toInt() and 0xff) == 64 &&
+            (header[22].toInt() and 0xff) == 32 &&
+            (header[23].toInt() and 0xff) == 32
     }
 
     private fun safeAdd(first: Long, second: Long): Long =
