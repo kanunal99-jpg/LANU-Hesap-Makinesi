@@ -1,5 +1,6 @@
 package com.example.core.calls
 
+import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -8,6 +9,9 @@ import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.content.pm.PackageManager
 import com.example.core.calls.CallAudioRoutePolicy.Route
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,6 +49,9 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
     private var preferred: Route? = null
     private var previousMode: Int? = null
     private var previousSpeaker: Boolean? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var scoTimeout: Runnable? = null
+    private var scoConfirmed = false
     private var scoRequested = false
     private var scoFailed = false
     private var callbackRegistered = false
@@ -66,17 +73,28 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
             when (intent.getIntExtra(AudioManager.EXTRA_SCO_AUDIO_STATE,
                 AudioManager.SCO_AUDIO_STATE_ERROR)) {
                 AudioManager.SCO_AUDIO_STATE_CONNECTED -> {
-                    if (scoRequested) _state.value = _state.value.copy(
-                        selected = Route.BLUETOOTH_HEADSET,
-                        pending = null,
-                        status = "ROUTED"
-                    )
+                    synchronized(this@AndroidCallAudioRouter) {
+                        if (scoRequested) {
+                            scoConfirmed = true
+                            cancelScoTimeout()
+                            _state.value = _state.value.copy(
+                                selected = Route.BLUETOOTH_HEADSET,
+                                pending = null,
+                                status = "ROUTED"
+                            )
+                        }
+                    }
                 }
                 AudioManager.SCO_AUDIO_STATE_DISCONNECTED -> {
-                    if (scoRequested) {
-                        scoFailed = true
-                        stopSco()
-                        selectRoute()
+                    synchronized(this@AndroidCallAudioRouter) {
+                        // A sticky DISCONNECTED broadcast often precedes an SCO
+                        // connection attempt. It does not mean that negotiation
+                        // has already failed. An explicit timeout handles that.
+                        if (scoRequested && scoConfirmed) {
+                            scoFailed = true
+                            stopSco()
+                            selectRoute()
+                        }
                     }
                 }
             }
@@ -214,10 +232,39 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
         emptyList()
     }
 
+    private fun hasBluetoothAccess(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+            appContext.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) ==
+                PackageManager.PERMISSION_GRANTED
+
+    private fun cancelScoTimeout() {
+        scoTimeout?.let { mainHandler.removeCallbacks(it) }
+        scoTimeout = null
+    }
+
+    private fun scheduleScoTimeout() {
+        cancelScoTimeout()
+        val timeout = Runnable {
+            synchronized(this) {
+                if (!running || !scoRequested || scoConfirmed) return@synchronized
+                scoFailed = true
+                stopSco()
+                selectRoute() // earpiece/speaker fallback rather than eternal "pending"
+            }
+        }
+        scoTimeout = timeout
+        mainHandler.postDelayed(timeout, 8_000L)
+    }
+
     private fun selectRoute(): State {
         if (!running) return _state.value
         val devices = availableOutputDevices()
-        val available = devices.mapNotNull { classify(it.type) }.toSet()
+        // Android 12+ Nearby Devices permission is requested only when a real
+        // call needs Bluetooth. Built-in/wired calls must remain usable when
+        // the user declines Bluetooth access.
+        val bluetoothAllowed = hasBluetoothAccess()
+        val available = devices.mapNotNull { classify(it.type) }
+            .filter { it != Route.BLUETOOTH_HEADSET || bluetoothAllowed }.toSet()
         val candidates = CallAudioRoutePolicy.priorities(available, videoCall, preferred)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             try { audioManager.clearCommunicationDevice() }
@@ -241,11 +288,14 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
                 try {
                     when (route) {
                         Route.BLUETOOTH_HEADSET -> {
-                            if (scoFailed || !audioManager.isBluetoothScoAvailableOffCall) continue
+                            if (scoFailed || !receiverRegistered ||
+                                !audioManager.isBluetoothScoAvailableOffCall) continue
                             @Suppress("DEPRECATION")
                             if (!scoRequested) {
                                 audioManager.startBluetoothSco()
                                 scoRequested = true
+                                scoConfirmed = false
+                                scheduleScoTimeout()
                             }
                             // Must wait for SCO_AUDIO_STATE_CONNECTED broadcast.
                             return State(true, null, route, available, "BLUETOOTH_PENDING")
@@ -279,6 +329,8 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
     private fun stopSco() {
         if (!scoRequested) return
         scoRequested = false
+        scoConfirmed = false
+        cancelScoTimeout()
         try { audioManager.stopBluetoothSco() } catch (_: RuntimeException) { }
     }
 }
