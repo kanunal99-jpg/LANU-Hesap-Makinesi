@@ -1,5 +1,7 @@
 # 📝 LANU VAULT & SECURE CHAT - İŞLEM GÜNLÜĞÜ (TRANSACTION LOG)
 
+> Güncel 25.10.2026 teslimat merkezi ve arka plan kontrolü kaydı dosyanın sonundadır; geçmiş kayıtlar korunur.
+
 Bu dosya, uygulama üzerinde gerçekleştirilen her bir işlemin, güncellemenin, hata düzeltmesinin ve optimizasyonun kronolojik kaydını tutar.
 
 > 📝 **YAZIM KURALI:** Yapılan veya yapılacak olan her bir işlem (örneğin yeni bir özellik eklenmesi, bir hatanın çözülmesi, kütüphane güncellemesi vb.) bu listenin sonuna zaman damgası, işlem açıklaması ve sonucu ile eklenmelidir.
@@ -594,3 +596,18 @@ Anayasa Kuralı 5 gereğince, yapılan her yeni geliştirme, güncelleme veya iy
 - Yeni `RoomDevicePreservationTest` ile yedi tablo, bekleyen mesaj, bilinmeyen eski şema, atomik rollback ve Android backup disable kontrolleri.
 - GitHub Actions'ta Android API 34 runtime job yayın kapısına eklendi. İki CI işi başarılı değilse APK publish atlanır.
 - Testler CI üzerinden gerçekleşince durumu kanıt linkiyle güncelle. Fiziksel Samsung/Xiaomi/Huawei, gerçek tarihî migration, SQLCipher/WAL ve kalıcı signing hâlâ açık P0.
+
+### [25-10-2026] — Premium teslimat merkezi / GMS bağımsız periyodik kontrol
+- PR #118 ses yönlendirme hazırlığı, başarılı #397 unit/Robolectric/lint/API34 CI sonrası ana dala alındı (`637f0fa3`). Gerçek ses/video işi #3 açık kalır.
+- `core/delivery`: kullanıcı opt-in, kapalı/kotasız varsayılan, API23+ WorkManager 2.11.2; benzersiz periyodik/manuel iş, ağ ve düşük pil şartı, üst süre/retry bütçesi, iptal ve Android keystore hatasında güvenli durma.
+- `DeliveryCenterViewModel` + `DeliveryCenter`: güvenli alan içinde erişilebilir Material3 teslimat paneli, gerçek son başarılı kontrol, arka plan ve ağ anahtarları, manuel kontrol ve çalışan ön plan yenileme alternatifi.
+- `CommunicationRepository`: background mevcut kimlik zorunluluğu; yeni kimlik üretme ve arka planda okundu onayı yok. E2EE, Room v4, mesaj/taslak, opsiyonel PIN ve APK imzası korunur.
+- Yerel kayıt yalnız fixed enum, boolean tercih ve zaman damgasıdır. WorkManager input/output içinde mesaj/PIN/token/key/peer kimliği bulunmaz; ham exception saklanmaz.
+- 17 yeni birim/Android worker/kimlik regresyonu eklendi. Kesin sonuç ve release kanıtı ilgili PR/main CI artifact'larından alınır; fiziksel iki üretici kabulü yapılmış sayılmaz.
+- Detay ve kapanış kriterleri: `docs/PREMIUM_DELIVERY_CENTER_TR.md`. SQLCipher, signing key gerçek kurtarma, bağımsız kripto, büyük medya ve gerçek WebRTC açık kalır.
+
+### [25-10-2026] — Teslimat release testi: R8 Kotlin Companion ABI
+- CI #401 (`da74b763`) unit/Robolectric/lint ve debug Android scheduler kabulünü geçti. API34 release testinde `WorkManager.getInstance(Context)` için `NoSuchMethodError` oluştu.
+- Kök neden: Kotlin instrumentation çağrısı `WorkManager.Companion.getInstance` yolunu kullanıyor; dış sınıf/JvmStatic keep kuralı companion metodunu korumuyordu. Bu Android scheduler/identity/network hatası değil, R8 sonrası ayrı instrumentation APK'sının public ABI bağımlılığıdır.
+- Düzeltme: yalnız `androidx.work.WorkManager$Companion` public ABI'si de korunur; test kaldırılmaz, minify kapatılmaz, geniş paket keep ile kısaltılmaz. Yeni PR/main CI, release cihaz testi ve APK kamu indirmesi yeniden doğrulanır.
+

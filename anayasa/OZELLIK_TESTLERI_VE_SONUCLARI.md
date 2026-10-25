@@ -1,5 +1,15 @@
 # 🧪 LANU VAULT & SECURE CHAT - ÖZELLİK TESTLERİ VE SONUÇLARI
 
+## 25.10.2026 — Güncel kanıt ile tarihî kontrol listelerinin ayrımı
+
+- Ana dal **CI #393 / `36a9a26a`** raporu: 289 testin 288'i geçti, 1 screenshot testi atlandı; relay 48/48; API34 Android debug 5/5 ve minified release 5/5. Lint 0 hata, 162 uyarı, 2 ipucu. APK `v1.1.0-signed.393` imza/SHA ve anonim public byte read-back başarılı.
+- Bu dosyanın eski tarihlerindeki boş kutular tarihî plandır; yukarıdaki Android runtime testlerini güncel olarak başarısız/bekliyor diye yorumlamayın. Fiziksel cihaz, SQLCipher ve gerçek signing key restore kabulü bu otomatik sonuçlarla kapanmaz.
+- Yeni teslimat paketi **17 ek test** içerir: `DeliveryRunTest` (10), `BackgroundDeliveryAndroidTest` (6), `BackgroundIdentityPreservationTest` (1). Test eklenmesi tek başına geçmiş başarı değildir; koşunun raporunda geçiş/atlama sayısı ayrıca incelenir.
+- Ayrıca `DeliveryDeviceAcceptanceTest` API34 debug ve R8 release üzerinde gerçek Android WorkManager'a opt-out worker başlattırır; reflection/initialization/WorkInfo sonucu ve sıfır kimlik-ağ işlemi kabulü arar. Bu bir fiziksel OEM testi değildir.
+- Kapsam: tercih kapalı/bozukken sıfır kimlik/ağ erişimi, açık kullanıcı manuel kontrolü, kimlik yokken yeni anahtar üretmeme, ağ/kota için sınırlı retry, son başarı zamanını hata halinde koruma, iptal ve parent timeout aktarımı, kendi timeout'unda iptal, pref disk hatası, API28 gerçek worker adaptörü/constructor ve ağ kısıtları.
+- **Açık fiziksel test:** Samsung + Xiaomi uygulama arka planı, ekran kilidi, Doze, kotasız/mobil ağ geçişi, düşük pil ve zorla durdurma/yeniden açma; önceki imzalı APK'dan veri kayıpsız OTA. Gerçek görüşme/ENC kalite kabulü ayrı #3 kapsamıdır.
+
+
 Bu döküman, uygulamanın barındırdığı her bir temel ve gelişmiş özelliğin nasıl test edildiğini, test senaryolarını ve çalışabilirlik durumunu doğrular.
 
 ---
@@ -594,3 +604,4 @@ Test dosyalarının var olması tek başına gerçek kullanıcı verisi migrasyo
 - [ ] API 34 `androidBackupIsDisabledForInstalledApp`: manifest backup kapalıdır.
 - [ ] PR Android Runtime CI ve main Android Runtime CI yeşil; yayın bu kapıya bağlı.
 - [ ] Fiziksel Samsung/Xiaomi/Huawei, gerçek v1-v3 fixture, SQLCipher/WAL/recovery ve stable OTA ayrı P0. Emülatör = fiziksel kanıt değildir.
+

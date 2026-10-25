@@ -73,6 +73,7 @@ fun CommunicationScreen(
     var tab by remember { mutableIntStateOf(0) }
     LaunchedEffect(pendingFullRestore) { if (pendingFullRestore) tab = 2 }
     var showAdd by remember { mutableStateOf(false) }
+    var showDelivery by remember { mutableStateOf(false) }
     // Silent UI policy for contacts, chats, and settings.
     val vibrate: () -> Unit = {}
     androidx.lifecycle.compose.LifecycleResumeEffect(viewModel) {
@@ -90,6 +91,7 @@ fun CommunicationScreen(
                     CommunicationViewModel.NetworkState.RECONNECTING -> "Bağlanıyor…"
                 }, fontSize = 11.sp)
             } }, actions = {
+                IconButton(onClick = { showDelivery = true }) { Icon(Icons.Default.CloudSync, "Teslimat merkezi") }
                 IconButton(onClick = { viewModel.refresh() }) { Icon(Icons.Default.Refresh, "Yenile") }
                 IconButton(onClick = onNavigateToCalculator) { Icon(Icons.Default.Calculate, "Kilitle ve dön") }
             })
@@ -131,6 +133,11 @@ fun CommunicationScreen(
                     }
                 }
             }
+        }
+    }
+    if (showDelivery) {
+        ModalBottomSheet(onDismissRequest = { showDelivery = false }) {
+            DeliveryCenter(onForegroundRefresh = { viewModel.refresh() }, modifier = Modifier.fillMaxHeight(0.9f))
         }
     }
     if (showAdd) {
@@ -803,3 +810,4 @@ fun CallLogCard(
         }
     }
 }
+
