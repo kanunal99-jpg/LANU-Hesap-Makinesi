@@ -35,6 +35,7 @@ class NativeCallStateTest {
     private var starts=0
     private var closes=0
     private var mediaCreated=0
+    private var iceRestarts=0
     private var failStart=false
     private var acceptGate:CompletableDeferred<Unit>?=null
     private var report: ((CallMediaEvidence)->Unit)?=null
@@ -82,7 +83,7 @@ class NativeCallStateTest {
             mediaCreated++;report=evidence;mediaFailure=failure
             object:CallMediaSession {
                 override suspend fun start(video:Boolean) { starts++;check(!failStart) }
-                override suspend fun offer(restart:Boolean)=sdp
+                override suspend fun offer(restart:Boolean):String { if(restart) iceRestarts++;return sdp }
                 override suspend fun answer(remote:String)=sdp
                 override suspend fun remoteAnswer(remote:String) {}
                 override fun mute(value:Boolean) {}
@@ -203,6 +204,24 @@ class NativeCallStateTest {
         inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,false));waitPhase(NativeCallPhase.FAILED)
         assertEquals(1,starts);assertEquals(1,closes)
     }
+    @Test fun networkDisconnectTriesOnlyOneRealIceRestartAndRequiresFreshPacketEvidence() = runBlocking {
+        vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
+        val invite=awaitSent(CallSignalKind.INVITE)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,false))
+        awaitSent(CallSignalKind.OFFER)
+        report!!(CallMediaEvidence(true,8,11));waitPhase(NativeCallPhase.CONNECTED)
+        report!!(CallMediaEvidence(false,8,11));waitPhase(NativeCallPhase.RECONNECTING)
+        withTimeout(2000) { sent.first { list -> list.count { it.kind==CallSignalKind.OFFER } >= 2 } }
+        assertEquals("Only one ICE restart may be attempted",1,iceRestarts)
+        report!!(CallMediaEvidence(false,0,0))
+        report!!(CallMediaEvidence(true,0,12))
+        assertEquals("Transport alone is not a restored audio call",NativeCallPhase.RECONNECTING,vm.state.value.phase)
+        report!!(CallMediaEvidence(true,12,12));waitPhase(NativeCallPhase.CONNECTED)
+        assertEquals(1,iceRestarts)
+        vm.end();waitPhase(NativeCallPhase.ENDED)
+        assertEquals(1,closes)
+    }
+
     @Test fun ordinaryChatCiphertextCannotCreateAnIncomingCall() = runBlocking {
         inject(CallSignaling.create(UUID.randomUUID().toString(),CallSignalKind.INVITE,false),badAad=true)
         assertEquals(NativeCallPhase.IDLE,vm.state.value.phase);assertEquals(0,starts)
