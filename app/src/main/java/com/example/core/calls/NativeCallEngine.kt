@@ -175,13 +175,19 @@ class NativeCallEngine(
             },
             open = { index, device ->
                 val generation = cameraGeneration.incrementAndGet()
-                val candidate = enumerators[index].createCapturer(device.name, cameraEvents(generation))
-                    ?: return@select null
+                // Some OEM callbacks report startup failure before startCapture
+                // returns. Retry that camera rather than closing the entire call.
+                val starting = AtomicBoolean(true)
+                val failed = AtomicBoolean(false)
+                val candidate = enumerators[index].createCapturer(device.name,
+                    cameraEvents(generation, starting, failed)) ?: return@select null
                 try {
                     check(!closing.get())
                     candidate.initialize(texture, context, videoSource!!.capturerObserver)
                     candidate.startCapture(1280, 720, 24)
                     check(!closing.get())
+                    check(!failed.get()) { "Kamera açılışında hata." }
+                    starting.set(false)
                     candidate
                 } catch (e: Exception) {
                     // Invalidate late callbacks from the rejected camera before
@@ -202,9 +208,13 @@ class NativeCallEngine(
         updateBindings()
     }
 
-    private fun cameraEvents(generation: Int) = object : CameraVideoCapturer.CameraEventsHandler {
+    private fun cameraEvents(
+        generation: Int, starting: AtomicBoolean, failed: AtomicBoolean
+    ) = object : CameraVideoCapturer.CameraEventsHandler {
         private fun activeFailure() {
-            if (generation == cameraGeneration.get()) cameraFailure()
+            if (generation != cameraGeneration.get()) return
+            failed.set(true)
+            if (!starting.get()) cameraFailure()
         }
         override fun onCameraError(error: String) = activeFailure()
         override fun onCameraDisconnected() = activeFailure()
