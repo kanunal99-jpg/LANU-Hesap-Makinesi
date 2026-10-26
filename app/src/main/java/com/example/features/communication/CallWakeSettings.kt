@@ -52,9 +52,11 @@ fun CallWakeSettings(repository: CommunicationRepository) {
             return
         }
         try {
+            FirebaseMessaging.getInstance().isAutoInitEnabled = true
             FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
                 val token = if (task.isSuccessful) task.result else null
                 if (token.isNullOrBlank()) {
+                    FirebaseMessaging.getInstance().isAutoInitEnabled = false
                     status = "Bildirim cihaz kaydı alınamadı. Bağlantınızı kontrol edin."
                     busy = false
                 } else {
@@ -67,6 +69,7 @@ fun CallWakeSettings(repository: CommunicationRepository) {
                         } catch (_: Exception) {
                             // Server or credential failure is not success.
                             CallWakePreferences.setEnabled(context, false)
+                            FirebaseMessaging.getInstance().isAutoInitEnabled = false
                             enabled = false
                             status = "Sunucu çağrı bildirim kaydını doğrulayamadı. Etkinleştirilmedi."
                         } finally { busy = false }
@@ -74,6 +77,7 @@ fun CallWakeSettings(repository: CommunicationRepository) {
                 }
             }
         } catch (_: Exception) {
+            runCatching { FirebaseMessaging.getInstance().isAutoInitEnabled = false }
             status = "Firebase çağrı bildirim servisi kullanılamıyor."
             busy = false
         }
@@ -98,6 +102,7 @@ fun CallWakeSettings(repository: CommunicationRepository) {
             // remote revoke cannot cause a push to show a notification.
             CallWakePreferences.setEnabled(context, false)
             enabled = false
+            runCatching { FirebaseMessaging.getInstance().isAutoInitEnabled = false }
             status = "Bu cihazda arama bildirimi kapatıldı."
             scope.launch {
                 try { repository.registerCallWakeToken(null) }
