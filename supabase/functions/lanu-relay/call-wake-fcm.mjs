@@ -18,12 +18,17 @@ export async function fetchWithDeadline(fetcher, url, init, timeoutMs = 6000) {
   }
 }
 
+/** Permanent token invalidation, never includes token or Google response data. */
+export class FcmUnregisteredTokenError extends Error {
+  constructor() { super('FCM_UNREGISTERED'); this.name = 'FcmUnregisteredTokenError'; }
+}
+
 export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi = crypto) {
   if (!rawCredentials) return null; // Safe default: disabled without credentials.
   let config;
   try { config = JSON.parse(rawCredentials); } catch { return null; }
-  if (typeof config.project_id !== 'string' ||
-    !/^[a-z][a-z0-9-]{4,45}$/.test(config.project_id) ||
+  if (config.type !== 'service_account' ||
+    config.project_id !== 'gen-lang-client-0658022317' ||
     typeof config.client_email !== 'string' ||
     !config.client_email.endsWith('.gserviceaccount.com') ||
     typeof config.private_key !== 'string' ||
@@ -79,7 +84,23 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
       // A slow Google endpoint must never indefinitely hold the encrypted
       // call invitation relay. Do not retry rate-limited FCM synchronously.
     });
-    if (!response.ok) throw new Error('FCM dispatch unavailable');
+    if (!response.ok) {
+      // FCM HTTP 404 alone can also mean a missing project or endpoint.
+      // Only the explicit UNREGISTERED detail proves this *device token*
+      // is expired. Never discard an active token on generic 400/401/404/429.
+      if (response.status === 404) {
+        try {
+          const body = await response.json();
+          if (Array.isArray(body?.error?.details) &&
+            body.error.details.some(detail => detail?.errorCode === 'UNREGISTERED')) {
+            throw new FcmUnregisteredTokenError();
+          }
+        } catch (error) {
+          if (error instanceof FcmUnregisteredTokenError) throw error;
+        }
+      }
+      throw new Error('FCM dispatch unavailable');
+    }
     return true;
   };
 }
