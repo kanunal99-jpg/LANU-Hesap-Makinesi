@@ -41,8 +41,8 @@ object CallWakePreferences {
     } catch (_: Exception) { false }
 
     fun isEnabled(context: Context): Boolean = try {
-        context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
-            .getBoolean(OPTED_IN, false)
+        val prefs = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+        prefs.getBoolean(OPTED_IN, false) && !prefs.getBoolean(PENDING_REVOKE, false)
     } catch (_: Exception) { false }
     fun setEnabled(context: Context, enabled: Boolean): Boolean = try {
         context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
