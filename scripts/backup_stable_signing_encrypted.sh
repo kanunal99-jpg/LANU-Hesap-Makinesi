@@ -20,6 +20,25 @@ for name in lanu-stable.jks store-password key-password; do
     exit 1
   }
 done
+# An encrypted archive is not useful unless the existing credentials can
+# actually be recovered. The LANU stable PKCS12 bootstrap uses one password
+# for both entries. Reject inconsistent or pathologically large inputs before
+# creating any new encrypted archive. Never print key or password contents.
+cmp -s -- "$sign_dir/store-password" "$sign_dir/key-password" || {
+  echo 'Existing signing credentials differ; backup is not independently recoverable.' >&2
+  exit 1
+}
+for name in store-password key-password; do
+  (( $(wc -c < "$sign_dir/$name") <= 256 )) || {
+    echo 'Unexpected signing credential size; backup refused.' >&2
+    exit 1
+  }
+done
+(( $(wc -c < "$sign_dir/lanu-stable.jks") <= 1048576 )) || {
+  echo 'Unexpected keystore size; backup refused.' >&2
+  exit 1
+}
+
 [[ -d "$HOME/.lanu" && ! -L "$HOME/.lanu" ]] || {
   echo 'Expected private ~/.lanu directory.' >&2
   exit 1
