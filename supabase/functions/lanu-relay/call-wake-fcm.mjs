@@ -7,6 +7,17 @@ const encode = obj => btoa(JSON.stringify(obj)).replace(/\+/g,'-').replace(/\//g
 const bytes64 = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes)))
   .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 
+/** Bound each outbound Google request; never leave timers running in a Deno Edge isolate. */
+export async function fetchWithDeadline(fetcher, url, init, timeoutMs = 6000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetcher(url, {...init, signal:controller.signal});
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi = crypto) {
   if (!rawCredentials) return null; // Safe default: disabled without credentials.
   let config;
@@ -34,10 +45,10 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
     const unsigned = encode({alg:'RS256',typ:'JWT'})+'.'+encode(claims);
     const signature = await cryptoApi.subtle.sign('RSASSA-PKCS1-v1_5',key,new TextEncoder().encode(unsigned));
     const assertion = unsigned+'.'+bytes64(signature);
-    const response = await fetcher('https://oauth2.googleapis.com/token',{
+    const response = await fetchWithDeadline(fetcher, 'https://oauth2.googleapis.com/token',{
       method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
       body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion}).toString(),
-      signal:AbortSignal.timeout(6000)
+
     });
     if (!response.ok) throw new Error('FCM authentication unavailable');
     const payload = await response.json();
@@ -57,7 +68,7 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
     if (typeof deviceToken !== 'string' || deviceToken.length < 20 ||
       deviceToken.length > 4096 || !/^[A-Za-z0-9_:.-]+$/.test(deviceToken)) return false;
     const bearer = await accessToken();
-    const response = await fetcher('https://fcm.googleapis.com/v1/projects/'+config.project_id+'/messages:send',{
+    const response = await fetchWithDeadline(fetcher, 'https://fcm.googleapis.com/v1/projects/'+config.project_id+'/messages:send',{
       method:'POST',headers:{Authorization:'Bearer '+bearer,'Content-Type':'application/json'},
       body:JSON.stringify({message:{
         token:deviceToken,
@@ -68,7 +79,7 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
       }}),
       // A slow Google endpoint must never indefinitely hold the encrypted
       // call invitation relay. Do not retry rate-limited FCM synchronously.
-      signal:AbortSignal.timeout(6000)
+
     });
     if (!response.ok) throw new Error('FCM dispatch unavailable');
     return true;
