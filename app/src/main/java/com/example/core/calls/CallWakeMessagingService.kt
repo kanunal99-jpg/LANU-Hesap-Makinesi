@@ -27,8 +27,19 @@ class CallWakeMessagingService : FirebaseMessagingService() {
         if (!CallWakePreferences.isEnabled(applicationContext)) return
         refreshScope.launch {
             try {
+                // Consent can be revoked while an asynchronous FCM token
+                // refresh is waiting for the network. Re-check on both sides
+                // of registration so a late response cannot silently restore
+                // a remotely opted-out device.
+                if (!CallWakePreferences.isEnabled(applicationContext)) return@launch
                 val repo = (applicationContext as LanuApplication).container.communicationRepository
                 repo.registerCallWakeToken(token)
+                if (!CallWakePreferences.isEnabled(applicationContext)) {
+                    repo.registerCallWakeToken(null)
+                    // Only the confirmed signed backend revoke clears the
+                    // durable pending flag. A network failure keeps it pending.
+                    CallWakePreferences.acknowledgeRemoteRevoke(applicationContext)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
