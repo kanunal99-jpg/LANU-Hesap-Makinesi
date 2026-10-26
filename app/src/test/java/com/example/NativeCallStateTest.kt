@@ -336,6 +336,42 @@ class NativeCallStateTest {
         assertEquals(1,closes)
     }
 
+    @Test fun replayedSdpOfferWithFreshEnvelopeCannotConsumeIceRestartSlot() = runBlocking {
+        answerGate=CompletableDeferred()
+        answerEntered=CompletableDeferred()
+        val call=UUID.randomUUID().toString()
+        inject(CallSignaling.create(call,CallSignalKind.INVITE,false))
+        waitPhase(NativeCallPhase.RINGING)
+        vm.accept(call,true)
+        awaitSent(CallSignalKind.ACCEPT)
+
+        // Replay with a distinct authenticated signal ID before native SDP returns.
+        inject(CallSignaling.create(call,CallSignalKind.OFFER,false,sdp))
+        withTimeout(3000) { answerEntered!!.await() }
+        inject(CallSignaling.create(call,CallSignalKind.OFFER,false,sdp))
+        answerGate!!.complete(Unit)
+        withTimeout(3000) { sent.first { list -> list.count { it.kind==CallSignalKind.ANSWER } == 1 } }
+        assertEquals("The same offer may be answered only once",1,
+            sent.value.count { it.kind==CallSignalKind.ANSWER })
+
+        report!!(CallMediaEvidence(true,4,4))
+        waitPhase(NativeCallPhase.CONNECTED)
+        inject(CallSignaling.create(call,CallSignalKind.OFFER,false,sdp))
+        assertEquals("Late duplicate cannot trigger another answer",1,
+            sent.value.count { it.kind==CallSignalKind.ANSWER })
+
+        // A genuinely changed ICE-restart SDP must still receive one answer.
+        val restartSdp=sdp+"a=ice-ufrag:rotated123\\r\\n"
+        inject(CallSignaling.create(call,CallSignalKind.OFFER,false,restartSdp))
+        withTimeout(3000) { sent.first { list -> list.count { it.kind==CallSignalKind.ANSWER } == 2 } }
+        inject(CallSignaling.create(call,CallSignalKind.OFFER,false,restartSdp))
+        inject(CallSignaling.create(call,CallSignalKind.OFFER,false,restartSdp+"a=ice-pwd:third\\r\\n"))
+        assertEquals("Exactly one initial offer and one new restart are allowed",2,
+            sent.value.count { it.kind==CallSignalKind.ANSWER })
+        assertEquals(1,starts)
+        assertEquals(NativeCallPhase.CONNECTED,vm.state.value.phase)
+    }
+
     @Test fun outgoingDoesNotOpenMediaUntilTheMatchingPeerAccepts() = runBlocking {
         vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
         val invite=awaitSent(CallSignalKind.INVITE)
