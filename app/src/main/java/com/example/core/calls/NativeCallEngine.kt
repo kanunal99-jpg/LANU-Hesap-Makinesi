@@ -346,9 +346,15 @@ class NativeCallEngine(
             if (closing.get()) return
             // Only fresh inbound AND outbound RTP after this transport epoch
             // can restore the "Connected" label following an ICE interruption.
-            evidence(rtpEvidence.updateTransport(state == PeerConnection.PeerConnectionState.CONNECTED))
-            if (state == PeerConnection.PeerConnectionState.FAILED)
-                failure("Ağlar arasında doğrudan bağlantı kurulamadı. Farklı bir ağ deneyin.")
+            evidence(rtpEvidence.updateTransport(CallTransportRecoveryPolicy.isConnected(state)))
+            // FAILED is not a fatal microphone/codec error. A previous real
+            // call may recover through the authenticated, one-use ICE restart
+            // in NativeCallViewModel. Premature failure() tore down that
+            // session before the signed renegotiation could execute.
+            // On initial connection failure the existing call setup deadline
+            // remains authoritative; after CONNECTED, the 25s recovery
+            // deadline remains authoritative. Never claim media is connected
+            // without fresh RTP evidence.
         }
         override fun onTrack(transceiver: RtpTransceiver) {
             val track = transceiver.receiver.track()
