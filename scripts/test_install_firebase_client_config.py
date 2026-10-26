@@ -85,5 +85,28 @@ class FirebaseConfigInstallationTest(unittest.TestCase):
             self.assertFalse(out.exists())
 
 
+    def test_safe_error_cause_for_wrong_secret_without_exposing_its_contents(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = pathlib.Path(td) / "app" / "google-services.json"
+            wrong_project = json.loads(base64.b64decode(fake_config()))
+            wrong_project["project_info"]["project_id"] = "SENSITIVE_WRONG_PROJECT"
+            bad_clients = json.loads(base64.b64decode(fake_config()))
+            bad_clients["project_info"]["project_number"] = 12345678
+            cases = (
+                ({"type": "service_account", "private_key": "SENSITIVE_PRIVATE_KEY"},
+                 "Service-account JSON is not Android google-services.json"),
+                ({"other": "SENSITIVE_CONFIG"},
+                 "Android google-services.json missing project_info"),
+                (wrong_project, "Firebase Android project mismatch"),
+                (bad_clients, "Invalid Firebase Android client project_number or client list"),
+            )
+            for payload, expected in cases:
+                with self.subTest(expected=expected):
+                    with self.assertRaises(ValueError) as error:
+                        installer.install(out, None, raw_json=json.dumps(payload))
+                    self.assertIn(expected, str(error.exception))
+                    self.assertNotIn("SENSITIVE", str(error.exception))
+                    self.assertFalse(out.exists())
+
 if __name__ == "__main__":
     unittest.main()
