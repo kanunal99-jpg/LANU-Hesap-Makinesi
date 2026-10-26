@@ -11,7 +11,7 @@ if [[ $# -ne 2 ]]; then
 fi
 archive="$1"
 signer="$2"
-for binary in gpg tar mktemp keytool openssl grep sort awk sed tr stat cmp; do
+for binary in gpg tar mktemp keytool openssl grep sort awk sed tr stat cmp jar jarsigner; do
   command -v "$binary" >/dev/null 2>&1 || { echo "Missing recovery dependency: $binary" >&2; exit 1; }
 done
 [[ -f "$archive" && ! -L "$archive" && -s "$archive" &&
@@ -110,5 +110,32 @@ actual="$(keytool -exportcert -rfc -alias lanu \
   echo 'RECOVERY FAILED: recovered signing certificate differs from trusted stable APK signer.' >&2
   exit 1
 }
+
+# Verify that the recovered PRIVATE key can actually sign a fresh payload.
+# This proof uses only an isolated disposable JAR; it never modifies the
+# owner's keystore, logs a password, exports keys or uploads anything.
+# A matching public certificate alone is insufficient disaster recovery.
+printf '%s\n' 'LANU isolated signing recovery challenge' > "$scratch/proof.txt"
+jar cf "$scratch/challenge-unsigned.jar" -C "$scratch" proof.txt >/dev/null 2>&1 || {
+  echo 'RECOVERY FAILED: cannot prepare offline signing challenge.' >&2
+  exit 1
+}
+jarsigner -keystore "$scratch/signing/lanu-stable.jks" -storetype PKCS12 \
+  -storepass:env STORE_PASSWORD -keypass:env STORE_PASSWORD \
+  -signedjar "$scratch/challenge-signed.jar" \
+  "$scratch/challenge-unsigned.jar" lanu >"$scratch/sign.log" 2>&1 || {
+    echo 'RECOVERY FAILED: recovered private key could not sign offline challenge.' >&2
+    exit 1
+  }
+verification="$(jarsigner -verify "$scratch/challenge-signed.jar" 2>/dev/null)" || {
+  echo 'RECOVERY FAILED: offline signature did not verify.' >&2
+  exit 1
+}
+[[ "$verification" == *"jar verified."* ]] || {
+  echo 'RECOVERY FAILED: offline challenge is unsigned or invalid.' >&2
+  exit 1
+}
+unset verification
+
 echo 'PASS: encrypted backup restored into an isolated directory and its certificate matches the trusted stable APK release.'
 echo 'Original keys/installed apps were not modified. Store the encrypted backup OFF DEVICE and its password separately.'

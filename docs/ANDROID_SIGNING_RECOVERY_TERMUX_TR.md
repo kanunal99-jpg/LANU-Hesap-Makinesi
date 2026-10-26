@@ -65,3 +65,9 @@ Bu ayrı cihaz işlemi gerçekten yapılıp sahibince doğrulanmadan **#83
 kapatılamaz**. Flash depolamadaki geçici düz dosyaların silinmesi güvenli
 fiziksel imhayı garanti etmez; mümkünse güvenilir belleğe dayalı geçici
 dizin kullanılır. CI testi **yalnız sahte PKCS12** anahtarla çalışır.
+
+## 26.10.2026 — Gerçek imza atabilme doğrulaması (yalnızca izole kurtarma)
+
+`verify_offdevice_signing_recovery.sh` artık yalnızca PKCS12 özel anahtar girdisini ve sürümdeki açık sertifika parmak izini eşleştirmekle kalmaz; kurtarılan **özel anahtar ile geçici bir JAR imzalar**, bağımsız `jarsigner -verify` ile doğrular. Geçici arşiv ve imzalı dosya güvenli çalışma dizininde silinir; parola yalnız süreç ortamındaki gizli değişkende taşınır, anahtar export edilmez. `jar` ve `jarsigner` için güvenilir JDK gereklidir. Test, sahte CI anahtarıyla çalışır; gerçek cihaz anahtarı hiçbir zaman GitHub'a yüklenmez.
+
+**Bu test tek başına #83'ün kapanması için yeterli değildir.** Kullanıcı, şifreli .gpg yedeğini gerçekten telefon dışına aktarıp farklı güvenilir fiziksel ortamda kurtarmalı ve son stabil APK ile eşleşmeyi doğrulamalıdır. Yeni anahtar üretmeyin, orijinal `~/.lanu/signing` üzerine yazmayın.
