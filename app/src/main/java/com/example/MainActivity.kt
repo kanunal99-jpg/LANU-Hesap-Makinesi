@@ -55,6 +55,7 @@ import com.example.features.communication.CommunicationScreen
 import com.example.features.communication.CommunicationViewModel
 import com.example.features.communication.NativeCallViewModel
 import com.example.features.communication.NativeCallHost
+import com.example.core.calls.CallWakeTapPolicy
 import com.example.features.security.SecurityScreen
 import com.example.features.security.SecurityViewModel
 import com.example.ui.theme.MyApplicationTheme
@@ -406,6 +407,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         securityViewModel = ViewModelProvider(this, SecurityViewModel.Factory(container.securityRepository, container.securityEventTracker))[SecurityViewModel::class.java]
         commViewModel = ViewModelProvider(this, CommunicationViewModel.Factory(container.communicationRepository))[CommunicationViewModel::class.java]
         nativeCallViewModel = ViewModelProvider(this, NativeCallViewModel.Factory(this, container.communicationRepository))[NativeCallViewModel::class.java]
+        // Launching via an incoming-call notification is NOT authorization.
+        // Lock even a restored private back stack before Compose draws it.
+        concealForCallWakeNotification(intent)
 
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
@@ -727,6 +731,22 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         fullRestoreUri?.let { outState.putString("lanu_pending_full_restore", it.toString()) }
         // Passwords, decrypted rows and key material never enter saved instance state.
         super.onSaveInstanceState(outState)
+    }
+
+    private fun concealForCallWakeNotification(incoming: Intent?) {
+        if (!CallWakeTapPolicy.requiresFreshEntry(incoming?.action)) return
+        if (!::securityViewModel.isInitialized || !::calcViewModel.isInitialized) return
+        // Neither incoming intent extras nor stale in-process calls can unlock
+        // the private area or auto-start microphone/camera.
+        pendingCall = null
+        returnToCalculator()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // CLEAR_TOP/SINGLE_TOP may reuse an already-authenticated activity.
+        concealForCallWakeNotification(intent)
     }
 
     override fun onStart() {
