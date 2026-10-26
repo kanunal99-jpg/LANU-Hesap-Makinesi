@@ -4,7 +4,6 @@ import android.app.ActivityManager
 import android.app.ApplicationExitInfo
 import android.content.Context
 import android.os.Build
-import java.util.concurrent.TimeUnit
 
 /**
  * Android 11+ process-exit diagnostics. Never opens raw stack traces or message
@@ -14,31 +13,36 @@ import java.util.concurrent.TimeUnit
 object CrashDiagnostics {
     data class RecentExit(val label: String, val timestamp: Long)
 
+    private const val MAX_RECENT_AGE_MS = 7L * 24 * 60 * 60 * 1000
+
+    /**
+     * Classifies platform exit metadata, never reads stack traces, exception
+     * details, PID, process name or Android's potentially sensitive trace.
+     * Reject future timestamps rather than showing them as new crashes.
+     */
+    internal fun classify(reason: Int, timestamp: Long, now: Long): RecentExit? {
+        if (timestamp <= 0L || timestamp > now || now - timestamp > MAX_RECENT_AGE_MS) return null
+        val label = when (reason) {
+            ApplicationExitInfo.REASON_CRASH -> "Uygulama kodu hatası (Java/Kotlin)"
+            ApplicationExitInfo.REASON_CRASH_NATIVE -> "Android yerel kod hatası"
+            ApplicationExitInfo.REASON_ANR -> "Uygulama yanıt vermedi (ANR)"
+            ApplicationExitInfo.REASON_LOW_MEMORY -> "Düşük bellek nedeniyle kapanma"
+            ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> "Aşırı kaynak kullanımı"
+            else -> return null // normal user kill, update or unknown reason
+        }
+        return RecentExit(label, timestamp)
+    }
+
     fun mostRecentAbnormalExit(context: Context): RecentExit? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
         return runCatching {
             val manager = context.getSystemService(ActivityManager::class.java)
                 ?: return@runCatching null
-            val mostRecent = manager.getHistoricalProcessExitReasons(context.packageName, 0, 10)
+            val now = System.currentTimeMillis()
+            manager.getHistoricalProcessExitReasons(context.packageName, 0, 20)
                 .asSequence()
-                .filter { it.timestamp > 0L && System.currentTimeMillis() - it.timestamp <= TimeUnit.DAYS.toMillis(7) }
-                .filter { it.reason in setOf(
-                    ApplicationExitInfo.REASON_CRASH,
-                    ApplicationExitInfo.REASON_CRASH_NATIVE,
-                    ApplicationExitInfo.REASON_ANR,
-                    ApplicationExitInfo.REASON_LOW_MEMORY,
-                    ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE
-                ) }
-                .maxByOrNull { it.timestamp } ?: return@runCatching null
-            val label = when (mostRecent.reason) {
-                ApplicationExitInfo.REASON_CRASH -> "Uygulama kodu hatası (Java/Kotlin)"
-                ApplicationExitInfo.REASON_CRASH_NATIVE -> "Android yerel kod hatası"
-                ApplicationExitInfo.REASON_ANR -> "Uygulama yanıt vermedi (ANR)"
-                ApplicationExitInfo.REASON_LOW_MEMORY -> "Düşük bellek nedeniyle kapanma"
-                ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> "Aşırı kaynak kullanımı"
-                else -> return@runCatching null
-            }
-            RecentExit(label, mostRecent.timestamp)
+                .mapNotNull { classify(it.reason, it.timestamp, now) }
+                .maxByOrNull { it.timestamp }
         }.getOrNull()
     }
 }
