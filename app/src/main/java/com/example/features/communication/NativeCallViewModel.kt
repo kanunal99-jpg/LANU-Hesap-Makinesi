@@ -15,7 +15,7 @@ enum class NativeCallPhase { IDLE, DIALING, RINGING, CONNECTING, CONNECTED, RECO
 data class NativeCallUiState(
     val callId: String = "", val name: String = "", val video: Boolean = false,
     val phase: NativeCallPhase = NativeCallPhase.IDLE, val muted: Boolean = false,
-    val cameraOn: Boolean = true, val message: String = "", val connectedAt: Long = 0L
+    val cameraOn: Boolean = false, val message: String = "", val connectedAt: Long = 0L
 )
 
 /** One foreground-only real call. Permission dialog callbacks are bound to call IDs. */
@@ -134,7 +134,7 @@ class NativeCallViewModel(
     fun muted() {
         val current = session ?: return
         val engine = _media.value ?: return
-        if (!foreground || muteChange?.isActive == true) return
+        if (!foreground || _state.value.phase !in setOf(NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING) || muteChange?.isActive == true) return
         val target = !_state.value.muted
         muteChange = guarded(current) {
             engine.mute(target)
@@ -146,7 +146,7 @@ class NativeCallViewModel(
     fun camera() {
         val current = session ?: return
         val engine = _media.value ?: return
-        if (!foreground || !current.video || cameraChange?.isActive == true) return
+        if (!foreground || !current.video || _state.value.phase !in setOf(NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING) || cameraChange?.isActive == true) return
         val target = !_state.value.cameraOn
         cameraChange = guarded(current) {
             engine.camera(target)
@@ -156,7 +156,12 @@ class NativeCallViewModel(
                 _state.value = _state.value.copy(cameraOn = target)
         }
     }
-    fun switchCamera() { _media.value?.switchCamera() }
+    fun switchCamera() {
+        if (session?.video != true || !foreground || !_state.value.cameraOn ||
+            _state.value.phase !in setOf(NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING) ||
+            cameraChange?.isActive == true) return
+        _media.value?.switchCamera()
+    }
 
     private fun handle(incoming: ReceivedCallSignal) {
         val s = incoming.signal
@@ -190,7 +195,7 @@ class NativeCallViewModel(
                 pipeline = guarded(current) {
                     val engine = createEngine(current)
                     _media.value = engine
-                    engine.start(current.video)
+                    startConfirmedMedia(current, engine)
                     val offerSdp = engine.offer()
                     if (session !== current || !foreground) return@guarded
                     current.awaitingAnswer = true
@@ -208,7 +213,7 @@ class NativeCallViewModel(
                     previous?.join()
                     if (session !== current || !foreground) return@guarded
                     val engine = _media.value ?: createEngine(current).also {
-                        _media.value = it; it.start(current.video)
+                        _media.value = it; startConfirmedMedia(current, it)
                     }
                     send(current, CallSignalKind.ANSWER, engine.answer(s.sdp))
                 }
@@ -226,6 +231,19 @@ class NativeCallViewModel(
             CallSignalKind.END -> finish("Karşı taraf görüşmeyi sonlandırdı.", notify = false)
             else -> Unit
         }
+    }
+
+    // A requested video call is not an active camera: hardware initialization
+    // must finish before the UI can truthfully report a live local camera.
+    // A late completion from an ended/hidden call must not revive its state.
+    private suspend fun startConfirmedMedia(current: Session, engine: CallMediaSession) {
+        engine.start(current.video)
+        // Native startup may complete after the user ended the call. Do not
+        // continue SDP negotiation with a disposed session or revive its UI.
+        if (session !== current || !foreground) {
+            throw CancellationException("Call ended while media was starting")
+        }
+        if (current.video) _state.value = _state.value.copy(cameraOn = true)
     }
 
     private fun createEngine(current: Session): CallMediaSession = mediaFactory(
@@ -296,7 +314,7 @@ class NativeCallViewModel(
         workJobs.toList().forEach { it.cancel() }; workJobs.clear()
         _media.value?.close(); _media.value = null
         val previous = _state.value
-        _state.value = previous.copy(phase = NativeCallPhase.ENDED, message = message)
+        _state.value = previous.copy(phase = NativeCallPhase.ENDED, message = message, muted = false, cameraOn = false)
         viewModelScope.launch {
             if (notify) runCatching { send(current, kind) }
             if (previous.connectedAt > 0) runCatching {

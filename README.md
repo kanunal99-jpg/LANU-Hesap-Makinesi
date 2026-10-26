@@ -13,7 +13,7 @@ Android 6.0 (API 23)+ hedefleyen, Jetpack Compose tabanlı hesap makinesi ve kul
 
 ## Teknoloji
 
-Kotlin, Jetpack Compose, Hilt, MVVM/ViewModel + Coroutines/Flow, Room v4, R8/ProGuard release, API 23 minimum/API 36 hedef. Mesaj teslimi **Supabase relay** üzerinden yapılır; sunucuda uçtan uca açık metin mesaj saklanmaz. Bu sistem tamamen sunucusuz veya garantili arka plan push bağlantısı olarak **tanıtılmamalıdır**. WebRTC çağrı ekranı **demodur**, gerçek iki cihaz çağrısı değildir.
+Kotlin, Jetpack Compose, Hilt, MVVM/ViewModel + Coroutines/Flow, Room v4, R8/ProGuard release, API 23 minimum/API 36 hedef. Mesaj teslimi **Supabase relay** üzerinden yapılır; sunucuda uçtan uca açık metin mesaj saklanmaz. Bu sistem tamamen sunucusuz veya garantili arka plan push bağlantısı olarak **tanıtılmamalıdır**. Eski `CallScreen.kt` ekranı **demo/simülasyondur**; yeni `NativeCallHost.kt` + `NativeCallEngine.kt` ön planda gerçek WebRTC ses/video yakalama, ICE/DTLS ve RTP kanıtına dayalı bağlantı uygular. **Bunun iki farklı fiziksel telefonda karşılıklı ses/video kabulü henüz doğrulanmamıştır**; tüm ağlarda veya arka planda çağrı garantisi verilmez.
 
 ## Güvenlik ve bilinmesi gereken sınırlar
 
@@ -49,7 +49,7 @@ GitHub Actions ayrıca Android API 34 emülatöründe debug ve release instrumen
 3. SQLCipher için önce salt okunur ön denetim ve reversibl migration testleri, ardından kontrollü geçiş.
 4. Android çoklu cihaz kararlılığı; bağımsız kripto ve forward secrecy tasarımı.
 5. Gerçek büyük medya; GMS/HMS bağımsız arka plan teslim stratejisi.
-6. Gerçek WebRTC çağrı ve premium arayüz/hesap doğruluğu/erişilebilirlik.
+6. Native WebRTC çağrısının iki farklı fiziksel üreticide ses/video ve yönlendirme kabulünü kanıtla; eski demo ekranını gerçek görüşmeyle karıştırma. Premium arayüz, hesap doğruluğu ve erişilebilirliği regresyon testleriyle geliştir.
 
 Ücretli altyapı kullanıcı onayı olmadan açılmaz. Birim testleri, CI onayı ve **gerçek fiziksel cihaz kabulü farklı kanıt seviyeleridir**.
 

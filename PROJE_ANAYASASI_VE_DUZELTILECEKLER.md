@@ -1,5 +1,38 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 25.10.2026 — ANAYASA ÖNCELİKLİ SÜREKLİ SAĞLAMLAŞTIRMA VE GERİYE DÖNÜK DENETİM (KALICI KURAL)
+
+**Sahip talimatı:** "Devam; her zaman sağlamlaştır, yapılana dön bak, eksikleri tamamla." Yeni veya değişmiş kalite/süreç/güvenlik kuralı varsa **önce bu anayasa düzenlenir**, kaydedilir ve değişikliğin kendi kanıtı sağlanır; **ardından** üretim kodu/CI/Release üzerinde çalışma başlar. Her yeni çalışmada bu bölüm varsayılan ve bağlayıcıdır. Geçmişteki tamamlandı iddiaları en güncel commit, PR, CI, APK ve açık issue ile yeniden çapraz kontrol edilir.
+
+### Zorunlu çalışma döngüsü ve kanıt seviyeleri
+
+1. **Ön denetim:** Güncel `main` SHA, açık PR'lar, mevcut release/tag, çalıştırmalar/başarısız adımlar, issue ve anayasa maddeleri ile eski "tamamlandı" kayıtlarını eşleştir; yanlış/eskimiş durumu açıkça düzelt. Tek bir eski CI sonucunu yeni HEAD'e atfetme.
+2. **Anayasa önce:** Yeni talebi/anlaşmayı/mühendislik standardını risk, veri koruma, maliyet, performans ve tamamlama kanıtıyla birlikte bu dosyaya yaz. Anayasa değişikliği repo commit'i olmadan "kaydedildi" deme. Tarihsel kayıtları silip puanları geriye dönük değiştirme; yeni kararların önceliği açık olsun.
+3. **Açık analizi ve önceliklendirme:** P0 veri kaybı, kimlik, şifreleme, OTA imzası, güvenli iletişim ve yanlış başarı göstergeleri önce; ardından P1 erişilebilirlik, OEM, performans ve mimari. Düzeltmenin kök nedenini ve aynı sınıftan komşu işlevleri denetle.
+4. **Uygula → tersini de test et:** Her kritik düzeltme için başarılı yolun yanında başarısızlık, iptal, eski oturumdan gecikmiş callback, yeniden bağlanma, çift dokunma, izin geri alma, düşük disk/bellek, offline/429 ve geri dönüş senaryolarından uygun olanlara regresyon ekle. Kaynak/iş parçacığı/Room/Keystore/veri yaşam döngüsü kapanışını kanıtla. Sadece yoruma, geçici mock'a veya statik kontrole güvenme.
+5. **Katmanlı dayanıklılık:** ANA SERVİS → ALTERNATİF → GERÇEK, TEST EDİLMİŞ FALLBACK → SINIRLI HATA YÖNETİMİ → GÜVENLİ VARSAYILAN → GİZLİLİĞE UYGUN LOG/İZLEME → SMOKE/KABUL. Tek başarısızlık noktası veya sahte başarı oluşturma. Gerçek fallback yoksa özelliğin desteklenmediğini dürüstçe göster.
+6. **CI ve sürüm kapısı:** Değiştirilen **en son PR HEAD SHA** için Android unit/Robolectric, güvenlik/protokol, Android Lint, API34 runtime, R8 APK derleme, paket versionCode, signer ve SHA doğrulamaları başarıyla tamamlanmadan `main`e birleştirme; eski ve yeni CI koşularını karıştırma. Başarılı merge sonrası **yeni main SHA** CI ve gerçek GitHub Release APK + SHA + imza asset'ları ile public read-back'i ayrı doğrula. Artifakt üretimini APK yayınlandı diye adlandırma.
+7. **Gerçek cihaz kanıtı:** CI, emulator, mock ve statik analiz farklı seviyelerdir. İki farklı üreticide karşılıklı gerçek ses/video, OTA veri koruma, çevresel gürültü azaltımı ve keystore yedek/geri dönüş doğrulaması olmadıkça bu başlıkları tamamlandı ve 9–10/10 ilan etme. Ölçülmemiş dB, gecikme, başarı oranı veya pil kazanımı yazma.
+8. **Kapanışta geriye dönük kontrol:** Kendi yeni kodunu tekrar oku; gerekirse başka katmandaki UI davranışı, unit, regresyon ve dokümanı eşleştir; PR diff, mergeability, kod kapsamı, güncel CI ve release read-back'i yeniden kontrol et. Eksik kalanları somut issue/PR bloklayıcı olarak bırak; karar, tarih ve kanıtı anayasaya güncelle.
+
+### Sabit ürün/veri güvenliği değişmezleri
+
+- Kullanıcının `2011.` gizli giriş akışı ve **isteğe bağlı PIN** tercihi aynen korunur. Kullanıcıdan onay almadan zorunlu PIN, kimlik reset, veritabanı boşaltma, sessiz medya izinleri, yeni ücretli servis veya kota aşımı yok.
+- Hesap geçmişi, Room v4/gelecek migration, PIN/kimlik, E2EE mesaj/geçmiş, kuyruğu, rehber, medya taslağı ve kullanıcı yedekleri **silinmez**; `fallbackToDestructiveMigration` yasaktır. Kayıpsız SQLCipher geçişi gerçek yedek/rollback/WAL/Keystore/fiziksel kabul bitmeden otomatik açılmaz.
+- PIN, E2EE anahtarı, stabil APK imza anahtarı, parola ve hassas görüntü/mesaj/IP/SDP asla repo, issue, log veya halka açık artifakta konmaz. Kalıcı imza anahtarı felaket kurtarması gerçek fiziksel ve **cihaz dışı şifreli** kabul gerektirir.
+- E2EE için ileri gizlilik/Double Ratchet bağımsız inceleme ve protokol geriye uyumluluk kabulü olmadan "uygulandı" denmez. Ses/video sadece gerçek capture/transport/karşılıklı RTP kanıtıyla aktif gösterilir; demo ve ölçülmemiş ENC/ANC hiçbir yerde gerçek diye sunulmaz.
+- Her yeni Android geliştirmesinde MVVM/MVI, Jetpack Compose, Hilt, Coroutines/Flow, R8/ProGuard, izin/şifreleme, kontrollü hata deneyimi ve gizliliğe duyarlı crash izleme standardı korunur. Güvenlik kritik kod ve release için Android API23+ ve GMS/HMS bağımsızlık regresyonu gözetilir. Crashlytics dahil uzak veri aktarımı kullanıcı onayı/gizlilik değerlendirmesi olmadan etkinleştirilmez.
+- Masraf prensibi: yerel/ücretsiz/açık kaynak öncelikli; fiyatlandırılmış TURN, storage, Firebase veya benzeri değişiklikte **açık kullanıcı onayı olmadan** kurulum/harcama yok.
+- Görev çalışma döngüsü: araştır → kök neden → düzelt → kodla → build → test → doğrula → merge → release → smoke → kanıt. Yapılamayan adımı somut engel/eksik diye raporla; asenkron bitirme, henüz geçmemiş testin başarı iddiası veya kanıtsız tamamlandı söylemi yok.
+
+### 25.10.2026 güncel kontrol kesiti (sonuçla değiştirilmeli)
+
+- [PR #126](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/pull/126) ve [PR #127](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/pull/127) main'e birleştirildi. Main `d493bb5239053f76e59786955b1e20cbba2d1442` CI #459 başarılı ve `v1.1.0-signed.459` APK asset'ları yayımlı.
+- [PR #128](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/pull/128) medya kontrol durumu ve lifecycle sağlamlaştırması üzerinde çalışıyor: **açık**, en son HEAD CI doğrulaması gerekir. Bu bölümün eklenmesi önceki #466 koşusunun HEAD kanıtı olarak kullanılmasına izin vermez.
+- [#83](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/83) gerçek signing key restore, [#113](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/113) SQLCipher, [#114](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/114) Double Ratchet ve [#3](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/3) iki cihaz çağrı/ENC kabulü açık; sentetik CI ile kapatılamaz.
+
+---
+
 ## 25.10.2026 — LANU 447 bağımsız mühendislik puanlaması, 0–6 puan güvenlik öncelikleri ve ses/video/NS programı
 
 > **Kayıt ilkesi:** Aşağıdaki puanlar kod, GitHub Actions ve açık riskler üzerinden yapılan **öznel teknik ön değerlendirmedir**; sızma testi, cihaz ölçümü, güvenlik sertifikası veya garantili çalışma oranı değildir. `0–6` ifadesi 10 üzerinden **puanı 6,0 veya altında kalan kategoriler** için hedeflenen güçlendirme grubudur. 6,6/6,8/7,0 puanlı ses-video-gürültü başlıkları kullanıcı talebiyle bu gruba **eklenmiştir**. Puanları hedef değere otomatik yükseltmek yasaktır.

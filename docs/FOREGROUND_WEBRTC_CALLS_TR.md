@@ -15,6 +15,8 @@ Gelen davetler mevcut ön plan chat sync yanıtına yalnız v1 isteyen istemcide
 
 ## Mikrofon/kamera kontrolünün doğrulanması
 
+Yeni görüşmenin istenmesi veya davetin çalması kameranın aktif olduğu anlamına gelmez: `cameraOn` başlangıçta **false** tutulur. Yalnız native WebRTC `start(video=true)` başarıyla döndüğünde, aynı görüşme hâlâ ön plandaysa aktif olarak gösterilir; başarısız veya iptal edilen başlangıçta asla aktif görünmez. Sesli görüşmelerde kamera kapalı kalır. Medya henüz başlatılmadığı `CONNECTING` aşamasında mikrofon/kamera kontrol düğmeleri HAL'e komut göndermez. Bu durum otomatik testlerle korunur.
+
 Görüşmede mikrofonu susturma ve kamerayı kapatma/açma işlemi yalnız gerçek WebRTC ADM/AudioTrack veya kamera capturer + VideoTrack işlemi başarıyla tamamlandıktan sonra arayüzde güncellenir. Önceye ait iyimser kamera/mikrofon ikon değişimi kaldırıldı. Aynı kontrolün art arda iki kez basılması bir önceki medya komutunu bitmeden çoğaltmaz. Kamera açma/kapama komutu devam ederken özel alan kapanırsa geç cevap eski UI durumunu değiştiremez. İzin/HAL hatasında başarısızlık kullanıcıya bildirilir ve görüşme güvenli kapatılır; hiçbir başarısızlık 'kamera kapandı' veya 'mikrofon susturuldu' başarı göstergesi üretemez. Sesli görüşmede sonradan izinsiz kamera açılması desteklenmez.
 
 Bu değişiklik yalnız yerel medya/UI yaşam döngüsü doğrulamasıdır; gürültü azaltma dB kazanımı, fiziksel OEM kamera güvenilirliği veya SQLCipher'ı kanıtlamaz.

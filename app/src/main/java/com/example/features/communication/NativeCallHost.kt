@@ -110,18 +110,19 @@ fun NativeCallHost(model: NativeCallViewModel, request: Pair<String, Boolean>?, 
                         Text("${elapsed/60}:${(elapsed%60).toString().padStart(2,'0')}")
                     }
                     Box(Modifier.weight(1f).fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(24.dp)), contentAlignment = Alignment.Center) {
-                        if (state.video && engine != null && !ended) {
+                        if (canRenderNativeCallVideo(state, engine != null)) {
                             CallVideo(engine!!, true, Modifier.fillMaxSize())
                             if (state.cameraOn) CallVideo(engine!!, false, Modifier.align(Alignment.TopEnd).padding(12.dp).width(112.dp).height(152.dp))
                         } else Icon(if (state.video) Icons.Default.Videocam else Icons.Default.Call, null, Modifier.size(72.dp))
                     }
                     if (engine != null && !ended) {
-                        CallAudioRouteControls(engine!!)
+                        val controlsReady = state.phase in setOf(NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING)
+                        CallAudioRouteControls(engine!!, enabled = controlsReady)
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            FilledTonalIconButton(onClick = model::muted) { Icon(if (state.muted) Icons.Default.MicOff else Icons.Default.Mic, if (state.muted) "Mikrofonu aç" else "Mikrofonu sustur") }
+                            FilledTonalIconButton(onClick = model::muted, enabled = controlsReady) { Icon(if (state.muted) Icons.Default.MicOff else Icons.Default.Mic, if (state.muted) "Mikrofonu aç" else "Mikrofonu sustur") }
                             if (state.video) {
-                                FilledTonalIconButton(onClick = model::camera) { Icon(if (state.cameraOn) Icons.Default.Videocam else Icons.Default.VideocamOff, "Kamerayı aç/kapat") }
-                                FilledTonalIconButton(onClick = model::switchCamera) { Icon(Icons.Default.Cameraswitch, "Ön/arka kamera") }
+                                FilledTonalIconButton(onClick = model::camera, enabled = controlsReady) { Icon(if (state.cameraOn) Icons.Default.Videocam else Icons.Default.VideocamOff, "Kamerayı aç/kapat") }
+                                FilledTonalIconButton(onClick = model::switchCamera, enabled = controlsReady && state.cameraOn) { Icon(Icons.Default.Cameraswitch, "Ön/arka kamera") }
                             }
                         }
                         Text("WebRTC gürültü ve yankı azaltma · kalite cihaza ve ortama bağlıdır", style = MaterialTheme.typography.bodySmall)
@@ -159,20 +160,27 @@ private fun CallVideo(engine: NativeCallEngine, remote: Boolean, modifier: Modif
 }
 
 @Composable
-private fun CallAudioRouteControls(engine: NativeCallEngine) {
+private fun CallAudioRouteControls(engine: NativeCallEngine, enabled: Boolean) {
     val route by engine.router.state.collectAsState()
     val context = LocalContext.current
     var menu by remember { mutableStateOf(false) }
+    LaunchedEffect(enabled) { if (!enabled) menu = false }
     val bluetooth = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { engine.refreshRoutes() }
     Box {
-        TextButton(onClick = { menu = true }) { Text("Ses çıkışı: ${route.selected?.name?.let(::routeName) ?: "Sistem"}") }
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+        TextButton(onClick = { menu = true }, enabled = enabled) { Text("Ses çıkışı: ${route.selected?.name?.let(::routeName) ?: "Sistem"}") }
+        DropdownMenu(expanded = menu && enabled, onDismissRequest = { menu = false }) {
             for (item in route.available) DropdownMenuItem(text = { Text(routeName(item.name)) }, onClick = { menu = false; engine.chooseRoute(item) })
             if (Build.VERSION.SDK_INT >= 31 && ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)
                 DropdownMenuItem(text = { Text("Bluetooth kulaklığa izin ver") }, onClick = { menu = false; bluetooth.launch(Manifest.permission.BLUETOOTH_CONNECT) })
         }
     }
 }
+/** Suppress early renderer initialization: the native EGL/RTC tracks may not
+ * exist until start() succeeds. Audio/RTP proof is authoritative for CONNECTED.
+ */
+internal fun canRenderNativeCallVideo(state: NativeCallUiState, enginePresent: Boolean): Boolean =
+    enginePresent && state.video && state.phase == NativeCallPhase.CONNECTED
+
 private fun routeName(name: String) = when (name) {
     "WIRED_HEADSET" -> "Kablolu / USB kulaklık"
     "BLUETOOTH_HEADSET" -> "Bluetooth kulaklık"
