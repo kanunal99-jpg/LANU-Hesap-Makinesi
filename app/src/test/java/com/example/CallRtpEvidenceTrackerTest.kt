@@ -69,6 +69,39 @@ class CallRtpEvidenceTrackerTest {
         assertTrue(t.observe(epoch, 11, 11)!!.connected)
     }
 
+    @Test fun staleCumulativePacketsCannotPretendAudioContinues() {
+        val t = CallRtpEvidenceTracker()
+        t.updateTransport(true)
+        val epoch = t.currentEpoch()
+        val start = 100_000L
+        assertFalse(t.observe(epoch, 10, 20, start)!!.connected)
+        assertTrue(t.observe(epoch, 11, 21, start + 1)!!.connected)
+        val expiry = start + CallRtpEvidenceTracker.MAX_AUDIO_EVIDENCE_AGE_MS + 2
+        val frozen = t.observe(epoch, 11, 21, expiry)!!
+        assertTrue("ICE is still connected; do not forcibly terminate a silent call",
+            frozen.transportConnected)
+        assertFalse("Cumulative totals are not proof of ongoing media", frozen.connected)
+        assertEquals(0L, frozen.receivedAudio)
+        assertEquals(0L, frozen.sentAudio)
+        assertFalse(t.observe(epoch, 12, 21, expiry + 1)!!.connected)
+        assertTrue(t.observe(epoch, 12, 22, expiry + 2)!!.connected)
+    }
+
+    @Test fun oldClockValuesCannotReviveMediaProofOrOtherIceEpoch() {
+        val t = CallRtpEvidenceTracker()
+        t.updateTransport(true)
+        val first = t.currentEpoch()
+        t.observe(first, 40, 40, 5000L)
+        assertTrue(t.observe(first, 41, 41, 5001L)!!.connected)
+        assertFalse("Stale time samples cannot claim freshness",
+            t.observe(first, 41, 41, 4000L)!!.connected)
+        t.updateTransport(false)
+        t.updateTransport(true)
+        val second = t.currentEpoch()
+        assertNull(t.observe(first, 99, 99, 7000L))
+        assertFalse(t.observe(second, 41, 41, 7001L)!!.connected)
+    }
+
     @Test fun nonConnectedAndNegativeCountersNeverShowConnected() {
         val t = CallRtpEvidenceTracker()
         assertFalse(t.observe(t.currentEpoch(), 100, 100)!!.connected)
