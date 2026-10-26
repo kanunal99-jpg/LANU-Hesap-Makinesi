@@ -96,7 +96,7 @@ class FirebaseConfigInstallationTest(unittest.TestCase):
                 ({"type": "service_account", "private_key": "SENSITIVE_PRIVATE_KEY"},
                  "Service-account JSON is not Android google-services.json"),
                 ({"other": "SENSITIVE_CONFIG"},
-                 "Android google-services.json missing project_info"),
+                 "GitHub Secret is not the top-level Android google-services.json object"),
                 (wrong_project, "Firebase Android project mismatch"),
                 (bad_clients, "Invalid Firebase Android client project_number or client list"),
             )
