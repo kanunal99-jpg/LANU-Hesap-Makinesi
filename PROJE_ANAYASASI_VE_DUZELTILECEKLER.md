@@ -1,5 +1,15 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 26.10.2026 — Firebase proje eşleşmesi: kapalı LANU'ya sadece gerçek sesli/video çağrısı (P0)
+
+**Kullanıcı seçimi:** Firebase projesi `gen-lang-client-0658022317` LANU'nun çağrı uyandırması için hedef projedir. Mevcut Google Cloud / Gemini / Willy Kilo projeleri **silinmeyecek**; silme, FCM bağlamak için gerekli değildir. Android package `com.aistudio.lanucalc.kxwzqm` sabittir, mevcut veriler/Room/E2EE anahtarı/rehber/PIN/OTA imzası korunur.
+
+**Kritik yayımlama kapısı:** Trusted main release CI yalnızca paket adı ve **tam Firebase proje kimliği** eşleşen Android `google-services.json` dosyasını kabul eder; başka Firebase projesi, yanlış paket, servis hesabı JSON'u veya hatalı yapılandırma fail-closed. Kullanıcı korumalı GitHub Actions Secret alanına **JSON'un kendisini** `LANU_FIREBASE_CLIENT_JSON` olarak veya geriye dönük `LANU_FIREBASE_CLIENT_JSON_BASE64` olarak girebilir. İkisi aynı anda girilmişse güvenli reddet; hiçbiri yoksa açıkça `background call push unavailable` bildir. Hiçbir JSON içeriği, token veya özel anahtar log/PR/kaynak kodunda görünmez. Android Firebase config ile **Supabase Edge'deki server-side** `LANU_FCM_SERVICE_ACCOUNT_JSON` iki ayrı kimliktir; yanlış yere yüklenemez.
+
+**Kabul:** Firebase projesinde kayıtlı Android uygulama ve ilgili FCM HTTP v1 API etkin; CI logunda gerçek trusted kurulum adımında uygun proje+paket doğrulandı; yeni APK SHA/signer/OTA indirme doğrulandı; Sunucuda aynı projeye ait service account yetkili; Supabase'de en az alıcı cihaz kaydı sayımı (token görülmeden) kanıtlandı; gerçek iki cihazda LANU normal arka plan/süreç ölümünde sesli ve görüntülü çağrı görsel+sesli teslimi test edildi. Mesaj dış bildirimleri **kesinlikle yok**. Android 'Zorla durdur' gibi sistem engelleri aşılıyor diye söz verilmez. FCM kurulmamış yeni APK **yayınlanmış olsa bile arka plan çağrı tamamlandı denemez**.
+
+---
+
 ## 26.10.2026 — Gelen sesli/görüntülü çağrıda görsel uyarı **ve** işitilebilir zil (YENİ KABUL ŞARTI)
 
 **Sahadan kullanıcı bildirimi:** Gelen çağrıda görsel bildirim görünüyor ancak telefon sesli moddayken ses çalmıyor. Bu durum çözülene kadar arka plan çağrı bildirimi sesli kabulden geçmiş sayılmaz. Kullanıcı mevcut görsel bildirimin korunmasını ve yalnız gerçek sesli/görüntülü INVITE için zil sesi ister.

@@ -42,11 +42,14 @@ jobs:
       - name: Verify protected Firebase client config installer
         run: python3 -m unittest discover -s scripts -p 'test_install_firebase_client_config.py'
 
-      # No PR obtains any protected secret. Missing config is clearly reported
-      # but preserves legacy calculator/calling while push remains disabled.
+      # No PR obtains protected secrets. For mobile setup, owner may paste
+      # the Firebase Android CLIENT JSON directly as a repository secret.
+      # Exactly one of raw JSON or legacy base64 must be set. On absent config,
+      # legacy calling still works; BACKGROUND call push remains unavailable.
       - name: Install verified Firebase client config on trusted release build
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
         env:
+          LANU_FIREBASE_CLIENT_JSON: ${{ secrets.LANU_FIREBASE_CLIENT_JSON }}
           LANU_FIREBASE_CLIENT_JSON_BASE64: ${{ secrets.LANU_FIREBASE_CLIENT_JSON_BASE64 }}
         run: python3 scripts/install_firebase_client_config.py app/google-services.json
 

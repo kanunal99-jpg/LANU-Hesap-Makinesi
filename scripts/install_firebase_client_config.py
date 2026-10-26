@@ -13,17 +13,26 @@ import sys
 import tempfile
 
 EXPECTED_APPLICATION_ID = "com.aistudio.lanucalc.kxwzqm"
+EXPECTED_FIREBASE_PROJECT_ID = "gen-lang-client-0658022317"
 VAR = "LANU_FIREBASE_CLIENT_JSON_BASE64"
+RAW_VAR = "LANU_FIREBASE_CLIENT_JSON"
 
 
-def install(output: pathlib.Path, encoded: str | None) -> bool:
-    if not encoded:
+def install(output: pathlib.Path, encoded: str | None, *, raw_json: str | None = None) -> bool:
+    # The owner can paste the downloaded CLIENT JSON directly into a GitHub
+    # repository secret from a phone. Base64 is kept for existing owners.
+    # Never accept ambiguous dual configuration from two different projects.
+    if encoded and raw_json:
+        raise ValueError("Conflicting Firebase client config secrets")
+    if not encoded and not raw_json:
         print("NOTICE: Firebase client config absent; background call push is unavailable.")
         return False
-    if len(encoded) > 140_000:
+    if encoded and len(encoded) > 140_000:
+        raise ValueError("Firebase client config is too large")
+    if raw_json and len(raw_json) > 90_000:
         raise ValueError("Firebase client config is too large")
     try:
-        raw = base64.b64decode(encoded, validate=True)
+        raw = raw_json.encode("utf-8") if raw_json else base64.b64decode(encoded, validate=True)
         if not raw or len(raw) > 90_000:
             raise ValueError("Firebase client config byte limit exceeded")
         document = json.loads(raw.decode("utf-8"))
@@ -36,7 +45,7 @@ def install(output: pathlib.Path, encoded: str | None) -> bool:
     clients = document.get("client")
     if (not isinstance(project, dict) or
         not isinstance(project.get("project_id"), str) or
-        not project["project_id"] or
+        project["project_id"] != EXPECTED_FIREBASE_PROJECT_ID or
         not isinstance(project.get("project_number"), str) or
         not project["project_number"].isdigit() or
         not isinstance(clients, list)):
@@ -71,7 +80,7 @@ def install(output: pathlib.Path, encoded: str | None) -> bool:
 if __name__ == "__main__":
     try:
         install(pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "app/google-services.json"),
-                os.environ.get(VAR))
+                os.environ.get(VAR), raw_json=os.environ.get(RAW_VAR))
     except ValueError as exc:
         print("ERROR: " + str(exc), file=sys.stderr)
         sys.exit(1)

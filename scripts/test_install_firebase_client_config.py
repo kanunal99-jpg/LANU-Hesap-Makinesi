@@ -11,9 +11,10 @@ installer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(installer)
 
 
-def fake_config(package=installer.EXPECTED_APPLICATION_ID):
+def fake_config(package=installer.EXPECTED_APPLICATION_ID,
+                project=installer.EXPECTED_FIREBASE_PROJECT_ID):
     return base64.b64encode(json.dumps({
-        "project_info": {"project_id": "fake-ci-fixture", "project_number": "12345678"},
+        "project_info": {"project_id": project, "project_number": "12345678"},
         "client": [{
             "client_info": {
                 "mobilesdk_app_id": "1:12345678:android:fixture",
@@ -36,8 +37,32 @@ class FirebaseConfigInstallationTest(unittest.TestCase):
             out = pathlib.Path(td) / "app" / "google-services.json"
             self.assertTrue(installer.install(out, fake_config()))
             self.assertEqual(json.loads(out.read_text())["project_info"]["project_id"],
-                             "fake-ci-fixture")
+                             installer.EXPECTED_FIREBASE_PROJECT_ID)
             self.assertEqual(out.stat().st_mode & 0o777, 0o600)
+
+    def test_raw_json_from_protected_secret_is_accepted_without_base64(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = pathlib.Path(td) / "app" / "google-services.json"
+            original = base64.b64decode(fake_config()).decode("utf-8")
+            self.assertTrue(installer.install(out, None, raw_json=original))
+            self.assertEqual(json.loads(out.read_text())["project_info"]["project_id"],
+                             installer.EXPECTED_FIREBASE_PROJECT_ID)
+            self.assertEqual(out.stat().st_mode & 0o777, 0o600)
+
+    def test_wrong_firebase_project_and_conflicting_secrets_are_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = pathlib.Path(td) / "app" / "google-services.json"
+            current = base64.b64decode(fake_config()).decode("utf-8")
+            for encoded, raw in (
+                (fake_config(project="other-project"), None),
+                (None, base64.b64decode(fake_config(project="other-project")).decode("utf-8")),
+                (fake_config(), current),
+                (None, "{not-json"),
+                (None, '{"type":"service_account","private_key":"not-allowed"}'),
+            ):
+                with self.assertRaises(ValueError):
+                    installer.install(out, encoded, raw_json=raw)
+                self.assertFalse(out.exists())
 
     def test_invalid_wrong_package_and_oversized_preserve_existing_config(self):
         with tempfile.TemporaryDirectory() as td:
