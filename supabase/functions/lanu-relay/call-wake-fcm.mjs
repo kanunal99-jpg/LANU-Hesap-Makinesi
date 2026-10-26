@@ -20,7 +20,10 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
 
   let cached = null;
   let expires = 0;
-  async function accessToken() {
+  // Several simultaneous incoming calls should share one OAuth refresh.
+  // Never serialize distinct FCM sends, and never cache a failed refresh.
+  let refreshing = null;
+  async function refreshAccessToken() {
     if (cached && Date.now() < expires - 120_000) return cached;
     const keyBytes = Uint8Array.from(atob(config.private_key.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g,'')), c=>c.charCodeAt(0));
     const key = await cryptoApi.subtle.importKey('pkcs8', keyBytes,
@@ -33,7 +36,8 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
     const assertion = unsigned+'.'+bytes64(signature);
     const response = await fetcher('https://oauth2.googleapis.com/token',{
       method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
-      body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion}).toString()
+      body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion}).toString(),
+      signal:AbortSignal.timeout(6000)
     });
     if (!response.ok) throw new Error('FCM authentication unavailable');
     const payload = await response.json();
@@ -41,6 +45,13 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
     cached = payload.access_token;
     expires = Date.now() + Math.min(3600,Math.max(120,Number(payload.expires_in)||3600))*1000;
     return cached;
+  }
+  async function accessToken() {
+    if (cached && Date.now() < expires - 120_000) return cached;
+    if (!refreshing) {
+      refreshing = refreshAccessToken().finally(() => { refreshing = null; });
+    }
+    return refreshing;
   }
   return async (deviceToken,now=Date.now()) => {
     if (typeof deviceToken !== 'string' || deviceToken.length < 20 ||
@@ -54,7 +65,10 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
         // creates its own privacy-redacted opt-in notification.
         data:{type:'lanu_call_wake_v1',at:String(now)},
         android:{priority:'HIGH',ttl:'70s',collapse_key:'lanu_call_v1'}
-      }})
+      }}),
+      // A slow Google endpoint must never indefinitely hold the encrypted
+      // call invitation relay. Do not retry rate-limited FCM synchronously.
+      signal:AbortSignal.timeout(6000)
     });
     if (!response.ok) throw new Error('FCM dispatch unavailable');
     return true;
