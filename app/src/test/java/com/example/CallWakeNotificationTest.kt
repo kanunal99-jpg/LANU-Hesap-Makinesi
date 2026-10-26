@@ -8,6 +8,7 @@ import android.media.AudioAttributes
 import android.media.RingtoneManager
 import androidx.test.core.app.ApplicationProvider
 import com.example.core.calls.CallWakeNotification
+import com.example.core.calls.CallWakeTapPolicy
 import com.example.core.calls.CallWakePolicy
 import com.example.core.calls.CallWakePreferences
 import org.junit.After
@@ -29,6 +30,15 @@ class CallWakeNotificationTest {
         CallWakePreferences.setEnabled(context, false)
         CallWakePreferences.acknowledgeRemoteRevoke(context)
         CallWakePolicy.privateAreaVisible = false
+    }
+
+    @Test fun notificationTapIsReentryOnlyAndNeverAChatDeepLink() {
+        assertTrue(CallWakeTapPolicy.requiresFreshEntry(CallWakeTapPolicy.ACTION))
+        assertFalse(CallWakeTapPolicy.requiresFreshEntry(null))
+        assertFalse(CallWakeTapPolicy.requiresFreshEntry(android.content.Intent.ACTION_MAIN))
+        assertFalse(CallWakeTapPolicy.requiresFreshEntry("lanu_chat_or_media"))
+        assertFalse(CallWakeTapPolicy.requiresFreshEntry("LANU_CALL_WAKE"))
+        assertTrue(CallWakeTapPolicy.ACTION.startsWith(context.packageName))
     }
 
     @Test fun defaultIsPrivateAndRequiresExplicitConsent() {
