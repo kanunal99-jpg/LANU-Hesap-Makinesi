@@ -4,6 +4,8 @@ import { createFcmWakeSender } from './call-wake-fcm.mjs';
 const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 // Warm Edge instances reuse OAuth access tokens; no secret is exposed to clients.
 const sendCallWake = createFcmWakeSender(Deno.env.get('LANU_FCM_SERVICE_ACCOUNT_JSON'));
+// Diagnostics report a boolean capability only; never log credentials or request data.
+console.info('LANU call notification sender: ' + (sendCallWake ? 'configured' : 'not_configured'));
 Deno.serve(async (request: Request) => {
   if (request.method !== 'POST') return new Response(JSON.stringify({ error: 'Yalnızca POST desteklenir.' }), { status: 405, headers });
   try {
@@ -22,6 +24,17 @@ Deno.serve(async (request: Request) => {
     return new Response(JSON.stringify(result), { status: 200, headers });
   } catch (error) {
     const known = error instanceof RelayError;
+    // Only fixed, non-sensitive error categories: no payloads, tokens or owner IDs.
+    if (known && error.status === 503) {
+      const category = error.message === 'Çağrı bildirimi sunucuda etkin değil.'
+        ? 'notification_sender_disabled'
+        : error.message === 'Cihaz bildirim kaydı tamamlanamadı.'
+          ? 'registration_rejected'
+          : error.message === 'Mesajlaşma sunucusu işlemi tamamlayamadı.'
+            ? 'registration_store_unavailable'
+            : 'other_service_unavailable';
+      console.warn('LANU relay unavailable: ' + category);
+    }
     return new Response(JSON.stringify({ error: known ? error.message : 'Sunucu işlemi tamamlayamadı.' }), { status: known ? error.status : 503, headers });
   }
 });
