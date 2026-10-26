@@ -55,6 +55,7 @@ import com.example.features.communication.CommunicationScreen
 import com.example.features.communication.CommunicationViewModel
 import com.example.features.communication.NativeCallViewModel
 import com.example.features.communication.NativeCallHost
+import com.example.core.calls.CallWakeTapPolicy
 import com.example.features.security.SecurityScreen
 import com.example.features.security.SecurityViewModel
 import com.example.ui.theme.MyApplicationTheme
@@ -407,6 +408,10 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         commViewModel = ViewModelProvider(this, CommunicationViewModel.Factory(container.communicationRepository))[CommunicationViewModel::class.java]
         nativeCallViewModel = ViewModelProvider(this, NativeCallViewModel.Factory(this, container.communicationRepository))[NativeCallViewModel::class.java]
 
+        // Cold-start from a call notification must not restore a still-unlocked
+        // private session or bypass the calculator entry gesture.
+        concealForCallWakeNotification(intent)
+
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         shakeListener = object : SensorEventListener {
@@ -727,6 +732,23 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         fullRestoreUri?.let { outState.putString("lanu_pending_full_restore", it.toString()) }
         // Passwords, decrypted rows and key material never enter saved instance state.
         super.onSaveInstanceState(outState)
+    }
+
+    private fun concealForCallWakeNotification(incoming: Intent?) {
+        if (!CallWakeTapPolicy.requiresFreshEntry(incoming?.action)) return
+        if (!::securityViewModel.isInitialized || !::calcViewModel.isInitialized) return
+        // The call wake is only a hint; it has no privilege to open secure UI,
+        // inherit an unlocked session, accept the call, or activate media.
+        pendingCall = null
+        returnToCalculator()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // FLAG_ACTIVITY_SINGLE_TOP/ CLEAR_TOP may reuse an unlocked Activity.
+        // Force the exact same lock + calculator path as the cold start.
+        concealForCallWakeNotification(intent)
     }
 
     override fun onStart() {
