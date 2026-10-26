@@ -153,6 +153,9 @@ jobs:
         run: |
           python3 -m unittest discover -s scripts -p 'test_verify_published_apk.py'
           python3 -m unittest discover -s scripts -p 'test_verify_stable_signer_continuity.py'
+          # Simulated ADB only; never connects to an owner's real handset in CI.
+          bash -n scripts/verify_existing_install_signer.sh
+          python3 -m unittest discover -s scripts -p 'test_verify_existing_install_signer.py'
 
       - name: Run Android Lint
         run: ./gradlew :app:lintDebug --no-daemon --stacktrace
