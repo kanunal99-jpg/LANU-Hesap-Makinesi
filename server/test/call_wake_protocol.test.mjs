@@ -21,6 +21,16 @@ test('call wake opt-in requires owner ECDSA and rejects unrelated payloads',asyn
   assert.equal(registrations[1].token,null);
   const disabled=createRelay(f.store,Date.now,{calls:true});
   await assert.rejects(disabled(envelope(f.alice,'callWakeToken',{token:'A'.repeat(50)})),e=>e.status===503);
+  // Owner must be able to revoke an existing token even if the FCM HTTP v1
+  // service-account secret is missing, expired or intentionally removed.
+  assert.deepEqual(await disabled(envelope(f.alice,'callWakeToken',{token:null})),{registered:true});
+  assert.deepEqual(registrations.at(-1),{owner:f.alice.id,token:null});
+  await assert.rejects(disabled(envelope(f.alice,'callWakeToken',{token:'bad token'})),e=>e.status===400);
+  const forgedRevoke=envelope(f.mallory,'callWakeToken',{token:null});
+  forgedRevoke.signature='bad';
+  await assert.rejects(disabled(forgedRevoke),e=>e.status===401);
+  const noStore=createRelay({...f.store,callWakeRegister:undefined},Date.now,{calls:true});
+  await assert.rejects(noStore(envelope(f.alice,'callWakeToken',{token:null})),e=>e.status===503);
 });
 
 test('only authenticated mutual signed call send with wake gets one nonsecret push',async()=>{
