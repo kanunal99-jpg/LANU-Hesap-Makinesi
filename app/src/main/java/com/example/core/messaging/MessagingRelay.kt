@@ -1,5 +1,6 @@
 package com.example.core.messaging
 
+import com.example.core.diagnostics.PrivateRelayHealth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -69,7 +70,12 @@ class HttpMessagingRelay(private val endpoint: String) : MessagingRelay {
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
-                    if (continuation.isActive) continuation.resumeWithException(e)
+                    if (continuation.isActive) {
+                        // Record only the fixed network-failure category.
+                        // Never retain e.message (URLs, headers or device data).
+                        PrivateRelayHealth.record(PrivateRelayHealth.Outcome.NETWORK)
+                        continuation.resumeWithException(e)
+                    }
                 }
                 override fun onResponse(call: Call, response: Response) {
                     continuation.resume(response, onCancellation = { _, value, _ -> value.close() })
@@ -77,9 +83,20 @@ class HttpMessagingRelay(private val endpoint: String) : MessagingRelay {
             })
         }
         response.use {
-            val raw = response.body?.let { body -> body.byteStream().use { RelayResponseReader.read(it, body.contentLength()) } } ?: "{}"
-            val value = try { JSONObject(raw) } catch (_: Exception) { throw RelayException(503, "Sunucu yanıtı okunamadı.") }
+            val raw = try {
+                response.body?.let { body ->
+                    body.byteStream().use { RelayResponseReader.read(it, body.contentLength()) }
+                } ?: "{}"
+            } catch (e: Exception) {
+                PrivateRelayHealth.record(PrivateRelayHealth.Outcome.RESPONSE)
+                throw e
+            }
+            val value = try { JSONObject(raw) } catch (_: Exception) {
+                PrivateRelayHealth.record(PrivateRelayHealth.Outcome.RESPONSE)
+                throw RelayException(503, "Sunucu yanıtı okunamadı.")
+            }
             if (!response.isSuccessful || value.has("error")) {
+                PrivateRelayHealth.recordHttp(if (response.isSuccessful) 503 else response.code)
                 val message = when (response.code) {
                     401 -> "Kimlik doğrulanamadı. Telefonun tarih ve saatini kontrol edin."
                     403 -> "Bu işlem için yetki bulunamadı."
@@ -91,6 +108,7 @@ class HttpMessagingRelay(private val endpoint: String) : MessagingRelay {
                 val retry = response.header("Retry-After")?.toLongOrNull()?.coerceIn(5L, 120L)?.times(1000L) ?: 60000L
                 throw RelayException(response.code, message, retry)
             }
+            PrivateRelayHealth.record(PrivateRelayHealth.Outcome.SUCCESS)
             value
         }
     }

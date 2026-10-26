@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.example.core.diagnostics.LocalCrashReport
+import com.example.core.diagnostics.PrivateRelayHealth
 import java.text.DateFormat
 import java.util.Date
 
@@ -37,6 +38,7 @@ fun LocalCrashDiagnosticsPanel() {
     var record by remember(context) { mutableStateOf(LocalCrashReport.read(context)) }
     var detailsVisible by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
+    var relaySummary by remember { mutableStateOf(PrivateRelayHealth.safeSummary()) }
 
     Card(Modifier.fillMaxWidth().testTag("private_crash_diagnostics")) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -72,8 +74,25 @@ fun LocalCrashDiagnosticsPanel() {
                 }
                 TextButton(onClick = { confirmClear = true }) { Text("Tanılama kaydını sil") }
             }
-            TextButton(onClick = { record = LocalCrashReport.read(context) }) {
+            Text("Bu oturumun sunucu sağlığı", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Yalnız başarılı bağlantı ve genel hata sınıflarının sayısı gösterilir. " +
+                    "Kimlik, URL, mesaj, PIN, cihaz belirteci veya hata metni saklanmaz; " +
+                    "veriler cihazdan gönderilmez ve uygulama kapanınca sıfırlanır.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text(relaySummary, modifier = Modifier.testTag("private_relay_health_summary"))
+            TextButton(onClick = {
+                record = LocalCrashReport.read(context)
+                relaySummary = PrivateRelayHealth.safeSummary()
+            }) {
                 Text("Kayıtları yenile")
+            }
+            TextButton(onClick = {
+                PrivateRelayHealth.clear()
+                relaySummary = PrivateRelayHealth.safeSummary()
+            }) {
+                Text("Oturum sayaçlarını sıfırla")
             }
         }
     }
