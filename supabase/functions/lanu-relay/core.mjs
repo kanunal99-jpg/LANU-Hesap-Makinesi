@@ -1,3 +1,4 @@
+import { FcmUnregisteredTokenError } from './call-wake-fcm.mjs';
 // Shared by the deployed edge function and the local protocol/security tests.
 const alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 const encoder = new TextEncoder();
@@ -173,7 +174,16 @@ export function createRelay(store, clock = Date.now, options = {}) {
         if (awake && result.created && typeof result.wake_token === 'string' &&
           typeof options.sendCallWake === 'function') {
           try { await options.sendCallWake(result.wake_token, clock()); }
-          catch { /* Fail safe: relay retention remains authoritative. */ }
+          catch (error) {
+            // FCM explicitly declared this old device token unregistered.
+            // Delete only that *same* stored token, never a newer rotation,
+            // and never disclose tokens or errors to the caller/logs.
+            if (error instanceof FcmUnregisteredTokenError &&
+              typeof store.callWakeInvalidate === 'function') {
+              try { await store.callWakeInvalidate(data.peerId, result.wake_token); }
+              catch { /* Encrypted INVITE remains accepted and retained. */ }
+            }
+          }
         }
         return { accepted: true };
       }
@@ -352,6 +362,10 @@ export class RestStore {
   async callSendWake(owner, peer, id, callId, content) {
     return this.query('rpc/lanu_call_send_wake', 'POST',
       { p_owner: owner, p_peer: peer, p_id: id, p_call: callId, p_content: content });
+  }
+  async callWakeInvalidate(owner, token) {
+    return this.query('rpc/lanu_call_wake_invalidate', 'POST',
+      { p_owner: owner, p_token: token });
   }
 }
 
