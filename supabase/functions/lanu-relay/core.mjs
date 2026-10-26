@@ -293,17 +293,49 @@ export function createRelay(store, clock = Date.now, options = {}) {
 
 /** Only used inside the trusted edge function. Never ship its service key in Android. */
 export class RestStore {
-  constructor(url, serviceKey, fetcher = fetch) { this.url = url.replace(/\/$/, '') + '/rest/v1/'; this.serviceKey = serviceKey; this.fetcher = fetcher; }
+  constructor(url, serviceKey, fetcher = fetch, requestDeadlineMs = 12000) {
+    this.url = url.replace(/\/$/, '') + '/rest/v1/';
+    this.serviceKey = serviceKey;
+    this.fetcher = fetcher;
+    // Bound both fetch AND streaming response body; the deadline is not reset
+    // for each chunk. Shorter test deadlines use the same production path.
+    this.requestDeadlineMs = Number.isFinite(requestDeadlineMs)
+      ? Math.min(12000, Math.max(20, requestDeadlineMs)) : 12000;
+  }
   async query(path, method = 'GET', data, prefer) {
-    const response = await this.fetcher(this.url + path, { method, headers: { apikey: this.serviceKey, ...(this.serviceKey.startsWith('sb_secret_') ? {} : { Authorization: 'Bearer ' + this.serviceKey }), 'Content-Type': 'application/json', ...(prefer ? { Prefer: prefer } : {}) }, ...(data === undefined ? {} : { body: JSON.stringify(data) }) });
-    // Read only bounded UTF-8 response bytes, cancelling oversized streams.
-    const raw = await readBoundedResponse(response);
-    let parsed; try { parsed = raw ? JSON.parse(raw) : null; } catch { throw new RelayError(503, 'Sunucu yanıtı okunamadı.'); }
-    if (!response.ok) {
-      if (response.status === 409) throw new RelayError(409, 'Kayıt çakıştı; tekrar deneyin.');
-      throw new RelayError(503, 'Mesajlaşma sunucusu işlemi tamamlayamadı.');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.requestDeadlineMs);
+    try {
+      let response;
+      try {
+        response = await this.fetcher(this.url + path, {
+          method,
+          headers: {
+            apikey: this.serviceKey,
+            ...(this.serviceKey.startsWith('sb_secret_') ? {} : { Authorization: 'Bearer ' + this.serviceKey }),
+            'Content-Type': 'application/json',
+            ...(prefer ? { Prefer: prefer } : {})
+          },
+          ...(data === undefined ? {} : { body: JSON.stringify(data) }),
+          signal: controller.signal
+        });
+      } catch {
+        // Never return PostgREST diagnostics or headers that could contain
+        // server credentials or sensitive identity information.
+        throw new RelayError(503, 'Mesajlaşma sunucusu bağlantısı kullanılamıyor.');
+      }
+      // Keep the deadline active until response bytes are fully consumed.
+      const raw = await readBoundedResponse(response);
+      let parsed; try { parsed = raw ? JSON.parse(raw) : null; } catch { throw new RelayError(503, 'Sunucu yanıtı okunamadı.'); }
+      if (!response.ok) {
+        if (response.status === 409) throw new RelayError(409, 'Kayıt çakıştı; tekrar deneyin.');
+        throw new RelayError(503, 'Mesajlaşma sunucusu işlemi tamamlayamadı.');
+      }
+      return parsed;
+    } finally {
+      // Do not leave an abort timer active in a warm, reused Edge isolate.
+      clearTimeout(timer);
     }
-    return parsed;
   }
   mapIdentity(row) { return row ? { id: row.id, code: row.code, nonce: row.nonce, publicKey: row.public_key } : null; }
   async identity(id) { return this.mapIdentity((await this.query('lanu_identities?id=eq.' + id + '&limit=1'))[0]); }
