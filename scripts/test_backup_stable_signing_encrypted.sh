@@ -14,7 +14,7 @@ home="$tmp/home"
 mkdir -p -m 700 "$home/.lanu/signing"
 printf 'DUMMY_KEYSTORE_FIXTURE_NOT_A_VALID_PKCS12_FILE\n' > "$home/.lanu/signing/lanu-stable.jks"
 printf 'dummy-store-password-only\n' > "$home/.lanu/signing/store-password"
-printf 'dummy-key-password-only\n' > "$home/.lanu/signing/key-password"
+printf 'dummy-store-password-only\n' > "$home/.lanu/signing/key-password"
 chmod 700 "$home/.lanu" "$home/.lanu/signing"
 chmod 600 "$home/.lanu/signing/"*
 
@@ -54,4 +54,34 @@ done
   echo 'A plaintext archive or extra backup artifact was created.' >&2
   exit 1
 }
-echo 'Dummy encrypted signing backup and restore test: PASS'
+# An archive with inconsistent store/key passwords looks complete but cannot
+# recover the original stable PKCS12 private key. Never publish a second one.
+printf 'WRONG_DUMMY_KEY_PASSWORD' > "$home/.lanu/signing/key-password"
+if printf '%s\n%s\n' "$dummy" "$dummy" |
+  script -q -e -c "env HOME=$home GNUPGHOME=$home/.gnupg bash $root/scripts/backup_stable_signing_encrypted.sh" \
+    /dev/null > "$tmp/invalid.log" 2>&1; then
+  echo 'An unrecoverable backup was accepted.' >&2
+  exit 1
+fi
+grep -q 'credentials differ' "$tmp/invalid.log" || {
+  echo 'Missing signed-key credential mismatch guard.' >&2
+  exit 1
+}
+[[ "$(find "$home/.lanu/backups" -maxdepth 1 -type f | wc -l)" == 1 ]] || {
+  echo 'Failed backup created another archive.' >&2
+  exit 1
+}
+cp "$home/.lanu/signing/store-password" "$home/.lanu/signing/key-password"
+# Refuse absurd keystore sizes before encryption/extraction.
+truncate -s 1048577 "$home/.lanu/signing/lanu-stable.jks"
+if printf '%s\n%s\n' "$dummy" "$dummy" |
+  script -q -e -c "env HOME=$home GNUPGHOME=$home/.gnupg bash $root/scripts/backup_stable_signing_encrypted.sh" \
+    /dev/null > "$tmp/oversized.log" 2>&1; then
+  echo 'Oversized signing archive input was accepted.' >&2
+  exit 1
+fi
+grep -q 'Unexpected keystore size' "$tmp/oversized.log" || {
+  echo 'Missing keystore size guard.' >&2
+  exit 1
+}
+echo 'Dummy encrypted signing backup, restore and unsafe input rejections: PASS'
