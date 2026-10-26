@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, generateKeyPairSync, webcrypto } from 'node:crypto';
 import { createRelay } from '../../supabase/functions/lanu-relay/core.mjs';
 import { createFcmWakeSender } from '../../supabase/functions/lanu-relay/call-wake-fcm.mjs';
 import { fixture, link, envelope, encrypted } from './fixtures.mjs';
@@ -87,4 +87,80 @@ test('FCM sender remains disabled without secret; invalid secret cannot send',()
   assert.equal(createFcmWakeSender(null),null);
   assert.equal(createFcmWakeSender('{bad'),null);
   assert.equal(createFcmWakeSender(JSON.stringify({project_id:'fake-project'})),null);
+});
+
+test('simultaneous FCM wakes share OAuth refresh while preserving isolated privacy-safe payloads',async()=>{
+  const {privateKey}=generateKeyPairSync('rsa',{
+    modulusLength:2048,
+    publicKeyEncoding:{format:'pem',type:'spki'},
+    privateKeyEncoding:{format:'pem',type:'pkcs8'}
+  });
+  const credentials=JSON.stringify({
+    type:'service_account',
+    project_id:'gen-lang-client-0658022317',
+    client_email:'lanu-test@gen-lang-client-0658022317.iam.gserviceaccount.com',
+    private_key:privateKey
+  });
+  let oauthRequests=0;
+  const sent=[];
+  const mockFetch=async(url,init)=>{
+    assert.ok(init.signal instanceof AbortSignal,'Every outbound Google request needs an abort deadline');
+    if (url==='https://oauth2.googleapis.com/token') {
+      oauthRequests++;
+      await Promise.resolve(); // allow both concurrent requests to reach the token promise
+      return {ok:true,json:async()=>({access_token:'x'.repeat(32),expires_in:3600})};
+    }
+    assert.equal(url,'https://fcm.googleapis.com/v1/projects/gen-lang-client-0658022317/messages:send');
+    const message=JSON.parse(init.body).message;
+    assert.deepEqual(Object.keys(message.data).sort(),['at','type']);
+    assert.equal(message.data.type,'lanu_call_wake_v1');
+    assert.equal(message.android.priority,'HIGH');
+    assert.equal(message.android.ttl,'70s');
+    assert.equal(message.notification,undefined,'No caller information can leak into a notification payload');
+    sent.push(message);
+    return {ok:true};
+  };
+  const sender=createFcmWakeSender(credentials,mockFetch,webcrypto);
+  assert.ok(sender);
+  const [first,second]=await Promise.all([
+    sender('A'.repeat(40),1700000000001),
+    sender('B'.repeat(40),1700000000002)
+  ]);
+  assert.equal(first,true);
+  assert.equal(second,true);
+  assert.equal(oauthRequests,1,'Concurrent sends must refresh only once');
+  assert.equal(sent.length,2,'Every distinct call needs its own wake');
+  assert.deepEqual(new Set(sent.map(x=>x.data.at)),new Set(['1700000000001','1700000000002']));
+  assert.equal(await sender('C'.repeat(40),1700000000003),true);
+  assert.equal(oauthRequests,1,'Cached token must be reused on subsequent sends');
+});
+
+test('failed OAuth refresh is not cached and the next safe attempt can recover',async()=>{
+  const {privateKey}=generateKeyPairSync('rsa',{
+    modulusLength:2048,
+    publicKeyEncoding:{format:'pem',type:'spki'},
+    privateKeyEncoding:{format:'pem',type:'pkcs8'}
+  });
+  const credentials=JSON.stringify({
+    project_id:'gen-lang-client-0658022317',
+    client_email:'lanu-test@gen-lang-client-0658022317.iam.gserviceaccount.com',
+    private_key:privateKey
+  });
+  let authAttempts=0;
+  let sends=0;
+  const fetcher=async(url,init)=>{
+    assert.ok(init.signal instanceof AbortSignal);
+    if(url.includes('oauth2.googleapis.com')){
+      authAttempts++;
+      if(authAttempts===1) return {ok:false};
+      return {ok:true,json:async()=>({access_token:'y'.repeat(32),expires_in:3600})};
+    }
+    sends++;
+    return {ok:true};
+  };
+  const sender=createFcmWakeSender(credentials,fetcher,webcrypto);
+  await assert.rejects(sender('A'.repeat(40)),/FCM authentication unavailable/);
+  assert.equal(await sender('A'.repeat(40)),true);
+  assert.equal(authAttempts,2);
+  assert.equal(sends,1,'Failed authentication must not send any call wake');
 });
