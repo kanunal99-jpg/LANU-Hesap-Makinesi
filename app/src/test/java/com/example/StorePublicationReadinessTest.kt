@@ -18,13 +18,37 @@ class StorePublicationReadinessTest {
     @Test fun insecureOrDeceptivePrivacyUrlsAlwaysBlock() {
         val urls = listOf("", "http://privacy.example/test",
             "https://localhost/policy", "https://name@privacy.example/policy",
-            "https://privacy.example/policy#hidden", "not-a-url")
+            "https://privacy.example.com/policy#hidden", "not-a-url",
+            "https://127.0.0.1/policy", "https://192.168.1.22/privacy",
+            "https://[::1]/privacy", "https://intranet.local/policy",
+            "https://privacy.internal/policy", "https://private.home.arpa/policy",
+            "https://privacy.example.com/policy", "https://policy.test/privacy",
+            "https://foo.invalid/policy", "https://one.localhost/privacy",
+            "https://privacy.example.com:8080/policy",
+            "https://privacy.example.com/policy?q=token",
+            "https://foo..com/policy", "https://-bad.com/policy")
         for (url in urls) {
             val ready = complete().copy(privacyPolicyUrl = url)
             val decision = StorePublicationReadiness.assess(ready)
             assertTrue(decision is Decision.Blocked)
             assertTrue(Requirement.PUBLIC_HTTPS_PRIVACY_POLICY in (decision as Decision.Blocked).missing)
         }
+    }
+
+    @Test fun standardPublicHttpsDomainsAndPunycodeAreEligibleForHumanReview() {
+        for (url in listOf(
+            "https://privacy.example.com/policy",
+            "https://privacy.example.com:443/policy",
+            "https://xn--bcher-kva.de/datenschutz"
+        )) {
+            assertEquals(Decision.HumanLegalReviewRequired,
+                StorePublicationReadiness.assess(complete().copy(privacyPolicyUrl = url)))
+        }
+    }
+
+    @Test fun safeUrlShapeAloneNeverMeansPolicyIsActuallyPublished() {
+        assertEquals(Decision.HumanLegalReviewRequired,
+            StorePublicationReadiness.assess(complete()))
     }
 
     @Test fun syntheticCompleteEvidenceStillRequiresHumanLegalReview() {
