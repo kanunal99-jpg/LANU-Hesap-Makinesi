@@ -25,6 +25,16 @@ class CallWakeMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         if (!CallWakePreferences.isEnabled(applicationContext)) return
+        // A FirebaseMessagingService callback may end before a network
+        // registration finishes. Schedule a durable, bounded job without
+        // storing the token in WorkManager input data or Android preferences.
+        try {
+            CallWakeTokenRefreshWorker.enqueue(applicationContext)
+            return
+        } catch (_: Exception) {
+            // If WorkManager is unavailable, retain the prior best-effort
+            // path. It still uses only the existing signed owner identity.
+        }
         refreshScope.launch {
             try {
                 // Consent can be revoked while an asynchronous FCM token
