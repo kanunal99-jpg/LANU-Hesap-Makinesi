@@ -45,6 +45,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import com.example.R
 import com.example.core.calculator.HighPrecisionMathEngine
+import com.example.ui.accessibility.AccessibleActionCatalog
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -215,8 +216,14 @@ fun CalculatorScreen(
                         Icon(Icons.Default.SwapHoriz, contentDescription = stringResource(R.string.content_desc_unit_converter))
                     }
                     Box {
-                        IconButton(onClick = { toolsMenuExpanded = true }, modifier = Modifier.testTag("calculator_tools")) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "Diğer hesaplama araçları")
+                        IconButton(onClick = { toolsMenuExpanded = true },
+                            modifier = Modifier.testTag("calculator_tools").sizeIn(
+                                minWidth = AccessibleActionCatalog.MIN_TOUCH_TARGET_DP.dp,
+                                minHeight = AccessibleActionCatalog.MIN_TOUCH_TARGET_DP.dp
+                            )) {
+                            Icon(Icons.Default.MoreVert, contentDescription =
+                                AccessibleActionCatalog.description(
+                                    AccessibleActionCatalog.Action.CALCULATOR_TOOLS))
                         }
                         DropdownMenu(
                             expanded = toolsMenuExpanded,

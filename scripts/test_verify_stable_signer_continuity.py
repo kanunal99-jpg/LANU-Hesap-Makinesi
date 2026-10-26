@@ -54,5 +54,22 @@ class StableSignerContinuityTest(unittest.TestCase):
             verify_stable_signer_continuity(self.current, self.previous)
 
 
+    def test_missing_current_signer_evidence_stops_release(self):
+        self.current.unlink()
+        with self.assertRaises(FileNotFoundError):
+            verify_stable_signer_continuity(self.current, self.previous)
+
+    def test_truncated_current_certificate_stops_release(self):
+        self.write(self.current, "0" * 63)
+        with self.assertRaisesRegex(ValueError, "Malformed"):
+            verify_stable_signer_continuity(self.current, self.previous)
+
+    def test_release_certificate_must_be_same_in_both_directions(self):
+        self.write(self.current, "a" * 64)
+        self.write(self.previous, "b" * 64)
+        with self.assertRaisesRegex(ValueError, "Signing identity changed"):
+            verify_stable_signer_continuity(self.current, self.previous)
+
+
 if __name__ == "__main__":
     unittest.main()
