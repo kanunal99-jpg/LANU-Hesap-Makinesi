@@ -38,6 +38,7 @@ fun LocalCrashDiagnosticsPanel() {
     val clipboard = LocalClipboardManager.current
     var record by remember(context) { mutableStateOf(LocalCrashReport.read(context)) }
     var systemExit by remember(context) { mutableStateOf(CrashDiagnostics.mostRecentAbnormalExit(context)) }
+    var systemExitCounts by remember(context) { mutableStateOf(CrashDiagnostics.recentAbnormalCounts(context)) }
     var detailsVisible by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
     var relaySummary by remember { mutableStateOf(PrivateRelayHealth.safeSummary()) }
@@ -91,6 +92,13 @@ fun LocalCrashDiagnosticsPanel() {
                 Text(DateFormat.getDateTimeInstance().format(Date(abnormal.timestamp)),
                     style = MaterialTheme.typography.bodySmall)
             }
+            if (systemExitCounts.isNotEmpty()) {
+                Text("Son 7 günde Android'in tuttuğu anormal kapanış kayıtları:",
+                    style = MaterialTheme.typography.bodySmall)
+                Text(systemExitCounts.entries.joinToString("\n") { (reason, count) ->
+                    "$reason: $count"
+                }, modifier = Modifier.testTag("private_os_exit_counts"))
+            }
             Text("Bu oturumun sunucu sağlığı", style = MaterialTheme.typography.titleSmall)
             Text(
                 "Yalnız başarılı bağlantı ve genel hata sınıflarının sayısı gösterilir. " +
@@ -102,6 +110,7 @@ fun LocalCrashDiagnosticsPanel() {
             TextButton(onClick = {
                 record = LocalCrashReport.read(context)
                 systemExit = CrashDiagnostics.mostRecentAbnormalExit(context)
+                systemExitCounts = CrashDiagnostics.recentAbnormalCounts(context)
                 relaySummary = PrivateRelayHealth.safeSummary()
             }) {
                 Text("Kayıtları yenile")
