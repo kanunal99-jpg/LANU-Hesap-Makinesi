@@ -108,5 +108,28 @@ class FirebaseConfigInstallationTest(unittest.TestCase):
                     self.assertNotIn("SENSITIVE", str(error.exception))
                     self.assertFalse(out.exists())
 
+    def test_protected_secret_shape_diagnostics_are_specific_and_never_leak_values(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = pathlib.Path(td) / "google-services.json"
+            valid = base64.b64decode(fake_config()).decode("utf-8")
+            cases = (
+                (json.dumps(valid), "JSON-encoded string"),
+                (json.dumps({"projectId": "SENSITIVE-PROJECT", "apiKey": "SENSITIVE-KEY"}),
+                 "Firebase Web SDK config"),
+                (json.dumps({"content": valid, "token": "SENSITIVE-TOKEN"}),
+                 "wrapper object"),
+                (json.dumps({"client": [], "note": "SENSITIVE-NOTE"}),
+                 "top-level project_info is missing"),
+                (json.dumps({"other": "SENSITIVE-VALUE"}),
+                 "not the top-level Android google-services.json"),
+            )
+            for payload, expected in cases:
+                with self.subTest(expected=expected):
+                    with self.assertRaises(ValueError) as result:
+                        installer.install(out, None, raw_json=payload)
+                    self.assertIn(expected, str(result.exception))
+                    self.assertNotIn("SENSITIVE", str(result.exception))
+                    self.assertFalse(out.exists())
+
 if __name__ == "__main__":
     unittest.main()
