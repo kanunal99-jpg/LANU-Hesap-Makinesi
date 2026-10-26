@@ -17,6 +17,8 @@
         android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Android 13+ call-only alerts: runtime consent from authenticated private settings. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <!-- Only for a user-tapped APK update; Android requires separate installer consent. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
@@ -34,6 +36,13 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.MyApplication">
+        <!-- Only background call wake notifications; never auto-unlock or start media. -->
+        <service android:name=".core.calls.CallWakeMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
         <!-- Initialize on demand behind an exception boundary. A scheduler/storage
              failure must never prevent the calculator or private area opening. -->
         <provider
