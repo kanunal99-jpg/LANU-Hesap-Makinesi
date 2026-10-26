@@ -1,5 +1,14 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 26.10.2026 — Korunan CI Firebase istemci yapılandırması (arka plan çağrı uyandırma)
+
+- `app/google-services.json` hiçbir zaman GitHub commit, yayın/artifact eki, açık PR veya logda bulunamaz. `.gitignore` ilgili yolu korur; Firebase **HTTP v1 service-account private key** GitHub'daki istemci sırrıyla ASLA karıştırılamaz: sadece Supabase Edge Secret içindir.
+- CI release (yalnız güvenilir main/workflow_dispatch) Firebase proje istemcisi yapılandırmasını `LANU_FIREBASE_CLIENT_JSON_BASE64` korumalı GitHub Secret üzerinden alır. UTF-8 JSON, proje kimliği, mobil uygulama paket adı `com.aistudio.lanucalc.kxwzqm` ve doğru Android client gözlenmeden dosya üretilmez. PR CI **asla protected secret almaz**. Sır verilmemişse debug/release derlemesi bozulmaz; çağrı push opt-in işlevi **inaktif** kalır ve yayında 'bildirim çalışıyor' iddiası yasaktır.
+- Kullanıcı/owner Firebase yapılandırmasını GitHub Secret üzerinden yapmalıdır; asla sohbet içine uzun ömürlü servis anahtarı, özel imza/FCM tokenı kopyalatılmamalıdır. Lokal geçici dosya `app/google-services.json` yayımlanan release assetlerine kopyalanmaz.
+- Gereken test: geçerli/missing/yanlış package/bozuk JSON/oversize için sır göstermeyen yükleyici testleri; Android native unit/Lint/R8+API34 CI; imzalı APK, SHA ve canlı Edge+FCM+gerçek 2 cihaz kabulü **ayrı doğrulama**.
+
+---
+
 ## 26.10.2026 — Yalnız gerçek çağrı için arka plan bildirimi (YENİ ÜRÜN KARARI)
 
 **Kullanıcı kabulü:** Kullanıcı sesli ve görüntülü görüşmenin iki gerçek cihazda başarıyla test edildiğini bildirdi. Bu bir **kullanıcı saha beyanıdır**; cihaz/Android sürümü, rapor, imza veya laboratuvar ölçümü sağlanmadığı için kod/CI ile bağımsız saha sertifikası olduğu iddia edilemez. Önceden açık fiziksel test listesi, bu bildirimle notlanarak ayrıntılı OEM/OTA/gürültü testleri açık tutulur.
