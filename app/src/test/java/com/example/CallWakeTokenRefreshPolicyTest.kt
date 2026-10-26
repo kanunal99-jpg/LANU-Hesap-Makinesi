@@ -99,6 +99,27 @@ class CallWakeTokenRefreshPolicyTest {
         assertFalse(CallWakePreferences.hasPendingRemoteRevoke(context))
     }
 
+    @Test fun failedCompensationAfterUiClearedRevokeIsPersistedForRetry() = runBlocking {
+        assertTrue(CallWakePreferences.setEnabled(context, true))
+        var attempts = 0
+        try {
+            CallWakeTokenRefreshPolicy.reconcile(context,
+                { "old-device-token" },
+                { token ->
+                    attempts++
+                    if (token != null) {
+                        assertTrue(CallWakePreferences.disableAndQueueRemoteRevoke(context))
+                        assertTrue(CallWakePreferences.acknowledgeRemoteRevoke(context))
+                    } else throw IllegalStateException("server unreachable")
+                })
+            throw AssertionError("Expected network failure")
+        } catch (_: IllegalStateException) {
+            assertEquals(2, attempts)
+            assertFalse(CallWakePreferences.isEnabled(context))
+            assertTrue(CallWakePreferences.hasPendingRemoteRevoke(context))
+        }
+    }
+
     @Test fun failedSignedRevokeKeepsPendingFlag() = runBlocking {
         assertTrue(CallWakePreferences.disableAndQueueRemoteRevoke(context))
         try {
