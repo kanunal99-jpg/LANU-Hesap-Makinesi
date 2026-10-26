@@ -60,6 +60,27 @@ if verify; then echo 'Unexpected signed-backup archive member was accepted!' >&2
 grep -q 'unexpected/duplicate archive paths' "$tmp/result.log" || {
   echo 'Missing archive path safety rejection.' >&2; exit 1;
 }
+# A highly compressible 3 MiB dummy keystore MUST NOT be unpacked,
+# even though its encrypted gzip backup is much smaller than 4 MiB.
+mkdir -p "$tmp/oversize/signing"
+cp "$tmp/home/signing/store-password" "$tmp/oversize/signing/store-password"
+cp "$tmp/home/signing/key-password" "$tmp/oversize/signing/key-password"
+dd if=/dev/zero of="$tmp/oversize/signing/lanu-stable.jks" bs=1048576 count=3 status=none
+tar -C "$tmp/oversize" -czf - \
+  signing/lanu-stable.jks signing/store-password signing/key-password |
+  gpg --homedir "$tmp/home/.gnupg" --quiet --batch --yes --pinentry-mode loopback \
+      --no-tty --symmetric --cipher-algo AES256 --passphrase-fd 3 \
+      --output "$tmp/signing.tar.gz.gpg" 3<<<"$dummy_pass"
+if verify; then echo 'Compressed oversized keystore was extracted!' >&2; exit 1; fi
+grep -q 'expands beyond safe file limits' "$tmp/result.log" || {
+  echo 'Missing decompression-bomb rejection.' >&2; exit 1
+}
+# Restore the original generated dummy backup fixture for remaining checks.
+tar -C "$tmp/home" -czf - \
+  signing/lanu-stable.jks signing/store-password signing/key-password |
+  gpg --homedir "$tmp/home/.gnupg" --quiet --batch --yes --pinentry-mode loopback \
+      --no-tty --symmetric --cipher-algo AES256 --passphrase-fd 3 \
+      --output "$tmp/signing.tar.gz.gpg" 3<<<"$dummy_pass"
 # A misleading archive with a valid cert but a corrupt private-key
 # credential must not be called recoverable.
 rm -- "$tmp/home/signing/extra"

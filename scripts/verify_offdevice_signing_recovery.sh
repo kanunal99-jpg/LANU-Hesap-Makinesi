@@ -68,6 +68,31 @@ types="$(gpg --quiet --batch --yes --pinentry-mode loopback --no-tty \
   exit 1
 }
 
+# A tiny encrypted tar.gz can inflate to gigabytes. Validate GNU tar's
+# uncompressed member sizes BEFORE extracting into private temporary storage.
+# Password files need only a few bytes; a real PKCS12 signer stays below 2 MiB.
+# This also prevents a crafted archive from exhausting device disk space.
+safe_sizes="$(gpg --quiet --batch --yes --pinentry-mode loopback --no-tty \
+  --passphrase-fd 3 --decrypt "$archive" 3<<<"$passphrase" |
+  tar -tvzf - | awk '
+    BEGIN { count=0; total=0; valid=1 }
+    {
+      bytes=$3; name=$NF; count++
+      if (bytes !~ /^[0-9]+$/ || bytes+0 < 1) valid=0
+      if (name=="signing/lanu-stable.jks") {
+        if (bytes+0 > 2097152) valid=0
+      } else if (name=="signing/store-password" || name=="signing/key-password") {
+        if (bytes+0 > 4096) valid=0
+      } else valid=0
+      total += bytes+0
+    }
+    END { if (valid && count==3 && total<=2105344) print "OK"; else print "FAIL" }
+  ')"
+[[ "$safe_sizes" == "OK" ]] || {
+  echo 'RECOVERY FAILED: encrypted archive expands beyond safe file limits.' >&2
+  exit 1
+}
+
 mkdir -m 700 "$scratch/signing"
 gpg --quiet --batch --yes --pinentry-mode loopback --no-tty \
   --passphrase-fd 3 --decrypt "$archive" 3<<<"$passphrase" |
