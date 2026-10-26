@@ -43,13 +43,18 @@ def install(output: pathlib.Path, encoded: str | None, *, raw_json: str | None =
         raise ValueError("Firebase project configuration must be an object")
     project = document.get("project_info")
     clients = document.get("client")
-    if (not isinstance(project, dict) or
-        not isinstance(project.get("project_id"), str) or
-        project["project_id"] != EXPECTED_FIREBASE_PROJECT_ID or
-        not isinstance(project.get("project_number"), str) or
+    # Safe diagnostics only: never print supplied project IDs, tokens, JSON
+    # content or private keys from GitHub Actions protected environment values.
+    if document.get("type") == "service_account":
+        raise ValueError("Service-account JSON is not Android google-services.json; keep server credentials only in Supabase Edge Secrets")
+    if not isinstance(project, dict):
+        raise ValueError("Android google-services.json missing project_info; download Firebase Android client configuration")
+    if project.get("project_id") != EXPECTED_FIREBASE_PROJECT_ID:
+        raise ValueError("Firebase Android project mismatch; expected " + EXPECTED_FIREBASE_PROJECT_ID)
+    if (not isinstance(project.get("project_number"), str) or
         not project["project_number"].isdigit() or
         not isinstance(clients, list)):
-        raise ValueError("Firebase project metadata missing")
+        raise ValueError("Invalid Firebase Android client project_number or client list")
     matched = [c for c in clients if isinstance(c, dict) and
         isinstance(c.get("client_info"), dict) and
         isinstance(c["client_info"].get("android_client_info"), dict) and
