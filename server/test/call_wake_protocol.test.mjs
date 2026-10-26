@@ -29,7 +29,9 @@ test('call wake opt-in requires owner ECDSA and rejects unrelated payloads',asyn
   const forgedRevoke=envelope(f.mallory,'callWakeToken',{token:null});
   forgedRevoke.signature='bad';
   await assert.rejects(disabled(forgedRevoke),e=>e.status===401);
-  const noStore=createRelay({...f.store,callWakeRegister:undefined},Date.now,{calls:true});
+  const missingRegister=Object.create(f.store); // Preserve class prototype methods for identity validation.
+  missingRegister.callWakeRegister=undefined;
+  const noStore=createRelay(missingRegister,Date.now,{calls:true});
   await assert.rejects(noStore(envelope(f.alice,'callWakeToken',{token:null})),e=>e.status===503);
 });
 
