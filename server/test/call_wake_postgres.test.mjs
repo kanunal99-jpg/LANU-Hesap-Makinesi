@@ -13,7 +13,8 @@ before(async()=>{
   await db.exec('create role anon; create role authenticated; create role service_role bypassrls;');
   for(const name of ['20261019073855_persistent_user_code_messaging.sql',
     '20261025123907_private_call_signaling.sql',
-    '20261026091500_call_only_push_opt_in.sql']){
+    '20261026091500_call_only_push_opt_in.sql',
+    '20261026134500_invalidate_expired_fcm_token.sql']){
     await db.exec(await readFile(new URL('../../supabase/migrations/'+name,import.meta.url),'utf8'));
   }
   for(const [id,letter] of [[alice,'A'],[bob,'B'],[stranger,'C']]){
@@ -78,4 +79,28 @@ test('rate limiting and remote revoke prevent push abuse and preserve old data',
     [alice,bob,randomUUID(),randomUUID(),cipher]);
   assert.equal(after.rows[0].v.unavailable,true);
   assert.equal((await db.query('select count(*) as n from public.lanu_messages')).rows[0].n,0);
+});
+
+test('FCM invalidation compares the old token and cannot delete a rotated registration',async()=>{
+  const oldToken='A'.repeat(50), freshToken='B'.repeat(50);
+  let r=await db.query('select public.lanu_call_wake_register($1,$2) as v',[bob,oldToken]);
+  assert.equal(r.rows[0].v.registered,true);
+  r=await db.query('select public.lanu_call_wake_register($1,$2) as v',[bob,freshToken]);
+  assert.equal(r.rows[0].v.registered,true);
+  r=await db.query('select public.lanu_call_wake_invalidate($1,$2) as v',[bob,oldToken]);
+  assert.equal(r.rows[0].v.invalidated,false,'Old Google response must not clear a newer token');
+  let rows=await db.query('select fcm_token from public.lanu_call_wake_devices where owner_id=$1',[bob]);
+  assert.equal(rows.rows[0].fcm_token,freshToken);
+  r=await db.query('select public.lanu_call_wake_invalidate($1,$2) as v',[alice,freshToken]);
+  assert.equal(r.rows[0].v.invalidated,false,'Cannot invalidate another owner');
+  r=await db.query('select public.lanu_call_wake_invalidate($1,$2) as v',[bob,'bad token']);
+  assert.equal(r.rows[0].v.invalidated,false,'Malformed token must not be processed');
+  r=await db.query('select public.lanu_call_wake_invalidate($1,$2) as v',[bob,freshToken]);
+  assert.equal(r.rows[0].v.invalidated,true);
+  rows=await db.query('select count(*)::int as n from public.lanu_call_wake_devices where owner_id=$1',[bob]);
+  assert.equal(rows.rows[0].n,0);
+  for(const role of ['anon','authenticated']){
+    const grants=await db.query("select has_function_privilege($1,'public.lanu_call_wake_invalidate(text,text)','EXECUTE') as allowed",[role]);
+    assert.equal(grants.rows[0].allowed,false,'Invalidation RPC must be service-role only');
+  }
 });
