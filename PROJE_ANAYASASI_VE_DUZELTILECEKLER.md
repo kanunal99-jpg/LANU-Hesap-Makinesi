@@ -1,5 +1,17 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 26.10.2026 — Gelen sesli/görüntülü çağrıda görsel uyarı **ve** işitilebilir zil (YENİ KABUL ŞARTI)
+
+**Sahadan kullanıcı bildirimi:** Gelen çağrıda görsel bildirim görünüyor ancak telefon sesli moddayken ses çalmıyor. Bu durum çözülene kadar arka plan çağrı bildirimi sesli kabulden geçmiş sayılmaz. Kullanıcı mevcut görsel bildirimin korunmasını ve yalnız gerçek sesli/görüntülü INVITE için zil sesi ister.
+
+**Zorunlu davranış:** Uygulama dışından gelen gerçek çağrı veri push'u, mevcut güvenli anonim görsel bildirimi koruyarak Android bildirim sisteminde **gelen arama için ayrı yüksek önem seviyeli ve sistem telefon zil sesini kullanan bir kanal** üzerinden gösterilir. `AudioAttributes.USAGE_NOTIFICATION_RINGTONE` kullanılır. İlk kurulan eski `lanu_private_calls_v1` kanalının sesi Android'de güncellenemeyeceği için **ayrı sürümlü kanal** açılır; eski mesaj/medya kanalı etkilenmez. Android 7 ve altında kanal yerine builder ses+yüksek öncelik uygulanır. Kullanıcı uygulama bildirim sesi/kanal sesini Android ayarlarından değiştirebilir.
+
+**Saygı duyulacak ayarlar:** Zil Android/cihaz yönetimindedir; telefonun sessiz/titreşim modu, Rahatsız Etmeyin, kişi tarafından kapatılmış uygulama/kanal izni, OEM/pil kısıtları veya kullanıcı sessiz zil seçimi **asla bypass edilmez**. Kendi başına audio playback servisi veya `Ringtone.play()` ile zil zorlanmaz, ses seviyesi değişmez. Uygulamanın arayüz sessizliği, yalnızca çağrı bildirim kanalının ses davranışını engellemez. Bildirimin görsel içeriği, opt-in, E2EE, `2011.` ve PIN kilidi, FCM kısa ömür/tekrar engeli aynı kalır; mesaj/sohbet/fotoğraf/medya için ses **yasaktır**.
+
+**Doğrulama:** Android 8–16 sesli kanal importance/high, sistem ringtone URI, `AudioAttributes` ve eski kanaldan sürümleme; Robolectric tests. Mevcut cihazda önceki sessiz kanalın yeni kanala etkisi / kişisel mute tercihinin korunması; Samsung A55 + diğer gerçek cihaz, normal/rahatsız etmeyin/sessiz/titreşim, uygulama arka planda/ekran kilitli, geç bildirim ve yinelenen uyarı, izin reddi, PIN kilidi için gerçek saha testi. PR yalnız HEAD CI tam başarılıysa merge; main CI, Releases APK/hash/signer ve fiziksel ses çıktısı birbirinden ayrı kanıtlanır.
+
+---
+
 ## 26.10.2026 — Arka plan arama bildirimi iptalinin kalıcı güvenli başarısızlık yönetimi
 
 - **Risk:** Kullanıcı gelen çağrı bildirimini kapattığında cihazda opt-in hemen sıfırlansa bile çevrimdışı/503 durumunda uzak FCM cihaz tokenı kalabilir. FCM sunucusunun iptal isteğini almadığı kullanıcıya görünür olmalı; uzak saklama konusunda gerçekte gerçekleşmemiş iptal vaat edilmez. Güvenlik ve mahremiyet gereği kullanıcı çağrı verileri, kimlik, PIN veya E2EE anahtarları değiştirilmez.

@@ -3,6 +3,9 @@ package com.example.core.calls
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.Notification
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
@@ -71,8 +74,46 @@ object CallWakePolicy {
 }
 
 object CallWakeNotification {
-    private const val CHANNEL_ID = "lanu_private_calls_v1"
+    // Android keeps a channel's first sound choice across APK upgrades.
+    // Version the once-silent call channel without touching chat notifications.
+    const val CHANNEL_ID = "lanu_private_calls_ringing_v2"
+    private const val OLD_CHANNEL_ID = "lanu_private_calls_v1"
     private const val NOTIFICATION_ID = 8129
+
+    /**
+     * Use the user's chosen phone ringtone and ring-volume stream; let Android
+     * enforce silent mode, DND and notification preferences. Never start our
+     * own Ringtone player, background audio loop or raise system volume.
+     */
+    fun ensureChannel(manager: NotificationManager) {
+        if (Build.VERSION.SDK_INT < 26) return
+
+        // Respect deliberate old-channel mute/low-priority settings on upgrade.
+        val previous = manager.getNotificationChannel(OLD_CHANNEL_ID)
+        val userMuted = previous != null && (
+            previous.importance < NotificationManager.IMPORTANCE_DEFAULT ||
+                (Build.VERSION.SDK_INT >= 30 && previous.hasUserSetSound() && previous.sound == null)
+            )
+        val incoming = NotificationChannel(
+            CHANNEL_ID, "LANU gelen sesli/görüntülü aramalar",
+            if (userMuted) NotificationManager.IMPORTANCE_LOW else NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Yalnız isteğe bağlı gerçek gelen sesli ve görüntülü arama uyarıları"
+            lockscreenVisibility = Notification.VISIBILITY_SECRET
+            if (userMuted) {
+                setSound(null, null)
+            } else {
+                setSound(
+                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
+            }
+        }
+        manager.createNotificationChannel(incoming)
+    }
 
     fun show(context: Context, data: Map<String, String>, now: Long = System.currentTimeMillis()): Boolean {
         if (CallWakePolicy.privateAreaVisible || !CallWakePreferences.isEnabled(context) ||
@@ -82,13 +123,7 @@ object CallWakeNotification {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return false
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return false
 
-        if (Build.VERSION.SDK_INT >= 26) {
-            val channel = NotificationChannel(CHANNEL_ID, "LANU gelen çağrılar", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "Yalnızca isteğe bağlı gelen sesli/görüntülü arama uyarıları"
-                lockscreenVisibility = android.app.Notification.VISIBILITY_SECRET
-            }
-            manager.createNotificationChannel(channel)
-        }
+        if (Build.VERSION.SDK_INT >= 26) ensureChannel(manager)
 
         // No call ID/peer ID/hidden-navigation extras: opening the notification
         // always follows the ordinary calculator -> 2011. -> optional PIN gate.
@@ -104,6 +139,8 @@ object CallWakeNotification {
             .setContentIntent(pending)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            // On Android 7.x and earlier sound is attached to the notification.
+            .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))
             .setVisibility(NotificationCompat.VISIBILITY_SECRET)
             .setTimeoutAfter(75_000L)
             .setAutoCancel(true)

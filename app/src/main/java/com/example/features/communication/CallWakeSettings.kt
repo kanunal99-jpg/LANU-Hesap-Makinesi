@@ -1,6 +1,10 @@
 package com.example.features.communication
 
 import android.Manifest
+import android.app.NotificationManager
+import android.content.Context
+import android.content.Intent
+import android.provider.Settings
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -26,6 +30,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.core.calls.CallWakePreferences
+import com.example.core.calls.CallWakeNotification
 import com.example.core.repository.CommunicationRepository
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
@@ -170,6 +175,27 @@ fun CallWakeSettings(repository: CommunicationRepository) {
             if (needsPermission) notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
             else startRegistration()
         }) { Text("Yalnız arama bildirimlerini etkinleştir") }
+        if (enabled) OutlinedButton(onClick = {
+            // The OS is the only authority that can restore sound to a
+            // user-muted notification category; never override it in code.
+            try {
+                val intent = if (Build.VERSION.SDK_INT >= 26) {
+                    (context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)
+                        ?.let(CallWakeNotification::ensureChannel)
+                    Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+                        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                        putExtra(Settings.EXTRA_CHANNEL_ID, CallWakeNotification.CHANNEL_ID)
+                    }
+                } else {
+                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    }
+                }
+                context.startActivity(intent)
+            } catch (_: Exception) {
+                status = "Telefon Ayarları → Uygulamalar → LANU → Bildirimler → Gelen aramalar bölümünden Sesli'yi seçin."
+            }
+        }) { Text("Gelen arama zil sesini ayarla") }
         status?.let { Text(it, style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp)) }
     }
