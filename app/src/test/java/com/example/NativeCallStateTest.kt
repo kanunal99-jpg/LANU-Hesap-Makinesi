@@ -40,6 +40,8 @@ class NativeCallStateTest {
     private var cameraSwitches=0
     private var failStart=false
     private var startGate:CompletableDeferred<Unit>?=null
+    private var answerGate:CompletableDeferred<Unit>?=null
+    private var answerEntered:CompletableDeferred<Unit>?=null
     private var cameraGate:CompletableDeferred<Unit>?=null
     private var muteGate:CompletableDeferred<Unit>?=null
     private var failMute=false
@@ -105,7 +107,13 @@ class NativeCallStateTest {
             object:CallMediaSession {
                 override suspend fun start(video:Boolean) { starts++;startGate?.await();check(!failStart) }
                 override suspend fun offer(restart:Boolean):String { if(restart) iceRestarts++;return sdp }
-                override suspend fun answer(remote:String)=sdp
+                override suspend fun answer(remote:String): String {
+                    answerEntered?.complete(Unit)
+                    // Model uncooperative native callbacks: cancellation of a
+                    // suspended signal job need not cancel native SDP creation.
+                    answerGate?.let { withContext(NonCancellable) { it.await() } }
+                    return sdp
+                }
                 override suspend fun remoteAnswer(remote:String) { remoteAnswers++ }
                 override suspend fun mute(value:Boolean) {
                     muteCommands += value
@@ -308,6 +316,26 @@ class NativeCallStateTest {
         report!!(CallMediaEvidence(true,1,1));waitPhase(NativeCallPhase.CONNECTED)
         vm.end();waitPhase(NativeCallPhase.ENDED);assertEquals(1,closes)
     }
+    @Test fun lateNativeAnswerMustNotSignalAfterPrivateAreaExit() = runBlocking {
+        answerGate=CompletableDeferred()
+        answerEntered=CompletableDeferred()
+        val call=UUID.randomUUID().toString()
+        inject(CallSignaling.create(call,CallSignalKind.INVITE,false))
+        waitPhase(NativeCallPhase.RINGING)
+        vm.accept(call,true)
+        awaitSent(CallSignalKind.ACCEPT)
+        inject(CallSignaling.create(call,CallSignalKind.OFFER,false,sdp))
+        withTimeout(3000) { answerEntered!!.await() }
+        assertEquals("Native answer has not completed",0,sent.value.count { it.kind==CallSignalKind.ANSWER })
+
+        vm.deactivate()
+        answerGate!!.complete(Unit)
+        delay(50)
+        assertEquals("Late SDP must not escape ended call",0,sent.value.count { it.kind==CallSignalKind.ANSWER })
+        assertEquals(NativeCallPhase.IDLE,vm.state.value.phase)
+        assertEquals(1,closes)
+    }
+
     @Test fun outgoingDoesNotOpenMediaUntilTheMatchingPeerAccepts() = runBlocking {
         vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
         val invite=awaitSent(CallSignalKind.INVITE)
