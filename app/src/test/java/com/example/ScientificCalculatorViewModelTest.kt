@@ -111,6 +111,55 @@ class ScientificCalculatorViewModelTest {
     }
 
     @Test
+    fun `extreme decimal trig exponents cannot expand into huge intermediate allocations`() {
+        val extremes = listOf(
+            "1E+2147483647", "-1E+2147483647",
+            "1E-2147483647", "-1E-2147483647"
+        )
+        val contexts = listOf(
+            HighPrecisionMathEngine.DEFAULT_MATH_CONTEXT,
+            java.math.MathContext(100, java.math.RoundingMode.HALF_UP)
+        )
+        for (input in extremes) {
+            val angle = BigDecimal(input)
+            for (degrees in listOf(true, false)) {
+                for (context in contexts) {
+                    for (operation in listOf<(BigDecimal, Boolean, java.math.MathContext) -> BigDecimal>(
+                        HighPrecisionMathEngine::sin,
+                        HighPrecisionMathEngine::cos,
+                        HighPrecisionMathEngine::tan
+                    )) {
+                        try {
+                            operation(angle, degrees, context)
+                            org.junit.Assert.fail("Expected bounded trig rejection: $input")
+                        } catch (expected: ArithmeticException) {
+                            assertTrue(expected.message.orEmpty().contains("Trigonometric angle exponent"))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `extreme trig expressions fail safely but ordinary angles are unchanged`() {
+        val extremes = listOf("sin(1E+2147483647)", "cos(1E-2147483647)",
+            "tan(-1E+2147483647)")
+        for (expression in extremes) {
+            try {
+                HighPrecisionMathEngine.evaluate(expression)
+                org.junit.Assert.fail("Resource-exhausting expression must be rejected")
+            } catch (expected: ArithmeticException) {
+                assertTrue(expected.message.orEmpty().contains("Trigonometric angle exponent"))
+            }
+        }
+        assertEquals(BigDecimal.ZERO, HighPrecisionMathEngine.sin(BigDecimal.ZERO))
+        assertEquals(BigDecimal.ONE, HighPrecisionMathEngine.cos(BigDecimal.ZERO))
+        assertEquals(BigDecimal.ZERO, HighPrecisionMathEngine.tan(BigDecimal.ZERO))
+        assertEquals(BigDecimal.ONE, HighPrecisionMathEngine.sin(BigDecimal(90)))
+    }
+
+    @Test
     fun `square root supports magnitudes beyond Double range`() {
         val huge = HighPrecisionMathEngine.sqrt(BigDecimal("1E+400"))
         val tiny = HighPrecisionMathEngine.sqrt(BigDecimal("1E-400"))
