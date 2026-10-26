@@ -15,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,8 +39,40 @@ fun CallWakeSettings(repository: CommunicationRepository) {
     var enabled by remember { mutableStateOf(CallWakePreferences.isEnabled(context)) }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
+    var pendingRevoke by remember { mutableStateOf(CallWakePreferences.hasPendingRemoteRevoke(context)) }
+
+    // Only the previously authenticated LANU identity signs the revocation.
+    // No token/identity is cached in local preferences or logs.
+    suspend fun completeRemoteRevoke(): Boolean {
+        return try {
+            repository.registerCallWakeToken(null)
+            check(CallWakePreferences.acknowledgeRemoteRevoke(context))
+            pendingRevoke = false
+            true
+        } catch (_: Exception) {
+            pendingRevoke = true
+            false
+        }
+    }
+
+    // Network failure at opt-out must survive process death. Retry only when
+    // the owner opens authenticated private settings; never silently mint keys.
+    LaunchedEffect(repository) {
+        if (pendingRevoke) {
+            busy = true
+            val confirmed = completeRemoteRevoke()
+            status = if (confirmed) "Sunucu bildirimi iptali tamamlandı."
+                else "Bu cihazda kapalı; sunucu iptali bekliyor. Yeniden deneyin."
+            busy = false
+        }
+    }
 
     fun startRegistration() {
+        if (pendingRevoke || CallWakePreferences.hasPendingRemoteRevoke(context)) {
+            pendingRevoke = true
+            status = "Önce bekleyen sunucu bildirimi iptalini tamamlayın."
+            return
+        }
         if (busy) return
         busy = true
         status = null
@@ -68,10 +101,15 @@ fun CallWakeSettings(repository: CommunicationRepository) {
                             status = "Yalnız gelen sesli/görüntülü arama uyarıları etkin."
                         } catch (_: Exception) {
                             // Server or credential failure is not success.
-                            CallWakePreferences.setEnabled(context, false)
+                            CallWakePreferences.disableAndQueueRemoteRevoke(context)
+                            pendingRevoke = true
                             FirebaseMessaging.getInstance().isAutoInitEnabled = false
                             enabled = false
-                            status = "Sunucu çağrı bildirim kaydını doğrulayamadı. Etkinleştirilmedi."
+                            // A registration may have reached the server before
+                            // the local consent commit failed. Revoke defensively.
+                            val revoked = completeRemoteRevoke()
+                            status = if (revoked) "Sunucu kaydı doğrulanamadı. Bildirim kapalı."
+                                else "Bildirim kapalı; sunucu iptali ağ bağlantısında yeniden denenecek."
                         } finally { busy = false }
                     }
                 }
@@ -98,17 +136,34 @@ fun CallWakeSettings(repository: CommunicationRepository) {
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 8.dp))
         if (busy) CircularProgressIndicator()
         else if (enabled) OutlinedButton(onClick = {
-            // Consent is revoked locally before any network work; a failed
-            // remote revoke cannot cause a push to show a notification.
-            CallWakePreferences.setEnabled(context, false)
-            enabled = false
+            val saved = CallWakePreferences.disableAndQueueRemoteRevoke(context)
             runCatching { FirebaseMessaging.getInstance().isAutoInitEnabled = false }
-            status = "Bu cihazda arama bildirimi kapatıldı."
-            scope.launch {
-                try { repository.registerCallWakeToken(null) }
-                catch (_: Exception) { status = "Bu cihazda kapalı. Sunucu kaydı ağ bağlantısında yeniden kontrol edilmeli." }
+            if (!saved) {
+                status = "Yerel kapatma kaydedilemedi. Cihaz depolamasını kontrol edin."
+            } else {
+                enabled = false
+                pendingRevoke = true
+                busy = true
+                status = "Bu cihazda kapalı; sunucu iptali doğrulanıyor."
+                scope.launch {
+                    val revoked = completeRemoteRevoke()
+                    status = if (revoked) "Bu cihazda ve sunucuda arama bildirimi kapalı."
+                        else "Bu cihazda kapalı; sunucu iptali bekliyor. Yeniden deneyin."
+                    busy = false
+                }
             }
         }) { Text("Arama bildirimlerini kapat") }
+        else if (pendingRevoke) OutlinedButton(onClick = {
+            if (!busy) {
+                busy = true
+                scope.launch {
+                    val revoked = completeRemoteRevoke()
+                    status = if (revoked) "Sunucu bildirimi iptali tamamlandı."
+                        else "Sunucu erişilemiyor; iptal bekliyor. Yeniden deneyin."
+                    busy = false
+                }
+            }
+        }) { Text("Bekleyen sunucu iptalini yeniden dene") }
         else Button(onClick = {
             val needsPermission = Build.VERSION.SDK_INT >= 33 &&
                 ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
