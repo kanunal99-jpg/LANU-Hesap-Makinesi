@@ -215,7 +215,11 @@ class NativeCallViewModel(
                     val engine = _media.value ?: createEngine(current).also {
                         _media.value = it; startConfirmedMedia(current, it)
                     }
-                    send(current, CallSignalKind.ANSWER, engine.answer(s.sdp))
+                    val answerSdp = engine.answer(s.sdp)
+                    // Native SDP creation can finish after the private area
+                    // closed. A stale callback must not signal a dead call.
+                    if (session !== current || !foreground) return@guarded
+                    send(current, CallSignalKind.ANSWER, answerSdp)
                 }
             }
             CallSignalKind.ANSWER -> if (current.outgoing && current.awaitingAnswer &&
