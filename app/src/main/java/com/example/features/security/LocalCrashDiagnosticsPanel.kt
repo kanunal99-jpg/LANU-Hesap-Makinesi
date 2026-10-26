@@ -39,6 +39,7 @@ fun LocalCrashDiagnosticsPanel() {
     var record by remember(context) { mutableStateOf(LocalCrashReport.read(context)) }
     var systemExit by remember(context) { mutableStateOf(CrashDiagnostics.mostRecentAbnormalExit(context)) }
     var systemExitCounts by remember(context) { mutableStateOf(CrashDiagnostics.recentAbnormalCounts(context)) }
+    var repeatedCrashRisk by remember(context) { mutableStateOf(CrashDiagnostics.recentCrashRisk(context)) }
     var detailsVisible by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
     var relaySummary by remember { mutableStateOf(PrivateRelayHealth.safeSummary()) }
@@ -92,6 +93,15 @@ fun LocalCrashDiagnosticsPanel() {
                 Text(DateFormat.getDateTimeInstance().format(Date(abnormal.timestamp)),
                     style = MaterialTheme.typography.bodySmall)
             }
+            if (repeatedCrashRisk != null) {
+                Text(
+                    repeatedCrashRisk!!.label +
+                        " Bu bir kök neden teşhisi değildir. Uygulamayı silmeden " +
+                        "güvenli tanılama kaydını inceleyin; PIN veya sohbet içeriği paylaşmayın.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.testTag("private_repeated_crash_warning")
+                )
+            }
             if (systemExitCounts.isNotEmpty()) {
                 Text("Son 7 günde Android'in tuttuğu anormal kapanış kayıtları:",
                     style = MaterialTheme.typography.bodySmall)
@@ -111,6 +121,7 @@ fun LocalCrashDiagnosticsPanel() {
                 record = LocalCrashReport.read(context)
                 systemExit = CrashDiagnostics.mostRecentAbnormalExit(context)
                 systemExitCounts = CrashDiagnostics.recentAbnormalCounts(context)
+                repeatedCrashRisk = CrashDiagnostics.recentCrashRisk(context)
                 relaySummary = PrivateRelayHealth.safeSummary()
             }) {
                 Text("Kayıtları yenile")
