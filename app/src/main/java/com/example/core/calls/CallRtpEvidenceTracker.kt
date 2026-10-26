@@ -1,21 +1,24 @@
 package com.example.core.calls
 
 /**
- * Checks real audio RTP progress inside the CURRENT connected transport epoch.
+ * Proof of fresh two-way audio RTP within the current connected ICE epoch.
+ * Raw SDP, IP, contact, media payload and packet contents are never recorded.
  *
- * WebRTC stats counters are cumulative, including packets from an older ICE
- * transport. Reusing those old counters after an ICE reconnect would falsely
- * mark an empty / silent transport as "Connected" even with no fresh media.
- * Stats callbacks can arrive asynchronously after a disconnect; epoch tokens
- * discard such stale snapshots without logging sensitive details.
+ * A cumulative positive RTP total is NOT ongoing media evidence: a dead/stalled
+ * stream can retain old counters indefinitely while ICE says CONNECTED.
+ * This tracker expires that evidence; it does not hang up on deliberate
+ * silence/Opus DTX. Only the authenticated foreground call owns recovery.
  */
 class CallRtpEvidenceTracker {
+    companion object { const val MAX_AUDIO_EVIDENCE_AGE_MS = 15_000L }
     private var transportConnected = false
     private var epoch = 0L
     private var receiveBaseline: Long? = null
     private var sendBaseline: Long? = null
     private var lastReceived: Long? = null
     private var lastSent: Long? = null
+    private var lastRxProgressAt: Long? = null
+    private var lastTxProgressAt: Long? = null
 
     @Synchronized fun updateTransport(connected: Boolean): CallMediaEvidence {
         if (transportConnected != connected) {
@@ -23,19 +26,20 @@ class CallRtpEvidenceTracker {
             epoch++
             resetCounters()
         }
-        // Do not expose pre-connection cumulative stats as fresh evidence.
+        // A transport state alone never certifies working bidirectional audio.
         return CallMediaEvidence(transportConnected)
     }
 
     @Synchronized fun currentEpoch(): Long = epoch
 
-    @Synchronized fun observe(snapshotEpoch: Long, received: Long, sent: Long): CallMediaEvidence? {
-        if (snapshotEpoch != epoch) return null // old async callback after an ICE change
+    @Synchronized fun observe(
+        snapshotEpoch: Long, received: Long, sent: Long,
+        nowMs: Long = System.nanoTime() / 1_000_000L
+    ): CallMediaEvidence? {
+        if (snapshotEpoch != epoch) return null
         if (!transportConnected) return CallMediaEvidence()
-        if (received < 0 || sent < 0) return CallMediaEvidence(true)
+        if (received < 0L || sent < 0L) return CallMediaEvidence(true)
 
-        // First stats snapshot after each real transport transition is a baseline.
-        // Reset conservatively when a codec/track restart resets any RTP counter.
         if (receiveBaseline == null || sendBaseline == null ||
             (lastReceived != null && received < lastReceived!!) ||
             (lastSent != null && sent < lastSent!!)) {
@@ -43,15 +47,23 @@ class CallRtpEvidenceTracker {
             sendBaseline = sent
             lastReceived = received
             lastSent = sent
+            lastRxProgressAt = null
+            lastTxProgressAt = null
             return CallMediaEvidence(true)
         }
 
+        if (received > lastReceived!!) lastRxProgressAt = nowMs
+        if (sent > lastSent!!) lastTxProgressAt = nowMs
         lastReceived = received
         lastSent = sent
+
+        fun fresh(at: Long?): Boolean =
+            at != null && nowMs >= at && nowMs - at <= MAX_AUDIO_EVIDENCE_AGE_MS
+
         return CallMediaEvidence(
             transportConnected = true,
-            receivedAudio = (received - receiveBaseline!!).coerceAtLeast(0),
-            sentAudio = (sent - sendBaseline!!).coerceAtLeast(0)
+            receivedAudio = if (fresh(lastRxProgressAt)) (received - receiveBaseline!!).coerceAtLeast(0L) else 0L,
+            sentAudio = if (fresh(lastTxProgressAt)) (sent - sendBaseline!!).coerceAtLeast(0L) else 0L
         )
     }
 
@@ -60,5 +72,7 @@ class CallRtpEvidenceTracker {
         sendBaseline = null
         lastReceived = null
         lastSent = null
+        lastRxProgressAt = null
+        lastTxProgressAt = null
     }
 }
