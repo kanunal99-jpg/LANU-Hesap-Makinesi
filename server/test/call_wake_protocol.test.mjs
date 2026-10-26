@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID, generateKeyPairSync, webcrypto } from 'node:crypto';
 import { createRelay } from '../../supabase/functions/lanu-relay/core.mjs';
-import { createFcmWakeSender, fetchWithDeadline } from '../../supabase/functions/lanu-relay/call-wake-fcm.mjs';
+import { createFcmWakeSender, fetchWithDeadline, FcmUnregisteredTokenError } from '../../supabase/functions/lanu-relay/call-wake-fcm.mjs';
 import { fixture, link, envelope, encrypted } from './fixtures.mjs';
 
 test('call wake opt-in requires owner ECDSA and rejects unrelated payloads',async()=>{
@@ -185,4 +185,75 @@ test('FCM fetch deadlines cancel slow Google calls and clear completed timers',a
   assert.equal(response.ok,true);
   await new Promise(resolve=>setTimeout(resolve,30));
   assert.equal(completedSignal.aborted,false,'A completed fetch must not retain a live abort timer');
+});
+
+test('only explicit FCM UNREGISTERED permits compare-and-delete and never rejects encrypted INVITE',async()=>{
+  const f=await fixture();await link(f);
+  let invalidations=[];
+  const token='X'.repeat(44);
+  f.store.callSendWake=async()=>({accepted:true,created:true,wake_token:token});
+  f.store.callWakeInvalidate=async(owner,oldToken)=>{
+    invalidations.push({owner,oldToken});
+    return {invalidated:true};
+  };
+  let mode='unregistered';
+  const relay=createRelay(f.store,Date.now,{calls:true,callWakeEnabled:true,
+    sendCallWake:async()=>{
+      if(mode==='unregistered') throw new FcmUnregisteredTokenError();
+      if(mode==='transient') throw new Error('FCM dispatch unavailable');
+      return true;
+    }});
+  async function call(){
+    const id=randomUUID(),callId=randomUUID();
+    return relay(envelope(f.alice,'callSend',{
+      id,callId,peerId:f.bob.id,
+      content:encrypted(f.alice,f.bob,'LANU-CALL-v1:'+id,'sample'),wake:true
+    }));
+  }
+  assert.deepEqual(await call(),{accepted:true});
+  assert.deepEqual(invalidations,[{owner:f.bob.id,oldToken:token}]);
+  mode='transient';
+  assert.deepEqual(await call(),{accepted:true});
+  assert.equal(invalidations.length,1,'Transient errors never remove a reachable registration');
+  f.store.callWakeInvalidate=async()=>{ throw Error('Postgres temporarily unavailable'); };
+  mode='unregistered';
+  assert.deepEqual(await call(),{accepted:true},'Cleanup failure must not discard encrypted call INVITE');
+});
+
+test('FCM response classification refuses unrelated 404 and 429 as invalid token',async()=>{
+  const {privateKey}=generateKeyPairSync('rsa',{
+    modulusLength:2048,
+    privateKeyEncoding:{format:'pem',type:'pkcs8'},
+    publicKeyEncoding:{format:'pem',type:'spki'}
+  });
+  const credentials=JSON.stringify({
+    type:'service_account',project_id:'gen-lang-client-0658022317',
+    client_email:'lanu-test@gen-lang-client-0658022317.iam.gserviceaccount.com',
+    private_key:privateKey
+  });
+  let responseKind='unregistered';
+  const fetcher=async(url)=>{
+    if(url.includes('oauth2.googleapis.com'))
+      return {ok:true,json:async()=>({access_token:'x'.repeat(36),expires_in:3600})};
+    if(responseKind==='unregistered')return {ok:false,status:404,json:async()=>({
+      error:{status:'NOT_FOUND',details:[{'@type':'type.googleapis.com/google.firebase.fcm.v1.FcmError',errorCode:'UNREGISTERED'}]}
+    })};
+    if(responseKind==='not_found')return {ok:false,status:404,json:async()=>({error:{status:'NOT_FOUND'}})};
+    if(responseKind==='rate_limited')return {ok:false,status:429,json:async()=>({error:{status:'RESOURCE_EXHAUSTED'}})};
+  };
+  const sender=createFcmWakeSender(credentials,fetcher,webcrypto);
+  assert.ok(sender);
+  await assert.rejects(sender('A'.repeat(40)),e=>e instanceof FcmUnregisteredTokenError&&
+    !String(e).includes('A'.repeat(10)));
+  responseKind='not_found';
+  await assert.rejects(sender('A'.repeat(40)),e=>!(e instanceof FcmUnregisteredTokenError)&&
+    e.message==='FCM dispatch unavailable');
+  responseKind='rate_limited';
+  await assert.rejects(sender('A'.repeat(40)),e=>!(e instanceof FcmUnregisteredTokenError)&&
+    e.message==='FCM dispatch unavailable');
+  assert.equal(createFcmWakeSender(JSON.stringify({
+    type:'service_account',project_id:'another-firebase-project',
+    client_email:'lanu-test@another-firebase-project.iam.gserviceaccount.com',
+    private_key:privateKey
+  }),fetcher,webcrypto),null,'Sender must refuse a different Firebase project');
 });
