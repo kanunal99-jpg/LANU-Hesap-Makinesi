@@ -129,14 +129,21 @@ export function createRelay(store, clock = Date.now, options = {}) {
         return { version: 1, signals: await store.callPoll(owner) };
       }
       case 'callWakeToken': {
-        insist(options.callWakeEnabled === true && typeof store.callWakeRegister === 'function',
-          503, 'Çağrı bildirimi sunucuda etkin değil.');
+        insist(typeof store.callWakeRegister === 'function',
+          503, 'Çağrı bildirimi sunucu kaydı kullanılamıyor.');
         insist(Object.keys(data).sort().join(',') === 'token', 400,
           'Geçersiz çağrı bildirimi tercihi.');
         insist(data.token === null ||
           (typeof data.token === 'string' && data.token.length >= 20 &&
             data.token.length <= 4096 && /^[A-Za-z0-9_:.-]+$/.test(data.token)),
           400, 'Geçersiz bildirim cihaz kaydı.');
+        // Opt-out must remain possible even if FCM is unavailable or its
+        // service-account secret is revoked. Only positive registrations
+        // require an enabled push transport; never leave a device stuck
+        // opted out with a server-side token that cannot be revoked.
+        if (data.token !== null) {
+          insist(options.callWakeEnabled === true, 503, 'Çağrı bildirimi sunucuda etkin değil.');
+        }
         const result = await store.callWakeRegister(owner, data.token);
         insist(result?.registered === true, 503, 'Cihaz bildirim kaydı tamamlanamadı.');
         return { registered: true };
