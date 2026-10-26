@@ -33,7 +33,7 @@ class DatabaseTypedShadowParityTest {
         assertNotEquals(a.sha256, DatabaseShadowParity.fingerprintTyped(
             "messages", rows.map { it.reversed() }).sha256)
         assertNotEquals(a.sha256, DatabaseShadowParity.fingerprintTyped(
-            "messages", rows + rows[0]).sha256)
+            "messages", rows + listOf(rows[0])).sha256)
     }
 
     @Test fun oneByteBlobChangeInvalidatesShadow() {
