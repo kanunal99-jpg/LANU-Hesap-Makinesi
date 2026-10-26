@@ -9,6 +9,7 @@ import com.example.core.messaging.RelayException
 import com.example.core.repository.CommunicationRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import java.security.MessageDigest
 import java.util.UUID
 
 enum class NativeCallPhase { IDLE, DIALING, RINGING, CONNECTING, CONNECTED, RECONNECTING, ENDED, FAILED }
@@ -34,6 +35,9 @@ class NativeCallViewModel(
     private class Session(val id: String, val peer: CallPeer, val video: Boolean, val outgoing: Boolean) {
         var restarting = false
         var offers = 0
+        // Keep only a hash, never SDP/IP metadata or raw offer contents.
+        // A retransmission with a fresh envelope UUID is still the same OFFER.
+        var lastOfferDigest: ByteArray? = null
         // Only accept one authenticated ANSWER for each locally generated OFFER.
         // A unique replayed ANSWER after CONNECTED must not re-enter stable SDP.
         var awaitingAnswer = false
@@ -206,7 +210,11 @@ class NativeCallViewModel(
                 NativeCallPhase.CONNECTING, NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING)) {
                 // The caller can receive ACCEPT before our HTTP response comes back.
                 // Retain that OFFER instead of ACKing and losing it while ACCEPT is pending.
-                if (current.offers >= 2) return // Initial negotiation plus one ICE restart.
+                val digest = MessageDigest.getInstance("SHA-256")
+                    .digest(s.sdp.toByteArray(Charsets.UTF_8))
+                if (current.lastOfferDigest?.contentEquals(digest) == true) return
+                if (current.offers >= 2) return // Initial negotiation plus one genuine ICE restart.
+                current.lastOfferDigest = digest
                 current.offers++
                 val previous = pipeline
                 pipeline = guarded(current) {
