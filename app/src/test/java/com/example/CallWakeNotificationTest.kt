@@ -1,12 +1,19 @@
 package com.example
 
 import android.content.Context
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import androidx.test.core.app.ApplicationProvider
 import com.example.core.calls.CallWakeNotification
 import com.example.core.calls.CallWakePolicy
 import com.example.core.calls.CallWakePreferences
 import org.junit.After
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -62,6 +69,29 @@ class CallWakeNotificationTest {
         assertTrue(CallWakePreferences.acknowledgeRemoteRevoke(context))
         assertFalse(CallWakePreferences.hasPendingRemoteRevoke(context))
         assertFalse(CallWakePreferences.isEnabled(context))
+    }
+
+    @Test fun callOnlyChannelUsesSystemRingtoneHighImportanceAndHidesLockedContent() {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        CallWakeNotification.ensureChannel(manager)
+        val channel = manager.getNotificationChannel(CallWakeNotification.CHANNEL_ID)
+        assertNotNull(channel)
+        assertEquals(NotificationManager.IMPORTANCE_HIGH, channel.importance)
+        assertEquals(Notification.VISIBILITY_SECRET, channel.lockscreenVisibility)
+        assertEquals(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE), channel.sound)
+        assertNotNull(channel.audioAttributes)
+        assertEquals(AudioAttributes.USAGE_NOTIFICATION_RINGTONE, channel.audioAttributes.usage)
+    }
+
+    @Test fun oldCallChannelExplicitlyMutedDoesNotBecomeLoudOnUpgrade() {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.createNotificationChannel(NotificationChannel(
+            "lanu_private_calls_v1", "Old muted call channel", NotificationManager.IMPORTANCE_LOW
+        ).apply { setSound(null, null) })
+        CallWakeNotification.ensureChannel(manager)
+        val channel = manager.getNotificationChannel(CallWakeNotification.CHANNEL_ID)
+        assertEquals(NotificationManager.IMPORTANCE_LOW, channel.importance)
+        assertEquals(null, channel.sound)
     }
 
     @Test fun identicalWakeCannotRepeatAndPrivateForegroundSuppressesNotification() {
