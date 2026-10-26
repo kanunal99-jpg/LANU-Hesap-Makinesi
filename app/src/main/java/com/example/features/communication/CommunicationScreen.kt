@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import com.example.core.database.ContactEntity
 import com.example.core.database.ConversationEntity
 import com.example.core.database.CallLogEntity
+import com.example.core.repository.CommunicationRepository
 import com.example.features.security.SecurityViewModel
 import com.example.features.update.UpdateCheckScreen
 import java.text.SimpleDateFormat
@@ -63,7 +64,8 @@ fun CommunicationScreen(
     onExportFullBackup: (String) -> Unit = {},
     onChooseFullBackup: () -> Unit = {},
     onRestoreFullBackup: (String) -> Unit = {},
-    onCancelFullRestore: () -> Unit = {}
+    onCancelFullRestore: () -> Unit = {},
+    callPushRepository: CommunicationRepository? = null
 ) {
     val context = LocalContext.current
     val code by viewModel.userPhone.collectAsState()
@@ -128,7 +130,7 @@ fun CommunicationScreen(
                         0 -> ChatsTab(viewModel, vibrate, onNavigateToChat)
                         1 -> ContactsTab(viewModel, vibrate, onNavigateToChat)
                         2 -> SettingsTab(viewModel, securityViewModel, vibrate, backupBusy, pendingFullRestore,
-                            backupMessage, onExportFullBackup, onChooseFullBackup, onRestoreFullBackup, onCancelFullRestore)
+                            backupMessage, onExportFullBackup, onChooseFullBackup, onRestoreFullBackup, onCancelFullRestore, callPushRepository)
                         3 -> UpdateCheckScreen()
                     }
                 }
@@ -599,7 +601,8 @@ fun SettingsTab(
     viewModel: CommunicationViewModel, securityViewModel: SecurityViewModel, triggerVibration: () -> Unit,
     backupBusy: Boolean = false, pendingFullRestore: Boolean = false, backupMessage: String? = null,
     onExportFullBackup: (String) -> Unit = {}, onChooseFullBackup: () -> Unit = {},
-    onRestoreFullBackup: (String) -> Unit = {}, onCancelFullRestore: () -> Unit = {}
+    onRestoreFullBackup: (String) -> Unit = {}, onCancelFullRestore: () -> Unit = {},
+    callPushRepository: CommunicationRepository? = null
 ) {
     val code by viewModel.userPhone.collectAsState()
     val name by viewModel.userName.collectAsState()
@@ -645,6 +648,7 @@ fun SettingsTab(
         OutlinedButton(onClick = { backupAction = "restore" }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Kimlik yedeğini geri yükle") }
         com.example.features.security.FullBackupPanel(backupBusy, pendingFullRestore, backupMessage,
             onExportFullBackup, onChooseFullBackup, onRestoreFullBackup, onCancelFullRestore)
+        callPushRepository?.let { CallWakeSettings(it) }
         com.example.features.security.SettingsScreen(securityViewModel, triggerVibration)
     }
     if (showRotate) AlertDialog(onDismissRequest = { showRotate = false }, title = { Text("Yeni kullanıcı kodu oluşturulsun mu?") },
