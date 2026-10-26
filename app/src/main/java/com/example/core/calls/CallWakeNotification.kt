@@ -34,6 +34,14 @@ object CallWakePreferences {
 /** Reject stale, unsupported or arbitrary FCM payloads without fetching private data. */
 object CallWakePolicy {
     const val TYPE = "lanu_call_wake_v1"
+    // Duplicate wake hints should never repeatedly ring. Only timestamp
+    // hashes stay in process RAM; no peer/call metadata is persisted.
+    private val recent = LinkedHashSet<Long>()
+    @Synchronized fun claim(at: Long): Boolean {
+        if (!recent.add(at)) return false
+        while (recent.size > 64) recent.remove(recent.first())
+        return true
+    }
     fun eligible(data: Map<String, String>, now: Long): Boolean {
         if (data.size != 2 || data["type"] != TYPE) return false
         val created = data["at"]?.toLongOrNull() ?: return false
@@ -78,6 +86,7 @@ object CallWakeNotification {
             .setTimeoutAfter(75_000L)
             .setAutoCancel(true)
             .build()
+        if (!CallWakePolicy.claim(data["at"]!!.toLong())) return false
         return try {
             manager.notify(NOTIFICATION_ID, notification)
             true
