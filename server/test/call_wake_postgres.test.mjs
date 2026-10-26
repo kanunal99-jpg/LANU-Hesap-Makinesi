@@ -62,7 +62,7 @@ test('registered recipient gets single short-lived encrypted INVITE with idempot
   assert.equal(Number(response.rows[0].n),1);
 });
 test('opted-in recipient in private area remains wake-eligible but client suppresses duplicate UI',async()=>{
-  await db.query('select public.lanu_call_poll($1)',[bob]);
+  await db.query('select public.lanu_call_poll($1)',[alice]);
   const r=await db.query('select lanu_call_send_wake($1,$2,$3,$4,$5) as v',
     [bob,alice,randomUUID(),randomUUID(),cipher]);
   assert.equal(r.rows[0].v.accepted,true,'Existing active calls continue without remote wake');
