@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID, generateKeyPairSync, webcrypto } from 'node:crypto';
 import { createRelay } from '../../supabase/functions/lanu-relay/core.mjs';
-import { createFcmWakeSender } from '../../supabase/functions/lanu-relay/call-wake-fcm.mjs';
+import { createFcmWakeSender, fetchWithDeadline } from '../../supabase/functions/lanu-relay/call-wake-fcm.mjs';
 import { fixture, link, envelope, encrypted } from './fixtures.mjs';
 
 test('call wake opt-in requires owner ECDSA and rejects unrelated payloads',async()=>{
@@ -163,4 +163,26 @@ test('failed OAuth refresh is not cached and the next safe attempt can recover',
   assert.equal(await sender('A'.repeat(40)),true);
   assert.equal(authAttempts,2);
   assert.equal(sends,1,'Failed authentication must not send any call wake');
+});
+
+test('FCM fetch deadlines cancel slow Google calls and clear completed timers',async()=>{
+  let aborted = false;
+  const hanging=(_url,init)=>new Promise((_resolve,reject)=>{
+    init.signal.addEventListener('abort',()=>{
+      aborted=true;
+      reject(new Error('mock aborted as expected'));
+    },{once:true});
+  });
+  await assert.rejects(fetchWithDeadline(hanging,'https://example.invalid',{},15),
+    /mock aborted as expected/);
+  assert.equal(aborted,true,'Request must abort after its deadline');
+
+  let completedSignal;
+  const response=await fetchWithDeadline(async(_url,init)=>{
+    completedSignal=init.signal;
+    return {ok:true};
+  },'https://example.invalid',{},15);
+  assert.equal(response.ok,true);
+  await new Promise(resolve=>setTimeout(resolve,30));
+  assert.equal(completedSignal.aborted,false,'A completed fetch must not retain a live abort timer');
 });
