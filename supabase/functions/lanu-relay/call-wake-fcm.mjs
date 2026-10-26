@@ -47,8 +47,7 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
     const assertion = unsigned+'.'+bytes64(signature);
     const response = await fetchWithDeadline(fetcher, 'https://oauth2.googleapis.com/token',{
       method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
-      body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion}).toString(),
-
+      body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion}).toString()
     });
     if (!response.ok) throw new Error('FCM authentication unavailable');
     const payload = await response.json();
@@ -79,7 +78,6 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
       }}),
       // A slow Google endpoint must never indefinitely hold the encrypted
       // call invitation relay. Do not retry rate-limited FCM synchronously.
-
     });
     if (!response.ok) throw new Error('FCM dispatch unavailable');
     return true;
