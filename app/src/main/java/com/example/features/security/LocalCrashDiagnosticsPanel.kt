@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import com.example.core.diagnostics.CrashDiagnostics
 import com.example.core.diagnostics.LocalCrashReport
 import com.example.core.diagnostics.PrivateRelayHealth
 import java.text.DateFormat
@@ -36,6 +37,7 @@ fun LocalCrashDiagnosticsPanel() {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     var record by remember(context) { mutableStateOf(LocalCrashReport.read(context)) }
+    var systemExit by remember(context) { mutableStateOf(CrashDiagnostics.mostRecentAbnormalExit(context)) }
     var detailsVisible by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
     var relaySummary by remember { mutableStateOf(PrivateRelayHealth.safeSummary()) }
@@ -74,6 +76,21 @@ fun LocalCrashDiagnosticsPanel() {
                 }
                 TextButton(onClick = { confirmClear = true }) { Text("Tanılama kaydını sil") }
             }
+            Text("Android cihaz kapanış tanılaması", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Android 11 ve üzerinde son 7 günün yalnızca güvenli kapanış nedeni ve zamanı gösterilir. " +
+                    "ANR izi, hata metni, mesaj veya kullanıcı kimliği okunmaz ve gönderilmez.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            val abnormal = systemExit
+            if (abnormal == null) {
+                Text("Android tarafından bildirilen yakın tarihli anormal kapanış yok veya bu cihaz desteklemiyor.",
+                    style = MaterialTheme.typography.bodySmall)
+            } else {
+                Text(abnormal.label, modifier = Modifier.testTag("private_os_exit_reason"))
+                Text(DateFormat.getDateTimeInstance().format(Date(abnormal.timestamp)),
+                    style = MaterialTheme.typography.bodySmall)
+            }
             Text("Bu oturumun sunucu sağlığı", style = MaterialTheme.typography.titleSmall)
             Text(
                 "Yalnız başarılı bağlantı ve genel hata sınıflarının sayısı gösterilir. " +
@@ -84,6 +101,7 @@ fun LocalCrashDiagnosticsPanel() {
             Text(relaySummary, modifier = Modifier.testTag("private_relay_health_summary"))
             TextButton(onClick = {
                 record = LocalCrashReport.read(context)
+                systemExit = CrashDiagnostics.mostRecentAbnormalExit(context)
                 relaySummary = PrivateRelayHealth.safeSummary()
             }) {
                 Text("Kayıtları yenile")
