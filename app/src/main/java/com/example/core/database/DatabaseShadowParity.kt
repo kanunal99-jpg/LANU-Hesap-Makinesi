@@ -45,6 +45,73 @@ object DatabaseShadowParity {
         return TableProof(table, rows.size, total.digest().toHex())
     }
 
+    /**
+     * Typed SQLite v4 shadow evidence. The older string-only fingerprint is
+     * retained for compatibility with existing offline fixtures, but MUST NOT
+     * be used to approve an actual SQLite/SQLCipher migration: INTEGER 1,
+     * TEXT "1", REAL 1.0 and BLOB 0x31 are different SQLite cell types.
+     *
+     * No database is opened or mutated. Only bounded, fixed-length digests
+     * leave this function; source values must never be logged.
+     */
+    sealed class SqlValue {
+        object Null : SqlValue()
+        data class Integer(val value: Long) : SqlValue()
+        data class Real(val value: Double) : SqlValue()
+        data class Text(val value: String) : SqlValue()
+        data class Blob(val value: ByteArray) : SqlValue()
+    }
+
+    fun fingerprintTyped(table: String, rows: List<List<SqlValue>>): TableProof {
+        require(table in TABLES) { "Unsupported table in typed shadow evidence" }
+        require(rows.size <= 100_000) { "Shadow evidence row limit exceeded" }
+        var aggregateBytes = 0L
+        val rowHashes = rows.map { row ->
+            require(row.size <= 128) { "Shadow evidence column limit exceeded" }
+            val md = MessageDigest.getInstance("SHA-256")
+            addInt(md, row.size)
+            for (cell in row) {
+                when (cell) {
+                    is SqlValue.Null -> md.update(0.toByte())
+                    is SqlValue.Integer -> {
+                        md.update(1.toByte())
+                        md.update(ByteBuffer.allocate(8).putLong(cell.value).array())
+                    }
+                    is SqlValue.Real -> {
+                        require(cell.value.isFinite()) { "Non-finite SQL real evidence" }
+                        md.update(2.toByte())
+                        md.update(ByteBuffer.allocate(8)
+                            .putLong(java.lang.Double.doubleToRawLongBits(cell.value)).array())
+                    }
+                    is SqlValue.Text -> {
+                        md.update(3.toByte())
+                        val bytes = cell.value.toByteArray(Charsets.UTF_8)
+                        require(bytes.size <= 1_048_576) { "Shadow evidence value limit exceeded" }
+                        aggregateBytes += bytes.size
+                        require(aggregateBytes <= 16L * 1024 * 1024) { "Shadow evidence total limit exceeded" }
+                        addInt(md, bytes.size)
+                        md.update(bytes)
+                    }
+                    is SqlValue.Blob -> {
+                        md.update(4.toByte())
+                        require(cell.value.size <= 1_048_576) { "Shadow evidence value limit exceeded" }
+                        aggregateBytes += cell.value.size
+                        require(aggregateBytes <= 16L * 1024 * 1024) { "Shadow evidence total limit exceeded" }
+                        addInt(md, cell.value.size)
+                        md.update(cell.value)
+                    }
+                }
+            }
+            md.digest().toHex()
+        }.sorted()
+        val total = MessageDigest.getInstance("SHA-256")
+        // Version/domain separation: legacy string proofs cannot pass typed parity.
+        total.update("LANU-SQLITE-TYPED-v1".toByteArray(Charsets.US_ASCII))
+        addInt(total, rows.size)
+        rowHashes.forEach { total.update(it.toByteArray(Charsets.US_ASCII)) }
+        return TableProof(table, rows.size, total.digest().toHex())
+    }
+
     /** Fail closed if any of the exact seven Room v4 tables is missing/duplicated. */
     fun equivalent(original: List<TableProof>, shadow: List<TableProof>): Boolean {
         fun valid(proofs: List<TableProof>): Boolean =
