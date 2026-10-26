@@ -53,6 +53,18 @@ jobs:
           LANU_FIREBASE_CLIENT_JSON_BASE64: ${{ secrets.LANU_FIREBASE_CLIENT_JSON_BASE64 }}
         run: python3 scripts/install_firebase_client_config.py app/google-services.json
 
+      # Prevent another falsely 'released' incoming-call APK without Firebase.
+      # Only trusted main builds can read protected secrets, and we inspect
+      # the verified installed file *existence*, never reveal its content.
+      - name: Require real Firebase registration in trusted release APK
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        run: |
+          if [ ! -s app/google-services.json ]; then
+            echo "::error::No verified Firebase Android config in release build. Check LANU_FIREBASE_CLIENT_JSON secret. APK publication stopped; no secrets printed."
+            exit 1
+          fi
+          echo "Verified Firebase Android config installed for LANU; continuing build (content withheld)."
+
       - name: Test privacy-safe WebRTC native failure explanations
         run: python3 -m unittest discover -s scripts -p 'test_rtc_failure_diagnose.py'
 
