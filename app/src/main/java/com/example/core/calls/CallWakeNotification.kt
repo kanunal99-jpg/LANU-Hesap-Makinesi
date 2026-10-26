@@ -51,6 +51,12 @@ object CallWakePolicy {
     }
 }
 
+/** A notification tap is never a private-area deep link or unlock token. */
+object CallWakeTapPolicy {
+    const val ACTION = "com.example.LANU_PRIVATE_CALL_WAKE"
+    fun requiresFreshEntry(action: String?): Boolean = action == ACTION
+}
+
 object CallWakeNotification {
     private const val CHANNEL_ID = "lanu_private_calls_v1"
     private const val NOTIFICATION_ID = 8129
@@ -74,6 +80,7 @@ object CallWakeNotification {
         // No call ID/peer ID/hidden-navigation extras: opening the notification
         // always follows the ordinary calculator -> 2011. -> optional PIN gate.
         val intent = Intent(context, MainActivity::class.java).apply {
+            action = CallWakeTapPolicy.ACTION
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         val pending = PendingIntent.getActivity(context, 0, intent,
