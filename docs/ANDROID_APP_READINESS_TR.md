@@ -1,5 +1,13 @@
 # LANU Android — gizlilik ve yayın hazırlığı (19.10.2026)
 
+## 26.10.2026 güncel davranış notu
+
+Aşağıdaki 19.10 tarihli açıklamalar tarihsel sürüm kapsamıdır; artık bütün maddeler güncel davranış olarak okunmamalıdır. Güncel Android manifestinde gerçek WebRTC görüşmeleri için kullanıcı izinli `RECORD_AUDIO` ve `CAMERA` bulunur. Kullanıcı **yalnızca özel ayarlardan açıkça etkinleştirirse** Firebase Cloud Messaging üzerinden **gelen arama için** arka plan bildirimi alabilir; sohbet mesajları, PIN, SDP ve kişi adı push bildirimine eklenmez. Bildirime dokunmak PIN/gizli alan kilidini açmaz. Sessiz mod, Doze/OEM pil kısıtlamaları ve bildirim izni nedeniyle gelen arama uyarıları garanti değildir.
+
+Tam Room veritabanı SQLCipher ile şifrelenmiş değildir. Yedi-tablo çevrimdışı gölge-parite kanıtı ve güvenlik geçiş kapısı, **canlı veritabanı migrasyonu değildir**. FCM ve görüşme verilerinin hukuki metinlere, App Store/Play Store veri güvenliği beyannamesine ve güncel üçüncü taraf listesine ayrıca yansıtılması gerekir. Farklı gerçek telefonlarda çağrı/arka plan ve bildirim kabulü devam etmektedir.
+
+
+
 Bu belge `AppInformationDialog.kt` içindeki uygulama içi bilgilendirmelerin teknik dayanağını ve **açık kalan** yayın gerekliliklerini ayırır. Hukuken onaylı bir gizlilik politikası veya kullanım sözleşmesi değildir.
 
 ## Bu sürümde gerçekten uygulananlar
