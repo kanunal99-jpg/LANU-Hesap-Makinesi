@@ -3,6 +3,7 @@ package com.example
 import android.app.Application
 import com.example.core.di.AppContainer
 import com.example.core.diagnostics.LocalCrashHandler
+import com.example.core.calls.CallWakeTokenRefreshWorker
 import com.example.core.media.PrivateMediaCacheRecovery
 import com.example.core.security.LegacyInsecurePreferencesCleanup
 import kotlinx.coroutines.CoroutineScope
@@ -41,6 +42,12 @@ class LanuApplication : Application(), Configuration.Provider {
                 // Credentials remain unavailable; the recoverable legacy rows are kept.
                 // Never log secrets or attempt a plaintext storage fallback.
             }
+        }
+        credentialMigrationScope.launch {
+            // Only a prior explicit call-alert opt-in can schedule token
+            // re-registration. No token, identity or secret enters WorkManager.
+            // KEEP prevents ordinary app relaunch from cancelling a retry.
+            runCatching { CallWakeTokenRefreshWorker.enqueue(this@LanuApplication, replace = false) }
         }
         credentialMigrationScope.launch {
             // No identity is generated and no network work is requested unless
