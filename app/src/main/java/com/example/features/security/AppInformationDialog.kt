@@ -31,7 +31,7 @@ object LanuInformation {
         ),
         InformationSection(
             "Telefon ve bildirimler",
-            "Bu sürüm mesajlaşmak için telefon numarası, SMS veya e-posta doğrulaması istemez. Gizli iletişim alanı açık ve uygulama öndeyken sunucu yaklaşık 5 saniyede bir kontrol edilir. Uygulama kapalıyken mesaj bildirimi gönderilmez."
+            "Bu sürüm mesajlaşmak için telefon numarası, SMS veya e-posta doğrulaması istemez. Gizli iletişim alanı açık ve uygulama öndeyken sunucu düzenli aralıklarla kontrol edilir. Mesajlar için kapalı uygulamaya bildirim gönderilmez. Yalnızca kullanıcının güvenli alanda açıkça etkinleştirdiği gelen arama bildirimleri, Android bildirim izni ve cihaz koşulları uygun olduğunda Firebase Cloud Messaging aracılığıyla uygulama arka plandayken de gelebilir. Bu işlem için cihazın FCM belirteci sunucuya kaydedilir; push bildirimi kişi adı, sohbet, PIN, SDP veya çağrı içeriği taşımaz. Bildirime dokunmak gizli alanı açmaz; yeniden normal hesap makinesi ve isteğe bağlı PIN girişinden geçilir."
         ),
         InformationSection(
             "İzinler ve hizmet sağlayıcısı",
@@ -62,7 +62,7 @@ object LanuInformation {
         ),
         InformationSection(
             "Özelliklerin sınırları",
-            "10 saniye sonra gizle özelliği, sunucu onayından sonra mesajı yalnız bu cihazda gizler. Karşı tarafın cihazından veya sunucudan silmez. Küçük fotoğraflar, PDF ve metin ekleri 18.000 bayta kadar şifreli gönderilebilir. Büyük belge/video dosyası aktarımı ayrıca tamamlanmaktadır. Doğrudan arama bazı mobil ağlarda veya katı güvenlik duvarlarında kurulamayabilir; farklı Wi-Fi deneyin. Güvenli alan kapatılırsa görüşme biter. Kapalı uygulamaya gelen arama bildirimi yoktur. Gürültü/yankı azaltma cihaz ve ortama bağlıdır; tüm seslerin bastırılması veya kulaklık ANC kontrolü vaat edilmez."
+            "10 saniye sonra gizle özelliği, sunucu onayından sonra mesajı yalnız bu cihazda gizler. Karşı tarafın cihazından veya sunucudan silmez. Küçük fotoğraflar, PDF ve metin ekleri 18.000 bayta kadar şifreli gönderilebilir. Büyük belge/video dosyası aktarımı ayrıca tamamlanmaktadır. Doğrudan arama bazı mobil ağlarda veya katı güvenlik duvarlarında kurulamayabilir; farklı Wi-Fi deneyin. Güvenli alan kapatılırsa görüşme biter. Uygulama arka plandayken yalnız daha önce izin verilmiş gelen arama bildirimleri görülebilir; Android bildirim izni, sessiz mod ve pil/ağ koşulları bildirimi geciktirebilir veya engelleyebilir. Bildirim gizli içeriği göstermez ve görüşmeyi otomatik kabul etmez. Gürültü/yankı azaltma cihaz ve ortama bağlıdır; tüm seslerin bastırılması veya kulaklık ANC kontrolü vaat edilmez."
         ),
         InformationSection(
             "Kullanıcıya bildirim",
@@ -81,7 +81,7 @@ object LanuInformation {
         ),
         InformationSection(
             "Neden bildirim gelmiyor?",
-            "Bu sürümde gizli alan kapalıyken bildirim yoktur. Gizli alan açıkken yaklaşık beş saniyede bir otomatik eşitleme yapılır; gerekirse Yenile düğmesine dokunun."
+            "Sohbet mesajları gizli alan kapalıyken bildirilmez. Yalnızca gelen arama uyarıları güvenli alan Ayarlar bölümünden isteğe bağlı etkinleştirilebilir. Android 13 ve sonrasında bildirim izni, internet bağlantısı, pil kısıtlamaları ve sessiz/rahatsız etmeyin ayarlarını kontrol edin. Çağrı bildirimi gizli alanı açmaz; normal hesap makinesi girişine yönlendirir. Gizli alan açıkken mesajlar düzenli eşitlenir; gerekirse Yenile düğmesine dokunun."
         ),
         InformationSection(
             "Kod değişirse ne olur?",
