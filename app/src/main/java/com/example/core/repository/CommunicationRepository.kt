@@ -83,6 +83,21 @@ class CommunicationRepository(
         catch (_: java.io.IOException) { relay.request(own, "callSend", data) }
     }
 
+    /**
+     * Signed, explicit device opt-in/revoke. Never create a new E2EE identity
+     * from a background token refresh, and never persist the FCM token in Room.
+     * Server stores one opaque token per existing owner, service-role only.
+     */
+    suspend fun registerCallWakeToken(token: String?) {
+        if (token != null) {
+            require(token.length in 20..4096 && token.all { it.isLetterOrDigit() || it in "_:-." }) {
+                "Invalid FCM token"
+            }
+        }
+        val owner = loadIdentity(allowCreate = false)
+        relay.request(owner, "callWakeToken", JSONObject().put("token", token ?: JSONObject.NULL))
+    }
+
     suspend fun pollCallSignals() {
         check(callingForeground)
         val own = loadIdentity(allowCreate = false)
