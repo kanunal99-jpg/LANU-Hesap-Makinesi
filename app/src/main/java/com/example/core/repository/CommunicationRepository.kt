@@ -75,12 +75,24 @@ class CommunicationRepository(
         require(verifiedCallPeer(peer.id)?.publicKey == peer.publicKey) { "Kişinin güvenlik kaydı değişti." }
         val cipher = PeerMessageCrypto.encrypt(own, peer.id, peer.publicKey, CallSignaling.aadId(signal.id), CallSignaling.encode(signal))
         require(cipher.length <= 32768)
-        val data = JSONObject().put("id", signal.id).put("callId", signal.callId).put("peerId", peer.id).put("content", cipher)
-        // Same opaque signal ID/content on retry: never enqueue a stale call as chat.
-        try { relay.request(own, "callSend", data) }
+        val data = JSONObject().put("id", signal.id).put("callId", signal.callId)
+            .put("peerId", peer.id).put("content", cipher)
+        if (signal.kind == CallSignalKind.INVITE) data.put("wake", true)
+
+        suspend fun sendCompatible() {
+            try { relay.request(own, "callSend", data) }
+            catch (e: RelayException) {
+                // Older deployed relays reject the optional wake field. Do not
+                // break existing 2-phone calls during a staged backend rollout.
+                if (signal.kind != CallSignalKind.INVITE || e.status != 400) throw e
+                relay.request(own, "callSend", JSONObject(data.toString()).apply { remove("wake") })
+            }
+        }
+        // The same encrypted signal UUID and content survive retries.
+        try { sendCompatible() }
         catch (e: CancellationException) { throw e }
         catch (e: RelayException) { throw e }
-        catch (_: java.io.IOException) { relay.request(own, "callSend", data) }
+        catch (_: java.io.IOException) { sendCompatible() }
     }
 
     /**
