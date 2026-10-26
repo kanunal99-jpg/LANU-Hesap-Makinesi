@@ -3,9 +3,23 @@ import { createFcmWakeSender } from './call-wake-fcm.mjs';
 
 const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 // Warm Edge instances reuse OAuth access tokens; no secret is exposed to clients.
-const sendCallWake = createFcmWakeSender(Deno.env.get('LANU_FCM_SERVICE_ACCOUNT_JSON'));
-// Diagnostics report a boolean capability only; never log credentials or request data.
+// Classify configuration *shape* using fixed status labels only. Never log
+// raw environment values, field contents, user IDs, project IDs or key bytes.
+function serviceAccountStatus(raw: string | undefined): string {
+  if (!raw) return 'missing';
+  let config: Record<string, unknown>;
+  try { config = JSON.parse(raw); } catch { return 'invalid_json'; }
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return 'not_object';
+  if (config.type !== 'service_account') return 'wrong_document_type';
+  if (config.project_id !== 'gen-lang-client-0658022317') return 'project_mismatch';
+  if (typeof config.client_email !== 'string' || !config.client_email.endsWith('.gserviceaccount.com')) return 'client_email_invalid';
+  if (typeof config.private_key !== 'string' || !config.private_key.includes('BEGIN PRIVATE KEY')) return 'key_format_invalid';
+  return 'shape_valid';
+}
+const fcmCredentials = Deno.env.get('LANU_FCM_SERVICE_ACCOUNT_JSON');
+const sendCallWake = createFcmWakeSender(fcmCredentials);
 console.info('LANU call notification sender: ' + (sendCallWake ? 'configured' : 'not_configured'));
+console.info('LANU FCM credentials shape: ' + serviceAccountStatus(fcmCredentials));
 Deno.serve(async (request: Request) => {
   if (request.method !== 'POST') return new Response(JSON.stringify({ error: 'Yalnızca POST desteklenir.' }), { status: 405, headers });
   try {
