@@ -1,5 +1,19 @@
 # LANU — Yalnız gelen sesli/görüntülü çağrı için arka plan bildirimi
 
+## 26.10.2026 — Kesin kullanıcı senaryosu / mesajlardan bütünüyle ayrı gelen çağrı
+
+**Ekranda LANU olmasa da arama ulaşmalı.** LANU hesap makinesinde, başka uygulama açıkken, telefon kilitliyken, uygulama normal şekilde arka plana alınmışken veya Android normal bellek yönetimiyle LANU işlemini durdurmuşken; kullanıcının izin verdiği **sesli veya görüntülü çağrı** için sistem çağrı bildirimi ve telefon sesli modda ise uygun zil çalmalıdır. Tek seferlik sessiz ikon/görsel uyarı **kabul değildir**. Uygulama açılıp gizli alan önceden görüntülenmedikçe çağrı ulaşamıyorsa bu başarısızdır.
+
+**Mesajlar sadece gizli alanda.** Metin/fotoğraf/medya için Android bildirim çubuğu, kilit ekranı, banner, bildirim sesi/titreşimi ve çağrı FCM push tetikleyicisi **kullanılmaz**. Uygulama içinde yeni mesaj/okunmamış göstergesi olabilir; mesajlar ayrı şifreli senkronizasyon mekanizmasıyla getirilir.
+
+**Çağrının alınması ile görüşmenin kabulü ayrı.** Kapalı uygulamaya FCM yüksek öncelikli yalnız-çağrı uyandırması gönderilir, Android kısa işlemi açarak gizli içerik göstermeyen gelen çağrı bildirimi üretir; kilidi açılmadan gizli mesaj/kontak/çağrı kimliği okunmaz, mikrofon/kamera aktive olmaz. Gerçek şifreli INVITE çözümlenmesi ve görüşmeye geçiş mevcut `2011.` + varsa PIN güvenli akışında olur. Çalan uyarı kabul/red/iptal ve zaman aşımında sonlanmalıdır; yalnız kısa sistem bildirim tonu, WhatsApp benzeri gerçek arama zili olarak değerlendirilmez.
+
+**İşletim sistemi istisnası:** "Normal şekilde kapatılmış/son uygulamalardan kaydırılmış" ile Android **Zorla durdur** eşdeğer değildir. Zorla durdurma, kullanıcı bildirim kanalı sessize alma/DND, pil kısıtları, ağ/FCM/GMS kesintisi garanti dışıdır; ücretli servislere geçiş veya izinsiz sürekli servis çalıştırma yoktur.
+
+**Eksiklerin şeffaf takibi:** [Issue #133](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/133) altında canlı Supabase migration + Edge FCM + Firebase paket konfigürasyonu, gerçek iki cihaz arka plan/uyku/normal işlem ölümü/kapalı ekran ve işitilebilir zil kanıtları kapatılmadan tamamlandı denmez. [PR #139](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/pull/139) Android bildirim kanalına **tek seferlik ses** ekliyor; bunun sürekli gelen arama zili/iptal-red-çağrı bitiş yaşam döngüsüyle eşdeğer olmadığı ayrıca test edilmelidir.
+
+
+
 ## 26.10.2026 — Arka planda çağrının fark edilmesi: görsel + zil sesi
 
 Kullanıcı, başka uygulamadayken/gizli alan açık değilken zaten **görsel gelen arama işareti** gördüğünü fakat cihaz normal sesli moddayken **hiç zil sesi duymadığını** bildirdi. Kabul hedefi: alıcının LANU gizli alanını açık tutması veya sürekli çalışan mikrofon/kamera servisi bulundurması gerekmeksizin, gerçek ses/video INVITE için **FCM veri uyarısı → Android yüksek önem bildirim kanalı → ekranda görsel uyarı + cihazın varsayılan telefon zil sesi**. Mevcut FCM opt-in, E2EE, hesap makinesi 2011./PIN, replay/expiry/rate-limit ve mesaja/fotoğrafa bildirim göndermeme ilkeleri değişmez.
