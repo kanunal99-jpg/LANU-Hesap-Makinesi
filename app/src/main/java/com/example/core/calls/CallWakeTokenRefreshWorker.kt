@@ -29,11 +29,14 @@ object CallWakeTokenRefreshPolicy {
         currentToken: suspend () -> String?,
         register: suspend (String?) -> Unit
     ): Boolean {
-        suspend fun finishOptOut(): Boolean {
-            if (!CallWakePreferences.hasPendingRemoteRevoke(context)) return true
-            // Revocation is authenticated and possible even if FCM is unavailable.
+        suspend fun finishOptOut(force: Boolean = false): Boolean {
+            // A signed revoke may have completed while an earlier token
+            // registration was still in flight. Even if the pending flag
+            // was cleared, force a compensating revoke after that late write.
+            val pending = CallWakePreferences.hasPendingRemoteRevoke(context)
+            if (!force && !pending) return true
             register(null)
-            return CallWakePreferences.acknowledgeRemoteRevoke(context)
+            return !pending || CallWakePreferences.acknowledgeRemoteRevoke(context)
         }
 
         if (!CallWakePreferences.isEnabled(context)) return finishOptOut()
@@ -42,7 +45,7 @@ object CallWakeTokenRefreshPolicy {
         if (token.isNullOrBlank()) return false
         register(token)
         // A user can revoke consent while an asynchronous request is in flight.
-        if (!CallWakePreferences.isEnabled(context)) return finishOptOut()
+        if (!CallWakePreferences.isEnabled(context)) return finishOptOut(force = true)
         return true
     }
 }
@@ -83,7 +86,7 @@ class CallWakeTokenRefreshWorker(
     companion object {
         const val WORK_NAME = "lanu-call-wake-token-refresh-v1"
 
-        fun enqueue(context: Context) {
+        fun enqueue(context: Context, replace: Boolean = true) {
             if (!CallWakePreferences.isEnabled(context)) return
             val request = OneTimeWorkRequestBuilder<CallWakeTokenRefreshWorker>()
                 .setConstraints(Constraints.Builder()
@@ -93,7 +96,9 @@ class CallWakeTokenRefreshWorker(
             // A new FCM rotation supersedes any queued old work. The worker
             // obtains the latest current token only after it starts running.
             WorkManager.getInstance(context.applicationContext)
-                .enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.REPLACE, request)
+                .enqueueUniqueWork(WORK_NAME,
+                    if (replace) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
+                    request)
         }
     }
 }
