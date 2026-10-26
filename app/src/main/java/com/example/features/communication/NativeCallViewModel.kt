@@ -77,6 +77,7 @@ class NativeCallViewModel(
     fun activate() {
         if (foreground) return
         foreground = true
+        com.example.core.calls.CallWakePolicy.privateAreaVisible = true
         repository.setCallingForeground(true)
         receiving = viewModelScope.launch {
             repository.callSignals.collect { handle(it) }
@@ -90,6 +91,7 @@ class NativeCallViewModel(
 
     fun deactivate() {
         foreground = false
+        com.example.core.calls.CallWakePolicy.privateAreaVisible = false
         repository.setCallingForeground(false)
         repository.setCallInProgress(false)
         receiving?.cancel(); receiving = null
