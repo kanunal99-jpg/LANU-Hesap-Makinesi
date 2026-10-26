@@ -20,6 +20,7 @@ class CallWakeNotificationTest {
 
     @After fun cleanup() {
         CallWakePreferences.setEnabled(context, false)
+        CallWakePreferences.acknowledgeRemoteRevoke(context)
         CallWakePolicy.privateAreaVisible = false
     }
 
@@ -47,6 +48,20 @@ class CallWakeNotificationTest {
             "at" to (now+16000).toString()), now))
         assertTrue(CallWakePolicy.eligible(mapOf("type" to CallWakePolicy.TYPE,
             "at" to (now-60000).toString()), now))
+    }
+
+    @Test fun disabledConsentPersistsPendingRemoteRevokeUntilAcknowledged() {
+        assertTrue(CallWakePreferences.setEnabled(context, true))
+        assertTrue(CallWakePreferences.isEnabled(context))
+        assertTrue(CallWakePreferences.disableAndQueueRemoteRevoke(context))
+        assertFalse(CallWakePreferences.isEnabled(context))
+        assertTrue(CallWakePreferences.hasPendingRemoteRevoke(context))
+        // An unrelated preference write must never erase unconfirmed revoke.
+        assertTrue(CallWakePreferences.setEnabled(context, false))
+        assertTrue(CallWakePreferences.hasPendingRemoteRevoke(context))
+        assertTrue(CallWakePreferences.acknowledgeRemoteRevoke(context))
+        assertFalse(CallWakePreferences.hasPendingRemoteRevoke(context))
+        assertFalse(CallWakePreferences.isEnabled(context))
     }
 
     @Test fun identicalWakeCannotRepeatAndPrivateForegroundSuppressesNotification() {
