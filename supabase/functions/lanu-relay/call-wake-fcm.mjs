@@ -7,6 +7,17 @@ const encode = obj => btoa(JSON.stringify(obj)).replace(/\+/g,'-').replace(/\//g
 const bytes64 = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes)))
   .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 
+/** Bound each outbound Google request; never leave timers running in a Deno Edge isolate. */
+export async function fetchWithDeadline(fetcher, url, init, timeoutMs = 6000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetcher(url, {...init, signal:controller.signal});
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi = crypto) {
   if (!rawCredentials) return null; // Safe default: disabled without credentials.
   let config;
@@ -20,7 +31,10 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
 
   let cached = null;
   let expires = 0;
-  async function accessToken() {
+  // Several simultaneous incoming calls should share one OAuth refresh.
+  // Never serialize distinct FCM sends, and never cache a failed refresh.
+  let refreshing = null;
+  async function refreshAccessToken() {
     if (cached && Date.now() < expires - 120_000) return cached;
     const keyBytes = Uint8Array.from(atob(config.private_key.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g,'')), c=>c.charCodeAt(0));
     const key = await cryptoApi.subtle.importKey('pkcs8', keyBytes,
@@ -31,7 +45,7 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
     const unsigned = encode({alg:'RS256',typ:'JWT'})+'.'+encode(claims);
     const signature = await cryptoApi.subtle.sign('RSASSA-PKCS1-v1_5',key,new TextEncoder().encode(unsigned));
     const assertion = unsigned+'.'+bytes64(signature);
-    const response = await fetcher('https://oauth2.googleapis.com/token',{
+    const response = await fetchWithDeadline(fetcher, 'https://oauth2.googleapis.com/token',{
       method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
       body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion}).toString()
     });
@@ -42,11 +56,18 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
     expires = Date.now() + Math.min(3600,Math.max(120,Number(payload.expires_in)||3600))*1000;
     return cached;
   }
+  async function accessToken() {
+    if (cached && Date.now() < expires - 120_000) return cached;
+    if (!refreshing) {
+      refreshing = refreshAccessToken().finally(() => { refreshing = null; });
+    }
+    return refreshing;
+  }
   return async (deviceToken,now=Date.now()) => {
     if (typeof deviceToken !== 'string' || deviceToken.length < 20 ||
       deviceToken.length > 4096 || !/^[A-Za-z0-9_:.-]+$/.test(deviceToken)) return false;
     const bearer = await accessToken();
-    const response = await fetcher('https://fcm.googleapis.com/v1/projects/'+config.project_id+'/messages:send',{
+    const response = await fetchWithDeadline(fetcher, 'https://fcm.googleapis.com/v1/projects/'+config.project_id+'/messages:send',{
       method:'POST',headers:{Authorization:'Bearer '+bearer,'Content-Type':'application/json'},
       body:JSON.stringify({message:{
         token:deviceToken,
@@ -54,7 +75,9 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
         // creates its own privacy-redacted opt-in notification.
         data:{type:'lanu_call_wake_v1',at:String(now)},
         android:{priority:'HIGH',ttl:'70s',collapse_key:'lanu_call_v1'}
-      }})
+      }}),
+      // A slow Google endpoint must never indefinitely hold the encrypted
+      // call invitation relay. Do not retry rate-limited FCM synchronously.
     });
     if (!response.ok) throw new Error('FCM dispatch unavailable');
     return true;
