@@ -73,6 +73,12 @@ object CallWakePolicy {
     }
 }
 
+/** Incoming notifications are wake-up hints, not private deep links or permissions. */
+object CallWakeTapPolicy {
+    const val ACTION = "com.aistudio.lanucalc.kxwzqm.action.LANU_CALL_WAKE"
+    fun requiresFreshEntry(action: String?): Boolean = action == ACTION
+}
+
 object CallWakeNotification {
     // Android keeps a channel's first sound choice across APK upgrades.
     // Version the once-silent call channel without touching chat notifications.
@@ -128,6 +134,7 @@ object CallWakeNotification {
         // No call ID/peer ID/hidden-navigation extras: opening the notification
         // always follows the ordinary calculator -> 2011. -> optional PIN gate.
         val intent = Intent(context, MainActivity::class.java).apply {
+            action = CallWakeTapPolicy.ACTION
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         val pending = PendingIntent.getActivity(context, 0, intent,
