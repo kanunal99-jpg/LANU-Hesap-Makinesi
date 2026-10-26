@@ -1,5 +1,13 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 26.10.2026 — Firebase doğrulaması olmadan yeni çağrı APK'sı YAYINLAMA (P0)
+
+**Saha / CI kök nedeni:** Kullanıcı `LANU_FIREBASE_CLIENT_JSON` korumalı GitHub Actions Secret'ına Firebase Android `google-services.json` metnini eklediğini bildirdi. [CI #500](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/actions/runs/40302493509) bundan **önce** başlayıp `NOTICE: Firebase client config absent; background call push is unavailable.` mesajıyla APK yayımladı. Birim testinin sahte fixture için yazdığı `secure config installed` mesajı **gerçek secret kuruldu kanıtı değildir**.
+
+**Sürüm/doğrulama kapısı:** Yeni trusted main APK yayını öncesi installer'ın doğru Firebase projesi `gen-lang-client-0658022317` ve Android paketi `com.aistudio.lanucalc.kxwzqm` eşleşen yapılandırma dosyasını **gerçekten oluşturması** zorunlu. Yoksa yayımlama job'ına geçmeden **CI açık ve güvenli biçimde başarısız olacak**, eski kullanıcı verileri/sunucu etkilenmeyecek. Hiçbir secret/JSON/token/özel anahtar CI çıktısına yazılmayacak. Sonrasında sadece APK/CI başarısı yeterli değildir; Supabase servis hesabı, token kaydı ve iki gerçek telefon arka plan çağrı + zil kabulü ayrıca kanıtlanmalı. FCM/izin/sistem zorla durdur sınırları aynen geçerlidir.
+
+---
+
 ## 26.10.2026 — Firebase proje eşleşmesi: kapalı LANU'ya sadece gerçek sesli/video çağrısı (P0)
 
 **Kullanıcı seçimi:** Firebase projesi `gen-lang-client-0658022317` LANU'nun çağrı uyandırması için hedef projedir. Mevcut Google Cloud / Gemini / Willy Kilo projeleri **silinmeyecek**; silme, FCM bağlamak için gerekli değildir. Android package `com.aistudio.lanucalc.kxwzqm` sabittir, mevcut veriler/Room/E2EE anahtarı/rehber/PIN/OTA imzası korunur.
