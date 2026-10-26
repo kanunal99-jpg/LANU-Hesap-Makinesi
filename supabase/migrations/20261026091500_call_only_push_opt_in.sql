@@ -55,10 +55,10 @@ begin
   select exists(select 1 from public.lanu_identities where id=p_peer and call_version=1
     and call_seen_at>now()-interval '20 seconds') into online;
   select fcm_token into token from public.lanu_call_wake_devices
-    where owner_id=p_peer and updated_at>now()-interval '30 days';
+    where owner_id=p_peer;
   if not online and token is null then return jsonb_build_object('unavailable',true); end if;
 
-  if token is not null and not online then
+  if token is not null then
     if (select count(*) from public.lanu_call_signals
       where sender_id=p_owner and recipient_id=p_peer and wake_requested
         and created_at>now()-interval '90 seconds') >= 3
@@ -74,7 +74,7 @@ begin
     then return jsonb_build_object('limited',true);
   end if;
   insert into public.lanu_call_signals(id,call_id,sender_id,recipient_id,content,wake_requested)
-    values(p_id,p_call,p_owner,p_peer,p_content,token is not null and not online)
+    values(p_id,p_call,p_owner,p_peer,p_content,token is not null)
     on conflict(id) do nothing;
   select * into old_row from public.lanu_call_signals where id=p_id;
   if not(old_row.sender_id=p_owner and old_row.recipient_id=p_peer
