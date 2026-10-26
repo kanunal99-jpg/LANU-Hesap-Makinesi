@@ -1,5 +1,14 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 26.10.2026 — P1 bilimsel hesaplama: uç üslerde kaynak tüketimini önleme
+
+- **Kök neden / korunacak sınır:** Kullanıcının yazdığı `1E+2147483647` veya `1E-2147483647` gibi `BigDecimal` sayılarının nesne gösterimi küçük olsa bile `sin/cos/tan` derece/radyan indirgemesi ya da `cos` için açıya 90 eklenmesi devasa ondalık katsayı üretmeye zorlayabilir. Doğrudan `toDouble()` taşmasıyla ilgili eski #5 kayıtları tek başına bu bellek/CPU riskini kapatmaz.
+- **Ön koşul:** Derece/radyan sinüs, kosinüs ve tanjant için pahalı `remainder`/`add`/`multiply` çağrılarından **önce** `BigDecimal` hassasiyet ve ölçek üstverisinden sabit maliyetli ondalık üs sınırı denetimi yapılır. Destek dışı pozitif/negatif aşırı büyüklükler açık `ArithmeticException` ile güvenli reddedilir; mümkün olmayacak kesin trigonometrik hassasiyet iddia edilmez. Uygulama mesaj/PIN/Room/E2EE/OTA yolunu değiştirmez.
+- **Kabul:** En büyük pozitif/negatif üs uçları ve kullanıcı ifade ayrıştırıcısı (`sin/cos/tan`) için hızlı reddetme; sıfır ve bilinen normal açı değerlerinin korunması; `mc=34` ve yüksek hassasiyet bağlamında regresyon; CI unit/Robolectric, Lint, R8, API34 Room. Geliştirme PR'si yeşil olmadan merge yok; main CI, imzalı Release APK ve public read-back ayrıca doğrulanır. Fiziksel cihazdan hız/bellek ölçümü yapılmadıkça performans iyileşmesi sayısal vaat edilemez.
+- **Açık kabul:** [#5](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/5) asin/acos yüksek hassasiyet ve gerçek Android smoke açısından açık kalır. Farklı `MathContext` ve donanım kabulü tamamlanmadan issue kapanmaz.
+
+---
+
 ## 26.10.2026 — Ana dalın doğrulanmış yayını ve SDP tekrar güvenliği
 
 **Kanıt durumunu yeniden kontrol etme kuralı:** 25.10.2026 tarihli #459 ve açık #128 bilgisi, o tarihteki tarihsel kesittir; güncel durum yerine kullanılamaz. Yeni çalışmada repo HEAD/PR/CI/Release asset durumunun ayrıca doğrulanması esastır.
