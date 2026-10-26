@@ -75,12 +75,39 @@ class CommunicationRepository(
         require(verifiedCallPeer(peer.id)?.publicKey == peer.publicKey) { "Kişinin güvenlik kaydı değişti." }
         val cipher = PeerMessageCrypto.encrypt(own, peer.id, peer.publicKey, CallSignaling.aadId(signal.id), CallSignaling.encode(signal))
         require(cipher.length <= 32768)
-        val data = JSONObject().put("id", signal.id).put("callId", signal.callId).put("peerId", peer.id).put("content", cipher)
-        // Same opaque signal ID/content on retry: never enqueue a stale call as chat.
-        try { relay.request(own, "callSend", data) }
+        val data = JSONObject().put("id", signal.id).put("callId", signal.callId)
+            .put("peerId", peer.id).put("content", cipher)
+        if (signal.kind == CallSignalKind.INVITE) data.put("wake", true)
+
+        suspend fun sendCompatible() {
+            try { relay.request(own, "callSend", data) }
+            catch (e: RelayException) {
+                // Older deployed relays reject the optional wake field. Do not
+                // break existing 2-phone calls during a staged backend rollout.
+                if (signal.kind != CallSignalKind.INVITE || e.status != 400) throw e
+                relay.request(own, "callSend", JSONObject(data.toString()).apply { remove("wake") })
+            }
+        }
+        // The same encrypted signal UUID and content survive retries.
+        try { sendCompatible() }
         catch (e: CancellationException) { throw e }
         catch (e: RelayException) { throw e }
-        catch (_: java.io.IOException) { relay.request(own, "callSend", data) }
+        catch (_: java.io.IOException) { sendCompatible() }
+    }
+
+    /**
+     * Signed, explicit device opt-in/revoke. Never create a new E2EE identity
+     * from a background token refresh, and never persist the FCM token in Room.
+     * Server stores one opaque token per existing owner, service-role only.
+     */
+    suspend fun registerCallWakeToken(token: String?) {
+        if (token != null) {
+            require(token.length in 20..4096 && token.all { it.isLetterOrDigit() || it in "_:-." }) {
+                "Invalid FCM token"
+            }
+        }
+        val owner = loadIdentity(allowCreate = false)
+        relay.request(owner, "callWakeToken", JSONObject().put("token", token ?: JSONObject.NULL))
     }
 
     suspend fun pollCallSignals() {

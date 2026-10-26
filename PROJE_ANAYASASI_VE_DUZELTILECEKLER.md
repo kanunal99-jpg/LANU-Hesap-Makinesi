@@ -1,5 +1,19 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 26.10.2026 — Yalnız gerçek çağrı için arka plan bildirimi (YENİ ÜRÜN KARARI)
+
+**Kullanıcı kabulü:** Kullanıcı sesli ve görüntülü görüşmenin iki gerçek cihazda başarıyla test edildiğini bildirdi. Bu bir **kullanıcı saha beyanıdır**; cihaz/Android sürümü, rapor, imza veya laboratuvar ölçümü sağlanmadığı için kod/CI ile bağımsız saha sertifikası olduğu iddia edilemez. Önceden açık fiziksel test listesi, bu bildirimle notlanarak ayrıntılı OEM/OTA/gürültü testleri açık tutulur.
+
+**İstenen deneyim:** Kullanıcı gizli alandan gerçek sesli veya görüntülü çağrı başlatırsa, karşı taraf LANU'nun hesap makinesi ekranında, başka bir uygulamada veya LANU arka plandayken gelen çağrı bildirimi alabilmeli. **Bu özellik sohbet, mesaj, fotoğraf, medya veya başka olaya bildirim göndermez.** Tekrar bildirim ve eski/bitmiş çağrıya zil çalma engellenir. Kullanıcı dokunduğunda mevcut gizli alan `2011.` ve isteğe bağlı PIN/biometrik erişim akışı **atlatılmaz**; arama otomatik yanıtlanmaz, mikrofon/kamera otomatik açılmaz.
+
+**Gizlilik/güvenlik:** Kilit ekranı, bildirim gövdesi ve push yükünde gönderen kişi adı, kodu, kimliği, sohbet, mesaj, SDP, aday IP, PIN, anahtar veya rehber yer almaz; nötr arama işareti kullanılır. Bildirim kanalının varlığı dahi özel kullanım hakkında ipucu olabilir: ayar güvenli alanda opt-in olarak açılır; Android 13+ POST_NOTIFICATIONS izni istenir, reddedilirse sessiz güvenli varsayılan. Çağrı token'ı yalnız imzalı, kayıtlı mevcut kimlikle sunucuya bağlanır, çıkışta devre dışı bırakılır ve loglanmaz. Yalnız doğrulanmış karşılıklı kişiler için, kısa süreli, oran sınırlı wake; istek tekrarında çift bildirim yok.
+
+**Teslimat mimarisi ve dürüst sınırlar:** Mevcut 15 dakikalık WorkManager ve gizli alan foreground çağrı poll'u arka plan gerçek zamanlı çağrı değildir. Android Google servisli cihazda yüksek öncelikli FCM veri bildirimi, doğrulanmış relay çağrı işareti ve yerel bildirim kullanılır. Sunucu çağrı sinyalini saklayıp alıcıya opaque wake gönderir; FCM içeriği asla çağrı kabul veya kullanıcı oturum açma yetkisi değildir. Çağrı kabulü yine E2EE sinyal çözümüyle ön planda doğrulanır. Firebase kurulum/Google hizmeti/OEM, ağ/Doze, zorla durdurma, izin veya kullanıcı pil kısıtları teslimatı geciktirebilir/engelleyebilir; **%100 garantili teslimat denmez**. Huawei/GMS'siz cihaz için alternatif bildirim sağlayıcısı ayrı, gerçek testli yapılmadan varmış gibi gösterilmez. Firebase veya Supabase ücretli tarife ve servis anahtarı kullanıcı onayı olmadan etkinleştirilemez.
+
+**Uygulama kabul sırası:** 1) Anayasa ve tehdit modeli; 2) sadece önceden yetkilendirilmiş opt-in ve token kaydı, RLS/service-role izolasyonu ve atomik yeniden gönderim limiti; 3) sunucuda aç/kapat anahtarlı push forwarder ve yanlış kaynak/tekrar/rate-limit testleri; 4) FCM alıcı ve Android 13/14/15/16 bildirim izni/kanalı, gizli içerik, dokununca güvenli giriş; 5) uyku/arka plan/uygulama kapanması/çağrı bitti/geç kalmış push ve gerçek iki cihaz testleri; 6) yalnız son PR SHA CI başarılıysa merge; 7) main CI + imzalı APK Release/hash/read-back + canlı backend migration/deploy/smoke ayrı kanıtlanır. Gerekli sunucu sırları yoksa iş **hazırlık/entegrasyon** statüsünde kalır.
+
+---
+
 ## 26.10.2026 — Ana dalın doğrulanmış yayını ve SDP tekrar güvenliği
 
 **Kanıt durumunu yeniden kontrol etme kuralı:** 25.10.2026 tarihli #459 ve açık #128 bilgisi, o tarihteki tarihsel kesittir; güncel durum yerine kullanılamaz. Yeni çalışmada repo HEAD/PR/CI/Release asset durumunun ayrıca doğrulanması esastır.

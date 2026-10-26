@@ -128,17 +128,46 @@ export function createRelay(store, clock = Date.now, options = {}) {
         insist(options.calls === true, 503, 'Arama sunucusu henüz etkin değil.');
         return { version: 1, signals: await store.callPoll(owner) };
       }
+      case 'callWakeToken': {
+        insist(options.callWakeEnabled === true && typeof store.callWakeRegister === 'function',
+          503, 'Çağrı bildirimi sunucuda etkin değil.');
+        insist(Object.keys(data).sort().join(',') === 'token', 400,
+          'Geçersiz çağrı bildirimi tercihi.');
+        insist(data.token === null ||
+          (typeof data.token === 'string' && data.token.length >= 20 &&
+            data.token.length <= 4096 && /^[A-Za-z0-9_:.-]+$/.test(data.token)),
+          400, 'Geçersiz bildirim cihaz kaydı.');
+        const result = await store.callWakeRegister(owner, data.token);
+        insist(result?.registered === true, 503, 'Cihaz bildirim kaydı tamamlanamadı.');
+        return { registered: true };
+      }
       case 'callSend': {
         insist(options.calls === true, 503, 'Arama sunucusu henüz etkin değil.');
         insist(uuid.test(data.id ?? '') && uuid.test(data.callId ?? '') &&
           hex64.test(data.peerId ?? '') && data.peerId !== owner &&
           ciphertext(data.content) && data.content.length <= 32768 &&
-          Object.keys(data).sort().join(',') === 'callId,content,id,peerId', 400, 'Geçersiz arama sinyali.');
+          (Object.keys(data).sort().join(',') === 'callId,content,id,peerId' ||
+            (Object.keys(data).sort().join(',') === 'callId,content,id,peerId,wake' && data.wake === true)),
+          400, 'Geçersiz arama sinyali.');
         insist(await store.mutual(owner, data.peerId), 409, 'Arama için karşılıklı kişi kaydı gerekir.');
-        const result = await store.callSend(owner, data.peerId, data.id, data.callId, data.content);
+        // Wake is a request hint, never trusted plaintext call classification.
+        // Only an authenticated/mutual signed sender may request it, and only
+        // a registered recipient gets a wake. Old clients work unchanged.
+        const awake = data.wake === true && options.callWakeEnabled === true &&
+          typeof store.callSendWake === 'function';
+        const result = awake
+          ? await store.callSendWake(owner, data.peerId, data.id, data.callId, data.content)
+          : await store.callSend(owner, data.peerId, data.id, data.callId, data.content);
         insist(!result.unavailable, 409, 'İki telefonda da güncel LANU güvenli alanı açık olmalıdır.');
         insist(!result.limited, 429, 'Arama sınırına ulaşıldı; biraz bekleyin.');
         insist(result.accepted === true, 409, 'Arama sinyali kimliği çakıştı.');
+        // Never return token to a client, even after push transport fails.
+        // If FCM fails, the accepted encrypted invite remains on relay.
+        if (awake && result.created && typeof result.wake_token === 'string' &&
+          typeof options.sendCallWake === 'function') {
+          try { await options.sendCallWake(result.wake_token, clock()); }
+          catch { /* Fail safe: relay retention remains authoritative. */ }
+        }
         return { accepted: true };
       }
       case 'callAck': {
@@ -310,5 +339,12 @@ export class RestStore {
       p_id: id, p_call: callId, p_content: content });
   }
   async callAck(owner, ids) { await this.query('rpc/lanu_call_ack', 'POST', { p_owner: owner, p_ids: ids }); }
+  async callWakeRegister(owner, token) {
+    return this.query('rpc/lanu_call_wake_register', 'POST', { p_owner: owner, p_token: token });
+  }
+  async callSendWake(owner, peer, id, callId, content) {
+    return this.query('rpc/lanu_call_send_wake', 'POST',
+      { p_owner: owner, p_peer: peer, p_id: id, p_call: callId, p_content: content });
+  }
 }
 
