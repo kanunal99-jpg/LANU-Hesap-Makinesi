@@ -22,7 +22,7 @@ class StorePublicationReadinessTest {
             "https://127.0.0.1/policy", "https://192.168.1.22/privacy",
             "https://[::1]/privacy", "https://intranet.local/policy",
             "https://privacy.internal/policy", "https://private.home.arpa/policy",
-            "https://privacy.example.com/policy", "https://policy.test/privacy",
+            "https://privacy.example/policy", "https://policy.test/privacy",
             "https://foo.invalid/policy", "https://one.localhost/privacy",
             "https://privacy.example.com:8080/policy",
             "https://privacy.example.com/policy?q=token",
@@ -58,7 +58,7 @@ class StorePublicationReadinessTest {
     }
 
     private fun complete() = Evidence(ownerVerified = true, supportVerified = true,
-        privacyPolicyUrl = "https://privacy.example/policy",
+        privacyPolicyUrl = "https://privacy.example.com/policy",
         retentionAndDeletionReviewed = true, dataSafetyReviewed = true,
         permissionsReviewed = true)
 }
