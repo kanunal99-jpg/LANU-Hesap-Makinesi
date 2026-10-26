@@ -59,3 +59,50 @@ test('upstream PostgREST errors remain generalized after bounded valid response'
     status: 503, message: 'Mesajlaşma sunucusu işlemi tamamlayamadı.'
   });
 });
+
+test('RestStore abort deadline fails closed on stalled PostgREST fetch', async () => {
+  let aborted = false;
+  const fetcher = async (_url, init) => new Promise((_resolve, reject) => {
+    init.signal.addEventListener('abort', () => {
+      aborted = true;
+      reject(new Error('remote secret must never leave server'));
+    }, { once: true });
+  });
+  const store = new RestStore('https://example.invalid', 'nonproduction-test-key', fetcher, 30);
+  await assert.rejects(store.query('lanu_events?limit=1'), error =>
+    error.status === 503 && error.message === 'Mesajlaşma sunucusu bağlantısı kullanılamıyor.' &&
+    !String(error).includes('remote secret'));
+  assert.equal(aborted, true);
+});
+
+test('RestStore keeps deadline across stalled streaming response bytes', async () => {
+  let aborted = false;
+  const fetcher = async (_url, init) => {
+    const stream = new ReadableStream({
+      start(controller) {
+        init.signal.addEventListener('abort', () => {
+          aborted = true;
+          controller.error(new Error('PostgREST stalled'));
+        }, { once: true });
+      }
+    });
+    return new Response(stream, { status: 200 });
+  };
+  const store = new RestStore('https://example.invalid', 'nonproduction-test-key', fetcher, 30);
+  await assert.rejects(store.query('lanu_events?limit=1'),
+    { status: 503, message: 'Mesajlaşma sunucusu yanıtı güvenli sınırları aştı.' });
+  assert.equal(aborted, true, 'Timeout must cover body reading, not only response headers');
+});
+
+test('RestStore completed response releases abort timer without changing 409 semantics', async () => {
+  let signal;
+  const store = new RestStore('https://example.invalid', 'nonproduction-test-key',
+    async (_url, init) => {
+      signal = init.signal;
+      return new Response(JSON.stringify({ detail: 'private server failure' }), { status: 409 });
+    }, 20);
+  await assert.rejects(store.query('rpc/lanu_call_send', 'POST', {}),
+    { status: 409, message: 'Kayıt çakıştı; tekrar deneyin.' });
+  await new Promise(resolve => setTimeout(resolve, 45));
+  assert.equal(signal.aborted, false, 'Completed request must clear the deadline timer');
+});
