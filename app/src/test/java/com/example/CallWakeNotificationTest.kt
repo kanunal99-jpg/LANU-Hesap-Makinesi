@@ -71,7 +71,7 @@ class CallWakeNotificationTest {
         assertFalse(CallWakePreferences.isEnabled(context))
     }
 
-    @Test fun callOnlyChannelUsesSystemRingtoneHighImportanceAndHidesLockedContent() {
+    @Test @Config(sdk = [29]) fun callOnlyChannelUsesSystemRingtoneHighImportanceAndHidesLockedContent() {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         CallWakeNotification.ensureChannel(manager)
         val channel = manager.getNotificationChannel(CallWakeNotification.CHANNEL_ID)
