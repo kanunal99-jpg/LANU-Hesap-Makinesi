@@ -30,13 +30,19 @@ object CallWakeTokenRefreshPolicy {
         register: suspend (String?) -> Unit
     ): Boolean {
         suspend fun finishOptOut(force: Boolean = false): Boolean {
-            // A signed revoke may have completed while an earlier token
-            // registration was still in flight. Even if the pending flag
-            // was cleared, force a compensating revoke after that late write.
+            // A signed revoke may have completed while an earlier positive
+            // registration was still in flight. Revoke that late write even
+            // when the UI has already cleared the old pending flag.
             val pending = CallWakePreferences.hasPendingRemoteRevoke(context)
             if (!force && !pending) return true
+            if (force && !pending) {
+                // Persist the *new* compensating revoke before network IO,
+                // otherwise a failed attempt could leave an unwanted remote
+                // token with no durable retry obligation.
+                if (!CallWakePreferences.disableAndQueueRemoteRevoke(context)) return false
+            }
             register(null)
-            return !pending || CallWakePreferences.acknowledgeRemoteRevoke(context)
+            return CallWakePreferences.acknowledgeRemoteRevoke(context)
         }
 
         if (!CallWakePreferences.isEnabled(context)) return finishOptOut()
