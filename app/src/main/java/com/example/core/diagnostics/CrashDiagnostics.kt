@@ -29,6 +29,36 @@ object CrashDiagnostics {
         else -> null
     }
 
+    /**
+     * Bounded and privacy-safe summary for a repeatedly crashing OEM device.
+     * Consumes only Android's reason code and event timestamp, never description,
+     * app trace streams, package labels or exception messages.
+     *
+     * The OS history is a sampled/recent window, not a lifetime crash count.
+     */
+    fun summarizeReasons(entries: List<Pair<Int, Long>>, now: Long): Map<String, Int> {
+        val result = linkedMapOf<String, Int>()
+        val seen = HashSet<Pair<Int, Long>>()
+        entries.take(40).forEach { (reason, timestamp) ->
+            if (!withinRetention(timestamp, now)) return@forEach
+            val label = safeReasonLabel(reason) ?: return@forEach
+            if (!seen.add(reason to timestamp)) return@forEach
+            result[label] = (result[label] ?: 0).coerceAtMost(39) + 1
+        }
+        return result
+    }
+
+    fun recentAbnormalCounts(context: Context, now: Long = System.currentTimeMillis()): Map<String, Int> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return emptyMap()
+        return runCatching {
+            val manager = context.getSystemService(ActivityManager::class.java)
+                ?: return@runCatching emptyMap()
+            val events = manager.getHistoricalProcessExitReasons(context.packageName, 0, 40)
+                .map { it.reason to it.timestamp }
+            summarizeReasons(events, now)
+        }.getOrDefault(emptyMap())
+    }
+
     fun mostRecentAbnormalExit(context: Context, now: Long = System.currentTimeMillis()): RecentExit? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
         return runCatching {
