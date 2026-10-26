@@ -1,5 +1,16 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 26.10.2026 — Ana dalın doğrulanmış yayını ve SDP tekrar güvenliği
+
+**Kanıt durumunu yeniden kontrol etme kuralı:** 25.10.2026 tarihli #459 ve açık #128 bilgisi, o tarihteki tarihsel kesittir; güncel durum yerine kullanılamaz. Yeni çalışmada repo HEAD/PR/CI/Release asset durumunun ayrıca doğrulanması esastır.
+
+- **Doğrulanmış merge:** [PR #128](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/pull/128) ile gerçek medya kontrollerinin durum/yaşam döngüsü; [PR #129](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/pull/129) ile kapanmış çağrıya geç SDP yanıtının gönderilmemesi ana dala birleştirildi. `main` SHA: `7ea3e2caa1b2f919d88bc444b24b392ab17bc3c1`.
+- **Doğrulanmış APK:** [CI #475](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/actions/runs/40264707545) bütün işleriyle başarılı; [Release #475](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/releases/tag/v1.1.0-signed.475) APK, SHA256 ve imza raporunu içerir. Public yeniden indirme ve hash kontrolü CI yayın işinde başarıyla tamamlandı. Fiziksel Samsung/Xiaomi yerinde güncelleme veya iki yönlü ses/video kabulü **değildir**.
+- **Açık sağlamlaştırma:** [PR #130](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/pull/130) doğrulanmış sinyalleşmede aynı SDP OFFER'ın farklı zarf/sinyal UUID'siyle tekrarını ayıklar. Aynı SDP ikinci bir ANSWER veya ikinci teklif kotasını tüketmemeli; gerçekten farklı ICE restart SDP'si yalnız bir kez kabul edilmeli. Sıfır ham SDP/IP logu, yalnız geçici bellekte SHA256 özeti; işlev unit/Robolectric ve Android kabul testleriyle kanıtlanmadan main/release'e alınamaz.
+- **Değişmez P0/P1 açıklar:** [#82](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/82) A55 çökme kökü, [#83](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/83) gerçek signing anahtarı dış yedek/geri yükleme, [#113](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/113) kayıpsız SQLCipher, [#114](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/114) Double Ratchet ve [#3](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/3) iki fiziksel cihaz/ENC kabulü. Otomatik veri sıfırlama, PIN zorlaması, ölçülmemiş dB, onaysız ücretli altyapı yasaktır.
+
+---
+
 ## 25.10.2026 — ANAYASA ÖNCELİKLİ SÜREKLİ SAĞLAMLAŞTIRMA VE GERİYE DÖNÜK DENETİM (KALICI KURAL)
 
 **Sahip talimatı:** "Devam; her zaman sağlamlaştır, yapılana dön bak, eksikleri tamamla." Yeni veya değişmiş kalite/süreç/güvenlik kuralı varsa **önce bu anayasa düzenlenir**, kaydedilir ve değişikliğin kendi kanıtı sağlanır; **ardından** üretim kodu/CI/Release üzerinde çalışma başlar. Her yeni çalışmada bu bölüm varsayılan ve bağlayıcıdır. Geçmişteki tamamlandı iddiaları en güncel commit, PR, CI, APK ve açık issue ile yeniden çapraz kontrol edilir.
