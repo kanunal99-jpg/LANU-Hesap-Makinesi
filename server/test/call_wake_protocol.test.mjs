@@ -142,6 +142,7 @@ test('failed OAuth refresh is not cached and the next safe attempt can recover',
     privateKeyEncoding:{format:'pem',type:'pkcs8'}
   });
   const credentials=JSON.stringify({
+    type:'service_account',
     project_id:'gen-lang-client-0658022317',
     client_email:'lanu-test@gen-lang-client-0658022317.iam.gserviceaccount.com',
     private_key:privateKey
