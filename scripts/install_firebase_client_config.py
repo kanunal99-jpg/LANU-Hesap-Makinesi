@@ -39,16 +39,27 @@ def install(output: pathlib.Path, encoded: str | None, *, raw_json: str | None =
     except (ValueError, UnicodeError, binascii.Error, json.JSONDecodeError) as error:
         raise ValueError("Invalid Firebase Android client configuration") from error
 
+    # Diagnose *format*, not data. This may execute with protected GitHub
+    # Secrets, so never print any supplied keys, values, project names, bytes,
+    # raw exception reprs, or hashes derived from the secret.
+    if isinstance(document, str):
+        raise ValueError("Firebase Secret holds a JSON-encoded string; paste the raw Android JSON object, not a quoted JSON string")
     if not isinstance(document, dict):
-        raise ValueError("Firebase project configuration must be an object")
+        raise ValueError("Firebase Secret must contain a top-level Android JSON object")
     project = document.get("project_info")
     clients = document.get("client")
-    # Safe diagnostics only: never print supplied project IDs, tokens, JSON
-    # content or private keys from GitHub Actions protected environment values.
     if document.get("type") == "service_account":
         raise ValueError("Service-account JSON is not Android google-services.json; keep server credentials only in Supabase Edge Secrets")
     if not isinstance(project, dict):
-        raise ValueError("Android google-services.json missing project_info; download Firebase Android client configuration")
+        if isinstance(document.get("projectId"), str) and (
+            "apiKey" in document or "appId" in document or "messagingSenderId" in document
+        ):
+            raise ValueError("GitHub Secret contains Firebase Web SDK config, not Android google-services.json")
+        if any(field in document for field in ("google-services.json", "content", "value", "config")):
+            raise ValueError("GitHub Secret contains a wrapper object, not raw Android google-services.json")
+        if isinstance(clients, list):
+            raise ValueError("GitHub Secret contains an incomplete Android JSON: top-level project_info is missing")
+        raise ValueError("GitHub Secret is not the top-level Android google-services.json object; replace its entire value with the downloaded file contents")
     if project.get("project_id") != EXPECTED_FIREBASE_PROJECT_ID:
         raise ValueError("Firebase Android project mismatch; expected " + EXPECTED_FIREBASE_PROJECT_ID)
     if (not isinstance(project.get("project_number"), str) or
