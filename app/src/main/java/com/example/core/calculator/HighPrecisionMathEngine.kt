@@ -273,8 +273,23 @@ object HighPrecisionMathEngine {
         return exp(exponent.multiply(ln(base, mc), mc), mc)
     }
 
+    /**
+     * BigDecimal can represent a gigantic exponent in a few bytes, yet
+     * remainder(360) and angle+90 can expand it into an unbounded coefficient.
+     * Examine scale/precision metadata in O(1) before trig arithmetic.
+     * This limit is a resource policy, not an accuracy guarantee.
+     */
+    private fun requireSupportedTrigMagnitude(angle: BigDecimal) {
+        if (angle.signum() == 0) return
+        val exponent = angle.precision().toLong() - angle.scale().toLong() - 1L
+        if (exponent !in -10_000L..10_000L) {
+            throw ArithmeticException("Trigonometric angle exponent out of supported range")
+        }
+    }
+
     // High-precision Trigonometric: sin
     fun sin(angle: BigDecimal, isDegrees: Boolean = true, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        requireSupportedTrigMagnitude(angle)
         val rad = if (isDegrees) {
             // Range reduce to [0, 360)
             val deg = angle.remainder(BigDecimal(360))
@@ -317,6 +332,7 @@ object HighPrecisionMathEngine {
 
     // High-precision Trigonometric: cos
     fun cos(angle: BigDecimal, isDegrees: Boolean = true, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        requireSupportedTrigMagnitude(angle)
         if (isDegrees) {
             val deg = angle.remainder(BigDecimal(360))
             val positiveDeg = if (deg.signum() < 0) deg.add(BigDecimal(360)) else deg
@@ -335,6 +351,7 @@ object HighPrecisionMathEngine {
 
     // High-precision Trigonometric: tan
     fun tan(angle: BigDecimal, isDegrees: Boolean = true, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        requireSupportedTrigMagnitude(angle)
         val cosVal = cos(angle, isDegrees, mc)
         // In radian mode, the PI constant and Taylor evaluation introduce
         // a tiny non-zero rounding residue at PI/2 (and odd multiples).
