@@ -115,7 +115,7 @@ actual="$(keytool -exportcert -rfc -alias lanu \
 # This proof uses only an isolated disposable JAR; it never modifies the
 # owner's keystore, logs a password, exports keys or uploads anything.
 # A matching public certificate alone is insufficient disaster recovery.
-printf 'LANU isolated signing recovery challenge\n' > "$scratch/proof.txt"
+printf '%s\n' 'LANU isolated signing recovery challenge' > "$scratch/proof.txt"
 jar cf "$scratch/challenge-unsigned.jar" -C "$scratch" proof.txt >/dev/null 2>&1 || {
   echo 'RECOVERY FAILED: cannot prepare offline signing challenge.' >&2
   exit 1
