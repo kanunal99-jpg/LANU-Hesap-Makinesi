@@ -6,6 +6,8 @@ Kullanıcı iki fiziksel cihazda gerçek sesli/görüntülü görüşmenin çal�
 
 Bu özellik **varsayılan olarak kapalıdır**. Yalnız mevcut kimliği olan kişinin gizli alan **Ayarlar → Gelen arama bildirimleri** ekranında kendi seçimiyle açılabilir. Android 13 ve sonraki sürümlerde işletim sistemi bildirim izni gerekir. Sesli/görüntülü INVITE dışındaki mesaj/sohbet/medya olaylarına bildirim **yoktur**.
 
+**Bildirime dokunmada ek güvenlik kapısı:** PendingIntent yalnız `CallWakeTapPolicy.ACTION` taşıyabilir. `MainActivity` soğuk açılışında ve `onNewIntent` ile sıcak/tek örnek açılışında bu eylemi gördüğünde `returnToCalculator()` çağırır: mevcut oturumu kilitler, yalnız hesap makinesini gösterir, bekleyen çağrı navigasyonunu temizler. Gizli alana girmek için kullanıcı tekrar `2011.` ve varsa PIN adımlarını izler. Normal launcher/OTA/dosya seçici dönüşünde bu özel kilit tetiklenmez. Bu düzeltme kullanıcının açık bir özel oturumdan hızla başka uygulamaya geçtiği, kilit zaman aşımı henüz dolmamış riskli durumu da kapsar.
+
 Bildirim şunları göstermez: kişi adı/telefon/kod/kimlik, şifreli mesaj veya SDP, IP, PIN, gizli anahtar. Metin sadece **Gelen arama** / **LANU uygulamasını açarak kontrol edin**. Kilit ekranı içeriği `VISIBILITY_SECRET`. Bildirime basınca **hesap makinesi** açılır; kullanıcı **2011.** ve gerekiyorsa PIN/biometrik doğrulamadan geçer. Çağrı kendiliğinden yanıtlanmaz; arka planda mikrofon/kamera açılmaz.
 
 ## Üretime geçiş sırası — sırları repo/issue/CI'ye yazmayın
