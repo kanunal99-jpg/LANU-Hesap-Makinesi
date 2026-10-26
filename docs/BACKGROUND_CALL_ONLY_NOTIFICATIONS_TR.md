@@ -1,5 +1,15 @@
 # LANU — Yalnız gelen sesli/görüntülü çağrı için arka plan bildirimi
 
+## 26.10.2026 — Arka planda çağrının fark edilmesi: görsel + zil sesi
+
+Kullanıcı, başka uygulamadayken/gizli alan açık değilken zaten **görsel gelen arama işareti** gördüğünü fakat cihaz normal sesli moddayken **hiç zil sesi duymadığını** bildirdi. Kabul hedefi: alıcının LANU gizli alanını açık tutması veya sürekli çalışan mikrofon/kamera servisi bulundurması gerekmeksizin, gerçek ses/video INVITE için **FCM veri uyarısı → Android yüksek önem bildirim kanalı → ekranda görsel uyarı + cihazın varsayılan telefon zil sesi**. Mevcut FCM opt-in, E2EE, hesap makinesi 2011./PIN, replay/expiry/rate-limit ve mesaja/fotoğrafa bildirim göndermeme ilkeleri değişmez.
+
+Android 8+ kurulu bildirimin `lanu_private_calls_v1` kanalındaki ses yapılandırması geriye dönük değiştirilemediği için yeni sürümlü kanal `lanu_private_calls_ringing_v2` kullanır. Sistem telefon zil sesi (RingtoneManager TYPE_RINGTONE), `USAGE_NOTIFICATION_RINGTONE`, `IMPORTANCE_HIGH` ve kilit ekranı `VISIBILITY_SECRET` uygulanır. Android 7 ve altında kanalsız bildirim doğrudan ses URI'sini alır. Eski kanalı kullanıcı sessize aldıysa / önemini düşürdüyse sessizlik tercihi korunur. Kullanıcı **Gizli alan → Ayarlar → Gelen arama zil sesini ayarla** düğmesiyle işletim sisteminin kanal ayarını açabilir ve sesini kendisi seçebilir.
+
+Bu bir sistem bildirimi sesidir; **sürekli çalan telefon zili veya tam ekran çağrı ekranı garantisi değildir**. Android sesli/titreşim/sessiz/DND, bildirim izni, OEM kısıtları ve kullanıcı kanalı sessize aldıysa bunlar aşılmaz. Tek seferlik sesin yeterli olmadığı tam çağrı zili/cevapla-reddet UX'i ayrı güvenlik, yaşam döngüsü ve fiziksel cihaz kabulü gerektirir; son sürüme dahil edilmiş sayılmaz. Gerçek cihazda Samsung A55 ve diğer telefonda ekran kilitli/başka uygulamada ve sesli/sessiz/DND senaryolarında dinlenebilir ses kanıtı gereklidir.
+
+---
+
 ## Kapsam ve varsayılan gizlilik
 
 Kullanıcı iki fiziksel cihazda gerçek sesli/görüntülü görüşmenin çalıştığını doğruladı. Bu ayrı bir kullanıcı saha beyanıdır; **arka plan bildirimlerinin** iki telefonda çalıştığı henüz kanıtlanmış değildir.
