@@ -1,5 +1,14 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 26.10.2026 — Arka plan arama bildirimi iptalinin kalıcı güvenli başarısızlık yönetimi
+
+- **Risk:** Kullanıcı gelen çağrı bildirimini kapattığında cihazda opt-in hemen sıfırlansa bile çevrimdışı/503 durumunda uzak FCM cihaz tokenı kalabilir. FCM sunucusunun iptal isteğini almadığı kullanıcıya görünür olmalı; uzak saklama konusunda gerçekte gerçekleşmemiş iptal vaat edilmez. Güvenlik ve mahremiyet gereği kullanıcı çağrı verileri, kimlik, PIN veya E2EE anahtarları değiştirilmez.
+- **Uygulama kararı:** Yerel opt-out **önce** kalıcı `enabled=false, pending_remote_revoke=true` olarak atomik yazılır; cihazda FCM otomatik başlangıç kapatılır. Yalnız mevcut kimlikle imzalı `callWakeToken(null)` başarılı dönünce bekleyen iptal işareti silinir. Sunucu/kimlik yokluğu halinde işaret korunur; kullanıcı güvenli alanda ağ gelince iptali yeniden deneyebilir. Ağ hatası/senkronizasyon başarılı olarak sunulmaz. İsteğe bağlı bildirim yeniden etkinleştirmeden önce bekleyen uzak iptal tamamlanır; böylece gecikmiş iptal yeni cihaz tokenını yanlışlıkla silmez.
+- **Kabul:** Android/Robolectric tercihin varsayılan kapalı olduğunu, kapatmanın kalıcı bekleyen iptal bıraktığını, hata halinde bekleyen işaretin silinmediğini ve başarılı uzaktan onaydan sonra silindiğini doğrular. Sohbet/medya bildirimine izin verilmez; cihaz verileri silinmez, ücretli servis devreye alınmaz. Android testleri, Lint, R8 ve API34 main CI + Release APK/public checksum ayrı tamamlanır. **FCM cihaz yapılandırması ve canlı backend onayı olmadan uçtan uca arka plan çağrı kabulü tamamlanmış değildir.**
+
+---
+
+
 ## 26.10.2026 — Korunan CI Firebase istemci yapılandırması (arka plan çağrı uyandırma)
 
 - `app/google-services.json` hiçbir zaman GitHub commit, yayın/artifact eki, açık PR veya logda bulunamaz. `.gitignore` ilgili yolu korur; Firebase **HTTP v1 service-account private key** GitHub'daki istemci sırrıyla ASLA karıştırılamaz: sadece Supabase Edge Secret içindir.
