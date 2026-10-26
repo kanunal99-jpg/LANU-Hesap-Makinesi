@@ -612,7 +612,8 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                     onExportFullBackup = ::createFullBackup,
                                     onChooseFullBackup = ::chooseFullBackup,
                                     onRestoreFullBackup = ::restoreFullBackup,
-                                    onCancelFullRestore = { fullRestoreUri = null }
+                                    onCancelFullRestore = { fullRestoreUri = null },
+                                    callPushRepository = container.communicationRepository
                                 )
                             }
                             is Screen.ChatDetail -> {
