@@ -48,6 +48,51 @@ object CrashDiagnostics {
         return result
     }
 
+    /** Bounded OS-only indicator; this is NOT a root-cause diagnosis. */
+    enum class RepeatedExitRisk(val label: String) {
+        WITHIN_HOUR("Son bir saat içinde en az üç çökme veya ANR kaydı var."),
+        WITHIN_DAY("Son 24 saatte en az üç çökme veya ANR kaydı var.")
+    }
+
+    /**
+     * Ignores memory pressure and user-requested exits when looking for a
+     * repeatable app crash/ANR burst. Accepts only numeric system reason codes
+     * and times; reads no OS description, ANR traces, accounts or private data.
+     */
+    fun assessRepeatedCrashRisk(
+        entries: List<Pair<Int, Long>>, now: Long
+    ): RepeatedExitRisk? {
+        val crashing = setOf(
+            ApplicationExitInfo.REASON_CRASH,
+            ApplicationExitInfo.REASON_CRASH_NATIVE,
+            ApplicationExitInfo.REASON_ANR
+        )
+        val recent = entries.take(40).distinct().filter { (reason, timestamp) ->
+            reason in crashing && withinRetention(timestamp, now)
+        }
+        val hourly = recent.count { now - it.second <= TimeUnit.HOURS.toMillis(1) }
+        val daily = recent.count { now - it.second <= TimeUnit.DAYS.toMillis(1) }
+        return when {
+            hourly >= 3 -> RepeatedExitRisk.WITHIN_HOUR
+            daily >= 3 -> RepeatedExitRisk.WITHIN_DAY
+            else -> null
+        }
+    }
+
+    fun recentCrashRisk(
+        context: Context, now: Long = System.currentTimeMillis()
+    ): RepeatedExitRisk? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
+        return runCatching {
+            val manager = context.getSystemService(ActivityManager::class.java)
+                ?: return@runCatching null
+            assessRepeatedCrashRisk(
+                manager.getHistoricalProcessExitReasons(context.packageName, 0, 40)
+                    .map { it.reason to it.timestamp }, now
+            )
+        }.getOrNull()
+    }
+
     fun recentAbnormalCounts(context: Context, now: Long = System.currentTimeMillis()): Map<String, Int> {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return emptyMap()
         return runCatching {
