@@ -34,6 +34,8 @@ object CallWakePreferences {
 /** Reject stale, unsupported or arbitrary FCM payloads without fetching private data. */
 object CallWakePolicy {
     const val TYPE = "lanu_call_wake_v1"
+    // Process-local only: the private foreground host already rings by E2EE.
+    @Volatile var privateAreaVisible: Boolean = false
     // Duplicate wake hints should never repeatedly ring. Only timestamp
     // hashes stay in process RAM; no peer/call metadata is persisted.
     private val recent = LinkedHashSet<Long>()
@@ -54,7 +56,8 @@ object CallWakeNotification {
     private const val NOTIFICATION_ID = 8129
 
     fun show(context: Context, data: Map<String, String>, now: Long = System.currentTimeMillis()): Boolean {
-        if (!CallWakePreferences.isEnabled(context) || !CallWakePolicy.eligible(data, now)) return false
+        if (CallWakePolicy.privateAreaVisible || !CallWakePreferences.isEnabled(context) ||
+            !CallWakePolicy.eligible(data, now)) return false
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return false
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return false
