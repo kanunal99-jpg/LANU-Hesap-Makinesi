@@ -2,7 +2,7 @@
 # Uses a GENERATED DUMMY key. Never reads the owner's real signing directory.
 set -Eeuo pipefail
 umask 077
-for command in script gpg tar keytool openssl mktemp grep cmp; do
+for command in script gpg tar keytool openssl mktemp grep cmp jar jarsigner; do
   command -v "$command" >/dev/null || { echo "CI dependency missing: $command" >&2; exit 1; }
 done
 root="$(cd "$(dirname "$0")/.." && pwd)"
