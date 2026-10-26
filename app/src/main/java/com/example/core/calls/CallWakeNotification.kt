@@ -52,11 +52,13 @@ object CallWakeNotification {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return false
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return false
 
-        val channel = NotificationChannel(CHANNEL_ID, "LANU gelen çağrılar", NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "Yalnızca isteğe bağlı gelen sesli/görüntülü arama uyarıları"
-            lockscreenVisibility = android.app.Notification.VISIBILITY_SECRET
+        if (Build.VERSION.SDK_INT >= 26) {
+            val channel = NotificationChannel(CHANNEL_ID, "LANU gelen çağrılar", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Yalnızca isteğe bağlı gelen sesli/görüntülü arama uyarıları"
+                lockscreenVisibility = android.app.Notification.VISIBILITY_SECRET
+            }
+            manager.createNotificationChannel(channel)
         }
-        if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(channel)
 
         // No call ID/peer ID/hidden-navigation extras: opening the notification
         // always follows the ordinary calculator -> 2011. -> optional PIN gate.
