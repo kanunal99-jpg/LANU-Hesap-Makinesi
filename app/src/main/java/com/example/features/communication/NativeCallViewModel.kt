@@ -33,7 +33,7 @@ class NativeCallViewModel(
     private val _notice = MutableStateFlow<String?>(null)
     val notice = _notice.asStateFlow()
     private class Session(val id: String, val peer: CallPeer, val video: Boolean, val outgoing: Boolean) {
-        var restarting = false
+        val reconnectBudget = CallReconnectBudget()
         var offers = 0
         // Keep only a hash, never SDP/IP metadata or raw offer contents.
         // A retransmission with a fresh envelope UUID is still the same OFFER.
@@ -270,8 +270,7 @@ class NativeCallViewModel(
             } else if (_state.value.phase == NativeCallPhase.CONNECTED && !value.transportConnected) {
                 _state.value = _state.value.copy(phase = NativeCallPhase.RECONNECTING)
                 deadline(current, 25_000, "Ağ bağlantısı kesildi.")
-                if (current.outgoing && !current.restarting) {
-                    current.restarting = true
+                if (current.outgoing && current.reconnectBudget.claim()) {
                     pipeline = guarded(current) {
                         val engine = _media.value ?: return@guarded
                         val offerSdp = engine.offer(restart = true)
