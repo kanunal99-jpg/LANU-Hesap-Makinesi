@@ -19,6 +19,7 @@ class CallRtpEvidenceTracker {
     private var lastSent: Long? = null
     private var lastRxProgressAt: Long? = null
     private var lastTxProgressAt: Long? = null
+    private var lastAcceptedSnapshotSequence = 0L
 
     @Synchronized fun updateTransport(connected: Boolean): CallMediaEvidence {
         if (transportConnected != connected) {
@@ -34,9 +35,16 @@ class CallRtpEvidenceTracker {
 
     @Synchronized fun observe(
         snapshotEpoch: Long, received: Long, sent: Long,
-        nowMs: Long = System.nanoTime() / 1_000_000L
+        nowMs: Long = System.nanoTime() / 1_000_000L,
+        snapshotSequence: Long? = null
     ): CallMediaEvidence? {
         if (snapshotEpoch != epoch) return null
+        // Async WebRTC getStats calls may finish out of order inside the SAME
+        // ICE epoch. A stale callback must never roll RTP baselines backward.
+        if (snapshotSequence != null) {
+            if (snapshotSequence <= lastAcceptedSnapshotSequence) return null
+            lastAcceptedSnapshotSequence = snapshotSequence
+        }
         if (!transportConnected) return CallMediaEvidence()
         if (received < 0L || sent < 0L) return CallMediaEvidence(true)
 
@@ -74,5 +82,6 @@ class CallRtpEvidenceTracker {
         lastSent = null
         lastRxProgressAt = null
         lastTxProgressAt = null
+        lastAcceptedSnapshotSequence = 0L
     }
 }

@@ -15,6 +15,7 @@ import org.webrtc.audio.JavaAudioDeviceModule
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -66,6 +67,7 @@ class NativeCallEngine(
     private var videoEnabled = false
     // Thread-safe evidence tracker rejects cumulative RTP packets from prior ICE epochs.
     private val rtpEvidence = CallRtpEvidenceTracker()
+    private val statsRequestSequence = AtomicLong()
     @Volatile private var lastCandidateAt = 0L
     private var renderers: CallVideoRendererBindings? = null
 
@@ -328,6 +330,7 @@ class NativeCallEngine(
         // Capture transport epoch BEFORE async getStats, not inside its callback.
         // Otherwise a late old result could be attributed to a newer connection.
         val snapshotEpoch = rtpEvidence.currentEpoch()
+        val snapshotSequence = statsRequestSequence.incrementAndGet()
         connection?.getStats { report ->
             if (closing.get()) return@getStats
             var received = 0L; var sent = 0L
@@ -337,7 +340,8 @@ class NativeCallEngine(
                 if (stat.type == "inbound-rtp") received += (stat.members["packetsReceived"] as? Number)?.toLong() ?: 0L
                 if (stat.type == "outbound-rtp") sent += (stat.members["packetsSent"] as? Number)?.toLong() ?: 0L
             }
-            rtpEvidence.observe(snapshotEpoch, received, sent)?.let(evidence)
+            rtpEvidence.observe(snapshotEpoch, received, sent,
+                snapshotSequence = snapshotSequence)?.let(evidence)
         }
     }
     private val observer = object : EmptyPeerObserver() {
