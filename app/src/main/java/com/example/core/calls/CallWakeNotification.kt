@@ -21,9 +21,28 @@ import com.example.R
 object CallWakePreferences {
     private const val STORE = "lanu_call_wake_v1"
     private const val OPTED_IN = "opted_in"
-    fun isEnabled(context: Context): Boolean = try {
+    private const val PENDING_REVOKE = "pending_remote_revoke"
+
+    // SharedPreferences contains only non-secret consent flags. Never store
+    // the remote device token or E2EE identity to retry revocation.
+    fun hasPendingRemoteRevoke(context: Context): Boolean = try {
         context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
-            .getBoolean(OPTED_IN, false)
+            .getBoolean(PENDING_REVOKE, false)
+    } catch (_: Exception) { true } // Fail closed: do not re-enable until checked.
+
+    fun disableAndQueueRemoteRevoke(context: Context): Boolean = try {
+        context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+            .edit().putBoolean(OPTED_IN, false).putBoolean(PENDING_REVOKE, true).commit()
+    } catch (_: Exception) { false }
+
+    fun acknowledgeRemoteRevoke(context: Context): Boolean = try {
+        context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+            .edit().putBoolean(PENDING_REVOKE, false).commit()
+    } catch (_: Exception) { false }
+
+    fun isEnabled(context: Context): Boolean = try {
+        val prefs = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+        prefs.getBoolean(OPTED_IN, false) && !prefs.getBoolean(PENDING_REVOKE, false)
     } catch (_: Exception) { false }
     fun setEnabled(context: Context, enabled: Boolean): Boolean = try {
         context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
