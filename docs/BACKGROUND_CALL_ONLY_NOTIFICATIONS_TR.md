@@ -1,5 +1,36 @@
 # LANU — Yalnız gelen sesli/görüntülü çağrı için arka plan bildirimi
 
+## 26.10.2026 — Seçilen Firebase projesi: `gen-lang-client-0658022317`
+
+**Maliyet/silme kuralı:** Yeni Google/Firebase projesi oluşturulmayacak. Kullanıcının seçtiği mevcut `gen-lang-client-0658022317` kullanılacak. Diğer Gemini / Willy Kilo / Google Cloud projeleri silinmeyecek; bunları silmek Firebase entegrasyonu için gereksiz ve başka uygulamalar için riskli. Kullanıcı onayı olmadan ücretli plan veya gizli veri aktarımı yok.
+
+### Adım 1 — Android uygulamasını Firebase'e kaydet
+
+- <https://console.firebase.google.com/u/0/project/gen-lang-client-0658022317/settings/general> → **Genel** → **Uygulamalarınız** → Android simgesi (`</>` web uygulaması **değil**).
+- **Android paket adı:** `com.aistudio.lanucalc.kxwzqm` (büyük/küçük harf birebir). Görünen uygulama takma adı `LANU Hesap Makinesi` olabilir. Eski paket adı `com.lanu.sesli` veya `com.example` **yanlıştır**.
+- Aynı uygulama bu Firebase projesinde zaten kayıtlıysa yeni kayıttan ziyade **mevcut Android uygulamasını** seçin.
+- Android uygulamasının **google-services.json** dosyasını indirin. Bu Android istemci dosyasıdır; **Service Accounts / Generate new private key** dosyası ile karıştırmayın.
+
+### Adım 2 — Android JSON'u GitHub Secrets'a kur
+
+- Android telefonda Base64 dönüştürmeyi gerektirmemek için derleme hattı **ham JSON** veya eski Base64 Secret'ını kabul eder. Sadece **birini** kullanın.
+- Doğrudan <https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/settings/secrets/actions> → **New repository secret** → ad: `LANU_FIREBASE_CLIENT_JSON` → değer: indirdiğiniz **google-services.json** dosyasının eksiksiz metni. İsteğe bağlı eski yöntem: `LANU_FIREBASE_CLIENT_JSON_BASE64` (base64). **İki Secret aynı anda tanımlanırsa derleme fail-closed olur.**
+- Dosyayı repoya commit, public issue, CI log, sohbet veya Release'e koymayın. Testli doğrulayıcı Android paketinin ve Firebase proje kimliğinin **birebir** eşleşmesini zorunlu tutar.
+- Yeni kod ana dal CI'ına geçip Secret yerleştirildikten sonra **yeni trusted main** CI çalıştırıp özellikle `Install verified Firebase client config on trusted release build` adımındaki gerçek **`secure config installed`** kaydını doğrulayın. **Unit test** içindeki benzer satır yeterli değildir. Yanlış proje/Android paketinde release durmalı.
+
+### Adım 3 — Supabase yalnız sunucu FCM kimliği
+
+- Aynı Firebase projesinde **Cloud Messaging → Firebase Cloud Messaging API (HTTP v1)** etkin olmalı.
+- <https://console.firebase.google.com/u/0/project/gen-lang-client-0658022317/settings/serviceaccounts> → yalnız **server-side** Firebase service account erişimi/kimliği. En az yetkiyi tercih edin. Özel anahtar JSON'u varsa sadece Supabase proje `talhknjcjaijqiqwdyhf` → **Edge Function Secrets** alanına `LANU_FCM_SERVICE_ACCOUNT_JSON` ismiyle eklenebilir. Kullanıcıdan dosyayı sohbete veya GitHub'a göndermesi istenmez. Güvenlik ve mümkünse anahtarsız kimlik doğrulama tercih edilir.
+- Edge v5 ve `call_only_push_opt_in_20261026` migration varlığı **otomatik olarak FCM yetkilendirmesinin çalıştığını göstermez**. Alıcı token kaydı ve gerçek uyanma testi ayrıca zorunludur.
+
+### Adım 4 — Fiziksel kabul ve sürüm
+
+- Ana dalın yeni SHA'sında Android unit/Robolectric/Lint/R8 + API34, public Release, imza ve APK SHA doğrulandıktan sonra güncel APK **üstüne** kurulur; veri silinmez.
+- Samsung A55 ve ikinci cihazın gizli alan Ayarlar'ında **Yalnız arama bildirimlerini etkinleştir** düğmesine basıldığında `Firebase henüz yapılandırılmamış` hatası kalkmalı, signed server kaydı başarılı olmalı; Supabase `lanu_call_wake_devices` sayısı mevcut kullanıcı verisi/FCM tokenı ifşa edilmeden doğrulanmalı.
+- Sadece **sesli ve görüntülü çağrı** için normal uygulama arka planı/kilitli/süreç ölmüşken görsel+işitilebilir çağrı uyarısı; metin/fotoğraf/medya için Android sistem bildirimi **yok**. Kullanıcı sesli/sessiz/DND, çağrı iptali, 2011./PIN, ekranda gizlilik ve gerçek görüşme bağlantısı ile test etmeli. **Zorla durdur** davranışını %100 vaat etmeyin.
+
+
 ## 26.10.2026 — Kesin kullanıcı senaryosu / mesajlardan bütünüyle ayrı gelen çağrı
 
 **Ekranda LANU olmasa da arama ulaşmalı.** LANU hesap makinesinde, başka uygulama açıkken, telefon kilitliyken, uygulama normal şekilde arka plana alınmışken veya Android normal bellek yönetimiyle LANU işlemini durdurmuşken; kullanıcının izin verdiği **sesli veya görüntülü çağrı** için sistem çağrı bildirimi ve telefon sesli modda ise uygun zil çalmalıdır. Tek seferlik sessiz ikon/görsel uyarı **kabul değildir**. Uygulama açılıp gizli alan önceden görüntülenmedikçe çağrı ulaşamıyorsa bu başarısızdır.
