@@ -40,10 +40,18 @@ hash_actual="${hash_actual%% *}"
 [[ "$hash_actual" == "$hash_expected" ]] || {
   echo 'Release APK SHA-256 mismatch; refusing upgrade.' >&2; exit 1;
 }
-[[ $(grep -c '^signing_mode=stable$' "$signer_metadata" || true) == 1 &&
-   $(grep -c '^apk=app-debug.apk$' "$signer_metadata" || true) == 1 &&
-   $(grep -Ec '^certificate_sha256=[0-9a-f]{64}$' "$signer_metadata" || true) == 1 ]] || {
-  echo 'Release signer metadata does not prove stable signing.' >&2; exit 1;
+# Reject ambiguous or attacker-extended metadata BEFORE checking individual
+# values. Duplicating certificate_sha256 previously triggered a weaker error
+# first, leaving inconsistent validation for conflicting signing evidence.
+# Exactly four complete recognized lines, with one occurrence of each key.
+[[ "$(wc -l < "$signer_metadata")" -eq 4 ]] &&
+  [[ "$(grep -Ec '^(apk=app-debug\.apk|signing_mode=stable|certificate_sha256=[0-9a-f]{64}|upgrade_verified_on_device=(true|false))$' "$signer_metadata" || true)" -eq 4 ]] &&
+  [[ "$(grep -c '^signing_mode=stable$' "$signer_metadata" || true)" -eq 1 ]] &&
+  [[ "$(grep -c '^apk=app-debug.apk$' "$signer_metadata" || true)" -eq 1 ]] &&
+  [[ "$(grep -Ec '^certificate_sha256=[0-9a-f]{64}$' "$signer_metadata" || true)" -eq 1 ]] &&
+  [[ "$(grep -Ec '^upgrade_verified_on_device=(true|false)$' "$signer_metadata" || true)" -eq 1 ]] || {
+  echo 'Ambiguous or unexpected APK signer metadata; refusing upgrade.' >&2
+  exit 1
 }
 pinned="$(sed -nE 's/^certificate_sha256=([0-9a-f]{64})$/\1/p' "$signer_metadata")"
 
