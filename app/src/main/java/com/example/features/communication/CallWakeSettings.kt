@@ -90,11 +90,22 @@ fun CallWakeSettings(repository: CommunicationRepository) {
             busy = false
             return
         }
+        // The server can accept the token and Android can kill the process
+        // before a local opt-in commit. Persist a recovery marker first.
+        if (!CallWakePreferences.beginRemoteRegistration(context)) {
+            pendingRevoke = CallWakePreferences.hasPendingRemoteRevoke(context)
+            status = "Bildirim kaydı başlatılamadı; bekleyen sunucu iptalini kontrol edin."
+            busy = false
+            return
+        }
         try {
             FirebaseMessaging.getInstance().isAutoInitEnabled = true
             FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
                 val token = if (task.isSuccessful) task.result else null
                 if (token.isNullOrBlank()) {
+                    // No signed registration request was sent: safe to clear.
+                    if (!CallWakePreferences.abandonUnsentRegistration(context))
+                        pendingRevoke = true
                     FirebaseMessaging.getInstance().isAutoInitEnabled = MessageWakePreferences.isEnabled(context)
                     status = "Bildirim cihaz kaydı alınamadı. Bağlantınızı kontrol edin."
                     busy = false
@@ -102,7 +113,7 @@ fun CallWakeSettings(repository: CommunicationRepository) {
                     scope.launch {
                         try {
                             repository.registerCallWakeToken(token)
-                            check(CallWakePreferences.setEnabled(context, true)) { "Yerel izin kaydedilemedi" }
+                            check(CallWakePreferences.completeRemoteRegistration(context)) { "Yerel izin kaydedilemedi" }
                             enabled = true
                             status = "Yalnız gelen sesli/görüntülü arama uyarıları etkin."
                         } catch (_: Exception) {
@@ -121,6 +132,9 @@ fun CallWakeSettings(repository: CommunicationRepository) {
                 }
             }
         } catch (_: Exception) {
+            // Synchronous Firebase setup failed before any signed server write.
+            if (!CallWakePreferences.abandonUnsentRegistration(context))
+                pendingRevoke = true
             runCatching { FirebaseMessaging.getInstance().isAutoInitEnabled = MessageWakePreferences.isEnabled(context) }
             status = "Firebase çağrı bildirim servisi kullanılamıyor."
             busy = false
