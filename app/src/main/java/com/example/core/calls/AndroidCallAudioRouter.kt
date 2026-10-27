@@ -156,6 +156,19 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
                         val route = pendingCommunicationRoute ?: return@synchronized
                         clearPendingCommunication()
                         _state.value = State(true, route, null, _state.value.available, "ROUTED")
+                    } else if (pendingCommunicationDeviceId == null &&
+                        _state.value.status == "ROUTED" && _state.value.selected != null) {
+                        // Android may switch an already-confirmed output away
+                        // from this app without adding/removing hardware.
+                        // Do not leave a stale "Bluetooth connected" label.
+                        val observedId = try { audioManager.communicationDevice?.id }
+                            catch (_: RuntimeException) { null }
+                        if (!CallCommunicationDeviceConfirmationPolicy.confirmedAvailableRoute(
+                                device?.id, observedId, _state.value.selected,
+                                communicationInventory(), hasBluetoothAccess()
+                            )) {
+                            selectRoute() // re-confirm or show bounded pending/default
+                        }
                     }
                     // Never claim an old/unrelated callback confirmed this route.
                 }
