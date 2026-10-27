@@ -95,8 +95,8 @@ class CallMediaControlTransactionTest {
     @Test fun noOpNeverTouchesMediaDeviceOrTrack() {
         CallMediaControlTransaction.apply(
             previous = false, requested = false,
-            setDevice = { fail("Unnecessary native mutation") },
-            setTrack = { fail("Unnecessary track mutation") }
+            setDevice = { throw AssertionError("Unnecessary native mutation") },
+            setTrack = { throw AssertionError("Unnecessary track mutation") }
         )
     }
 }
