@@ -133,9 +133,15 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
         checkRegistration()
         if (syncJob?.isActive == true) return
         syncJob = viewModelScope.launch {
+            var failures = 0
             while (isActive && syncOwners.isNotEmpty()) {
                 synchronize()
-                delay(5000L)
+                // Foreground-only adaptive backoff. A failed network must not
+                // be polled every five seconds or wake the phone in background.
+                failures = if (_networkState.value == NetworkState.ONLINE) 0
+                    else (failures + 1).coerceAtMost(4)
+                delay(if (failures == 0) 5000L
+                    else minOf(60_000L, 5000L * (1 shl failures)))
             }
         }
     }
