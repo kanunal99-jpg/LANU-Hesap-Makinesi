@@ -50,6 +50,58 @@ class MessageWakeNotificationTest {
         assertFalse(MessageWakePreferences.isEnabled(context))
     }
 
+    @Test fun killedBetweenMessageServerWriteAndConsentNeedsSignedRevokeWithoutToken() = runBlocking {
+        assertFalse(MessageWakePreferences.isEnabled(context))
+        assertTrue(MessageWakePreferences.beginRemoteRegistration(context))
+        // Simulate process death after the registered server write. The
+        // preference must remain fail-closed and recover without token fetch.
+        assertFalse(MessageWakePreferences.isEnabled(context))
+        assertTrue(MessageWakePreferences.hasPendingRemoteRevoke(context))
+        assertFalse("Local helper cannot bypass in-flight cleanup",
+            MessageWakePreferences.enable(context))
+        var fetched = 0
+        val calls = mutableListOf<String?>()
+        assertTrue(MessageWakeTokenRefreshPolicy.reconcile(context,
+            { fetched++; "should-never-request-a-token" }, { calls.add(it) }))
+        assertEquals(0, fetched)
+        assertEquals(listOf<String?>(null), calls)
+        assertFalse(MessageWakePreferences.isEnabled(context))
+        assertFalse(MessageWakePreferences.hasPendingRemoteRevoke(context))
+    }
+
+    @Test fun messageOptInIsAtomicAndRetryDoesNotDisableIndependentCalls() = runBlocking {
+        assertTrue(CallWakePreferences.setEnabled(context, true))
+        assertFalse(MessageWakePreferences.completeRemoteRegistration(context))
+        assertTrue(MessageWakePreferences.beginRemoteRegistration(context))
+        assertTrue(CallWakePreferences.isEnabled(context))
+        assertFalse(MessageWakePreferences.isEnabled(context))
+        assertTrue(MessageWakePreferences.completeRemoteRegistration(context))
+        assertTrue(MessageWakePreferences.isEnabled(context))
+        assertTrue(CallWakePreferences.isEnabled(context))
+
+        assertTrue(MessageWakePreferences.disableAndQueueRemoteRevoke(context))
+        val calls = mutableListOf<String?>()
+        assertTrue(MessageWakeTokenRefreshPolicy.reconcile(context,
+            { throw AssertionError("No token lookup during opt-out") },
+            { calls.add(it) }))
+        assertEquals(listOf<String?>(null), calls)
+        assertFalse(MessageWakePreferences.isEnabled(context))
+        assertTrue(CallWakePreferences.isEnabled(context))
+    }
+
+    @Test fun noTokenBeforeRemoteWriteCanAbortButNeverErasePendingOptOut() {
+        assertTrue(MessageWakePreferences.beginRemoteRegistration(context))
+        assertTrue(MessageWakePreferences.abandonUnsentRegistration(context))
+        assertFalse(MessageWakePreferences.hasPendingRemoteRevoke(context))
+        assertFalse(MessageWakePreferences.isEnabled(context))
+
+        assertTrue(MessageWakePreferences.beginRemoteRegistration(context))
+        assertTrue(MessageWakePreferences.disableAndQueueRemoteRevoke(context))
+        assertTrue(MessageWakePreferences.abandonUnsentRegistration(context))
+        assertTrue(MessageWakePreferences.hasPendingRemoteRevoke(context))
+        assertFalse(MessageWakePreferences.completeRemoteRegistration(context))
+    }
+
     @Test fun onlyTwoNonsensitiveFieldsAndFreshEventAreAccepted() {
         val valid=mapOf("type" to MessageWakePolicy.TYPE,"at" to now.toString())
         assertTrue(MessageWakePolicy.eligible(valid, now))
