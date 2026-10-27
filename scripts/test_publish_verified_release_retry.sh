@@ -62,6 +62,23 @@ bash "$root/scripts/publish_verified_release_retry.sh" "v1.1.0-signed.988" "dumm
 [[ "$(wc -l < "$MOCK_STATE/creates")" == 1 ]] || exit 1
 
 reset_state
+export MOCK_SCENARIO="success"
+bash "$root/scripts/publish_verified_release_retry.sh" "v1.2.0-signed.990" "verified 1.2" > "$tmp/out" 2>&1
+[[ -f "$MOCK_STATE/created" ]] || exit 1
+[[ "$(wc -l < "$MOCK_STATE/creates")" == 1 ]] || exit 1
+
+# Stable 1.2 is allowed; unknown/newer tags and debug labels must never
+# be published by a malformed or unreviewed workflow change.
+for invalid in "v1.2.0-debug.991" "v1.3.0-signed.991" "v2.0.0-signed.991" "v1.1.0-debug.991" "../v1.2.0-signed.991"; do
+  reset_state
+  if bash "$root/scripts/publish_verified_release_retry.sh" "$invalid" "not-allowed" > "$tmp/out" 2>&1; then
+    echo "Unexpected unapproved release tag was accepted: $invalid" >&2
+    exit 1
+  fi
+  [[ ! -f "$MOCK_STATE/created" ]] || exit 1
+done
+
+reset_state
 export MOCK_SCENARIO="wrong_target"
 touch "$MOCK_STATE/created"
 printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n' > "$MOCK_STATE/target"
@@ -70,4 +87,4 @@ if bash "$root/scripts/publish_verified_release_retry.sh" "v1.1.0-signed.989" "d
   exit 1
 fi
 [[ ! -f "$MOCK_STATE/uploaded" ]] || exit 1
-echo 'Dummy GitHub release HTTP500 recovery, resume and foreign-tag rejection: PASS'
+echo 'Dummy GitHub release HTTP500 recovery, 1.2 OTA tags, allowlist and foreign-tag rejection: PASS'

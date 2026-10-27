@@ -41,6 +41,39 @@ class SecureOtaUpdaterTest {
         return JSONObject().put("tag_name", tag).put("draft", draft).put("assets", assets)
     }
 
+    @Test fun `signed 1 2 0 OTA recognizes both new and legacy bridge release tags`() {
+        // All v1.1.0 clients can see only the legacy bridge tag.
+        // Both labels point to exactly the same verified 1.2.0 APK bytes
+        // with the same CI run_number versionCode and stable certificate.
+        assertEquals(
+            "https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/releases/tag/v1.2.0-signed.700",
+            SecureOtaUpdater.officialReleasePage("v1.2.0-signed.700")
+        )
+        val legacyOnly = JSONArray()
+            .put(release("v1.1.0-signed.700"))
+            .put(release("v1.1.0-signed.654"))
+        val bridge = SecureOtaUpdater.chooseRelease(legacyOnly.toString(), 654)
+        assertEquals("v1.1.0-signed.700", bridge?.tag)
+        assertEquals(700L, bridge?.versionCode)
+        SecureOtaUpdater.validateRelease(bridge!!)
+
+        val combined = JSONArray()
+            .put(release("v1.2.0-signed.700"))
+            .put(release("v1.1.0-signed.700"))
+            .put(release("v1.1.0-signed.654"))
+        assertEquals("v1.2.0-signed.700",
+            SecureOtaUpdater.chooseRelease(combined.toString(), 654)?.tag)
+        assertEquals("v1.2.0-signed.700" to 700L,
+            SecureOtaUpdater.newestPublishedVersion(combined.toString(), 654))
+        assertNull(SecureOtaUpdater.chooseRelease(combined.toString(), 700))
+        assertNull(SecureOtaUpdater.officialReleasePage("v1.3.0-signed.701"))
+        assertNull(SecureOtaUpdater.chooseRelease(
+            JSONArray().put(release("v1.2.0-debug.701")).toString(), 654))
+        assertNull(SecureOtaUpdater.chooseRelease(
+            JSONArray().put(release("v1.2.0-signed.701",
+                listOf("app-debug.apk", "app-debug.apk.sha256"))).toString(), 654))
+    }
+
     @Test fun `checks newest greater code and ignores draft and obsolete releases`() {
         val data = JSONArray()
             .put(release("v1.0.0-debug.148"))

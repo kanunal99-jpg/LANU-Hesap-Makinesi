@@ -4,7 +4,7 @@
 set -Eeuo pipefail
 tag="$1"
 notes="$2"
-[[ "$tag" =~ ^v1\.(0|1)\.0-(signed|debug)\.[0-9]+$ ]] || {
+[[ "$tag" =~ ^v1\.(0\.0-debug|1\.0-signed|2\.0-signed)\.[0-9]+$ ]] || {
   echo "::error::Unexpected APK release tag." >&2
   exit 1
 }

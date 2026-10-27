@@ -24,9 +24,11 @@ android {
     applicationId = "com.aistudio.lanucalc.kxwzqm"
     minSdk = 23
     targetSdk = 36
-    // CI releases advance monotonically; local builds remain installable.
-    versionCode = providers.environmentVariable("LANU_VERSION_CODE").orNull?.toIntOrNull() ?: 1
-    versionName = "1.1.0"
+    // Protected CI releases use the strictly increasing Actions run number.
+    // The standalone development baseline is higher than signed v1.1.0 builds;
+    // signed OTA updates still require the pinned stable certificate.
+    versionCode = providers.environmentVariable("LANU_VERSION_CODE").orNull?.toIntOrNull() ?: 693
+    versionName = "1.2.0"
     buildConfigField("String", "LANU_RELAY_URL", "\"${providers.environmentVariable("LANU_RELAY_URL").orNull ?: "https://talhknjcjaijqiqwdyhf.supabase.co/functions/v1/lanu-relay"}\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
