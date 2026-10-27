@@ -8,6 +8,8 @@ Kaynak kodun güncel Android sürümü **1.2.0** olarak yapılandırılmıştır
 
 Kurulu 1.1.0 uygulamaların OTA güncellemeyi görebilmesi için 1.2.0 stable APK'sı **aynı baytlarla** `v1.1.0-signed.N` uyumluluk etiketi ve `v1.2.0-signed.N` ana etiketiyle dağıtılır. Android'de gerçek `versionName` her iki yayında **1.2.0**'dır; her iki yayın aynı `versionCode=N`, sertifika ve SHA-256 içerir. Güncelleme için mevcut uygulamayı **kaldırmayın**; veriler ve PIN önceki kurulumla korunmalıdır. Eski geçici debug sertifikalı kurulumların veri kayıpsız yerinde yükseltmesi garanti edilemez.
 
+**Telefon üzerinden güncelleme:** Normal hesap makinesi ekranında üç nokta → **Güncelleme Kontrol**, resmî 1.2.0 güncellemesi gösterildiğinde indirme ve Android sistem kurulum onayı. Uygulama gizli alanı veya PIN'i otomatik açmaz. Güncelleme ekranında **sertifika uyuşmazlığı** ya da **doğrulanmamış APK** hatası varsa işlemi durdurun; eski LANU'yu kaldırmayın. Bu durum özellikle eskiden geçici debug imzalı sürüm kurulmuş telefonlarda görülebilir.
+
 Ayrıntılı kabul ve cihaz testi: [LANU 1.2.0 Sürüm Notları](docs/RELEASE_1_2_0_20261027_TR.md).
 
 ## Mevcut işlevler
