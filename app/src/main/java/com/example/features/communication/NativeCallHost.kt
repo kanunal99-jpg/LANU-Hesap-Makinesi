@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.ui.accessibility.AccessibleActionCatalog
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -119,10 +120,24 @@ fun NativeCallHost(model: NativeCallViewModel, request: Pair<String, Boolean>?, 
                         val controlsReady = state.phase in setOf(NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING)
                         CallAudioRouteControls(engine!!, enabled = controlsReady)
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            FilledTonalIconButton(onClick = model::muted, enabled = controlsReady) { Icon(if (state.muted) Icons.Default.MicOff else Icons.Default.Mic, if (state.muted) "Mikrofonu aç" else "Mikrofonu sustur") }
+                            FilledTonalIconButton(onClick = model::muted, enabled = controlsReady,
+                                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
+                                Icon(if (state.muted) Icons.Default.MicOff else Icons.Default.Mic,
+                                    AccessibleActionCatalog.description(if (state.muted)
+                                        AccessibleActionCatalog.Action.UNMUTE_MIC else AccessibleActionCatalog.Action.MUTE_MIC))
+                            }
                             if (state.video) {
-                                FilledTonalIconButton(onClick = model::camera, enabled = controlsReady) { Icon(if (state.cameraOn) Icons.Default.Videocam else Icons.Default.VideocamOff, "Kamerayı aç/kapat") }
-                                FilledTonalIconButton(onClick = model::switchCamera, enabled = controlsReady && state.cameraOn) { Icon(Icons.Default.Cameraswitch, "Ön/arka kamera") }
+                                FilledTonalIconButton(onClick = model::camera, enabled = controlsReady,
+                                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
+                                    Icon(if (state.cameraOn) Icons.Default.Videocam else Icons.Default.VideocamOff,
+                                        AccessibleActionCatalog.description(if (state.cameraOn)
+                                            AccessibleActionCatalog.Action.CAMERA_OFF else AccessibleActionCatalog.Action.CAMERA_ON))
+                                }
+                                FilledTonalIconButton(onClick = model::switchCamera, enabled = controlsReady && state.cameraOn,
+                                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
+                                    Icon(Icons.Default.Cameraswitch,
+                                        AccessibleActionCatalog.description(AccessibleActionCatalog.Action.SWITCH_CAMERA))
+                                }
                             }
                         }
                         Text("WebRTC gürültü ve yankı azaltma · kalite cihaza ve ortama bağlıdır", style = MaterialTheme.typography.bodySmall)
