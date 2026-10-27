@@ -25,12 +25,16 @@ object CallWakePreferences {
     private const val STORE = "lanu_call_wake_v1"
     private const val OPTED_IN = "opted_in"
     private const val PENDING_REVOKE = "pending_remote_revoke"
+    // Persist only a boolean, never a token: a killed process must not leave
+    // a server registration with no durable opt-out recovery obligation.
+    private const val REGISTRATION_IN_FLIGHT = "registration_in_flight"
 
     // SharedPreferences contains only non-secret consent flags. Never store
     // the remote device token or E2EE identity to retry revocation.
     fun hasPendingRemoteRevoke(context: Context): Boolean = try {
         context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
-            .getBoolean(PENDING_REVOKE, false)
+            .let { it.getBoolean(PENDING_REVOKE, false) ||
+                it.getBoolean(REGISTRATION_IN_FLIGHT, false) }
     } catch (_: Exception) { true } // Fail closed: do not re-enable until checked.
 
     fun disableAndQueueRemoteRevoke(context: Context): Boolean = try {
@@ -40,12 +44,46 @@ object CallWakePreferences {
 
     fun acknowledgeRemoteRevoke(context: Context): Boolean = try {
         context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
-            .edit().putBoolean(PENDING_REVOKE, false).commit()
+            .edit().putBoolean(PENDING_REVOKE, false)
+            .putBoolean(REGISTRATION_IN_FLIGHT, false).commit()
+    } catch (_: Exception) { false }
+
+    /**
+     * First, durably record the possibility of a later server write. This
+     * must finish BEFORE FCM auto-init, token lookup or signed registration.
+     * After process death, private settings treats the flag as pending revoke.
+     */
+    fun beginRemoteRegistration(context: Context): Boolean = try {
+        val prefs = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(OPTED_IN, false) ||
+            prefs.getBoolean(PENDING_REVOKE, false) ||
+            prefs.getBoolean(REGISTRATION_IN_FLIGHT, false)) false
+        else prefs.edit().putBoolean(REGISTRATION_IN_FLIGHT, true).commit()
+    } catch (_: Exception) { false }
+
+    /** Only after successful signed server registration. Both writes are atomic. */
+    fun completeRemoteRegistration(context: Context): Boolean = try {
+        val prefs = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(REGISTRATION_IN_FLIGHT, false) ||
+            prefs.getBoolean(PENDING_REVOKE, false)) false
+        else prefs.edit().putBoolean(OPTED_IN, true)
+            .putBoolean(REGISTRATION_IN_FLIGHT, false).commit()
+    } catch (_: Exception) { false }
+
+    /**
+     * Safe ONLY when the remote registration request was never started, e.g.
+     * Firebase failed to return a token before network registration.
+     * Never use after registerCallWakeToken(token) has been attempted.
+     */
+    fun abandonUnsentRegistration(context: Context): Boolean = try {
+        context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+            .edit().putBoolean(REGISTRATION_IN_FLIGHT, false).commit()
     } catch (_: Exception) { false }
 
     fun isEnabled(context: Context): Boolean = try {
         val prefs = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
-        prefs.getBoolean(OPTED_IN, false) && !prefs.getBoolean(PENDING_REVOKE, false)
+        prefs.getBoolean(OPTED_IN, false) && !prefs.getBoolean(PENDING_REVOKE, false) &&
+            !prefs.getBoolean(REGISTRATION_IN_FLIGHT, false)
     } catch (_: Exception) { false }
     fun setEnabled(context: Context, enabled: Boolean): Boolean = try {
         context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
