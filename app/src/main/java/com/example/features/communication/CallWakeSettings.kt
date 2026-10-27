@@ -119,6 +119,7 @@ fun CallWakeSettings(repository: CommunicationRepository) {
                         } catch (_: Exception) {
                             // Server or credential failure is not success.
                             CallWakePreferences.disableAndQueueRemoteRevoke(context)
+                            CallWakeNotification.cancel(context)
                             pendingRevoke = true
                             FirebaseMessaging.getInstance().isAutoInitEnabled = MessageWakePreferences.isEnabled(context)
                             enabled = false
@@ -157,6 +158,7 @@ fun CallWakeSettings(repository: CommunicationRepository) {
         if (busy) CircularProgressIndicator()
         else if (enabled) OutlinedButton(onClick = {
             val saved = CallWakePreferences.disableAndQueueRemoteRevoke(context)
+            if (saved) CallWakeNotification.cancel(context)
             runCatching { FirebaseMessaging.getInstance().isAutoInitEnabled = MessageWakePreferences.isEnabled(context) }
             if (!saved) {
                 status = "Yerel kapatma kaydedilemedi. Cihaz depolamasını kontrol edin."

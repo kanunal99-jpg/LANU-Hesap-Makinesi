@@ -262,13 +262,20 @@ class NativeCallEngine(
         setSdp { connection!!.setRemoteDescription(it, SessionDescription(SessionDescription.Type.ANSWER, remote)) }
     }
     private suspend fun awaitIce(pc: PeerConnection) {
-        // Android's network callback can arrive AFTER an initial empty COMPLETE.
-        // Non-trickle SDP must include real candidates, never that empty snapshot.
-        withTimeoutOrNull(8_000) {
+        // Non-trickle SDP must contain REAL candidates. Fast path requires a
+        // stable server-reflexive candidate IN the current local SDP, not a
+        // guessed network address or merely an early ICE COMPLETE callback.
+        val startedAt = android.os.SystemClock.elapsedRealtime()
+        withTimeoutOrNull(CallIceGatherPolicy.GATHER_TIMEOUT_MS) {
             while (isActive) {
-                val hasCandidate = pc.localDescription?.description?.contains("a=candidate:") == true
-                if (hasCandidate && pc.iceGatheringState() == PeerConnection.IceGatheringState.COMPLETE &&
-                    android.os.SystemClock.elapsedRealtime() - lastCandidateAt >= 250) return@withTimeoutOrNull
+                val now = android.os.SystemClock.elapsedRealtime()
+                val lastAt = lastCandidateAt
+                if (CallIceGatherPolicy.ready(
+                    localSdp = pc.localDescription?.description,
+                    state = pc.iceGatheringState(),
+                    elapsedMs = now - startedAt,
+                    lastCandidateAgoMs = lastAt.takeIf { it > 0L }?.let { now - it }
+                )) return@withTimeoutOrNull
                 delay(50)
             }
         }

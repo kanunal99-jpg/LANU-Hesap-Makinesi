@@ -4,6 +4,8 @@ import android.app.Application
 import com.example.core.di.AppContainer
 import com.example.core.diagnostics.LocalCrashHandler
 import com.example.core.calls.CallWakeTokenRefreshWorker
+import com.example.core.calls.CallWakeNotification
+import com.example.core.calls.CallWakePreferences
 import com.example.core.messaging.MessageWakeTokenRefreshWorker
 import com.example.core.messaging.MessageWakeNotification
 import com.example.core.messaging.MessageWakePreferences
@@ -40,6 +42,11 @@ class LanuApplication : Application(), Configuration.Provider {
         runCatching { MessageWakePreferences.recoverInterruptedEnrollment(this) }
         if (!MessageWakePreferences.isEnabled(this)) {
             runCatching { MessageWakeNotification.cancel(this) }
+        }
+        // An app restart must not display a call hint that survived an opt-out
+        // or a previous process death. Does not touch the message-alert ID.
+        if (!CallWakePreferences.isEnabled(this)) {
+            runCatching { CallWakeNotification.cancel(this) }
         }
         // Older installs may contain a Supabase key in Room. Migrate on launch so it
         // does not remain there until a legacy UI happens to request credentials.
