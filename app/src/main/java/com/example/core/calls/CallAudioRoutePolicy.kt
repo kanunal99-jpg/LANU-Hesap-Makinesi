@@ -8,11 +8,6 @@ object CallAudioRoutePolicy {
     enum class Route { WIRED_HEADSET, BLUETOOTH_HEADSET, EARPIECE, SPEAKER }
 
     /**
-     * A connected headset is preferred to the built-in speaker/microphone.
-     * User requests remain preferred only while that route is available.
-     * For audio calls use the earpiece; for video calls prefer loudspeaker.
-     */
-    /**
      * API 31+ must not clear an already-correct communication device on every
      * callback/refresh: doing so temporarily tears down an active audio path.
      * Only keep it when the exact active device still appears in the platform
@@ -24,6 +19,11 @@ object CallAudioRoutePolicy {
         priorities: List<Route>
     ): Boolean = deviceStillAvailable && activeRoute != null && priorities.firstOrNull() == activeRoute
 
+    /**
+     * A connected headset is preferred to the built-in speaker/microphone.
+     * User requests remain preferred only while that route is available.
+     * For audio calls use the earpiece; for video calls prefer loudspeaker.
+     */
     fun priorities(
         available: Set<Route>,
         isVideo: Boolean,
