@@ -344,7 +344,11 @@ fun ChatDetailScreen(
                         onDocument = onChooseDocument,
                         onCancel = { viewModel.clearPreparedMedia() },
                         onSend = { envelope, onQueued ->
-                            viewModel.sendInlineAttachment(envelope, onQueued)
+                            viewModel.sendInlineAttachment(
+                                envelope = envelope,
+                                expectedConversationId = conversationId,
+                                onQueued = onQueued
+                            )
                         }
                     )
                     OutlinedTextField(
@@ -365,23 +369,28 @@ fun ChatDetailScreen(
 
                     Spacer(modifier = Modifier.width(8.dp))
 
+                    val canSendText = ChatComposePolicy.canSend(
+                        textInput, isSending, activeConversation?.id, conversationId
+                    )
                     IconButton(
+                        enabled = canSendText,
                         onClick = {
-                            if (textInput.isNotBlank() && !isSending) {
+                            if (canSendText) {
                                 triggerVibration()
                                 val queuedText = textInput
                                 viewModel.sendMessage(
                                     text = queuedText,
                                     isSelfDestruct = isSelfDestructEnabled,
                                     destructDelaySeconds = 10,
-                                    onQueued = { viewModel.textQueued(queuedText) }
+                                    expectedConversationId = conversationId,
+                                    onQueued = { viewModel.textQueued(queuedText, conversationId) }
                                 )
                             }
                         },
                         modifier = Modifier
                             .size(48.dp)
                             .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = if (canSendText) 1f else 0.35f))
                             .testTag("msg_send_btn")
                     ) {
                         Icon(
