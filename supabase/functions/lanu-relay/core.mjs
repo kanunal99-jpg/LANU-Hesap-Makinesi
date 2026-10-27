@@ -240,10 +240,13 @@ export function createRelay(store, clock = Date.now, options = {}) {
         if (!existing && options.messageWakeEnabled === true &&
           typeof options.sendMessageWake === 'function' &&
           typeof store.messageWakeClaim === 'function') {
-          try {
-            const claimed = await store.messageWakeClaim(owner, data.peerId, data.messageId);
-            if (claimed?.claimed === true && typeof claimed.wake_token === 'string') {
-              const dispatch = async () => {
+          // Both notification claim and the external FCM HTTP call run off
+          // the encrypted send critical path on Supabase EdgeRuntime.
+          // The claim enforces service-role opt-in, mutual trust and rate limits.
+          const dispatch = async () => {
+            try {
+              const claimed = await store.messageWakeClaim(owner, data.peerId, data.messageId);
+              if (claimed?.claimed === true && typeof claimed.wake_token === 'string') {
                 try { await options.sendMessageWake(claimed.wake_token, clock()); }
                 catch (error) {
                   if (error instanceof FcmUnregisteredTokenError &&
@@ -252,15 +255,13 @@ export function createRelay(store, clock = Date.now, options = {}) {
                     catch { /* Durable E2EE message must survive notification failure. */ }
                   }
                 }
-              };
-              // Supabase EdgeRuntime.waitUntil keeps this best-effort FCM request
-              // off the message response critical path. Node/local tests await.
-              const task = dispatch();
-              if (typeof options.scheduleMessageWake === 'function')
-                options.scheduleMessageWake(task);
-              else await task;
-            }
-          } catch { /* Optional push must never reject an accepted message. */ }
+              }
+            } catch { /* Optional push never rejects an accepted E2EE message. */ }
+          };
+          const task = dispatch();
+          if (typeof options.scheduleMessageWake === 'function')
+            options.scheduleMessageWake(task);
+          else await task; // deterministic local/Node protocol tests
         }
         return { status: message.status };
       }
