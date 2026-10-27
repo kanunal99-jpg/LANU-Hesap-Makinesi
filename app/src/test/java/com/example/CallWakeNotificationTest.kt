@@ -114,6 +114,38 @@ class CallWakeNotificationTest {
         assertEquals(null, channel.sound)
     }
 
+    @Test fun failedAndroidNotificationAllowsRetryButNotDuplicateSuccess() {
+        val timestamp = 1710000000901L
+        var deliveries = 0
+
+        // An OEM NotificationManager throw must not consume the only ring.
+        assertFalse(CallWakePolicy.publishOnce(timestamp) {
+            deliveries++
+            throw SecurityException("simulated revoked notification permission")
+        })
+        assertEquals(1, deliveries)
+
+        assertTrue(CallWakePolicy.publishOnce(timestamp) { deliveries++ })
+        assertEquals(2, deliveries)
+
+        // The successfully delivered wake remains deduplicated.
+        assertFalse(CallWakePolicy.publishOnce(timestamp) { deliveries++ })
+        assertEquals(2, deliveries)
+    }
+
+    @Test fun runtimeNotificationFailureAlsoReleasesOnlyItsOwnTimestamp() {
+        val failedTimestamp = 1710000000902L
+        val deliveredTimestamp = 1710000000903L
+        assertTrue(CallWakePolicy.publishOnce(deliveredTimestamp) { })
+        assertFalse(CallWakePolicy.publishOnce(failedTimestamp) {
+            throw IllegalStateException("simulated OEM binder failure")
+        })
+        assertFalse("Another call's committed wake must remain deduped",
+            CallWakePolicy.publishOnce(deliveredTimestamp) { })
+        assertTrue("Only the undelivered wake can retry",
+            CallWakePolicy.publishOnce(failedTimestamp) { })
+    }
+
     @Test fun identicalWakeCannotRepeatAndPrivateForegroundSuppressesNotification() {
         val timestamp = 1710000000700L
         assertTrue(CallWakePolicy.claim(timestamp))
