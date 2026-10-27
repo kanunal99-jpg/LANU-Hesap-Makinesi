@@ -54,4 +54,19 @@ done
   echo 'A plaintext archive or extra backup artifact was created.' >&2
   exit 1
 }
+# The signing directory itself must never be a symlink, even when its
+# three child files look like ordinary files. This is an offline dummy.
+mv "$home/.lanu/signing" "$tmp/real-signing"
+ln -s "$tmp/real-signing" "$home/.lanu/signing"
+before="$(find "$home/.lanu/backups" -maxdepth 1 -type f | wc -l)"
+if script -q -e -c "env HOME=$home GNUPGHOME=$home/.gnupg bash $root/scripts/backup_stable_signing_encrypted.sh" \
+    /dev/null > "$tmp/rejected-symlink.log" 2>&1 </dev/null; then
+  echo 'Symlinked signing directory unexpectedly accepted.' >&2
+  exit 1
+fi
+after="$(find "$home/.lanu/backups" -maxdepth 1 -type f | wc -l)"
+[[ "$before" == "$after" ]] || {
+  echo 'Rejected signing directory created a new recovery archive.' >&2
+  exit 1
+}
 echo 'Dummy encrypted signing backup and restore test: PASS'
