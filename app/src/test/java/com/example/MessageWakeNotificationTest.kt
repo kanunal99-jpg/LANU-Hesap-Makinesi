@@ -102,6 +102,20 @@ class MessageWakeNotificationTest {
         assertFalse(MessageWakePreferences.completeRemoteRegistration(context))
     }
 
+    @Test fun newFcmTokenCannotRaceFirstRegistrationButStillRefreshesConsent() {
+        assertFalse(MessageWakePreferences.shouldQueueOnTokenRotation(context))
+        assertTrue(MessageWakePreferences.beginRemoteRegistration(context))
+        assertFalse("Do not revoke a registration while its first write is in progress",
+            MessageWakePreferences.shouldQueueOnTokenRotation(context))
+        assertTrue(MessageWakePreferences.completeRemoteRegistration(context))
+        assertTrue(MessageWakePreferences.shouldQueueOnTokenRotation(context))
+        assertTrue(MessageWakePreferences.disableAndQueueRemoteRevoke(context))
+        assertTrue("Explicit opt-out remains eligible for retry work",
+            MessageWakePreferences.shouldQueueOnTokenRotation(context))
+        assertTrue(MessageWakePreferences.acknowledgeRemoteRevoke(context))
+        assertFalse(MessageWakePreferences.shouldQueueOnTokenRotation(context))
+    }
+
     @Test fun onlyTwoNonsensitiveFieldsAndFreshEventAreAccepted() {
         val valid=mapOf("type" to MessageWakePolicy.TYPE,"at" to now.toString())
         assertTrue(MessageWakePolicy.eligible(valid, now))
