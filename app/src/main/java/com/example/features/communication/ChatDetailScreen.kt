@@ -27,11 +27,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -408,7 +406,6 @@ fun MessageBubble(
     var showEditDialog by remember { mutableStateOf(false) }
     var editText by remember { mutableStateOf(text) }
     val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
     
     val bubbleShape = if (isMine) {
         RoundedCornerShape(16.dp, 16.dp, 2.dp, 16.dp)
@@ -538,8 +535,12 @@ fun MessageBubble(
                     leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp)) },
                     onClick = {
                         showMenu = false
-                        clipboardManager.setText(AnnotatedString(text))
-                        Toast.makeText(context, "Mesaj panoya kopyalandı", Toast.LENGTH_SHORT).show()
+                        val copied = runCatching { PrivateChatClipboard.copy(context, text) }.getOrDefault(false)
+                        // Android 13+ already displays a redacted system clipboard
+                        // confirmation; do not duplicate it with a chat toast.
+                        if (!copied) Toast.makeText(context, "Mesaj kopyalanamadı", Toast.LENGTH_SHORT).show()
+                        else if (Build.VERSION.SDK_INT < 33)
+                            Toast.makeText(context, "Mesaj panoya kopyalandı", Toast.LENGTH_SHORT).show()
                     }
                 )
                 if (isMine && !InlineMediaCodec.isAttachment(text)) {
