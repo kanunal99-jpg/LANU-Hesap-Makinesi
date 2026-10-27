@@ -54,8 +54,11 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
         operation { repository.saveDraft(id, text) }
     }
 
-    fun textQueued(text: String) {
-        // The repository atomically removes only the draft actually queued.
+    fun textQueued(text: String, conversationId: String? = null) {
+        // Repository cleared the durable draft for the original conversation.
+        // A late completion from a previous chat must NOT erase a new chat's
+        // composer merely because both users typed the same message.
+        if (conversationId != null && draftConversationId != conversationId) return
         if (_draftText.value == text) _draftText.value = ""
     }
 
@@ -190,12 +193,18 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
     fun deleteContact(code: String) = operation { repository.deleteContact(code) }
     fun selectConversation(id: String) {
         messagesCollectorJob?.cancel()
+        // Clear the previous peer synchronously. Loading the next conversation
+        // is suspendable and must not leave an old recipient target available.
+        _activeConversation.value = null
+        _activeMessages.value = emptyList()
         draftConversationId = id
         draftVersion = 0L
         _draftText.value = ""
         messagesCollectorJob = viewModelScope.launch {
             try {
-                _activeConversation.value = repository.getConversationById(id)
+                val loaded = repository.getConversationById(id)
+                if (draftConversationId != id || !isActive) return@launch
+                _activeConversation.value = loaded
                 val draft = repository.loadDraft(id)
                 if (draftConversationId == id && draftVersion == 0L) _draftText.value = draft
                 repository.markConversationOpened(id)
@@ -227,14 +236,17 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
         text: String,
         isSelfDestruct: Boolean = false,
         destructDelaySeconds: Int = 10,
+        expectedConversationId: String? = null,
         onQueued: () -> Unit = {}
     ) {
         val conversation = _activeConversation.value
-        if (conversation == null) {
-            _errorMessage.value = "Sohbet henüz açılmadı. Mesaj saklanmadı."
+        if (conversation == null ||
+            (expectedConversationId != null &&
+                (conversation.id != expectedConversationId || draftConversationId != expectedConversationId))) {
+            _errorMessage.value = "Sohbet değişti veya yüklenmedi. Mesaj gönderilmedi."
             return
         }
-        if (_isSending.value) return
+        if (_isSending.value || text.isBlank() || text.length > 8000) return
         _isSending.value = true
         operation {
             try {
@@ -259,10 +271,16 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
         }
     }
     /** Only verified small inline attachments; no public URLs or plaintext storage. */
-    fun sendInlineAttachment(envelope: String, onQueued: () -> Unit = {}) {
+    fun sendInlineAttachment(
+        envelope: String,
+        expectedConversationId: String? = null,
+        onQueued: () -> Unit = {}
+    ) {
         val conversation = _activeConversation.value
-        if (conversation == null) {
-            _errorMessage.value = "Sohbet henüz açılmadı. Ek dosya gönderilmedi."
+        if (conversation == null ||
+            (expectedConversationId != null &&
+                (conversation.id != expectedConversationId || draftConversationId != expectedConversationId))) {
+            _errorMessage.value = "Sohbet değişti veya yüklenmedi. Ek dosya gönderilmedi."
             return
         }
         if (_isSending.value) {
