@@ -41,6 +41,10 @@ object MessageWakeTokenRefreshPolicy {
         if (!MessageWakePreferences.isEnabled(context)) return revoke()
         if (token.isNullOrBlank()) return false
         register(token)
+        // A NEW enrollment may have begun while an old token refresh was in
+        // flight. Its own signed registration owns the final state. Never
+        // wipe it with a stale worker's compensating revocation.
+        if (MessageWakePreferences.isEnrollmentInProgress(context)) return true
         // An opt-out racing an in-flight request must revoke the late write.
         if (!MessageWakePreferences.isEnabled(context)) return revoke(force = true)
         return true
