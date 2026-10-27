@@ -75,7 +75,7 @@ test('complete LANU schema rejects unsafe identity deletion without losing peer 
       where contype='f'
         and confrelid='public.lanu_identities'::regclass
     `)).rows.map(row => [
-      row.child.replace(/^public\\./, ''), row.mode
+      row.child.split('.').at(-1), row.mode
     ]);
     const expected = [
       ['lanu_contacts', 'a'], ['lanu_contacts', 'a'],
