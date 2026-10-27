@@ -648,7 +648,10 @@ fun SettingsTab(
         OutlinedButton(onClick = { backupAction = "restore" }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Kimlik yedeğini geri yükle") }
         com.example.features.security.FullBackupPanel(backupBusy, pendingFullRestore, backupMessage,
             onExportFullBackup, onChooseFullBackup, onRestoreFullBackup, onCancelFullRestore)
-        callPushRepository?.let { CallWakeSettings(it) }
+        callPushRepository?.let {
+            CallWakeSettings(it)
+            MessageWakeSettings(it)
+        }
         com.example.features.security.SettingsScreen(securityViewModel, triggerVibration)
     }
     if (showRotate) AlertDialog(onDismissRequest = { showRotate = false }, title = { Text("Yeni kullanıcı kodu oluşturulsun mu?") },
