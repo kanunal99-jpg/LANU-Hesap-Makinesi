@@ -140,7 +140,10 @@ class AudioDspProcessor(
         isAncEnabled: Boolean,
         suppressionStrength: Float
     ): ShortArray {
-        if (!isAncEnabled || buffer.isEmpty()) return buffer
+        // A NaN preference otherwise propagates to Int conversion as silence.
+        // This helper is not connected to live WebRTC capture; preserve raw PCM.
+        if (!isAncEnabled || buffer.isEmpty() || !suppressionStrength.isFinite() ||
+            suppressionStrength <= 0f) return buffer
 
         val output = ShortArray(buffer.size)
         var sumSquares = 0.0
