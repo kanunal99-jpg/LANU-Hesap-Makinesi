@@ -37,6 +37,22 @@ object MessageWakePreferences {
             .getBoolean(PENDING, false)
     } catch (_: Exception) { true }
 
+    /**
+     * Crash-recovery barrier: commit this BEFORE sending a positive signed
+     * FCM registration request. A process death after server ACK, but before
+     * local consent becomes enabled, must leave a durable revoke marker.
+     * No token, identity, message or conversation enters SharedPreferences.
+     */
+    fun beginEnrollment(context: Context): Boolean = try {
+        context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE).edit()
+            .putBoolean(ENABLED, false).putBoolean(PENDING, true).commit()
+    } catch (_: Exception) { false }
+
+    /**
+     * Complete a successful signed registration. UI callers must first
+     * persist beginEnrollment and receive server ACK. Separate tests that
+     * simulate existing opted-in installations may invoke this directly.
+     */
     fun enable(context: Context): Boolean = try {
         context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE).edit()
             .putBoolean(ENABLED, true).putBoolean(PENDING, false).commit()
@@ -87,6 +103,17 @@ object MessageWakeTapPolicy {
 object MessageWakeNotification {
     const val CHANNEL_ID = "lanu_private_message_alerts_v1"
     private const val ID = 8130
+
+    /**
+     * A local opt-out must also remove an already displayed neutral alert.
+     * Never cancel call notifications: their consent and channel are separate.
+     */
+    fun cancel(context: Context): Boolean = MessageWakePolicy.safeShow {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            ?: return@safeShow false
+        manager.cancel(ID)
+        true
+    }
 
     fun ensureChannel(manager: NotificationManager) {
         if (Build.VERSION.SDK_INT < 26) return
