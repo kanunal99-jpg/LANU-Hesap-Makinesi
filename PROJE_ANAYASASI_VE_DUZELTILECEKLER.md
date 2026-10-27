@@ -1,5 +1,15 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 27.10.2026 — Premium geliştirme, başarısız test kök nedeni ve puan eşiği (kullanıcı kararı)
+
+- **Kapsam:** LANU Hesap Makinesi için sesli/görüntülü gerçek görüşme, gizli alanın E2EE mesajlaşması, cihazın yeteneklerine uygun gerçek WebRTC AEC/NS işleme ve premium/erişilebilir Compose arayüzü önceliklidir. Demo görüşmesi veya kanıtsız ANC/dB vaadi gerçek işlev gibi gösterilemez.
+- **Hata döngüsü:** Her başarısız CI/Android/relay/güvenlik testi için hata adımı ve ilgili log önce incelenir; kök neden doğrulanır, yan etkisiz düzeltme ve regresyon testi eklenir, son PR HEAD'de test yeniden çalıştırılır. Başarısız test yok sayılmaz; sadece testi susturmak/skip etmek çözüm değildir.
+- **Kategori puanı:** Güvenlik, özel mesajlaşma, görüşmeler, ses işleme, arayüz/erişilebilirlik, test/CI, sürüm/OTA ayrı ayrı **kanıta dayalı 0–100** puanlanır. Kullanıcının **80 altına düşmeme hedefi** bir yayın kabul kapısıdır; kanıtsız puan artırma ya da 80 altı gerçek sonucun saklanması değildir. Kanıt eksikse 'doğrulanmadı' olarak işaretlenir ve üretime hazır denmez.
+- **Veri koruma:** Sohbet ve mesaj silme gibi geri alınamayan eylemlerde açık kullanıcı teyidi aranır; sohbet okunurken yeni ileti gelen ekran kullanıcıyı beklenmedik biçimde kaydırmaz. 2011. giriş, isteğe bağlı PIN, E2EE kimlikleri, mevcut Room kayıtları ve OTA signer asla sıfırlanmaz.
+- **Kanıt sınırı:** PR CI başarı, güncel main CI + Release checksum, iki farklı fiziksel üreticide gerçek WebRTC/video/çağrı zil testi ve ölçülmüş ses kalitesi ayrı aşamalardır; kullanıcıya gerçekleşmeyen aşama bitmiş sayılmaz.
+
+---
+
 ## 27.10.2026 — Güncel üretim durumu, BEŞ geliştirme ve test kanıtları (09:45 TR)
 
 > **Kanıt ilkesi:** Bu bölüm 27.10.2026 tarihinde GitHub main/CI/Releases, açık PR/issue ve Supabase canlı fonksiyon/yalnız sayım SQL okumalarıyla doğrulanmıştır. Aşağıdaki önceki tarihli durumlar tarihseldir. `CI success` **fiziksel telefon kabulü, tam SQLCipher/Double Ratchet veya canlı FCM teslimi** anlamına gelmez.
