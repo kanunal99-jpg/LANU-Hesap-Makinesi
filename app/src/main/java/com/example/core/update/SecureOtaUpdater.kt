@@ -110,7 +110,7 @@ object SecureOtaUpdater {
         val options = mutableListOf<LanuUpdate>()
         for (i in 0 until releases.length()) {
             val release = releases.optJSONObject(i) ?: continue
-            if (release.optBoolean("draft") || release.optBoolean("prerelease")) continue
+            if (release.optBoolean("draft")) continue
             val tag = release.optString("tag_name")
             val n = tagPattern.matchEntire(tag)?.groupValues?.get(1)?.toLongOrNull() ?: continue
             if (n <= currentVersion) continue
@@ -142,7 +142,7 @@ object SecureOtaUpdater {
         var latest: Pair<String, Long>? = null
         for (i in 0 until releases.length()) {
             val release = releases.optJSONObject(i) ?: continue
-            if (release.optBoolean("draft") || release.optBoolean("prerelease")) continue
+            if (release.optBoolean("draft")) continue
             val tag = release.optString("tag_name")
             val number = tagPattern.matchEntire(tag)?.groupValues?.get(1)?.toLongOrNull() ?: continue
             if (number > currentVersion && (latest == null || number > latest.second ||
