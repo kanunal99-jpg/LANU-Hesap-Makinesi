@@ -66,7 +66,10 @@ object HighPrecisionMathEngine {
         precision: Int = 16,
         scientificNotation: Boolean = false
     ): String {
-        require(precision >= 0) { "Precision cannot be negative" }
+        // A caller-controlled Int.MAX_VALUE precision overflows (precision+1)
+        // and can request gigantic display buffers. Stay within the supported
+        // calculation/display budget before creating a MathContext or strings.
+        require(precision in 0..1000) { "Precision must be between 0 and 1000 digits" }
         if (value.compareTo(BigDecimal.ZERO) == 0) return "0"
 
         val stripped = value.stripTrailingZeros()
