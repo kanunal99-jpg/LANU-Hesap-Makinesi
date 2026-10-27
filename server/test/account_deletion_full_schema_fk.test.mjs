@@ -18,7 +18,8 @@ test('complete LANU schema rejects unsafe identity deletion without losing peer 
   const tables = [
     'lanu_identities', 'lanu_contacts', 'lanu_messages', 'lanu_events',
     'lanu_nonces', 'lanu_media_objects', 'lanu_call_signals',
-    'lanu_call_wake_devices'
+    'lanu_call_wake_devices', 'lanu_message_wake_devices',
+    'lanu_message_wake_claims'
   ];
   try {
     await db.exec(`
@@ -38,7 +39,11 @@ test('complete LANU schema rejects unsafe identity deletion without losing peer 
       '20261024105720_private_media_grants_and_quota.sql',
       '20261025123907_private_call_signaling.sql',
       '20261026091500_call_only_push_opt_in.sql',
-      '20261026134500_invalidate_expired_fcm_token.sql'
+      '20261026134500_invalidate_expired_fcm_token.sql',
+      // The deployed message opt-in now adds three identity CASCADE
+      // edges and one message CASCADE edge. Never omit it from the
+      // account-deletion data-loss acceptance fixture.
+      '20261027174242_private_message_wake_opt_in_20261027.sql'
     ];
     for (const migration of migrations) {
       const sql = await readFile(
@@ -67,8 +72,9 @@ test('complete LANU schema rejects unsafe identity deletion without losing peer 
       }
     }
 
-    // The eight NO ACTION references and three CASCADE references are the
-    // current, observable contract. A lone DELETE on identities is unsafe.
+    // All currently deployed identity edges: 8 NO ACTION plus 6 CASCADE
+    // (call signals x2, call wake x1, message wake devices x1,
+    // message wake claims x2). A lone DELETE on identities is unsafe.
     const fks = (await db.query(`
       select conrelid::regclass::text as child, confdeltype as mode
       from pg_constraint
@@ -83,7 +89,10 @@ test('complete LANU schema rejects unsafe identity deletion without losing peer 
       ['lanu_events', 'a'], ['lanu_nonces', 'a'],
       ['lanu_media_objects', 'a'], ['lanu_media_objects', 'a'],
       ['lanu_call_signals', 'c'], ['lanu_call_signals', 'c'],
-      ['lanu_call_wake_devices', 'c']
+      ['lanu_call_wake_devices', 'c'],
+      ['lanu_message_wake_devices', 'c'],
+      ['lanu_message_wake_claims', 'c'],
+      ['lanu_message_wake_claims', 'c']
     ];
     const canonical = values => values.map(v => v.join(':')).sort();
     assert.deepEqual(canonical(fks), canonical(expected),
@@ -95,6 +104,17 @@ test('complete LANU schema rejects unsafe identity deletion without losing peer 
         and confrelid='public.lanu_messages'::regclass
     `);
     assert.deepEqual(eventMessageFk.rows.map(x => x.mode), ['a']);
+
+    // Message wake claims are deleted with their message only when the
+    // whole operation succeeds. On a rejected parent DELETE, neither the
+    // claim nor the FCM registration may partially cascade away.
+    const claimMessageFk = await db.query(`
+      select confdeltype as mode from pg_constraint
+      where contype='f'
+        and conrelid='public.lanu_message_wake_claims'::regclass
+        and confrelid='public.lanu_messages'::regclass
+    `);
+    assert.deepEqual(claimMessageFk.rows.map(x => x.mode), ['c']);
 
     await db.query(
       'insert into public.lanu_identities(id,code,nonce,public_key) values($1,$2,$3,$4),($5,$6,$3,$4)',
@@ -126,6 +146,14 @@ test('complete LANU schema rejects unsafe identity deletion without losing peer 
       'insert into public.lanu_call_wake_devices(owner_id,fcm_token) values($1,$2)',
       [bob, 'F'.repeat(48)]
     );
+    await db.query(
+      'insert into public.lanu_message_wake_devices(owner_id,fcm_token) values($1,$2),($3,$4)',
+      [bob, 'M'.repeat(48), alice, 'N'.repeat(48)]
+    );
+    await db.query(
+      'insert into public.lanu_message_wake_claims(message_id,sender_id,recipient_id) values($1,$2,$3)',
+      [messageId, alice, bob]
+    );
 
     async function counts() {
       return Object.fromEntries(await Promise.all(tables.map(async table => {
@@ -143,6 +171,8 @@ test('complete LANU schema rejects unsafe identity deletion without losing peer 
     assert.equal(before.lanu_media_objects, 1);
     assert.equal(before.lanu_call_signals, 1);
     assert.equal(before.lanu_call_wake_devices, 1);
+    assert.equal(before.lanu_message_wake_devices, 2);
+    assert.equal(before.lanu_message_wake_claims, 1);
 
     // Cascading child deletes must be rolled back with the rejected
     // parent deletion. Neither the peer's ciphertext nor its wake token
@@ -160,6 +190,16 @@ test('complete LANU schema rejects unsafe identity deletion without losing peer 
     assert.equal((await db.query(
       'select count(*)::int as n from public.lanu_call_wake_devices where owner_id=$1',
       [bob]
+    )).rows[0].n, 1);
+    // New neutral-message notification rows belong to separate FCM
+    // consent, and must survive a *failed* deletion transaction.
+    assert.equal((await db.query(
+      'select count(*)::int as n from public.lanu_message_wake_devices where owner_id=$1',
+      [bob]
+    )).rows[0].n, 1);
+    assert.equal((await db.query(
+      'select count(*)::int as n from public.lanu_message_wake_claims where message_id=$1',
+      [messageId]
     )).rows[0].n, 1);
   } finally {
     await db.close();
