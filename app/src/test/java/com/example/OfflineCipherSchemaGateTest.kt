@@ -26,9 +26,9 @@ class OfflineCipherSchemaGateTest {
         val base = proof("messages")
         for (variant in listOf(listOf(text, id),
             listOf(id, text.copy(affinity = "BLOB")),
-            listOf(id, text.copy(primaryKeyOrder = 2)),
+            listOf(id, text.copy(primaryKeyOrder = 3)),
             listOf(id.copy(notNull = false), text))) {
-            if (variant[1].primaryKeyOrder == 2) {
+            if (variant[1].primaryKeyOrder == 3) {
                 try { proof("messages", variant); fail("Noncontiguous PK accepted") }
                 catch (_: IllegalArgumentException) {}
             } else assertNotEquals(base.sha256, proof("messages", variant).sha256)
