@@ -67,6 +67,36 @@ class CallCommunicationDeviceConfirmationPolicyTest {
         ))
     }
 
+    @Test fun delayedCallbackCannotConfirmAnAlreadyReplacedActiveOutput() {
+        val routes = mapOf(42 to Route.BLUETOOTH_HEADSET, 15 to Route.EARPIECE)
+        // Callback still mentions Bluetooth, but Android has switched to earpiece.
+        assertFalse(Policy.confirmedCurrentCallbackRoute(
+            42, 42, 15, Route.BLUETOOTH_HEADSET, routes, true
+        ))
+        // A lagging or failed current-device getter is not evidence of success.
+        assertFalse(Policy.confirmedCurrentCallbackRoute(
+            42, 42, null, Route.BLUETOOTH_HEADSET, routes, true
+        ))
+        // An unrelated callback cannot confirm a pending request.
+        assertFalse(Policy.confirmedCurrentCallbackRoute(
+            42, 15, 42, Route.BLUETOOTH_HEADSET, routes, true
+        ))
+        // The same route still needs an available device and permission.
+        assertFalse(Policy.confirmedCurrentCallbackRoute(
+            42, 42, 42, Route.BLUETOOTH_HEADSET, routes, false
+        ))
+        assertFalse(Policy.confirmedCurrentCallbackRoute(
+            42, 42, 42, Route.BLUETOOTH_HEADSET,
+            mapOf(42 to Route.SPEAKER), true
+        ))
+        assertTrue(Policy.confirmedCurrentCallbackRoute(
+            42, 42, 42, Route.BLUETOOTH_HEADSET, routes, true
+        ))
+        assertTrue(Policy.confirmedCurrentCallbackRoute(
+            15, 15, 15, Route.EARPIECE, routes, false
+        ))
+    }
+
     @Test fun activeRouteSwitchWithoutHotplugCannotKeepStaleBluetoothLabel() {
         // The old route may be gone even though the inventory is unchanged:
         // the OS switched from Bluetooth to a different active output.
