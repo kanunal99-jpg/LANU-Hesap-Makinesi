@@ -11,6 +11,7 @@ import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.content.pm.PackageManager
 import com.example.core.calls.CallAudioRoutePolicy.Route
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -147,7 +148,10 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
                         )) return@synchronized
                     if (CallCommunicationDeviceConfirmationPolicy.confirmed(
                             pendingCommunicationDeviceId, device?.id
-                        )) {
+                        ) && device != null &&
+                        availableOutputDevices().any { it.id == device.id } &&
+                        (pendingCommunicationRoute != Route.BLUETOOTH_HEADSET ||
+                            hasBluetoothAccess())) {
                         val route = pendingCommunicationRoute ?: return@synchronized
                         clearPendingCommunication()
                         _state.value = State(true, route, null, _state.value.available, "ROUTED")
@@ -317,20 +321,46 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
 
     private fun scheduleCommunicationTimeout(deviceId: Int, requestId: Long) {
         val generation = communicationGeneration
-        val timeout = Runnable {
-            synchronized(this) {
-                if (!CallCommunicationDeviceConfirmationPolicy.validCallCallback(
-                        running, communicationGeneration, generation
-                    ) || pendingCommunicationDeviceId != deviceId ||
-                    communicationRequestId != requestId) return@synchronized
+        val startedAt = SystemClock.elapsedRealtime()
+        val timeout = object : Runnable {
+            override fun run() {
+                synchronized(this@AndroidCallAudioRouter) {
+                    if (!CallCommunicationDeviceConfirmationPolicy.validCallCallback(
+                            running, communicationGeneration, generation
+                        ) || pendingCommunicationDeviceId != deviceId ||
+                        communicationRequestId != requestId) return
 
-                // Accepted is not connected: 30-second nonconfirmation must
-                // use a different genuine device or return to system default.
-                clearPendingCommunication()
-                rejectedCommunicationIds.add(deviceId)
-                try { audioManager.clearCommunicationDevice() }
-                catch (_: RuntimeException) { /* bounded fallback still runs */ }
-                selectRoute()
+                    val now = SystemClock.elapsedRealtime()
+                    if (!CallCommunicationDeviceConfirmationPolicy.expired(startedAt, now)) {
+                        // Handler uses uptime rather than elapsed realtime:
+                        // protect against a callback running before the bound.
+                        mainHandler.postDelayed(this,
+                            (CallCommunicationDeviceConfirmationPolicy.CONFIRMATION_TIMEOUT_MS -
+                                (now - startedAt).coerceAtLeast(0L)).coerceAtLeast(1L))
+                        return
+                    }
+                    // A device may have become active without a listener
+                    // callback (OEM error); check before discarding real audio.
+                    val currentId = try { audioManager.communicationDevice?.id }
+                        catch (_: RuntimeException) { null }
+                    if (CallCommunicationDeviceConfirmationPolicy.confirmed(deviceId, currentId) &&
+                        availableOutputDevices().any { it.id == deviceId }) {
+                        val route = pendingCommunicationRoute
+                        clearPendingCommunication()
+                        if (route != null) {
+                            _state.value = State(true, route, null, _state.value.available, "ROUTED")
+                            return
+                        }
+                    }
+
+                    // A timed-out request must not start an unbounded retry
+                    // loop. Try a distinct real output or system default.
+                    clearPendingCommunication()
+                    rejectedCommunicationIds.add(deviceId)
+                    try { audioManager.clearCommunicationDevice() }
+                    catch (_: RuntimeException) { /* bounded fallback still runs */ }
+                    selectRoute()
+                }
             }
         }
         communicationTimeout = timeout
@@ -359,7 +389,8 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
             if (!forceReapply && pendingId != null) {
                 if (CallCommunicationDeviceConfirmationPolicy.confirmed(
                         pendingId, active?.id
-                    )) {
+                    ) && devices.any { it.id == pendingId } &&
+                    (pendingCommunicationRoute != Route.BLUETOOTH_HEADSET || bluetoothAllowed)) {
                     val confirmedRoute = pendingCommunicationRoute
                     clearPendingCommunication()
                     if (confirmedRoute != null)
