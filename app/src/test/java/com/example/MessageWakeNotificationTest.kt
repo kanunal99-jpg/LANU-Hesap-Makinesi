@@ -9,6 +9,7 @@ import androidx.core.app.NotificationCompat
 import androidx.test.core.app.ApplicationProvider
 import com.example.core.calls.CallWakePolicy
 import com.example.core.calls.CallWakePreferences
+import com.example.core.calls.CallWakeNotification
 import com.example.core.messaging.MessageWakeNotification
 import com.example.core.messaging.MessageWakePolicy
 import com.example.core.messaging.MessageWakePreferences
@@ -208,10 +209,19 @@ class MessageWakeNotificationTest {
             .setSmallIcon(com.example.R.drawable.ic_lanu_monochrome)
             .setContentTitle("LANU Hesap Makinesi")
             .build()
+        CallWakeNotification.ensureChannel(manager)
+        manager.notify(8129, NotificationCompat.Builder(context, CallWakeNotification.CHANNEL_ID)
+            .setSmallIcon(com.example.R.drawable.ic_lanu_monochrome)
+            .setContentTitle("Gelen arama")
+            .build())
         manager.notify(8130, shown)
         assertTrue(manager.activeNotifications.any { it.id == 8130 })
+        assertTrue(manager.activeNotifications.any { it.id == 8129 })
         assertTrue(MessageWakeNotification.cancel(context))
         assertFalse(manager.activeNotifications.any { it.id == 8130 })
+        assertTrue("Independent call alerts are not revoked",
+            manager.activeNotifications.any { it.id == 8129 })
+        manager.cancel(8129)
     }
 
 }
