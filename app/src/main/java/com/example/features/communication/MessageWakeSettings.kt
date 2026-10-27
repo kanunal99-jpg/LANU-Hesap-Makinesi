@@ -95,12 +95,12 @@ fun MessageWakeSettings(repository: CommunicationRepository) {
 
     fun enable() {
         if (busy || pending) return
-        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+        if (!runCatching { NotificationManagerCompat.from(context).areNotificationsEnabled() }.getOrDefault(false)) {
             status = "Telefon bildirimleri kapalı. Önce Android ayarlarından açın."
             openSystemChannel()
             return
         }
-        if (FirebaseApp.getApps(context).isEmpty()) {
+        if (!runCatching { FirebaseApp.getApps(context).isNotEmpty() }.getOrDefault(false)) {
             status = "Mesaj bildirimleri için Firebase yapılandırması eksik."
             return
         }
