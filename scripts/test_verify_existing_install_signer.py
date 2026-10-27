@@ -82,6 +82,20 @@ printf "package: name='%s' versionCode='%s' versionName='1.1.0'\\n" "$name" "$ve
         self.assertEqual(self.installed.read_bytes(),
                          b"LANU PUBLIC INSTALLED APK TEST DATA")
 
+    def test_extra_or_conflicting_signer_metadata_is_rejected(self):
+        for extra in ("certificate_sha256=" + "b" * 64,
+                      "signing_mode=ephemeral",
+                      "upgrade_verified_on_device=true",
+                      "unknown_key=arbitrary"):
+            with self.subTest(extra=extra):
+                baseline = ("apk=app-debug.apk\nsigning_mode=stable\n"
+                            "certificate_sha256=" + "a" * 64 +
+                            "\nupgrade_verified_on_device=false\n")
+                self.signer.write_text(baseline + extra + "\n", encoding="ascii")
+                result = self.check()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Ambiguous", result.stderr)
+
     def test_current_installed_certificate_mismatch_blocks_upgrade(self):
         result = self.check(TEST_INSTALLED_CERT="b" * 64)
         self.assertNotEqual(result.returncode, 0)
