@@ -79,6 +79,40 @@ object CrashDiagnostics {
         }
     }
 
+    /**
+     * Privacy-safe investigation direction, not a diagnosed root cause.
+     * Prefer ANR/native clusters over Java crashes when counts tie. No trace
+     * streams, process details, exception messages or device IDs are read.
+     */
+    fun triageHint(entries: List<Pair<Int, Long>>, now: Long): String? {
+        val relevant = entries.take(40).distinct().filter { (reason, at) ->
+            withinRetention(at, now) && now - at <= TimeUnit.DAYS.toMillis(1) &&
+                reason in setOf(ApplicationExitInfo.REASON_CRASH,
+                    ApplicationExitInfo.REASON_CRASH_NATIVE, ApplicationExitInfo.REASON_ANR)
+        }
+        if (relevant.isEmpty()) return null
+        val counts = relevant.groupingBy { it.first }.eachCount()
+        val priority = listOf(ApplicationExitInfo.REASON_ANR,
+            ApplicationExitInfo.REASON_CRASH_NATIVE, ApplicationExitInfo.REASON_CRASH)
+        val dominant = priority.maxWithOrNull(compareBy<Int>({ counts[it] ?: 0 },
+            { -priority.indexOf(it) })) ?: return null
+        return when (dominant) {
+            ApplicationExitInfo.REASON_ANR -> "ANR ağırlıklı: ana iş parçacığı ve dosya/ağ beklemeleri incelenmeli."
+            ApplicationExitInfo.REASON_CRASH_NATIVE -> "Yerel çökme ağırlıklı: WebRTC ve cihaz medya sürücüsü uyumluluğu incelenmeli."
+            else -> "Kod hatası ağırlıklı: yerel güvenli çökme raporu ile sürüm uyumu incelenmeli."
+        }
+    }
+
+    fun recentTriageHint(context: Context, now: Long = System.currentTimeMillis()): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
+        return runCatching {
+            val manager = context.getSystemService(ActivityManager::class.java)
+                ?: return@runCatching null
+            triageHint(manager.getHistoricalProcessExitReasons(context.packageName, 0, 40)
+                .map { it.reason to it.timestamp }, now)
+        }.getOrNull()
+    }
+
     fun recentCrashRisk(
         context: Context, now: Long = System.currentTimeMillis()
     ): RepeatedExitRisk? {
