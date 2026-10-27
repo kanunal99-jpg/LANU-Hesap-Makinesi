@@ -111,3 +111,24 @@ test('message FCM data contains only opaque type + timestamp and never a notific
   assert.equal(await sender('D'.repeat(40),1700000000000,'marketing'),false);
   assert.equal(messages.length,1);
 });
+
+test('optional background FCM never delays successful encrypted send response', async () => {
+  const f = await fixture(); await link(f);
+  f.store.messageWakeClaim = async () => ({ claimed: true, wake_token: 'E'.repeat(42) });
+  let finishFcm;
+  let pendingTask = null;
+  const relay = createRelay(f.store, Date.now, {
+    messageWakeEnabled: true,
+    sendMessageWake: () => new Promise(resolve => { finishFcm = resolve; }),
+    scheduleMessageWake: task => { pendingTask = task; }
+  });
+  const id = randomUUID();
+  const response = await relay(envelope(f.alice, 'send', {
+    messageId: id, peerId: f.bob.id, content: encrypted(f.alice, f.bob, id, 'private')
+  }));
+  assert.deepEqual(response, { status: 'SENT' }, 'Delivery must not await FCM network');
+  assert.ok(pendingTask, 'Supabase runtime receives a tracked background task');
+  assert.equal(typeof finishFcm, 'function');
+  finishFcm(true);
+  await pendingTask;
+});
