@@ -1,5 +1,18 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 27.10.2026 — 90+ PREMIUM KALİTE PROGRAMI VE KANIT KAPISI (en güncel bağlayıcı karar)
+
+> Bu karar yalnız LANU Hesap Makinesi deposu ve com.aistudio.lanucalc.kxwzqm paketi içindir; LANU Lens ile birleştirilmez. Aşağıdaki eski tarihli SHA, CI, sürüm ve puan kayıtları kendi günlerinin **tarihsel anlık görüntüleridir**, güncel tamamlandı kanıtı sayılmaz.
+
+- **27.10 uzman puanı:** 18 kategorinin eşit ağırlıklı ortalaması **76/100**, **11 kategori 80 altında**. Hedef **önce bütün kategoriler 80+**, ardından kanıtlı **genel/kritik 90+**. Puanlar fiziksel cihaz, otomatik sertifikasyon veya pentest değildir. Kanıt yoksa puan artırılmaz ve 80 altı saklanmaz.
+- **Başlangıç SHA ve CI:** main f61e8dc2564d682f5c41ec4fe82dfb9e3347e3b8; PR #218 CI #642 başarılı; **main CI #643 denetim anında çalışıyordu**. Son yayımlı APK signed.641, daha önceki d35c451 commitindendir; #218'li güncel main yayını tamamlandı diye iddia edilemez.
+- **P0 önceliği:** CI kök nedeni, PIN/E2EE yanlış alıcı, veri kaybı/Room, OTA imzası, #82 A55 ANR, #83 imza yedeği, #3/#133 iki gerçek cihaz çağrı+zil. Canlı SQLCipher ve Double Ratchet bugün mevcut değildir; geçiş koşullu ve bağımsız inceleme gerektirir.
+- **Program:** G0 27–30 Ekim CI ve release -> G1 31 Ekim–6 Kasım A55/iki cihaz/veri -> G2 7–13 Kasım E2EE/Room offline güvenlik -> G3 14–20 Kasım WebRTC/medya/NS -> G4 21–27 Kasım erişilebilirlik/performans -> G5 28 Kasım–4 Aralık hukuki/mağaza -> G6 5–18 Aralık saha ve 90+ kabul. Bu tarihler **koşullu hedef** olup teslim sözü değildir.
+- **Asla aşılmayacak kapı:** kırmızı test -> log kök nedeni -> minimal düzeltme/regresyon -> güncel PR HEAD CI -> merge -> *yeni* main CI -> signed GitHub Releases APK, SHA-256, önceki sertifika eşleşmesi, gerçek public download. Gerçek cihazda veri kayıpsız yerinde OTA ayrıca test edilir. Kurulu uygulama/Room/PIN/E2EE kimliği silinmez, izinsiz ücretli servis/anahtar değişimi yapılmaz.
+- **Tam 18 kategori ve sorumlu/kanıt matrisi:** [Premium 90+ programı](docs/PREMIUM_KALITE_90PLUS_PROGRAM_2026-10-27.md). Bu ek ve kanıt düzeni anayasanın yürürlükteki parçasıdır.
+
+---
+
 ## 27.10.2026 — Premium geliştirme, başarısız test kök nedeni ve puan eşiği (kullanıcı kararı)
 
 - **Kapsam:** LANU Hesap Makinesi için sesli/görüntülü gerçek görüşme, gizli alanın E2EE mesajlaşması, cihazın yeteneklerine uygun gerçek WebRTC AEC/NS işleme ve premium/erişilebilir Compose arayüzü önceliklidir. Demo görüşmesi veya kanıtsız ANC/dB vaadi gerçek işlev gibi gösterilemez.
