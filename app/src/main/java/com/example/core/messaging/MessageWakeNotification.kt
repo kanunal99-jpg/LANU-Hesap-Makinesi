@@ -111,6 +111,26 @@ object MessageWakePolicy {
     @Synchronized
     fun releaseFailed(at: Long) { recent.remove(at) }
 
+    /**
+     * The user can opt out from the private settings while FCM is still
+     * preparing an alert on another thread. Recheck consent immediately
+     * before and after Android's notification service receives it.
+     * If opt-out won the race, retract the just-posted alert.
+     */
+    fun postIfStillEnabled(
+        isEnabled: () -> Boolean,
+        post: () -> Unit,
+        cancel: () -> Unit
+    ): Boolean {
+        if (!isEnabled()) return false
+        post()
+        if (!isEnabled()) {
+            cancel()
+            return false
+        }
+        return true
+    }
+
     fun safeShow(block: () -> Boolean): Boolean =
         try { block() } catch (_: SecurityException) { false }
         catch (_: RuntimeException) { false }
@@ -185,8 +205,13 @@ object MessageWakeNotification {
                     .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
                     .setAutoCancel(true)
                     .build()
-                manager.notify(ID, notification)
-                true
+                val delivered = MessageWakePolicy.postIfStillEnabled(
+                    isEnabled = { MessageWakePreferences.isEnabled(context) },
+                    post = { manager.notify(ID, notification) },
+                    cancel = { manager.cancel(ID) }
+                )
+                if (!delivered) MessageWakePolicy.releaseFailed(at)
+                delivered
             } catch (e: SecurityException) {
                 MessageWakePolicy.releaseFailed(at)
                 false
