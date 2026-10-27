@@ -219,11 +219,16 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
         }
     }
     fun leaveConversation(id: String) {
-        if (_activeConversation.value?.id == id) {
+        // A chat may be closed before its Room load resolves. Cancel the
+        // still-pending selection, but never let a late pause from an older
+        // screen close a different private conversation.
+        if (ChatComposePolicy.shouldClose(id, draftConversationId, _activeConversation.value?.id)) {
             messagesCollectorJob?.cancel()
+            messagesCollectorJob = null
             _activeConversation.value = null
             _activeMessages.value = emptyList()
             draftConversationId = null
+            draftVersion = 0L
             _draftText.value = ""
         }
     }
