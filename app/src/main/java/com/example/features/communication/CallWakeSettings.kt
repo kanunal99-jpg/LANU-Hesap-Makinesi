@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.core.calls.CallWakePreferences
 import com.example.core.calls.CallWakeNotification
+import com.example.core.messaging.MessageWakePreferences
 import com.example.core.repository.CommunicationRepository
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
@@ -94,7 +95,7 @@ fun CallWakeSettings(repository: CommunicationRepository) {
             FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
                 val token = if (task.isSuccessful) task.result else null
                 if (token.isNullOrBlank()) {
-                    FirebaseMessaging.getInstance().isAutoInitEnabled = false
+                    FirebaseMessaging.getInstance().isAutoInitEnabled = MessageWakePreferences.isEnabled(context)
                     status = "Bildirim cihaz kaydı alınamadı. Bağlantınızı kontrol edin."
                     busy = false
                 } else {
@@ -108,7 +109,7 @@ fun CallWakeSettings(repository: CommunicationRepository) {
                             // Server or credential failure is not success.
                             CallWakePreferences.disableAndQueueRemoteRevoke(context)
                             pendingRevoke = true
-                            FirebaseMessaging.getInstance().isAutoInitEnabled = false
+                            FirebaseMessaging.getInstance().isAutoInitEnabled = MessageWakePreferences.isEnabled(context)
                             enabled = false
                             // A registration may have reached the server before
                             // the local consent commit failed. Revoke defensively.
@@ -120,7 +121,7 @@ fun CallWakeSettings(repository: CommunicationRepository) {
                 }
             }
         } catch (_: Exception) {
-            runCatching { FirebaseMessaging.getInstance().isAutoInitEnabled = false }
+            runCatching { FirebaseMessaging.getInstance().isAutoInitEnabled = MessageWakePreferences.isEnabled(context) }
             status = "Firebase çağrı bildirim servisi kullanılamıyor."
             busy = false
         }
@@ -135,14 +136,14 @@ fun CallWakeSettings(repository: CommunicationRepository) {
         HorizontalDivider()
         Text("Gelen arama bildirimleri", style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(top = 12.dp))
-        Text("Yalnız sesli ve görüntülü aramalar. Sohbet ve mesaj bildirimi gönderilmez. Kilit ekranında kişi adı veya gizli içerik görünmez.",
+        Text("Yalnız sesli ve görüntülü aramalar. Mesaj bildirimleri aşağıdaki ayrı seçenekten yönetilir. Kilit ekranında kişi adı veya gizli içerik görünmez.",
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 6.dp))
         Text("Bildirime dokununca hesap makinesi açılır; gizli alana 2011. ve isteğe bağlı PIN ile girilir. İnternet, Android pil yönetimi ve Google servisleri nedeniyle her çağrının bildirimi garanti değildir.",
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 8.dp))
         if (busy) CircularProgressIndicator()
         else if (enabled) OutlinedButton(onClick = {
             val saved = CallWakePreferences.disableAndQueueRemoteRevoke(context)
-            runCatching { FirebaseMessaging.getInstance().isAutoInitEnabled = false }
+            runCatching { FirebaseMessaging.getInstance().isAutoInitEnabled = MessageWakePreferences.isEnabled(context) }
             if (!saved) {
                 status = "Yerel kapatma kaydedilemedi. Cihaz depolamasını kontrol edin."
             } else {
