@@ -149,9 +149,12 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
                         )) return@synchronized
                     if (device != null &&
                         classify(device.type) == pendingCommunicationRoute &&
-                        CallCommunicationDeviceConfirmationPolicy.confirmedAvailableRoute(
-                            pendingCommunicationDeviceId, device.id, pendingCommunicationRoute,
-                            communicationInventory(), hasBluetoothAccess()
+                        CallCommunicationDeviceConfirmationPolicy.confirmedCurrentCallbackRoute(
+                            pendingCommunicationDeviceId, device.id,
+                            try { audioManager.communicationDevice?.id }
+                            catch (_: RuntimeException) { null },
+                            pendingCommunicationRoute, communicationInventory(),
+                            hasBluetoothAccess()
                         )) {
                         val route = pendingCommunicationRoute ?: return@synchronized
                         clearPendingCommunication()
