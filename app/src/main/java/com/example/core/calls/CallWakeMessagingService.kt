@@ -29,8 +29,7 @@ class CallWakeMessagingService : FirebaseMessagingService() {
         if (CallWakePreferences.isEnabled(applicationContext)) {
             runCatching { CallWakeTokenRefreshWorker.enqueue(applicationContext) }
         }
-        if (MessageWakePreferences.isEnabled(applicationContext) ||
-            MessageWakePreferences.hasPendingRemoteRevoke(applicationContext)) {
+        if (MessageWakePreferences.shouldQueueOnTokenRotation(applicationContext)) {
             runCatching { MessageWakeTokenRefreshWorker.enqueue(applicationContext) }
         }
         // On scheduling failure the next consented application launch retries.
