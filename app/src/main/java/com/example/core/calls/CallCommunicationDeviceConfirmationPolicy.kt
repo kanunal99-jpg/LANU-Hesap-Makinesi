@@ -13,6 +13,21 @@ internal object CallCommunicationDeviceConfirmationPolicy {
     fun confirmed(requestedId: Int?, observedId: Int?): Boolean =
         requestedId != null && requestedId == observedId
 
+    /**
+     * Android can recycle an ephemeral device ID after unplug/replug.
+     * An ID match alone is not confirmation of the requested route.
+     */
+    fun confirmedAvailableRoute(
+        requestedId: Int?,
+        observedId: Int?,
+        requestedRoute: Route?,
+        availableDeviceRoutes: Map<Int, Route>,
+        bluetoothAllowed: Boolean
+    ): Boolean =
+        confirmed(requestedId, observedId) && requestedRoute != null &&
+            availableDeviceRoutes[requestedId] == requestedRoute &&
+            (requestedRoute != Route.BLUETOOTH_HEADSET || bluetoothAllowed)
+
     fun stillPreferred(
         pendingDeviceId: Int?,
         pendingRoute: Route?,
