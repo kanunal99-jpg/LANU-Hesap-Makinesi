@@ -68,7 +68,8 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
     }
     return refreshing;
   }
-  return async (deviceToken,now=Date.now()) => {
+  return async (deviceToken,now=Date.now(),kind='call') => {
+    if (kind !== 'call' && kind !== 'message') return false;
     if (typeof deviceToken !== 'string' || deviceToken.length < 20 ||
       deviceToken.length > 4096 || !/^[A-Za-z0-9_:.-]+$/.test(deviceToken)) return false;
     const bearer = await accessToken();
@@ -78,8 +79,9 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
         token:deviceToken,
         // Only two nonsensitive fields. No notification section: Android app
         // creates its own privacy-redacted opt-in notification.
-        data:{type:'lanu_call_wake_v1',at:String(now)},
-        android:{priority:'HIGH',ttl:'70s',collapse_key:'lanu_call_v1'}
+        data:{type:kind === 'message' ? 'lanu_message_wake_v1' : 'lanu_call_wake_v1',at:String(now)},
+        android:{priority:'HIGH',ttl:kind === 'message' ? '120s' : '70s',
+          collapse_key:kind === 'message' ? 'lanu_message_v1' : 'lanu_call_v1'}
       }}),
       // A slow Google endpoint must never indefinitely hold the encrypted
       // call invitation relay. Do not retry rate-limited FCM synchronously.
