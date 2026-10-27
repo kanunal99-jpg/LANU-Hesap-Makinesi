@@ -7,9 +7,9 @@ import org.junit.Test
 import org.webrtc.PeerConnection
 
 class CallIceGatherPolicyTest {
-    private val host = "v=0\\r\\na=candidate:1 1 udp 2113937151 192.168.1.12 50524 typ host generation 0\\r\\n"
+    private val host = "v=0\r\na=candidate:1 1 udp 2113937151 192.168.1.12 50524 typ host generation 0\r\n"
     private val reflexive = host +
-        "a=candidate:2 1 udp 1677729535 198.51.100.12 43333 typ srflx raddr 192.168.1.12 rport 50524\\r\\n"
+        "a=candidate:2 1 udp 1677729535 198.51.100.12 43333 typ srflx raddr 192.168.1.12 rport 50524\r\n"
 
     private fun ready(
         sdp: String?, state: PeerConnection.IceGatheringState,
@@ -42,7 +42,7 @@ class CallIceGatherPolicyTest {
     }
 
     @Test fun literalLookalikesOutsideCandidateLinesNeverCountAsPublicRoute() {
-        val malicious = "v=0\\r\\na=x-fake: typ srflx\\r\\n" + host
+        val malicious = "v=0\r\na=x-fake: typ srflx\r\n" + host
         assertFalse(ready(malicious, PeerConnection.IceGatheringState.GATHERING, 3000, 1000))
     }
 }
