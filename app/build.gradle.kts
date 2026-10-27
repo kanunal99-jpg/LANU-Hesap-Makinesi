@@ -126,7 +126,7 @@ dependencies {
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
-  // Only explicit call alert opt-in. No chat/marketing notifications.
+  // Explicit, separately consented call and opaque message alerts; no marketing push.
   implementation("com.google.firebase:firebase-messaging")
   // Uncomment to use Firestore:
   // implementation(libs.firebase.firestore)
