@@ -93,6 +93,19 @@ object CallWakePolicy {
     @Synchronized private fun releaseFailed(at: Long) {
         recent.remove(at)
     }
+    /** OEM notification services can reject channel creation, permission probes,
+     * PendingIntent creation, or payload construction BEFORE notify() is called.
+     * Never let these platform failures crash the FCM callback or consume a
+     * dedupe claim for an alert that was never posted.
+     */
+    fun safePlatformDelivery(action: () -> Boolean): Boolean = try {
+        action()
+    } catch (_: SecurityException) {
+        false
+    } catch (_: RuntimeException) {
+        false
+    }
+
     fun eligible(data: Map<String, String>, now: Long): Boolean {
         if (data.size != 2 || data["type"] != TYPE) return false
         val created = data["at"]?.toLongOrNull() ?: return false
@@ -148,13 +161,15 @@ object CallWakeNotification {
         manager.createNotificationChannel(incoming)
     }
 
-    fun show(context: Context, data: Map<String, String>, now: Long = System.currentTimeMillis()): Boolean {
+    fun show(context: Context, data: Map<String, String>, now: Long = System.currentTimeMillis()): Boolean =
+        CallWakePolicy.safePlatformDelivery {
         if (CallWakePolicy.privateAreaVisible || !CallWakePreferences.isEnabled(context) ||
-            !CallWakePolicy.eligible(data, now)) return false
+            !CallWakePolicy.eligible(data, now)) return@safePlatformDelivery false
         if (CallWakePolicy.requiresNotificationPermission(Build.VERSION.SDK_INT) &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return false
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return false
-        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return false
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return@safePlatformDelivery false
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            ?: return@safePlatformDelivery false
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return@safePlatformDelivery false
 
         if (Build.VERSION.SDK_INT >= 26) ensureChannel(manager)
 
@@ -179,7 +194,7 @@ object CallWakeNotification {
             .setTimeoutAfter(75_000L)
             .setAutoCancel(true)
             .build()
-        return CallWakePolicy.publishOnce(data["at"]!!.toLong()) {
+        CallWakePolicy.publishOnce(data["at"]!!.toLong()) {
             manager.notify(NOTIFICATION_ID, notification)
         }
     }
