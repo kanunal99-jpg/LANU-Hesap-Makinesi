@@ -283,10 +283,15 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
                 return State(true, activeRoute, null, available, "ROUTED")
                     .also { _state.value = it }
             }
-            // A disconnected route, a new higher-priority headset, or an
-            // explicit user selection must still trigger real device routing.
-            try { audioManager.clearCommunicationDevice() }
-            catch (_: RuntimeException) { /* try other available routes */ }
+            // Android can switch to the next device directly. Only an
+            // explicit retry of the same route requires resetting the
+            // possibly stuck OEM selection first.
+            if (CallAudioRoutePolicy.needsExplicitRouteReset(
+                    forceReapply, activeRoute, candidates.firstOrNull()
+                )) {
+                try { audioManager.clearCommunicationDevice() }
+                catch (_: RuntimeException) { /* still attempt direct routing */ }
+            }
             for (route in candidates) {
                 val matching = devices.filter { classify(it.type) == route }
                 for (device in matching) {
@@ -300,6 +305,10 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
                     }
                 }
             }
+            // All requests failed: release a stale selection to let Android
+            // restore its system-default route instead of keeping dead audio.
+            try { audioManager.clearCommunicationDevice() }
+            catch (_: RuntimeException) { /* SYSTEM_DEFAULT is still truthful */ }
         } else {
             if (scoRequested && Route.BLUETOOTH_HEADSET !in available) stopSco()
             for (route in candidates) {
