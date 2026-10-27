@@ -69,6 +69,30 @@ object CallWakePolicy {
         while (recent.size > 64) recent.remove(recent.first())
         return true
     }
+
+    /**
+     * Claims the wake before notifying so concurrent duplicate FCM deliveries
+     * cannot start two alerts. If the Android notification service throws,
+     * release that failed claim: a later retry may still show the REAL call.
+     * A failed notification is not successful delivery.
+     */
+    fun publishOnce(at: Long, notify: () -> Unit): Boolean {
+        if (!claim(at)) return false
+        return try {
+            notify()
+            true
+        } catch (_: SecurityException) {
+            releaseFailed(at)
+            false
+        } catch (_: RuntimeException) {
+            releaseFailed(at)
+            false
+        }
+    }
+
+    @Synchronized private fun releaseFailed(at: Long) {
+        recent.remove(at)
+    }
     fun eligible(data: Map<String, String>, now: Long): Boolean {
         if (data.size != 2 || data["type"] != TYPE) return false
         val created = data["at"]?.toLongOrNull() ?: return false
@@ -155,11 +179,8 @@ object CallWakeNotification {
             .setTimeoutAfter(75_000L)
             .setAutoCancel(true)
             .build()
-        if (!CallWakePolicy.claim(data["at"]!!.toLong())) return false
-        return try {
+        return CallWakePolicy.publishOnce(data["at"]!!.toLong()) {
             manager.notify(NOTIFICATION_ID, notification)
-            true
-        } catch (_: SecurityException) { false }
-          catch (_: RuntimeException) { false }
+        }
     }
 }
