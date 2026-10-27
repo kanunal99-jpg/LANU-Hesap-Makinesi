@@ -1,6 +1,7 @@
 package com.example.core.database
 
 import java.security.MessageDigest
+import java.util.Locale
 
 /**
  * Schema-only proof for a future offline, encrypted Room v4 shadow.
@@ -16,7 +17,12 @@ object OfflineCipherSchemaGate {
     fun fingerprint(table: String, columns: List<Column>): SchemaProof {
         require(table in DatabaseShadowParity.TABLES) { "Unknown Room table" }
         require(columns.isNotEmpty() && columns.size <= 128) { "Invalid column count" }
-        require(columns.map { it.name }.toSet().size == columns.size) { "Duplicate column" }
+        // SQLite treats ASCII identifier names case-insensitively. Allowing
+        // both "message_id" and "MESSAGE_ID" as separate proof columns could
+        // approve an impossible/ambiguous schema during an offline cutover.
+        require(columns.map { it.name.lowercase(Locale.ROOT) }.toSet().size == columns.size) {
+            "Duplicate SQLite column"
+        }
         require(columns.all { it.name.matches(identifier) &&
             it.affinity in allowedAffinities && it.primaryKeyOrder in 0..128 }) { "Invalid column metadata" }
         val pk = columns.map { it.primaryKeyOrder }.filter { it > 0 }.sorted()
