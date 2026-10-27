@@ -69,6 +69,35 @@ class DatabaseShadowParityTest {
             source.map { it.copy(sha256 = "not-a-digest") }))
     }
 
+    @Test fun legacyEvidenceCannotProcessMoreThanSixteenMiBOfPrivateData() {
+        // The old string-only proof still runs on offline fixtures; it must
+        // not silently hash 100,000 large rows and exhaust device memory.
+        val oneMiB = "x".repeat(1_048_576)
+        val withinBudget = List(16) { listOf(oneMiB) }
+        assertEquals(16, DatabaseShadowParity.fingerprint(
+            "messages", withinBudget).count)
+
+        try {
+            DatabaseShadowParity.fingerprint("messages",
+                withinBudget + listOf(listOf(oneMiB)))
+            fail("17 MiB of string evidence bypassed the aggregate budget")
+        } catch (_: IllegalArgumentException) { }
+    }
+
+    @Test fun oversizedStringIsRejectedBeforeUtf8BufferAllocation() {
+        val giant = "z".repeat(1_048_577)
+        try {
+            DatabaseShadowParity.fingerprint("messages", listOf(listOf(giant)))
+            fail("Legacy oversized UTF-16 evidence accepted")
+        } catch (_: IllegalArgumentException) { }
+
+        try {
+            DatabaseShadowParity.fingerprintTyped("messages", listOf(listOf(
+                DatabaseShadowParity.SqlValue.Text(giant))))
+            fail("Typed oversized UTF-16 evidence accepted")
+        } catch (_: IllegalArgumentException) { }
+    }
+
     @Test fun proofDoesNotContainDummyPrivateMessages() {
         val proof = DatabaseShadowParity.fingerprint("messages",
             listOf(listOf("Dummy PIN=1234", "Dummy secret content")))
