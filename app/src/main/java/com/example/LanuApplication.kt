@@ -5,6 +5,8 @@ import com.example.core.di.AppContainer
 import com.example.core.diagnostics.LocalCrashHandler
 import com.example.core.calls.CallWakeTokenRefreshWorker
 import com.example.core.messaging.MessageWakeTokenRefreshWorker
+import com.example.core.messaging.MessageWakeNotification
+import com.example.core.messaging.MessageWakePreferences
 import com.example.core.media.PrivateMediaCacheRecovery
 import com.example.core.security.LegacyInsecurePreferencesCleanup
 import kotlinx.coroutines.CoroutineScope
@@ -33,6 +35,12 @@ class LanuApplication : Application(), Configuration.Provider {
         // existing 18 KB attachments remain unchanged.
         runCatching { PrivateMediaCacheRecovery.purge(cacheDir) }
         LegacyInsecurePreferencesCleanup.clean(this)
+        // A crash after the server accepted opt-in but before local consent
+        // committed leaves a durable revoke marker. Recover before workers run.
+        runCatching { MessageWakePreferences.recoverInterruptedEnrollment(this) }
+        if (!MessageWakePreferences.isEnabled(this)) {
+            runCatching { MessageWakeNotification.cancel(this) }
+        }
         // Older installs may contain a Supabase key in Room. Migrate on launch so it
         // does not remain there until a legacy UI happens to request credentials.
         // Keystore errors must never erase originals or crash application startup.
