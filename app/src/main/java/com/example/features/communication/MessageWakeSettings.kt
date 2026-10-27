@@ -40,7 +40,12 @@ import com.example.core.messaging.MessageWakeTokenRefreshWorker
 import com.example.core.repository.CommunicationRepository
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
+import com.google.android.gms.tasks.Tasks
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.concurrent.TimeUnit
 
 /** This component is reachable only after the normal calculator/private-area gate. */
 @Composable
@@ -57,6 +62,8 @@ fun MessageWakeSettings(repository: CommunicationRepository) {
         check(MessageWakePreferences.acknowledgeRemoteRevoke(context))
         pending = false
         true
+    } catch (e: CancellationException) {
+        throw e
     } catch (_: Exception) {
         pending = true
         runCatching { MessageWakeTokenRefreshWorker.enqueue(context) }
@@ -94,7 +101,7 @@ fun MessageWakeSettings(repository: CommunicationRepository) {
     }
 
     fun enable() {
-        if (busy || pending) return
+        if (busy || pending || MessageWakePreferences.hasPendingRemoteRevoke(context)) return
         if (!runCatching { NotificationManagerCompat.from(context).areNotificationsEnabled() }.getOrDefault(false)) {
             status = "Telefon bildirimleri kapalı. Önce Android ayarlarından açın."
             openSystemChannel()
@@ -104,44 +111,53 @@ fun MessageWakeSettings(repository: CommunicationRepository) {
             status = "Mesaj bildirimleri için Firebase yapılandırması eksik."
             return
         }
+        // Commit a fail-closed recovery marker BEFORE the signed remote call.
+        // The worker ignores an active enrollment; a process restart safely
+        // converts the orphaned marker into a durable remote revocation.
+        if (!MessageWakePreferences.beginEnrollment(context)) {
+            status = "Güvenli bildirim tercihi kaydedilemedi. Tekrar deneyin."
+            pending = MessageWakePreferences.hasPendingRemoteRevoke(context)
+            return
+        }
         busy = true
+        pending = true
+        enabled = false
         status = null
-        try {
-            FirebaseMessaging.getInstance().isAutoInitEnabled = true
-            FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
-                val token = if (task.isSuccessful) task.result else null
-                if (token.isNullOrBlank()) {
-                    if (!CallWakePreferences.isEnabled(context)) {
-                        runCatching { FirebaseMessaging.getInstance().isAutoInitEnabled = false }
-                    }
-                    status = "Bildirim cihaz kaydı alınamadı. Bağlantınızı kontrol edin."
-                    busy = false
-                } else scope.launch {
-                    try {
-                        repository.registerMessageWakeToken(token)
-                        check(MessageWakePreferences.enable(context))
-                        enabled = true
-                        status = "Yalnız LANU Hesap Makinesi başlıklı, sesli bildirimler açık."
-                    } catch (_: Exception) {
-                        // A late server write is possible even if the local commit failed.
-                        MessageWakePreferences.disableAndQueueRemoteRevoke(context)
-                        enabled = false
-                        pending = true
-                        val revoked = revokeRemote()
-                        status = if (revoked) "Mesaj bildirimleri kapalı."
-                            else "Bildirimler kapalı; sunucu iptali yeniden denenecek."
-                        if (!CallWakePreferences.isEnabled(context)) {
-                            runCatching { FirebaseMessaging.getInstance().isAutoInitEnabled = false }
-                        }
-                    } finally { busy = false }
+        scope.launch {
+            try {
+                val messaging = FirebaseMessaging.getInstance()
+                messaging.isAutoInitEnabled = true
+                // Unlike an unbounded Task callback, this is time-limited and
+                // cancellation-aware. No FCM token enters logs or local prefs.
+                val token = withContext(Dispatchers.IO) {
+                    Tasks.await(messaging.token, 12, TimeUnit.SECONDS)
                 }
+                check(!token.isNullOrBlank()) { "FCM token unavailable" }
+                repository.registerMessageWakeToken(token)
+                check(MessageWakePreferences.finishEnrollment(context))
+                pending = false
+                enabled = true
+                status = "Yalnız LANU Hesap Makinesi başlıklı, sesli bildirimler açık."
+            } catch (e: CancellationException) {
+                // The persisted opt-out marker survives Compose cancellation.
+                MessageWakePreferences.disableAndQueueRemoteRevoke(context)
+                runCatching { MessageWakeTokenRefreshWorker.enqueue(context) }
+                throw e
+            } catch (_: Exception) {
+                MessageWakePreferences.disableAndQueueRemoteRevoke(context)
+                MessageWakeNotification.cancel(context)
+                pending = true
+                enabled = false
+                val revoked = revokeRemote()
+                status = if (revoked) "Mesaj bildirimleri kapalı. Cihaz kaydı tamamlanamadı."
+                    else "Bildirim kapalı; sunucu iptali bekliyor. Gizli alan Ayarlarından yeniden deneyin."
+            } finally {
+                if (!MessageWakePreferences.isEnabled(context) &&
+                    !CallWakePreferences.isEnabled(context)) {
+                    runCatching { FirebaseMessaging.getInstance().isAutoInitEnabled = false }
+                }
+                busy = false
             }
-        } catch (_: Exception) {
-            if (!CallWakePreferences.isEnabled(context)) {
-                runCatching { FirebaseMessaging.getInstance().isAutoInitEnabled = false }
-            }
-            status = "FCM bildirimi kullanılamıyor."
-            busy = false
         }
     }
 
@@ -154,6 +170,8 @@ fun MessageWakeSettings(repository: CommunicationRepository) {
         enabled = false
         pending = true
         busy = true
+        // Opt-out removes even a previously delivered neutral notification.
+        MessageWakeNotification.cancel(context)
         // Do not turn off FCM while independent call alerts remain enabled.
         if (!CallWakePreferences.isEnabled(context)) {
             runCatching { FirebaseMessaging.getInstance().isAutoInitEnabled = false }
