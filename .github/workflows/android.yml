@@ -153,6 +153,7 @@ jobs:
         run: |
           python3 -m unittest discover -s scripts -p 'test_verify_published_apk.py'
           python3 -m unittest discover -s scripts -p 'test_verify_stable_signer_continuity.py'
+          python3 -m unittest discover -s scripts -p 'test_release_version_contract.py'
           # Simulated ADB only; never connects to an owner's real handset in CI.
           bash -n scripts/verify_existing_install_signer.sh
           python3 -m unittest discover -s scripts -p 'test_verify_existing_install_signer.py'
@@ -461,7 +462,7 @@ jobs:
           # The first protected-key release establishes a baseline. Subsequent
           # stable releases must keep the exact same public signing identity.
           previous="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-            --jq '[.[] | select(.tag_name | test("^v1\\.1\\.0-signed\\.[0-9]+$"))] | sort_by(.published_at) | last | .tag_name // ""')"
+            --jq '[.[] | select(.tag_name | test("^v1\\.(1|2)\\.0-signed\\.[0-9]+$"))] | sort_by(.published_at) | last | .tag_name // ""')"
           if [ -z "$previous" ]; then
             echo "::notice::First protected-key release: no prior stable APK exists."
             echo "::notice::Device upgrade remains unverified; a matching signature alone cannot prove data preservation."
@@ -485,8 +486,13 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$SIGNING_MODE" = "stable" ]; then
-            TAG="v1.1.0-signed.${{ github.run_number }}"
-            NOTES="Korunan anahtarla imzalanmış APK. Önceki rastgele debug imzalı kurulumların üzerine güvenli yükseltme garanti değildir; gerçek cihaz testi gerekir."
+            TAG="v1.2.0-signed.${{ github.run_number }}"
+            LEGACY_TAG="v1.1.0-signed.${{ github.run_number }}"
+            NOTES="LANU 1.2.0: isteğe bağlı gizli mesaj bildirimleri ve çağrı/güvenlik düzeltmeleri. Mevcut uygulamayı kaldırmayın; aynı stable imza ve daha yüksek versionCode gerekir. Fiziksel cihaz veri koruması ayrıca doğrulanmalıdır."
+            # Installed 1.1.0 clients accept ONLY v1.1.0-signed.N release tags.
+            # Publish these EXACT same verified bytes as a compatibility bridge
+            # before the official 1.2.0 tag so old OTA clients see the update.
+            bash scripts/publish_verified_release_retry.sh "$LEGACY_TAG" "LANU 1.2.0 APK için eski 1.1.0 OTA uyumluluk etiketi. İki etiket aynı SHA256/imzalı baytları içerir."
           else
             TAG="v1.0.0-debug.${{ github.run_number }}"
             NOTES="GEÇİCİ DEBUG SERTİFİKASI. Bu APK eski kurulumun üzerine veri kayıpsız güncelleme garantisi vermez. Kurulu LANU uygulamasını kaldırmayın."
@@ -505,18 +511,22 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$SIGNING_MODE" = "stable" ]; then
-            TAG="v1.1.0-signed.${{ github.run_number }}"
+            TAGS=("v1.1.0-signed.${{ github.run_number }}" "v1.2.0-signed.${{ github.run_number }}")
           else
-            TAG="v1.0.0-debug.${{ github.run_number }}"
+            TAGS=("v1.0.0-debug.${{ github.run_number }}")
           fi
-          dir="$RUNNER_TEMP/lanu-public-download"
-          mkdir -p "$dir"
-          for file in app-debug.apk app-debug.apk.sha256 app-debug.apk.signer.txt; do
-            curl --silent --show-error --fail --location --retry 4 \
-              --retry-all-errors --retry-delay 2 --max-time 180 \
-              --proto '=https' --proto-redir '=https' \
-              "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$file" \
-              --output "$dir/$file"
+          # Require anonymous public read-back and byte-for-byte equality
+          # for BOTH the backwards-compatible OTA tag and the new release.
+          for TAG in "${TAGS[@]}"; do
+            dir="$RUNNER_TEMP/lanu-public-download/$TAG"
+            mkdir -p "$dir"
+            for file in app-debug.apk app-debug.apk.sha256 app-debug.apk.signer.txt; do
+              curl --silent --show-error --fail --location --retry 4 \
+                --retry-all-errors --retry-delay 2 --max-time 180 \
+                --proto '=https' --proto-redir '=https' \
+                "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$file" \
+                --output "$dir/$file"
+            done
+            python3 scripts/verify_published_apk.py "$dir" "$RUNNER_TEMP/lanu-verified" "$SIGNING_MODE"
+            echo "Publicly downloadable APK verified for $TAG"
           done
-          python3 scripts/verify_published_apk.py "$dir" "$RUNNER_TEMP/lanu-verified" "$SIGNING_MODE"
-          echo "Publicly downloadable APK verified for $TAG"
