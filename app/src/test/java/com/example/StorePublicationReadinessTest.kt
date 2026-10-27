@@ -27,6 +27,15 @@ class StorePublicationReadinessTest {
         }
     }
 
+    @Test fun oneMissingLiveFeatureDisclosureBlocksPublication() {
+        val cases = listOf(
+            complete().copy(optionalFcmCallAlertsReviewed = false),
+            complete().copy(audioVideoMediaDisclosureReviewed = false),
+            complete().copy(databaseEncryptionClaimsReviewed = false),
+            complete().copy(ratchetClaimsReviewed = false))
+        assertTrue(cases.all { StorePublicationReadiness.assess(it) is Decision.Blocked })
+    }
+
     @Test fun syntheticCompleteEvidenceStillRequiresHumanLegalReview() {
         assertEquals(Decision.HumanLegalReviewRequired,
             StorePublicationReadiness.assess(complete()))
@@ -36,5 +45,7 @@ class StorePublicationReadinessTest {
     private fun complete() = Evidence(ownerVerified = true, supportVerified = true,
         privacyPolicyUrl = "https://privacy.example/policy",
         retentionAndDeletionReviewed = true, dataSafetyReviewed = true,
-        permissionsReviewed = true)
+        permissionsReviewed = true, optionalFcmCallAlertsReviewed = true,
+        audioVideoMediaDisclosureReviewed = true,
+        databaseEncryptionClaimsReviewed = true, ratchetClaimsReviewed = true)
 }
