@@ -4,6 +4,7 @@ import android.app.Application
 import com.example.core.di.AppContainer
 import com.example.core.diagnostics.LocalCrashHandler
 import com.example.core.calls.CallWakeTokenRefreshWorker
+import com.example.core.messaging.MessageWakeTokenRefreshWorker
 import com.example.core.media.PrivateMediaCacheRecovery
 import com.example.core.security.LegacyInsecurePreferencesCleanup
 import kotlinx.coroutines.CoroutineScope
@@ -48,6 +49,7 @@ class LanuApplication : Application(), Configuration.Provider {
             // re-registration. No token, identity or secret enters WorkManager.
             // KEEP prevents ordinary app relaunch from cancelling a retry.
             runCatching { CallWakeTokenRefreshWorker.enqueue(this@LanuApplication, replace = false) }
+            runCatching { MessageWakeTokenRefreshWorker.enqueue(this@LanuApplication, replace = false) }
         }
         credentialMigrationScope.launch {
             // No identity is generated and no network work is requested unless
