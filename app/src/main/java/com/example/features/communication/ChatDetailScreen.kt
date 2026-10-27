@@ -467,6 +467,8 @@ fun MessageBubble(
     var showMenu by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showLegacyMediaConsent by remember(mediaUrl) { mutableStateOf(false) }
+    var legacyMediaApproved by remember(mediaUrl) { mutableStateOf(false) }
     var editText by remember { mutableStateOf(text) }
     val context = LocalContext.current
     
@@ -534,17 +536,34 @@ fun MessageBubble(
             if (InlineMediaCodec.isAttachment(text)) {
                 InlineMediaAttachment(payload = text, onSave = onSaveAttachment)
             } else {
-                // Legacy media previews remain read-only; new media never uses public URLs.
+                // Old remote URLs are NOT encrypted inline attachments. Never
+                // contact a third party simply because a private chat opened.
+                // Only a clearly approved HTTPS legacy preview may fetch data.
                 if (!mediaUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = mediaUrl,
-                        contentDescription = "Ek Medya",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 200.dp)
-                            .clip(RoundedCornerShape(8.dp)),
-                        contentScale = ContentScale.Crop
-                    )
+                    if (LegacyMediaPreviewPolicy.canRequestPreview(mediaUrl)) {
+                        if (legacyMediaApproved) {
+                            AsyncImage(
+                                model = mediaUrl,
+                                contentDescription = "Kullanıcı onayıyla açılan eski harici medya",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 200.dp)
+                                    .clip(RoundedCornerShape(8.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            OutlinedButton(
+                                onClick = { showLegacyMediaConsent = true },
+                                modifier = Modifier.testTag("legacy_media_preview_request")
+                            ) { Text("Eski görseli görüntüle") }
+                        }
+                    } else {
+                        Text(
+                            "Eski medya bağlantısı güvenli olmadığı için önizleme kapalı.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
 
                 if (text.isNotBlank() && (mediaUrl.isNullOrBlank() || text != "📷 Fotoğraf")) {
@@ -641,6 +660,25 @@ fun MessageBubble(
                 Text(text = reaction, fontSize = 14.sp)
             }
         }
+    }
+
+    if (showLegacyMediaConsent) {
+        AlertDialog(
+            onDismissRequest = { showLegacyMediaConsent = false },
+            title = { Text("Harici görsel açılsın mı?") },
+            text = {
+                Text("Bu eski görsel uçtan uca şifreli ek değildir. Açarsanız harici sunucu IP adresinizi görebilir. Yeni LANU şifreli ekleri bu bağlantıyı kullanmaz.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showLegacyMediaConsent = false
+                    if (LegacyMediaPreviewPolicy.canRequestPreview(mediaUrl)) legacyMediaApproved = true
+                }, modifier = Modifier.testTag("legacy_media_preview_confirm")) { Text("Görseli aç") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLegacyMediaConsent = false }) { Text("Vazgeç") }
+            }
+        )
     }
 
     if (showDeleteDialog) {
