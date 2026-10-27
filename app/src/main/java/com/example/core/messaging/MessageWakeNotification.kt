@@ -41,6 +41,20 @@ object MessageWakePreferences {
         }
     } catch (_: Exception) { true }
 
+    /**
+     * Firebase may call onNewToken while first opt-in is still in flight.
+     * Do not schedule a revocation worker at that instant: it could delete
+     * the just-registered server token AFTER local consent has committed.
+     * On cold process start LanuApplication still schedules recovery via
+     * hasPendingRemoteRevoke(), so a killed registration remains recoverable.
+     */
+    fun shouldQueueOnTokenRotation(context: Context): Boolean = try {
+        val p = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+        (p.getBoolean(ENABLED, false) &&
+            !p.getBoolean(REGISTRATION_IN_FLIGHT, false) &&
+            !p.getBoolean(PENDING, false)) || p.getBoolean(PENDING, false)
+    } catch (_: Exception) { false }
+
     /** Legacy/local opt-in helper: never override a pending server cleanup. */
     fun enable(context: Context): Boolean = try {
         val prefs = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
