@@ -2,6 +2,7 @@ package com.example.core.media
 
 import java.io.File
 import java.io.FileInputStream
+import java.io.InputStream
 import java.security.MessageDigest
 
 /**
@@ -38,6 +39,33 @@ object PrivateMediaTransferBudget {
         }
     }
 
+    /**
+     * Bounded streaming reader, testable with hostile/short-reading providers.
+     * FileInputStream normally never returns zero for a positive read, but
+     * fail closed if an adapter does so indefinitely rather than spin the CPU.
+     */
+    fun digestCipherStream(input: InputStream, expectedBytes: Long): ByteArray {
+        require(expectedBytes in 17L..MAX_RESERVED_CIPHER_BYTES) { "Şifreli dosya sınırı geçersiz." }
+        val md = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(64 * 1024)
+        var total = 0L
+        var emptyReads = 0
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            if (count == 0) {
+                require(++emptyReads < 3) { "Şifreli dosya okumada ilerleme yok." }
+                continue
+            }
+            emptyReads = 0
+            total += count.toLong()
+            require(total <= expectedBytes) { "Şifreli dosya boyutu aşıldı." }
+            md.update(buffer, 0, count)
+        }
+        require(total == expectedBytes) { "Şifreli dosya eksik okundu." }
+        return md.digest()
+    }
+
     /** Only public, server-safe reservation fields; NEVER includes the file key. */
     data class VerifiedReservation(val fileId: String, val cipherBytes: Long, val cipherSha256: String)
 
@@ -62,23 +90,12 @@ object PrivateMediaTransferBudget {
             "Şifreli medya yalnız uygulamanın özel dosya alanından yüklenebilir."
         }
         verifyCiphertext(encryptedFile, manifest.plainBytes)
-        val sha256 = MessageDigest.getInstance("SHA-256")
-        var consumed = 0L
-        FileInputStream(encryptedFile).use { input ->
-            val buffer = ByteArray(64 * 1024)
-            while (true) {
-                val length = input.read(buffer)
-                if (length < 0) break
-                if (length == 0) continue
-                consumed += length
-                require(consumed <= expectedBytes) { "Şifreli dosya boyutu aşıldı." }
-                sha256.update(buffer, 0, length)
-            }
+        val digest = FileInputStream(encryptedFile).use { input ->
+            digestCipherStream(input, expectedBytes)
         }
-        require(consumed == expectedBytes && encryptedFile.length() == expectedBytes) {
+        require(encryptedFile.length() == expectedBytes) {
             "Şifreli dosya rezervasyon boyutuyla eşleşmiyor."
         }
-        val digest = sha256.digest()
         val expectedSha = manifest.cipherSha256.chunked(2)
             .map { it.toInt(16).toByte() }.toByteArray()
         require(MessageDigest.isEqual(digest, expectedSha)) {
