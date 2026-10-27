@@ -41,6 +41,16 @@ class CallWakeNotificationTest {
         assertTrue(CallWakeTapPolicy.ACTION.startsWith(context.packageName))
     }
 
+    @Test fun AndroidSixThroughSixteenPermissionBehaviorIsExplicit() {
+        for (api in 23..32) {
+            assertFalse(CallWakePolicy.requiresNotificationPermission(api))
+        }
+        for (api in 33..36) {
+            assertTrue(CallWakePolicy.requiresNotificationPermission(api))
+        }
+        assertFalse(CallWakePreferences.isEnabled(context))
+    }
+
     @Test fun defaultIsPrivateAndRequiresExplicitConsent() {
         CallWakePreferences.setEnabled(context, false)
         assertFalse(CallWakePreferences.isEnabled(context))
