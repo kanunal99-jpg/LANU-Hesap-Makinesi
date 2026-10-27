@@ -67,7 +67,10 @@ object CrashDiagnostics {
             ApplicationExitInfo.REASON_CRASH_NATIVE,
             ApplicationExitInfo.REASON_ANR
         )
-        val recent = entries.take(40).distinct().filter { (reason, timestamp) ->
+        // Android may surface multiple diagnostic reason records at one process
+        // exit millisecond. Count each exit time only once, conservatively,
+        // rather than declaring a three-crash burst from one termination.
+        val recent = entries.take(40).distinctBy { it.second }.filter { (reason, timestamp) ->
             reason in crashing && withinRetention(timestamp, now)
         }
         val hourly = recent.count { now - it.second <= TimeUnit.HOURS.toMillis(1) }
