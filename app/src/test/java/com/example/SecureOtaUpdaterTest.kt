@@ -74,6 +74,34 @@ class SecureOtaUpdaterTest {
                 listOf("app-debug.apk", "app-debug.apk.sha256"))).toString(), 654))
     }
 
+    @Test fun `prerelease signed tags never become automatic OTA candidates`() {
+        val candidates = JSONArray()
+            .put(release("v1.2.0-signed.801").put("prerelease", true))
+            .put(release("v1.2.0-signed.800"))
+        val raw = candidates.toString()
+        assertEquals("v1.2.0-signed.800", SecureOtaUpdater.chooseRelease(raw, 700)?.tag)
+        assertEquals("v1.2.0-signed.800" to 800L,
+            SecureOtaUpdater.newestPublishedVersion(raw, 700))
+
+        val onlyPreview = JSONArray()
+            .put(release("v1.2.0-signed.801").put("prerelease", true)).toString()
+        assertNull(SecureOtaUpdater.chooseRelease(onlyPreview, 700))
+        assertNull(SecureOtaUpdater.newestPublishedVersion(onlyPreview, 700))
+    }
+
+    @Test fun `same version signed bridge tags prefer current channel in either API order`() {
+        val bridge = release("v1.1.0-signed.900")
+        val current = release("v1.2.0-signed.900")
+        for (raw in listOf(
+            JSONArray().put(bridge).put(current).toString(),
+            JSONArray().put(current).put(bridge).toString()
+        )) {
+            assertEquals("v1.2.0-signed.900", SecureOtaUpdater.chooseRelease(raw, 700)?.tag)
+            assertEquals("v1.2.0-signed.900" to 900L,
+                SecureOtaUpdater.newestPublishedVersion(raw, 700))
+        }
+    }
+
     @Test fun `checks newest greater code and ignores draft and obsolete releases`() {
         val data = JSONArray()
             .put(release("v1.0.0-debug.148"))
