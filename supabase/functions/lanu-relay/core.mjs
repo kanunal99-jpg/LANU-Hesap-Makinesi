@@ -129,6 +129,22 @@ export function createRelay(store, clock = Date.now, options = {}) {
         insist(options.calls === true, 503, 'Arama sunucusu henüz etkin değil.');
         return { version: 1, signals: await store.callPoll(owner) };
       }
+      case 'messageWakeToken': {
+        insist(typeof store.messageWakeRegister === 'function',
+          503, 'Mesaj bildirimi sunucu kaydı kullanılamıyor.');
+        insist(Object.keys(data).sort().join(',') === 'token', 400,
+          'Geçersiz mesaj bildirimi tercihi.');
+        insist(data.token === null ||
+          (typeof data.token === 'string' && data.token.length >= 20 &&
+            data.token.length <= 4096 && /^[A-Za-z0-9_:.-]+$/.test(data.token)),
+          400, 'Geçersiz bildirim cihaz kaydı.');
+        // Revocation must work even if the push transport has been disabled.
+        if (data.token !== null) insist(options.messageWakeEnabled === true,
+          503, 'Mesaj bildirimi sunucuda etkin değil.');
+        const result = await store.messageWakeRegister(owner, data.token);
+        insist(result?.registered === true, 503, 'Mesaj cihaz bildirimi kaydedilemedi.');
+        return { registered: true };
+      }
       case 'callWakeToken': {
         insist(typeof store.callWakeRegister === 'function',
           503, 'Çağrı bildirimi sunucu kaydı kullanılamıyor.');
@@ -219,6 +235,34 @@ export function createRelay(store, clock = Date.now, options = {}) {
         if (existing) insist(existing.senderId === owner && existing.recipientId === data.peerId && existing.content === data.content, 409, 'Mesaj kimliği farklı içerikle kullanılmış.');
         const message = existing ?? await store.send({ id: data.messageId, senderId: owner, recipientId: data.peerId, content: data.content });
         insist(message.senderId === owner && message.recipientId === data.peerId && message.content === data.content, 409, 'Mesaj kimliği çakıştı.');
+        // Never dispatch before the encrypted message is durable and validated.
+        // Old relays/clients remain compatible. A wake is not a delivery ACK.
+        if (!existing && options.messageWakeEnabled === true &&
+          typeof options.sendMessageWake === 'function' &&
+          typeof store.messageWakeClaim === 'function') {
+          // Both notification claim and the external FCM HTTP call run off
+          // the encrypted send critical path on Supabase EdgeRuntime.
+          // The claim enforces service-role opt-in, mutual trust and rate limits.
+          const dispatch = async () => {
+            try {
+              const claimed = await store.messageWakeClaim(owner, data.peerId, data.messageId);
+              if (claimed?.claimed === true && typeof claimed.wake_token === 'string') {
+                try { await options.sendMessageWake(claimed.wake_token, clock()); }
+                catch (error) {
+                  if (error instanceof FcmUnregisteredTokenError &&
+                      typeof store.messageWakeInvalidate === 'function') {
+                    try { await store.messageWakeInvalidate(data.peerId, claimed.wake_token); }
+                    catch { /* Durable E2EE message must survive notification failure. */ }
+                  }
+                }
+              }
+            } catch { /* Optional push never rejects an accepted E2EE message. */ }
+          };
+          const task = dispatch();
+          if (typeof options.scheduleMessageWake === 'function')
+            options.scheduleMessageWake(task);
+          else await task; // deterministic local/Node protocol tests
+        }
         return { status: message.status };
       }
       case 'reservePrivateMedia': {
@@ -264,10 +308,16 @@ export function createRelay(store, clock = Date.now, options = {}) {
           cipherBytes: data.cipherBytes, expiresAt: reserved.expires_at };
       }
       case 'sync': {
-        const result = { contacts: await store.contacts(owner), events: await store.events(owner) };
-        // New foreground clients piggyback presence/invites on normal chat sync.
-        // Legacy/background clients do not wake an extra call polling loop.
-        if (options.calls === true && data.callVersion === 1) result.calls = await store.callPoll(owner);
+        // Parallel independent private read operations. No extra mobile poll,
+        // no background service, same authenticated response and ack semantics.
+        // Call controls remain part of the existing foreground chat sync only.
+        const includeCalls = options.calls === true && data.callVersion === 1;
+        const [contacts, events, calls] = await Promise.all([
+          store.contacts(owner), store.events(owner),
+          includeCalls ? store.callPoll(owner) : Promise.resolve(null)
+        ]);
+        const result = { contacts, events };
+        if (includeCalls) result.calls = calls;
         return result;
       }
       case 'ack': {
@@ -388,6 +438,18 @@ export class RestStore {
       p_id: id, p_call: callId, p_content: content });
   }
   async callAck(owner, ids) { await this.query('rpc/lanu_call_ack', 'POST', { p_owner: owner, p_ids: ids }); }
+  async messageWakeRegister(owner, token) {
+    return this.query('rpc/lanu_message_wake_register', 'POST',
+      { p_owner: owner, p_token: token });
+  }
+  async messageWakeClaim(owner, peer, messageId) {
+    return this.query('rpc/lanu_message_wake_claim', 'POST',
+      { p_sender: owner, p_recipient: peer, p_message: messageId });
+  }
+  async messageWakeInvalidate(owner, token) {
+    return this.query('rpc/lanu_message_wake_invalidate', 'POST',
+      { p_owner: owner, p_token: token });
+  }
   async callWakeRegister(owner, token) {
     return this.query('rpc/lanu_call_wake_register', 'POST', { p_owner: owner, p_token: token });
   }

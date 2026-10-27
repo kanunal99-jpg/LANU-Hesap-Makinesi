@@ -18,6 +18,12 @@ function serviceAccountStatus(raw: string | undefined): string {
 }
 const fcmCredentials = Deno.env.get('LANU_FCM_SERVICE_ACCOUNT_JSON');
 const sendCallWake = createFcmWakeSender(fcmCredentials);
+const sendMessageWake = sendCallWake
+  ? (token: string, at: number) => sendCallWake(token, at, 'message')
+  : null;
+// Supabase documented background-task API; no 6s Google FCM roundtrip is
+// added to the chat send response. Failures remain isolated and content-free.
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 console.info('LANU call notification sender: ' + (sendCallWake ? 'configured' : 'not_configured'));
 console.info('LANU FCM credentials shape: ' + serviceAccountStatus(fcmCredentials));
 Deno.serve(async (request: Request) => {
@@ -34,7 +40,9 @@ Deno.serve(async (request: Request) => {
     // Feature gate: no secret -> no registration and no wakeups. No extra
     // network service, billing, or background polling is started by default.
     const result = await createRelay(new RestStore(url, key), Date.now,
-      { calls: true, callWakeEnabled: Boolean(sendCallWake), sendCallWake })(envelope);
+      { calls: true, callWakeEnabled: Boolean(sendCallWake), sendCallWake,
+        messageWakeEnabled: Boolean(sendMessageWake), sendMessageWake,
+        scheduleMessageWake: (task: Promise<unknown>) => EdgeRuntime.waitUntil(task) })(envelope);
     return new Response(JSON.stringify(result), { status: 200, headers });
   } catch (error) {
     const known = error instanceof RelayError;

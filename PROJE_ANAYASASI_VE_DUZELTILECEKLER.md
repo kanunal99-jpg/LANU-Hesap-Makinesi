@@ -919,3 +919,16 @@ Bu puanlar matematiksel sertifikasyon değil, testli geliştirme ve açık üret
 
 **Güncel kamuya açık yayın (repo kontrolü):** [v1.1.0-signed.343](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/releases/tag/v1.1.0-signed.343), [Actions #343](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/actions/runs/40025323705) SUCCESS. Bu **otomatik yayın kanıtıdır**; kullanıcının kurulu sürümünün 343 olduğunu göstermez. Büyük dosya AES-GCM protokol kodu olsa da yetkili canlı dosya depolaması ve E2EE anahtar teslimi ile gerçek video gönderimi tamamlanmış sayılmaz.
 
+
+
+## 2026-10-27 — Kullanıcı onayı: Gizliliği koruyan isteğe bağlı mesaj bildirimi ve bağlantı bütçesi
+
+**Yetkili kullanıcı kararı (2026-10-27):** LANU gizli mesajları için bildirimler yalnız özel alandaki Ayarlar ekranından kullanıcı açıkça etkinleştirdiğinde çalışır; varsayılan KAPALI. Kullanıcı aynı yerden kapatabilir ve sunucu kayıt iptali kalıcı/retry edilebilir olmalıdır. Arama bildirimleri ayrı, bağımsız tercih olarak korunur; birinin kapatılması diğerinin iznini yok etmez. Android 13+ `POST_NOTIFICATIONS` izni açık rızanın ardından istenir. İzin verilmez veya kanal sistemden susturulursa bildirim ve ses taklit edilmez.
+
+**Bildirim mahremiyet sözleşmesi:** Sistem bildirimi başlığı yalnız `LANU Hesap Makinesi`; mesaj metni, gönderen, sohbet, adres/kimlik, telefon, alıntı, dosya, okunmamış sayısı veya gizli içeriğe dair önizleme hiçbir push verisinde, başlıkta, gövdede, PendingIntent'te, kilit ekranında ya da uygulama logunda yer alamaz. Bildirim sesi ayrı Android bildirim kanalına bağlı, kullanıcının sistem ses/sessiz/DND tercihlerine tabidir. Bildirime dokununca normal hesap makinesi açılır, gizli alana otomatik geçiş olmaz, `2011.` ve isteğe bağlı PIN kapıları aynen korunur. Sohbet bildirim kanalı çağrı kanalından ayrı olmalıdır.
+
+**Teslim, özerklik ve performans:** Gizli bildirim yalnız karşılıklı yetkilendirilmiş E2EE mesajın sunucuda kalıcı yazılmasından sonra, yeniden gönderimlere karşı idempotent şekilde, sunucu tarafındaki doğrulanmış ve opt-in cihaz için meta-verisiz `data-only` FCM ipucu ile iletilebilir. FCM bir teslim garantisi/şifre çözme izni değildir. Sunucu anahtarı mobil istemciye konulmaz, abonelikler tablo ve RPC üzerinden RLS/service-role ile korunur. Gizli veriye erişmek için arka plan içerik eşitlemesi başlatılmaz. Kullanıcı mesajı kapattığında yerel blok hemen geçerli olur; sunucuda iptal başarısızsa güvenli imzalı retry gerekir. Şebeke/FCM bağlantısı arıza yaptığında normal şifreli mesaj teslimi sürer.
+
+**Bağlantı:** Ön plandaki mevcut birleştirilmiş eşitleme ve HTTP bağlantı havuzu korunur; hata durumunda aşamalı geri çekilme, uygulama açıldığında yeniden deneme ve gereksiz arka plan poll/foreground-service açmama temel varsayılandır. Hız iyileşmesi ölçümle kanıtlanmadan yüzdelik performans iddiasında bulunulmaz.
+
+**Kabul kapıları:** Android API 23–36 izin/kilit ekranı/sessiz mod/kanal geçişi; call-only ve message-only tercih matrisi; geç gelen token, offline opt-out, yeniden kurulum/kimlik değişimi; sahte/tekrar/eskimiş FCM; backend RLS/mutual/duplicate/rate-limit; iki fiziksel cihazda uygulama kapalıyken bildirim ve hesap makinesi giriş testi. **Durum: mimari karar onaylı, uygulama ve saha doğrulaması bekliyor.**
