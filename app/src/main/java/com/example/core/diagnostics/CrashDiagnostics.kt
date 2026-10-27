@@ -103,6 +103,50 @@ object CrashDiagnostics {
         }
     }
 
+    /**
+     * One bounded OS Binder query per refresh. In particular, Compose must not
+     * issue four synchronous ActivityManager IPC calls during composition.
+     * All derived fields use the SAME sampled history and timestamp.
+     */
+    data class SystemExitSnapshot(
+        val recent: RecentExit? = null,
+        val counts: Map<String, Int> = emptyMap(),
+        val repeatRisk: RepeatedExitRisk? = null,
+        val triage: String? = null
+    )
+
+    fun summarizeSnapshot(entries: List<Pair<Int, Long>>, now: Long): SystemExitSnapshot {
+        val bounded = entries.take(40)
+        val latest = bounded.asSequence()
+            .filter { withinRetention(it.second, now) }
+            .mapNotNull { (reason, time) ->
+                safeReasonLabel(reason)?.let { RecentExit(it, time) }
+            }
+            .maxByOrNull { it.timestamp }
+        return SystemExitSnapshot(
+            recent = latest,
+            counts = summarizeReasons(bounded, now),
+            repeatRisk = assessRepeatedCrashRisk(bounded, now),
+            triage = triageHint(bounded, now)
+        )
+    }
+
+    /**
+     * IO-only caller contract: Android package-manager/process-history IPC can
+     * stall on OEM firmware. Never invoke this from composition/main thread.
+     * A failure returns an empty, privacy-safe snapshot without raw OS text.
+     */
+    fun recentSnapshot(context: Context, now: Long = System.currentTimeMillis()): SystemExitSnapshot {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return SystemExitSnapshot()
+        return runCatching {
+            val manager = context.getSystemService(ActivityManager::class.java)
+                ?: return@runCatching SystemExitSnapshot()
+            val entries = manager.getHistoricalProcessExitReasons(context.packageName, 0, 40)
+                .map { it.reason to it.timestamp }
+            summarizeSnapshot(entries, now)
+        }.getOrDefault(SystemExitSnapshot())
+    }
+
     fun recentTriageHint(context: Context, now: Long = System.currentTimeMillis()): String? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
         return runCatching {

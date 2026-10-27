@@ -18,6 +18,26 @@ class PrivateMediaTransferBudgetTest {
         } catch (_: IllegalArgumentException) { }
     }
 
+    @Test fun stalledCipherStreamCannotSpinForever() {
+        val stalled = object : java.io.InputStream() {
+            override fun read(): Int = 0
+            override fun read(b: ByteArray, off: Int, len: Int): Int = 0
+        }
+        rejected { PrivateMediaTransferBudget.digestCipherStream(stalled, 17) }
+    }
+
+    @Test fun partialAndOverlongCipherStreamsCannotPassHashGate() {
+        val correct = ByteArray(17) { it.toByte() }
+        val hash = PrivateMediaTransferBudget.digestCipherStream(
+            ByteArrayInputStream(correct), 17)
+        assertArrayEquals(java.security.MessageDigest.getInstance("SHA-256")
+            .digest(correct), hash)
+        rejected { PrivateMediaTransferBudget.digestCipherStream(
+            ByteArrayInputStream(correct.copyOfRange(0, 16)), 17) }
+        rejected { PrivateMediaTransferBudget.digestCipherStream(
+            ByteArrayInputStream(ByteArray(18)), 17) }
+    }
+
     @Test fun gcmOverheadIsIncludedAtEveryChunkBoundary() {
         assertEquals(17L, PrivateMediaTransferBudget.encryptedBytes(1))
         assertEquals(65_552L, PrivateMediaTransferBudget.encryptedBytes(65_536))

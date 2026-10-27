@@ -36,6 +36,26 @@ class OfflineCipherSchemaGateTest {
         assertEquals(64, base.sha256.length)
     }
 
+    @Test fun sqliteIdentifiersCannotDifferOnlyByCaseInShadowProof() {
+        for (second in listOf("ID", "Id", "iD")) {
+            try {
+                proof("messages", listOf(id, text.copy(name = second)))
+                fail("Case-insensitive SQLite duplicate column accepted: $second")
+            } catch (_: IllegalArgumentException) { }
+        }
+        // Header validation must not accidentally depend on default system locale.
+        val original = java.util.Locale.getDefault()
+        try {
+            java.util.Locale.setDefault(java.util.Locale.forLanguageTag("tr-TR"))
+            try {
+                proof("messages", listOf(id, text.copy(name = "ID")))
+                fail("Locale-dependent column collision accepted")
+            } catch (_: IllegalArgumentException) { }
+        } finally {
+            java.util.Locale.setDefault(original)
+        }
+    }
+
     @Test fun malformedOrDuplicateColumnMetadataFailsClosed() {
         for (columns in listOf(emptyList(), listOf(id, id),
             listOf(id, text.copy(name = "private content")),
