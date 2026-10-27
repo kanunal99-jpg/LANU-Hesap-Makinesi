@@ -56,6 +56,15 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
     private var scoFailed = false
     private var callbackRegistered = false
     private var receiverRegistered = false
+    private var communicationListener: AudioManager.OnCommunicationDeviceChangedListener? = null
+    private var communicationGeneration = 0L
+    private var communicationRequestId = 0L
+    private var pendingCommunicationDeviceId: Int? = null
+    private var pendingCommunicationRoute: Route? = null
+    private var communicationTimeout: Runnable? = null
+    // Session-local only. OEM rejects are retried after device changes or
+    // a deliberate user route selection, never in a tight loop.
+    private val rejectedCommunicationIds = mutableSetOf<Int>()
 
     private val deviceCallback = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(addedDevices: Array<AudioDeviceInfo>) {
@@ -127,6 +136,34 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
             return State(status = "AUDIO_MODE_UNAVAILABLE").also { _state.value = it }
         }
         running = true
+        communicationGeneration++
+        rejectedCommunicationIds.clear()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val generation = communicationGeneration
+            val listener = AudioManager.OnCommunicationDeviceChangedListener { device ->
+                synchronized(this@AndroidCallAudioRouter) {
+                    if (!CallCommunicationDeviceConfirmationPolicy.validCallCallback(
+                            running, communicationGeneration, generation
+                        )) return@synchronized
+                    if (CallCommunicationDeviceConfirmationPolicy.confirmed(
+                            pendingCommunicationDeviceId, device?.id
+                        )) {
+                        val route = pendingCommunicationRoute ?: return@synchronized
+                        clearPendingCommunication()
+                        _state.value = State(true, route, null, _state.value.available, "ROUTED")
+                    }
+                    // Never claim an old/unrelated callback confirmed this route.
+                }
+            }
+            try {
+                audioManager.addOnCommunicationDeviceChangedListener(
+                    appContext.mainExecutor, listener
+                )
+                communicationListener = listener
+            } catch (_: RuntimeException) {
+                // Refresh can confirm the route; timeout remains bounded.
+            }
+        }
         try {
             audioManager.registerAudioDeviceCallback(deviceCallback, null)
             callbackRegistered = true
@@ -154,6 +191,8 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
         preferred = route
         // On old platforms an explicit retry may be requested by the user.
         if (route == Route.BLUETOOTH_HEADSET) scoFailed = false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+            rejectedCommunicationIds.clear() // intentional OEM recovery retry
         // An explicit route tap must still reapply the device, allowing a user
         // to recover a stuck OEM path even if the route label is unchanged.
         return selectRoute(forceReapply = true)
@@ -166,6 +205,16 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
     override fun close() {
         if (!running) return
         running = false
+        communicationGeneration++ // reject callbacks from the ended call
+        clearPendingCommunication()
+        rejectedCommunicationIds.clear()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            communicationListener?.let { listener ->
+                try { audioManager.removeOnCommunicationDeviceChangedListener(listener) }
+                catch (_: RuntimeException) { }
+            }
+            communicationListener = null
+        }
         if (callbackRegistered) {
             try { audioManager.unregisterAudioDeviceCallback(deviceCallback) }
             catch (_: RuntimeException) { }
@@ -204,6 +253,7 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
         synchronized(this) {
             if (!running) return
             scoFailed = false // new hardware may be a working route
+            rejectedCommunicationIds.clear()
             selectRoute()
         }
     }
@@ -258,6 +308,36 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
         mainHandler.postDelayed(timeout, 8_000L)
     }
 
+    private fun clearPendingCommunication() {
+        communicationTimeout?.let { mainHandler.removeCallbacks(it) }
+        communicationTimeout = null
+        pendingCommunicationDeviceId = null
+        pendingCommunicationRoute = null
+    }
+
+    private fun scheduleCommunicationTimeout(deviceId: Int, requestId: Long) {
+        val generation = communicationGeneration
+        val timeout = Runnable {
+            synchronized(this) {
+                if (!CallCommunicationDeviceConfirmationPolicy.validCallCallback(
+                        running, communicationGeneration, generation
+                    ) || pendingCommunicationDeviceId != deviceId ||
+                    communicationRequestId != requestId) return@synchronized
+
+                // Accepted is not connected: 30-second nonconfirmation must
+                // use a different genuine device or return to system default.
+                clearPendingCommunication()
+                rejectedCommunicationIds.add(deviceId)
+                try { audioManager.clearCommunicationDevice() }
+                catch (_: RuntimeException) { /* bounded fallback still runs */ }
+                selectRoute()
+            }
+        }
+        communicationTimeout = timeout
+        mainHandler.postDelayed(timeout,
+            CallCommunicationDeviceConfirmationPolicy.CONFIRMATION_TIMEOUT_MS)
+    }
+
     private fun selectRoute(forceReapply: Boolean = false): State {
         if (!running) return _state.value
         val devices = availableOutputDevices()
@@ -275,9 +355,29 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
             val active = try { audioManager.communicationDevice }
             catch (_: RuntimeException) { null }
             val activeRoute = active?.let { classify(it.type) }
+            val pendingId = pendingCommunicationDeviceId
+            if (!forceReapply && pendingId != null) {
+                if (CallCommunicationDeviceConfirmationPolicy.confirmed(
+                        pendingId, active?.id
+                    )) {
+                    val confirmedRoute = pendingCommunicationRoute
+                    clearPendingCommunication()
+                    if (confirmedRoute != null)
+                        return State(true, confirmedRoute, null, available, "ROUTED")
+                            .also { _state.value = it }
+                } else if (CallCommunicationDeviceConfirmationPolicy.stillPreferred(
+                        pendingId, pendingCommunicationRoute,
+                        devices.map { it.id }.toSet(), candidates
+                    )) {
+                    return State(true, null, pendingCommunicationRoute, available, "ROUTE_PENDING")
+                        .also { _state.value = it }
+                }
+            }
+            clearPendingCommunication()
             if (!forceReapply && CallAudioRoutePolicy.keepActiveCommunicationDevice(
                     activeRoute,
-                    active != null && devices.any { it.id == active.id },
+                    active != null && devices.any { it.id == active.id } &&
+                        active.id !in rejectedCommunicationIds,
                     candidates
                 )) {
                 return State(true, activeRoute, null, available, "ROUTED")
@@ -295,14 +395,32 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
             for (route in candidates) {
                 val matching = devices.filter { classify(it.type) == route }
                 for (device in matching) {
-                    val applied = try {
-                        audioManager.setCommunicationDevice(device) &&
-                            audioManager.communicationDevice?.id == device.id
-                    } catch (_: RuntimeException) { false }
-                    if (applied) {
+                    if (device.id in rejectedCommunicationIds ||
+                        (route == Route.BLUETOOTH_HEADSET && !bluetoothAllowed)) continue
+                    // Reserve the pending request first: some OEM callbacks
+                    // can be delivered while a new route is being selected.
+                    pendingCommunicationDeviceId = device.id
+                    pendingCommunicationRoute = route
+                    val requestId = ++communicationRequestId
+                    val accepted = try { audioManager.setCommunicationDevice(device) }
+                        catch (_: RuntimeException) { false }
+                    if (!accepted) {
+                        clearPendingCommunication()
+                        rejectedCommunicationIds.add(device.id)
+                        continue
+                    }
+                    val selectedId = try { audioManager.communicationDevice?.id }
+                        catch (_: RuntimeException) { null }
+                    if (CallCommunicationDeviceConfirmationPolicy.confirmed(
+                            device.id, selectedId
+                        ) || pendingCommunicationDeviceId == null) {
+                        clearPendingCommunication()
                         return State(true, route, null, available, "ROUTED")
                             .also { _state.value = it }
                     }
+                    scheduleCommunicationTimeout(device.id, requestId)
+                    return State(true, null, route, available, "ROUTE_PENDING")
+                        .also { _state.value = it }
                 }
             }
             // All requests failed: release a stale selection to let Android
