@@ -154,7 +154,9 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
         preferred = route
         // On old platforms an explicit retry may be requested by the user.
         if (route == Route.BLUETOOTH_HEADSET) scoFailed = false
-        return selectRoute()
+        // An explicit route tap must still reapply the device, allowing a user
+        // to recover a stuck OEM path even if the route label is unchanged.
+        return selectRoute(forceReapply = true)
     }
 
     @Synchronized
@@ -256,7 +258,7 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
         mainHandler.postDelayed(timeout, 8_000L)
     }
 
-    private fun selectRoute(): State {
+    private fun selectRoute(forceReapply: Boolean = false): State {
         if (!running) return _state.value
         val devices = availableOutputDevices()
         // Android 12+ Nearby Devices permission is requested only when a real
@@ -273,7 +275,7 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
             val active = try { audioManager.communicationDevice }
             catch (_: RuntimeException) { null }
             val activeRoute = active?.let { classify(it.type) }
-            if (CallAudioRoutePolicy.keepActiveCommunicationDevice(
+            if (!forceReapply && CallAudioRoutePolicy.keepActiveCommunicationDevice(
                     activeRoute,
                     active != null && devices.any { it.id == active.id },
                     candidates
