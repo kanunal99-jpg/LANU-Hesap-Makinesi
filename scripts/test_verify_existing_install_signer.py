@@ -96,6 +96,29 @@ printf "package: name='%s' versionCode='%s' versionName='1.1.0'\\n" "$name" "$ve
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("Ambiguous", result.stderr)
 
+    def test_four_lines_with_duplicate_key_and_missing_required_field_are_rejected(self):
+        # Simple line-count checks are insufficient: every key must be unique.
+        self.signer.write_text(
+            "apk=app-debug.apk\nsigning_mode=stable\n"
+            + "certificate_sha256=" + "a" * 64
+            + "\ncertificate_sha256=" + "b" * 64 + "\n",
+            encoding="ascii",
+        )
+        result = self.check()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Ambiguous", result.stderr)
+
+    def test_truncated_signer_metadata_line_is_rejected(self):
+        self.signer.write_text(
+            "apk=app-debug.apk\nsigning_mode=stable\n"
+            + "certificate_sha256=" + "a" * 64
+            + "\nupgrade_verified_on_device=false",
+            encoding="ascii",
+        )
+        result = self.check()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Ambiguous", result.stderr)
+
     def test_current_installed_certificate_mismatch_blocks_upgrade(self):
         result = self.check(TEST_INSTALLED_CERT="b" * 64)
         self.assertNotEqual(result.returncode, 0)
