@@ -16,11 +16,12 @@ internal object CallCommunicationDeviceConfirmationPolicy {
     fun stillPreferred(
         pendingDeviceId: Int?,
         pendingRoute: Route?,
-        availableDeviceIds: Set<Int>,
+        availableDeviceRoutes: Map<Int, Route>,
         priorities: List<Route>
     ): Boolean =
-        pendingDeviceId != null && pendingDeviceId in availableDeviceIds &&
-            pendingRoute != null && pendingRoute == priorities.firstOrNull()
+        pendingDeviceId != null && pendingRoute != null &&
+            availableDeviceRoutes[pendingDeviceId] == pendingRoute &&
+            pendingRoute == priorities.firstOrNull()
 
     fun validCallCallback(running: Boolean, activeGeneration: Long, callbackGeneration: Long): Boolean =
         running && activeGeneration == callbackGeneration
