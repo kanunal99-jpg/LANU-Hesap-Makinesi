@@ -299,10 +299,16 @@ export function createRelay(store, clock = Date.now, options = {}) {
           cipherBytes: data.cipherBytes, expiresAt: reserved.expires_at };
       }
       case 'sync': {
-        const result = { contacts: await store.contacts(owner), events: await store.events(owner) };
-        // New foreground clients piggyback presence/invites on normal chat sync.
-        // Legacy/background clients do not wake an extra call polling loop.
-        if (options.calls === true && data.callVersion === 1) result.calls = await store.callPoll(owner);
+        // Parallel independent private read operations. No extra mobile poll,
+        // no background service, same authenticated response and ack semantics.
+        // Call controls remain part of the existing foreground chat sync only.
+        const includeCalls = options.calls === true && data.callVersion === 1;
+        const [contacts, events, calls] = await Promise.all([
+          store.contacts(owner), store.events(owner),
+          includeCalls ? store.callPoll(owner) : Promise.resolve(null)
+        ]);
+        const result = { contacts, events };
+        if (includeCalls) result.calls = calls;
         return result;
       }
       case 'ack': {
