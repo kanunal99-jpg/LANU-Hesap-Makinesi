@@ -16,6 +16,16 @@ class AccessibleActionCatalogTest {
             AccessibleActionCatalog.description(Action.CALCULATOR_TOOLS))
     }
 
+    @Test fun callButtonsExposeStateSpecificReadableLabels() {
+        assertNotEquals(
+            AccessibleActionCatalog.description(Action.MUTE_MIC),
+            AccessibleActionCatalog.description(Action.UNMUTE_MIC))
+        assertNotEquals(
+            AccessibleActionCatalog.description(Action.CAMERA_ON),
+            AccessibleActionCatalog.description(Action.CAMERA_OFF))
+        assertTrue(AccessibleActionCatalog.description(Action.SWITCH_CAMERA).length >= 20)
+    }
+
     @Test fun documentedInteractiveMinimumIsAtLeast48Dp() {
         assertTrue(AccessibleActionCatalog.MIN_TOUCH_TARGET_DP >= 48)
     }
