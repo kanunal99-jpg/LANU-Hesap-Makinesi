@@ -135,14 +135,13 @@ object MessageWakeNotification {
                     .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                     .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
                     .setAutoCancel(true)
-                    .setOnlyAlertOnce(true)
                     .build()
                 manager.notify(ID, notification)
                 true
-            } catch (e: RuntimeException) {
+            } catch (e: SecurityException) {
                 MessageWakePolicy.releaseFailed(at)
                 false
-            } catch (e: SecurityException) {
+            } catch (e: RuntimeException) {
                 MessageWakePolicy.releaseFailed(at)
                 false
             }
