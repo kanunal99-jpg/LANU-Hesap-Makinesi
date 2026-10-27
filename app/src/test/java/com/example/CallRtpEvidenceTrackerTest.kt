@@ -87,6 +87,21 @@ class CallRtpEvidenceTrackerTest {
         assertTrue(t.observe(epoch, 12, 22, expiry + 2)!!.connected)
     }
 
+    @Test fun delayedClockSampleCannotOverwriteLiveAudioBaselines() {
+        val t = CallRtpEvidenceTracker()
+        t.updateTransport(true)
+        val epoch = t.currentEpoch()
+        assertFalse(t.observe(epoch, 100, 100, 10_000L, 1)!!.connected)
+        assertTrue(t.observe(epoch, 105, 105, 10_100L, 2)!!.connected)
+        assertNull(t.observe(epoch, 50, 50, 10_050L, 3))
+        assertNull(t.observe(epoch, 200, 200, -1L, 4))
+        assertTrue(t.observe(epoch, 106, 106, 10_101L, 5)!!.connected)
+        t.updateTransport(false)
+        t.updateTransport(true)
+        val newEpoch = t.currentEpoch()
+        assertFalse(t.observe(newEpoch, 300, 300, 1L, 1)!!.connected)
+    }
+
     @Test fun oldClockValuesCannotReviveMediaProofOrOtherIceEpoch() {
         val t = CallRtpEvidenceTracker()
         t.updateTransport(true)
