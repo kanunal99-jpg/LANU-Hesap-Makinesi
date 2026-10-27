@@ -124,6 +124,33 @@ object CallWakePolicy {
         }
     }
 
+    /**
+     * A user can revoke call-alert consent while the native Android service
+     * is creating the notification. Re-check on both sides of notify() and
+     * retract that specific call ID if consent was withdrawn in flight.
+     * This does not touch independent message alerts or start media.
+     */
+    fun publishWhileConsented(
+        at: Long,
+        isConsented: () -> Boolean,
+        notify: () -> Unit,
+        cancel: () -> Unit
+    ): Boolean {
+        if (!isConsented()) return false
+        var delivered = false
+        val succeeded = publishOnce(at) {
+            if (isConsented()) {
+                notify()
+                delivered = true
+                if (!isConsented()) {
+                    cancel()
+                    delivered = false
+                }
+            }
+        }
+        return succeeded && delivered
+    }
+
     @Synchronized private fun releaseFailed(at: Long) {
         recent.remove(at)
     }
@@ -159,6 +186,14 @@ object CallWakeNotification {
     const val CHANNEL_ID = "lanu_private_calls_ringing_v2"
     private const val OLD_CHANNEL_ID = "lanu_private_calls_v1"
     private const val NOTIFICATION_ID = 8129
+
+    /** Clears only the already displayed call alert after local opt-out. */
+    fun cancel(context: Context): Boolean = CallWakePolicy.safePlatformDelivery {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            ?: return@safePlatformDelivery false
+        manager.cancel(NOTIFICATION_ID)
+        true
+    }
 
     /**
      * Use the user's chosen phone ringtone and ring-volume stream; let Android
@@ -228,8 +263,11 @@ object CallWakeNotification {
             .setTimeoutAfter(75_000L)
             .setAutoCancel(true)
             .build()
-        CallWakePolicy.publishOnce(data["at"]!!.toLong()) {
-            manager.notify(NOTIFICATION_ID, notification)
-        }
+        CallWakePolicy.publishWhileConsented(
+            at = data["at"]!!.toLong(),
+            isConsented = { !CallWakePolicy.privateAreaVisible && CallWakePreferences.isEnabled(context) },
+            notify = { manager.notify(NOTIFICATION_ID, notification) },
+            cancel = { manager.cancel(NOTIFICATION_ID) }
+        )
     }
 }
