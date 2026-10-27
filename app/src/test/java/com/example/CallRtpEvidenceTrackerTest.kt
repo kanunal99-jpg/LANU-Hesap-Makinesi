@@ -108,8 +108,8 @@ class CallRtpEvidenceTrackerTest {
         val first = t.currentEpoch()
         t.observe(first, 40, 40, 5000L)
         assertTrue(t.observe(first, 41, 41, 5001L)!!.connected)
-        assertFalse("Stale time samples cannot claim freshness",
-            t.observe(first, 41, 41, 4000L)!!.connected)
+        assertNull("Stale clock samples must be rejected",
+            t.observe(first, 41, 41, 4000L))
         t.updateTransport(false)
         t.updateTransport(true)
         val second = t.currentEpoch()
