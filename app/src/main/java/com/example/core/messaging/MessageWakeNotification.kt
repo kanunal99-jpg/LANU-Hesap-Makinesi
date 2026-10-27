@@ -26,20 +26,55 @@ object MessageWakePreferences {
     private const val STORE = "lanu_message_wake_v1"
     private const val ENABLED = "opted_in"
     private const val PENDING = "pending_remote_revoke"
+    // Consent-safe boolean; never persist token, sender or chat metadata.
+    private const val REGISTRATION_IN_FLIGHT = "registration_in_flight"
 
     fun isEnabled(context: Context): Boolean = try {
         val p = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
-        p.getBoolean(ENABLED, false) && !p.getBoolean(PENDING, false)
+        p.getBoolean(ENABLED, false) && !p.getBoolean(PENDING, false) &&
+            !p.getBoolean(REGISTRATION_IN_FLIGHT, false)
     } catch (_: Exception) { false }
 
     fun hasPendingRemoteRevoke(context: Context): Boolean = try {
-        context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
-            .getBoolean(PENDING, false)
+        context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE).let { p ->
+            p.getBoolean(PENDING, false) || p.getBoolean(REGISTRATION_IN_FLIGHT, false)
+        }
     } catch (_: Exception) { true }
 
+    /** Legacy/local opt-in helper: never override a pending server cleanup. */
     fun enable(context: Context): Boolean = try {
+        val prefs = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(PENDING, false) ||
+            prefs.getBoolean(REGISTRATION_IN_FLIGHT, false)) false
+        else prefs.edit().putBoolean(ENABLED, true).commit()
+    } catch (_: Exception) { false }
+
+    /**
+     * Persist a compensating revoke BEFORE enabling FCM or sending a token.
+     * If a signed server write succeeds just before process death, next
+     * authenticated settings / WorkManager reconciliation revokes it.
+     */
+    fun beginRemoteRegistration(context: Context): Boolean = try {
+        val prefs = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(ENABLED, false) ||
+            prefs.getBoolean(PENDING, false) ||
+            prefs.getBoolean(REGISTRATION_IN_FLIGHT, false)) false
+        else prefs.edit().putBoolean(REGISTRATION_IN_FLIGHT, true).commit()
+    } catch (_: Exception) { false }
+
+    /** Remote signed registration succeeded; atomically activate local consent. */
+    fun completeRemoteRegistration(context: Context): Boolean = try {
+        val prefs = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(REGISTRATION_IN_FLIGHT, false) ||
+            prefs.getBoolean(PENDING, false)) false
+        else prefs.edit().putBoolean(ENABLED, true)
+            .putBoolean(REGISTRATION_IN_FLIGHT, false).commit()
+    } catch (_: Exception) { false }
+
+    /** Safe only if no signed server registration request was sent. */
+    fun abandonUnsentRegistration(context: Context): Boolean = try {
         context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE).edit()
-            .putBoolean(ENABLED, true).putBoolean(PENDING, false).commit()
+            .putBoolean(REGISTRATION_IN_FLIGHT, false).commit()
     } catch (_: Exception) { false }
 
     fun disableAndQueueRemoteRevoke(context: Context): Boolean = try {
@@ -49,7 +84,7 @@ object MessageWakePreferences {
 
     fun acknowledgeRemoteRevoke(context: Context): Boolean = try {
         context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE).edit()
-            .putBoolean(PENDING, false).commit()
+            .putBoolean(PENDING, false).putBoolean(REGISTRATION_IN_FLIGHT, false).commit()
     } catch (_: Exception) { false }
 }
 
