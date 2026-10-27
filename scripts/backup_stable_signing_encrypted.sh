@@ -13,6 +13,12 @@ for binary in tar gpg cmp mktemp date; do
     exit 1
   }
 done
+# Do not follow a substituted signing-directory symlink. Checking only the
+# three regular child files would permit backing up unrelated external keys.
+[[ -d "$sign_dir" && ! -L "$sign_dir" ]] || {
+  echo 'Signing directory must be a private real directory, not a symlink.' >&2
+  exit 1
+}
 for name in lanu-stable.jks store-password key-password; do
   path="$sign_dir/$name"
   [[ -f "$path" && ! -L "$path" && -s "$path" ]] || {
