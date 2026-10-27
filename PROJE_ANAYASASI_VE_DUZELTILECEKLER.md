@@ -1,5 +1,20 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 27.10.2026 — Güncel bağlayıcı 10 özellik / 80 minimum / 95+ hedef
+
+Bu kullanıcı kararı önceki 70 ara kapısı ve 90+ hedeflerinden önceliklidir. On ana alanın ve alt kategorilerinin her biri için asgari **kanıtlanmış 80/100**, nihai hedef **95/100 ve üzeridir**: bağlantı hızı; otomatik yeniden bağlantı; gizli mesaj bildirimi; sesli arama bildirimi; bildirim/ses/titreşim ayarları; E2EE/güvenlik; açılış/performans; teslim/senkronizasyon/veri bütünlüğü; hata/kurtarma/fallback; OTA/imza/güvenli APK yayını. Puan hedefi test kanıtı değildir; on alan tamamlanmadan ürün tamamlandı denmez.
+
+Her değişiklikte araştır → kök neden → küçük güvenli kod → derle → birim/entegrasyon/regresyon/sınır/güvenlik/performans testleri → son PR HEAD CI → doğrula döngüsü uygulanır. Başarısız testi susturma, eski commit sonucunu yeni SHA'ya atfetme, eksik CI ile otomatik merge ve kanıtsız fiziksel cihaz kabulü yasaktır. Ana servis → alternatif → gerçek testli fallback → hata → güvenli varsayılan → mahrem tanılama → smoke zinciri korunur. MVVM/MVI, Compose, Hilt, Coroutines/Flow, R8, giriş doğrulama ve mahremiyet korumalı Crashlytics/global hata standardı sürer; uzak telemetry gereksiz gizli veri toplamaz.
+
+PIN tercihi, Room, kimlik, mesaj/geçmiş, E2EE anahtarı ve APK sertifikası korunur; destructive migration yok. Mesaj bildirimi varsayılan kapalı ve isteğe bağlıdır; gönderen/metin/önizleme gösterilmez. Ses/titreşim ve arama/mesaj izinleri bağımsız, Android sessiz/DND kararına tabidir. Ücretli servis açık kullanıcı onayı gerektirir. Her önemli yayınlanabilir sürümde Release APK, SHA256, sertifika sürekliliği ve yerinde güncelleme kabulü ayrı doğrulanır; Samsung A55, Samsung/Xiaomi/Huawei ve iki gerçek cihaz kanıtı emülatör sonucu ile karıştırılmaz.
+
+Aktif oturumda devam komutu beklenmez. Oturum dışı devam için mevcut `6ae102dc92c48191bcce1203fc304f7c` otomasyonu kullanılır; mükerrer görev oluşturulmaz. Kullanıcı durum raporu istemedikçe kısa kritik bulgu/engel bildirilir. Sürekli arka plan çalışma ve yapılmamış işlemler vaat edilmez.
+
+**Bu dalın doğrulanmış kök nedeni:** çağrı bildirimleri kapalıyken kalıcı `pending_remote_revoke` işaretine rağmen `CallWakeTokenRefreshWorker.enqueue` işi reddediyor. Çevrimdışı iptal ve yarım kayıt uygulama yeniden başlatıldığında otomatik toparlanamıyor. Sınırlı ağ-koşullu retry, soğuk başlangıçta yarım kaydın iptale dönüştürülmesi, aktif kayıt ile eski worker'ın çakışmasını engelleyen eşgüdüm ve regresyon testleri uygulanacaktır. Henüz CI/üretim/fiziksel kabul iddiası yoktur.
+
+---
+
+
 
 ## 27.10.2026 — Ara kapı: 70 puanın altında kategori kalmayacak
 
