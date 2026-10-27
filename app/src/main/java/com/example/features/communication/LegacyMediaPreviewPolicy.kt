@@ -15,7 +15,7 @@ internal object LegacyMediaPreviewPolicy {
     fun canRequestPreview(rawUrl: String?): Boolean {
         if (rawUrl.isNullOrBlank() || rawUrl.length > 2048 ||
             rawUrl.any { it.isWhitespace() || Character.isISOControl(it) }) return false
-        val url = try { URI(rawUrl) } catch (_: IllegalArgumentException) { return false }
+        val url = try { URI(rawUrl) } catch (_: java.net.URISyntaxException) { return false }
         if (!url.scheme.equals("https", ignoreCase = true) ||
             url.host.isNullOrBlank() || url.rawUserInfo != null) return false
         val host = url.host?.lowercase() ?: return false
