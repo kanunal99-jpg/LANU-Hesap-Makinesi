@@ -56,7 +56,12 @@ object CallWakeTokenRefreshPolicy {
     }
 }
 
-/** Persistently retries only explicit owner-opted-in token rotation or pending signed opt-out. */
+/**
+ * Retries explicit opt-in token rotation. A previously scheduled worker can
+ * also finish a pending signed opt-out, but a cold launch never schedules an
+ * opted-out device: pending revocation is retried inside authenticated
+ * CallWakeSettings. Do not imply automatic background retry on reconnect.
+ */
 @Keep
 class CallWakeTokenRefreshWorker(
     context: Context,
