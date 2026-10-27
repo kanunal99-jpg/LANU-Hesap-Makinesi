@@ -267,6 +267,22 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
             .filter { it != Route.BLUETOOTH_HEADSET || bluetoothAllowed }.toSet()
         val candidates = CallAudioRoutePolicy.priorities(available, videoCall, preferred)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // Android 12+ may call this again while wired/Bluetooth devices are
+            // unchanged. Clearing a correctly selected device causes an
+            // unnecessary audio-path interruption during an active call.
+            val active = try { audioManager.communicationDevice }
+            catch (_: RuntimeException) { null }
+            val activeRoute = active?.let { classify(it.type) }
+            if (CallAudioRoutePolicy.keepActiveCommunicationDevice(
+                    activeRoute,
+                    active != null && devices.any { it.id == active.id },
+                    candidates
+                )) {
+                return State(true, activeRoute, null, available, "ROUTED")
+                    .also { _state.value = it }
+            }
+            // A disconnected route, a new higher-priority headset, or an
+            // explicit user selection must still trigger real device routing.
             try { audioManager.clearCommunicationDevice() }
             catch (_: RuntimeException) { /* try other available routes */ }
             for (route in candidates) {
