@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import androidx.annotation.RequiresApi
 import android.content.pm.PackageManager
 import com.example.core.calls.CallAudioRoutePolicy.Route
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -319,6 +320,7 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
         pendingCommunicationRoute = null
     }
 
+    @RequiresApi(Build.VERSION_CODES.S)
     private fun scheduleCommunicationTimeout(deviceId: Int, requestId: Long) {
         val generation = communicationGeneration
         val startedAt = SystemClock.elapsedRealtime()
