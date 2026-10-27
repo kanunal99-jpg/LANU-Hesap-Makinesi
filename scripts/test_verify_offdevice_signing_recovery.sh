@@ -44,6 +44,14 @@ verify || { echo 'Valid generated-key recovery must pass.' >&2; exit 1; }
 grep -q '^PASS: encrypted backup restored into an isolated directory' "$tmp/result.log" || {
   echo 'Missing independent cert match confirmation.' >&2; exit 1;
 }
+# A signer metadata file is an exact four-field signed release manifest.
+# Extra lines could cause inconsistent parsers to trust a different key.
+printf 'unexpected=synthetic\n' >> "$tmp/trusted.signer.txt"
+if verify; then echo 'Unexpected trusted release signer metadata accepted!' >&2; exit 1; fi
+grep -q 'unexpected release metadata' "$tmp/result.log" || {
+  echo 'Missing unexpected signer metadata rejection.' >&2; exit 1
+}
+sed -i '/^unexpected=synthetic$/d' "$tmp/trusted.signer.txt"
 # A different trusted release certificate MUST prevent acceptance.
 sed -i "s/certificate_sha256=$fingerprint/certificate_sha256=$(printf 'f%.0s' {1..64})/" "$tmp/trusted.signer.txt"
 if verify; then echo 'Mismatched APK certificate was accepted!' >&2; exit 1; fi
