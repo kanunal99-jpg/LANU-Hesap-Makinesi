@@ -26,6 +26,7 @@ object MessageWakePreferences {
     private const val STORE = "lanu_message_wake_v1"
     private const val ENABLED = "opted_in"
     private const val PENDING = "pending_remote_revoke"
+    private const val ENROLLING = "enrollment_in_progress"
 
     fun isEnabled(context: Context): Boolean = try {
         val p = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
@@ -44,28 +45,49 @@ object MessageWakePreferences {
      * No token, identity, message or conversation enters SharedPreferences.
      */
     fun beginEnrollment(context: Context): Boolean = try {
-        context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE).edit()
-            .putBoolean(ENABLED, false).putBoolean(PENDING, true).commit()
+        val prefs = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(PENDING, false) || prefs.getBoolean(ENABLED, false)) false
+        else prefs.edit().putBoolean(ENABLED, false)
+            .putBoolean(PENDING, true).putBoolean(ENROLLING, true).commit()
     } catch (_: Exception) { false }
 
     /**
-     * Complete a successful signed registration. UI callers must first
-     * persist beginEnrollment and receive server ACK. Separate tests that
-     * simulate existing opted-in installations may invoke this directly.
+     * Only a signed server ACK may complete registration. Enrollment runs in
+     * an active private UI, while the Worker must not race its rollback.
      */
-    fun enable(context: Context): Boolean = try {
-        context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE).edit()
-            .putBoolean(ENABLED, true).putBoolean(PENDING, false).commit()
+    fun finishEnrollment(context: Context): Boolean = try {
+        val prefs = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(ENROLLING, false) || !prefs.getBoolean(PENDING, false)) false
+        else prefs.edit().putBoolean(ENABLED, true)
+            .putBoolean(PENDING, false).putBoolean(ENROLLING, false).commit()
+    } catch (_: Exception) { false }
+
+    fun isEnrollmentInProgress(context: Context): Boolean = try {
+        context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+            .getBoolean(ENROLLING, false)
+    } catch (_: Exception) { false }
+
+    /**
+     * The Application invokes this on every cold start BEFORE queuing retry
+     * workers. If the process died mid-registration, revoke the potentially
+     * registered remote token. All fields are harmless boolean flags.
+     */
+    fun recoverInterruptedEnrollment(context: Context): Boolean = try {
+        val prefs = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(ENROLLING, false)) true
+        else prefs.edit().putBoolean(ENABLED, false).putBoolean(PENDING, true)
+            .putBoolean(ENROLLING, false).commit()
     } catch (_: Exception) { false }
 
     fun disableAndQueueRemoteRevoke(context: Context): Boolean = try {
         context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE).edit()
-            .putBoolean(ENABLED, false).putBoolean(PENDING, true).commit()
+             .putBoolean(ENABLED, false).putBoolean(PENDING, true)
+            .putBoolean(ENROLLING, false).commit()
     } catch (_: Exception) { false }
 
     fun acknowledgeRemoteRevoke(context: Context): Boolean = try {
         context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE).edit()
-            .putBoolean(PENDING, false).commit()
+            .putBoolean(PENDING, false).putBoolean(ENROLLING, false).commit()
     } catch (_: Exception) { false }
 }
 
