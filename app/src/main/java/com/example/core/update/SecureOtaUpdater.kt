@@ -110,7 +110,7 @@ object SecureOtaUpdater {
         val options = mutableListOf<LanuUpdate>()
         for (i in 0 until releases.length()) {
             val release = releases.optJSONObject(i) ?: continue
-            if (release.optBoolean("draft")) continue
+            if (release.optBoolean("draft") || release.optBoolean("prerelease")) continue
             val tag = release.optString("tag_name")
             val n = tagPattern.matchEntire(tag)?.groupValues?.get(1)?.toLongOrNull() ?: continue
             if (n <= currentVersion) continue
@@ -130,7 +130,10 @@ object SecureOtaUpdater {
             val cert = url(SIGNER_NAME) ?: continue
             options += LanuUpdate(tag, n, apk, checksum, cert)
         }
-        return options.maxByOrNull { it.versionCode }
+        // A legacy bridge tag may share a versionCode with the current signed tag.
+        // Prefer the newer stable channel regardless of API response ordering.
+        return options.maxWithOrNull(compareBy<LanuUpdate> { it.versionCode }
+            .thenBy { it.tag.substringBeforeLast('.') })
     }
 
     /** Fail closed if an advertised higher-version release has no signed verification metadata. */
@@ -139,10 +142,12 @@ object SecureOtaUpdater {
         var latest: Pair<String, Long>? = null
         for (i in 0 until releases.length()) {
             val release = releases.optJSONObject(i) ?: continue
-            if (release.optBoolean("draft")) continue
+            if (release.optBoolean("draft") || release.optBoolean("prerelease")) continue
             val tag = release.optString("tag_name")
             val number = tagPattern.matchEntire(tag)?.groupValues?.get(1)?.toLongOrNull() ?: continue
-            if (number > currentVersion && (latest == null || number > latest.second)) latest = tag to number
+            if (number > currentVersion && (latest == null || number > latest.second ||
+                    (number == latest.second && tag.substringBeforeLast('.') >
+                        latest.first.substringBeforeLast('.')))) latest = tag to number
         }
         return latest
     }
