@@ -14,6 +14,14 @@ class CallIceGatherClockRegressionTest {
         assertFalse(CallIceGatherPolicy.ready(sdp, gathering, 1400, 1401))
         assertFalse(CallIceGatherPolicy.ready(sdp, PeerConnection.IceGatheringState.COMPLETE, 0, 250))
     }
+    @Test fun missingNegativeAndOverflowScaleSamplesFailClosedInEveryIceState() {
+        for (state in PeerConnection.IceGatheringState.values()) {
+            assertFalse(CallIceGatherPolicy.ready(sdp, state, 1400, null))
+            assertFalse(CallIceGatherPolicy.ready(sdp, state, 1400, -1))
+            assertFalse(CallIceGatherPolicy.ready(sdp, state, Long.MIN_VALUE, 650))
+            assertFalse(CallIceGatherPolicy.ready(sdp, state, 1400, Long.MAX_VALUE))
+        }
+    }
     @Test fun legitimateFastPathRemainsAvailable() {
         assertTrue(CallIceGatherPolicy.ready(sdp, PeerConnection.IceGatheringState.GATHERING, 1400, 650))
         assertTrue(CallIceGatherPolicy.ready(sdp, PeerConnection.IceGatheringState.COMPLETE, 300, 250))
