@@ -56,6 +56,8 @@ class NativeCallEngine(
     private var egl: EglBase? = null
     private var source: AudioSource? = null
     private var localAudio: AudioTrack? = null
+    // Committed only after WebRTC ADM and RTP track accept the same mute state.
+    private var microphoneMuted = false
     private var videoSource: VideoSource? = null
     private var localVideo: VideoTrack? = null
     private var remoteVideo: VideoTrack? = null
@@ -289,11 +291,16 @@ class NativeCallEngine(
     // actually succeeded. The UI must never optimistically claim mute/camera.
     override suspend fun mute(value: Boolean): Unit = withContext(dispatcher) {
         check(!closing.get()) { "Görüşme sonlandırıldı." }
-        checkNotNull(adm) { "Mikrofon kullanılamıyor." }.setMicrophoneMute(value)
-        check(checkNotNull(localAudio) { "Ses kanalı bulunamadı." }.setEnabled(!value)) {
-            "Mikrofon durumu değiştirilemedi."
-        }
+        val device = checkNotNull(adm) { "Mikrofon kullanılamıyor." }
+        val track = checkNotNull(localAudio) { "Ses kanalı bulunamadı." }
+        CallMediaControlTransaction.apply(
+            previous = microphoneMuted,
+            requested = value,
+            setDevice = { device.setMicrophoneMute(it) },
+            setTrack = { track.setEnabled(!it) }
+        )
         check(!closing.get()) { "Görüşme sonlandırıldı." }
+        microphoneMuted = value
     }
     override suspend fun camera(value: Boolean): Unit = withContext(dispatcher) {
         check(!closing.get()) { "Görüşme sonlandırıldı." }
@@ -304,10 +311,16 @@ class NativeCallEngine(
             check(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
                 "Kamera izni gerekiyor."
             }
-            camera.startCapture(1280, 720, 24)
-        } else camera.stopCapture()
+        }
+        CallMediaControlTransaction.apply(
+            previous = videoEnabled,
+            requested = value,
+            setDevice = { enabled ->
+                if (enabled) camera.startCapture(1280, 720, 24) else camera.stopCapture()
+            },
+            setTrack = { track.setEnabled(it) }
+        )
         check(!closing.get()) { "Görüşme sonlandırıldı." }
-        check(track.setEnabled(value)) { "Kamera durumu değiştirilemedi." }
         videoEnabled = value
     }
     override fun switchCamera() { scope.launch { capturer?.switchCamera(null) } }
