@@ -27,8 +27,9 @@ class RatchetOfflineActivationGateTest {
             ready().copy(encryptedRestoreAndRollbackTested = false),
             ready().copy(replayAndDowngradeMatrixPassed = false),
             ready().copy(crossDeviceInteroperabilityTested = false))
-        assertTrue(cases.all { RatchetOfflineActivationGate.assess(it)
-            is RatchetOfflineActivationGate.Decision.Blocked })
+        assertTrue(cases.all {
+            RatchetOfflineActivationGate.assess(it) is RatchetOfflineActivationGate.Decision.Blocked
+        })
     }
     @Test fun evenCompleteSyntheticEvidenceIsNotLiveProtocolPermission() {
         val decision = RatchetOfflineActivationGate.assess(ready())
