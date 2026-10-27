@@ -6,7 +6,15 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.core.database.*
 import com.example.core.messaging.*
 import com.example.core.repository.CommunicationRepository
+import com.example.features.communication.CommunicationViewModel
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.test.resetMain
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
@@ -70,6 +78,40 @@ class DurableDraftAndQueueIsolationTest {
         actions.clear()
     }
     @After fun close() { db.close() }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun `private thread exit cancels pending load without canceling newer thread`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val vm = CommunicationViewModel(repo)
+            val collector = CommunicationViewModel::class.java
+                .getDeclaredField("messagesCollectorJob").apply { isAccessible = true }
+
+            // A Room load has been scheduled but has not yet run.
+            vm.selectConversation(conversation)
+            val firstPending = collector.get(vm) as Job
+            assertTrue(firstPending.isActive)
+            assertNull(vm.activeConversation.value)
+
+            vm.leaveConversation(conversation)
+            assertTrue("Closing a loading thread must cancel its collector", firstPending.isCancelled)
+            assertNull(vm.activeConversation.value)
+            assertTrue(vm.activeMessages.value.isEmpty())
+
+            // An old LifecycleResumeEffect disposal must never close a newer
+            // selected conversation, even while the next Room load is pending.
+            vm.selectConversation("new-pending-thread")
+            val nextPending = collector.get(vm) as Job
+            assertTrue(nextPending.isActive)
+            vm.leaveConversation(conversation)
+            assertTrue("Stale old-chat disposal must leave the newer load alive", nextPending.isActive)
+            vm.leaveConversation("new-pending-thread")
+            assertTrue(nextPending.isCancelled)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
 
     @Test fun `draft survives repository recreation and plaintext is never stored`() = runBlocking {
         val text = "Kaybolmaması gereken Türkçe taslak 🔐"
