@@ -49,6 +49,14 @@ object PrivateMediaTransferBudget {
      * No network request, grant or object upload is performed. A future upload
      * must stream the very same bytes and have the relay verify the final hash.
      */
+    /** Stop a broken storage stream from spinning forever on zero-byte reads. */
+    internal fun boundedZeroReads(previous: Int, readBytes: Int): Int {
+        require(readBytes >= 0)
+        if (readBytes > 0) return 0
+        require(previous in 0..1) { "Şifreli medya dosyası okunamıyor." }
+        return previous + 1
+    }
+
     fun verifyForReservation(
         encryptedFile: File,
         manifest: PrivateMediaCrypto.Manifest,
@@ -64,11 +72,13 @@ object PrivateMediaTransferBudget {
         verifyCiphertext(encryptedFile, manifest.plainBytes)
         val sha256 = MessageDigest.getInstance("SHA-256")
         var consumed = 0L
+        var zeroReads = 0
         FileInputStream(encryptedFile).use { input ->
             val buffer = ByteArray(64 * 1024)
             while (true) {
                 val length = input.read(buffer)
                 if (length < 0) break
+                zeroReads = boundedZeroReads(zeroReads, length)
                 if (length == 0) continue
                 consumed += length
                 require(consumed <= expectedBytes) { "Şifreli dosya boyutu aşıldı." }
