@@ -101,6 +101,38 @@ class CallAudioRoutePolicyTest {
         ))
     }
 
+    @Test fun automaticHeadsetSwitchDoesNotClearBeforeSelectingNewDevice() {
+        // A newly attached headset should be selected directly, avoiding an
+        // unnecessary gap from clearing the still-working speaker first.
+        assertTrue(!CallAudioRoutePolicy.needsExplicitRouteReset(
+            false, Route.SPEAKER, Route.WIRED_HEADSET
+        ))
+        assertTrue(!CallAudioRoutePolicy.needsExplicitRouteReset(
+            false, Route.BLUETOOTH_HEADSET, Route.EARPIECE
+        ))
+    }
+
+    @Test fun manualSwitchToDifferentRouteKeepsPreviousAudioUntilNewDeviceAccepts() {
+        assertTrue(!CallAudioRoutePolicy.needsExplicitRouteReset(
+            true, Route.EARPIECE, Route.SPEAKER
+        ))
+        assertTrue(!CallAudioRoutePolicy.needsExplicitRouteReset(
+            true, null, Route.SPEAKER
+        ))
+    }
+
+    @Test fun manualRetryOfSameSelectedRouteCanRecoverStuckOemAudio() {
+        assertTrue(CallAudioRoutePolicy.needsExplicitRouteReset(
+            true, Route.BLUETOOTH_HEADSET, Route.BLUETOOTH_HEADSET
+        ))
+        assertTrue(CallAudioRoutePolicy.needsExplicitRouteReset(
+            true, Route.EARPIECE, Route.EARPIECE
+        ))
+        assertTrue(!CallAudioRoutePolicy.needsExplicitRouteReset(
+            false, Route.EARPIECE, Route.EARPIECE
+        ))
+    }
+
     @Test fun absenceOfDeviceFailsClosedWithoutInventingBluetoothSupport() {
         assertTrue(CallAudioRoutePolicy.priorities(emptySet(), false).isEmpty())
         assertEquals(listOf(Route.SPEAKER),
