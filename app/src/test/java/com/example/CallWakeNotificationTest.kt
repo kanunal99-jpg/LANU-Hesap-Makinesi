@@ -146,6 +146,34 @@ class CallWakeNotificationTest {
             CallWakePolicy.publishOnce(failedTimestamp) { })
     }
 
+    @Test fun failureBeforeNotificationDispatchNeverCrashesOrConsumesCallWake() {
+        val timestamp = 1710000000911L
+
+        // Some Android/OEM services throw before NotificationManager.notify,
+        // e.g. during permission lookup or notification channel setup.
+        assertFalse(CallWakePolicy.safePlatformDelivery {
+            throw SecurityException("simulated channel permission denial")
+        })
+        assertFalse(CallWakePolicy.safePlatformDelivery {
+            throw IllegalStateException("simulated OEM channel binder failure")
+        })
+
+        var attempted = 0
+        assertTrue(CallWakePolicy.safePlatformDelivery {
+            CallWakePolicy.publishOnce(timestamp) { attempted++ }
+        })
+        assertEquals(1, attempted)
+        assertFalse(CallWakePolicy.safePlatformDelivery {
+            CallWakePolicy.publishOnce(timestamp) { attempted++ }
+        })
+        assertEquals(1, attempted)
+    }
+
+    @Test fun ordinaryNotificationResultsPassThroughFailClosedBoundary() {
+        assertTrue(CallWakePolicy.safePlatformDelivery { true })
+        assertFalse(CallWakePolicy.safePlatformDelivery { false })
+    }
+
     @Test fun identicalWakeCannotRepeatAndPrivateForegroundSuppressesNotification() {
         val timestamp = 1710000000700L
         assertTrue(CallWakePolicy.claim(timestamp))
