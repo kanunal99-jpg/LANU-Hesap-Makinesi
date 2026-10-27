@@ -24,6 +24,52 @@ class CallWakeTokenRefreshPolicyTest {
         CallWakePreferences.acknowledgeRemoteRevoke(context)
     }
 
+    @Test fun processDeathAfterRemoteRegistrationCannotLoseDurableRevoke() = runBlocking {
+        assertFalse(CallWakePreferences.isEnabled(context))
+        assertTrue(CallWakePreferences.beginRemoteRegistration(context))
+
+        // Simulate a successful signed server write followed by process death
+        // before the SharedPreferences opt-in commit: no token is persisted.
+        assertFalse(CallWakePreferences.isEnabled(context))
+        assertTrue(CallWakePreferences.hasPendingRemoteRevoke(context))
+
+        var tokenFetches = 0
+        val signedRequests = mutableListOf<String?>()
+        assertTrue(CallWakeTokenRefreshPolicy.reconcile(context,
+            { tokenFetches++; "never-fetch-during-crash-recovery" },
+            { signedRequests.add(it) }))
+        assertEquals(0, tokenFetches)
+        assertEquals(listOf<String?>(null), signedRequests)
+        assertFalse(CallWakePreferences.hasPendingRemoteRevoke(context))
+        assertFalse(CallWakePreferences.isEnabled(context))
+    }
+
+    @Test fun registrationFinishesOnlyViaAtomicLocalCommit() {
+        assertFalse("Missing pre-network marker must not enable FCM",
+            CallWakePreferences.completeRemoteRegistration(context))
+        assertTrue(CallWakePreferences.beginRemoteRegistration(context))
+        assertFalse(CallWakePreferences.isEnabled(context))
+        assertTrue(CallWakePreferences.completeRemoteRegistration(context))
+        assertTrue(CallWakePreferences.isEnabled(context))
+        assertFalse(CallWakePreferences.hasPendingRemoteRevoke(context))
+        assertFalse("An enabled preference must not begin another registration",
+            CallWakePreferences.beginRemoteRegistration(context))
+    }
+
+    @Test fun noTokenReturnedCanAbortOnlyUnsentRegistrationWithoutServerRevoke() {
+        assertTrue(CallWakePreferences.beginRemoteRegistration(context))
+        assertTrue(CallWakePreferences.abandonUnsentRegistration(context))
+        assertFalse(CallWakePreferences.hasPendingRemoteRevoke(context))
+        assertFalse(CallWakePreferences.isEnabled(context))
+        assertTrue(CallWakePreferences.beginRemoteRegistration(context))
+        // If opt-out happened instead, clearing an unsent marker does not
+        // erase the already durable remote-revoke obligation.
+        assertTrue(CallWakePreferences.disableAndQueueRemoteRevoke(context))
+        assertTrue(CallWakePreferences.abandonUnsentRegistration(context))
+        assertTrue(CallWakePreferences.hasPendingRemoteRevoke(context))
+        assertFalse(CallWakePreferences.completeRemoteRegistration(context))
+    }
+
     @Test fun noOptInNeverFetchesTokenOrRegistersDevice() = runBlocking {
         assertTrue(CallWakePreferences.setEnabled(context, false))
         var requested = 0
