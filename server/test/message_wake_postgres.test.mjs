@@ -14,7 +14,7 @@ before(async()=>{
   await db.exec('create role anon; create role authenticated; create role service_role bypassrls;');
   for (const name of [
     '20261019073855_persistent_user_code_messaging.sql',
-    '20261027195900_private_message_wake_opt_in.sql'
+    '20261027174242_private_message_wake_opt_in_20261027.sql'
   ]) await db.exec(await readFile(new URL('../../supabase/migrations/'+name, import.meta.url),'utf8'));
   for(const [id, letter] of [[alice,'A'], [bob,'B'], [stranger,'C']]) {
     await db.query('insert into public.lanu_identities(id,code,nonce,public_key) values($1,$2,$3,$4)',
