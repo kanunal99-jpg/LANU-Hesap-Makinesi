@@ -110,6 +110,17 @@ class CommunicationRepository(
         relay.request(owner, "callWakeToken", JSONObject().put("token", token ?: JSONObject.NULL))
     }
 
+    /** No new identity is created by push consent or a background FCM rotation. */
+    suspend fun registerMessageWakeToken(token: String?) {
+        if (token != null) {
+            require(token.length in 20..4096 &&
+                token.all { it.isLetterOrDigit() || it in "_:-." }) { "Invalid FCM token" }
+        }
+        val owner = loadIdentity(allowCreate = false)
+        relay.request(owner, "messageWakeToken",
+            JSONObject().put("token", token ?: JSONObject.NULL))
+    }
+
     suspend fun pollCallSignals() {
         check(callingForeground)
         val own = loadIdentity(allowCreate = false)
