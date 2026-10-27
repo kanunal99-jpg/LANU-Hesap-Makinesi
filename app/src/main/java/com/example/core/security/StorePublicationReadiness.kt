@@ -20,7 +20,11 @@ object StorePublicationReadiness {
         val privacyPolicyUrl: String = "",
         val retentionAndDeletionReviewed: Boolean = false,
         val dataSafetyReviewed: Boolean = false,
-        val permissionsReviewed: Boolean = false
+        val permissionsReviewed: Boolean = false,
+        val optionalFcmCallAlertsReviewed: Boolean = false,
+        val audioVideoMediaDisclosureReviewed: Boolean = false,
+        val databaseEncryptionClaimsReviewed: Boolean = false,
+        val ratchetClaimsReviewed: Boolean = false
     )
     sealed class Decision {
         data class Blocked(val missing: Set<Requirement>) : Decision()
