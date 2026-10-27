@@ -74,19 +74,8 @@ object LocalCrashReport {
         runCatching {
             val target = file(context)
             if (!target.isFile || target.length() !in 1..MAX_REPORT_BYTES.toLong()) return@runCatching null
-            val bytes = AtomicFile(target).openRead().use {
-                // Avoid reading a potentially corrupted oversized private file.
-                val out = ByteArray(MAX_REPORT_BYTES + 1)
-                var count = 0
-                while (count < out.size) {
-                    val n = it.read(out, count, out.size - count)
-                    if (n < 0) break
-                    if (n == 0) continue
-                    count += n
-                }
-                out.copyOf(count)
-            }
-            if (bytes.size > MAX_REPORT_BYTES) return@runCatching null
+            val bytes = AtomicFile(target).openRead().use { readBounded(it) }
+                ?: return@runCatching null
             val json = JSONObject(String(bytes, Charsets.UTF_8))
             if (json.optInt("version") != 1) return@runCatching null
             val timestamp = json.optLong("time", -1L)
@@ -99,6 +88,28 @@ object LocalCrashReport {
             if (frames.any { !it.matches(safeFrame) }) return@runCatching null
             Record(timestamp, type, frames)
         }.getOrNull()
+
+    /**
+     * Only 3 KiB of local metadata may be read. Even an abnormal or mocked
+     * filesystem stream repeatedly returning zero bytes cannot spin the
+     * PIN-gated diagnostics screen forever. No data is uploaded or logged.
+     */
+    internal fun readBounded(input: java.io.InputStream): ByteArray? {
+        val bytes = ByteArray(MAX_REPORT_BYTES + 1)
+        var count = 0
+        var stalled = 0
+        while (count < bytes.size) {
+            val n = input.read(bytes, count, bytes.size - count)
+            if (n < 0) break
+            if (n == 0) {
+                if (++stalled >= 3) return null
+                continue
+            }
+            stalled = 0
+            count += n
+        }
+        return if (count <= MAX_REPORT_BYTES) bytes.copyOf(count) else null
+    }
 
     fun clear(context: Context): Boolean = runCatching {
         // AtomicFile.delete removes both the main file and its recovery backup.
