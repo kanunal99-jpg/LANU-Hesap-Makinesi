@@ -2,6 +2,14 @@
 
 Android 6.0 (API 23)+ hedefleyen, Jetpack Compose tabanlı hesap makinesi ve kullanıcı seçimiyle açılan özel iletişim alanı. Bu depo gerçek ürün kodu, Android CI testleri, Supabase relay servis kaynağı ve güvenlik geliştirme kayıtlarını içerir.
 
+## Sürüm 1.2.0 ve güncelleme
+
+Kaynak kodun güncel Android sürümü **1.2.0** olarak yapılandırılmıştır. Yüklenebilir sürüm yalnız [resmî GitHub Releases](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/releases) altında üç doğrulanmış dosya (`app-debug.apk`, `app-debug.apk.sha256`, `app-debug.apk.signer.txt`) ve sabit signer sürekliliği onaylandığında yayımlanmış sayılır. Başarılı PR derlemesi tek başına yeni indirilebilir APK demek değildir.
+
+Kurulu 1.1.0 uygulamaların OTA güncellemeyi görebilmesi için 1.2.0 stable APK'sı **aynı baytlarla** `v1.1.0-signed.N` uyumluluk etiketi ve `v1.2.0-signed.N` ana etiketiyle dağıtılır. Android'de gerçek `versionName` her iki yayında **1.2.0**'dır; her iki yayın aynı `versionCode=N`, sertifika ve SHA-256 içerir. Güncelleme için mevcut uygulamayı **kaldırmayın**; veriler ve PIN önceki kurulumla korunmalıdır. Eski geçici debug sertifikalı kurulumların veri kayıpsız yerinde yükseltmesi garanti edilemez.
+
+Ayrıntılı kabul ve cihaz testi: [LANU 1.2.0 Sürüm Notları](docs/RELEASE_1_2_0_20261027_TR.md).
+
 ## Mevcut işlevler
 
 - Normal/bilimsel ve finansal hesaplama, geçmiş ve bellek işlemleri.
