@@ -29,6 +29,26 @@ internal object CallCommunicationDeviceConfirmationPolicy {
             (requestedRoute != Route.BLUETOOTH_HEADSET || bluetoothAllowed)
 
     /**
+     * A delayed listener event is not proof of the CURRENT output. OEMs can
+     * dispatch an earlier callback after switching away from that device.
+     * Require the event, live AudioManager selection and inventory to agree.
+     * If the live getter lags, remain pending for the bounded timeout poll.
+     */
+    fun confirmedCurrentCallbackRoute(
+        requestedId: Int?,
+        callbackId: Int?,
+        currentDeviceId: Int?,
+        requestedRoute: Route?,
+        availableDeviceRoutes: Map<Int, Route>,
+        bluetoothAllowed: Boolean
+    ): Boolean =
+        confirmed(requestedId, callbackId) &&
+            confirmedAvailableRoute(
+                requestedId, currentDeviceId, requestedRoute,
+                availableDeviceRoutes, bluetoothAllowed
+            )
+
+    /**
      * An active Android device ID can be recycled across hotplug. Reuse is
      * safe only when the current inventory still classifies that exact ID
      * as the active route, permission remains granted, the device was not
