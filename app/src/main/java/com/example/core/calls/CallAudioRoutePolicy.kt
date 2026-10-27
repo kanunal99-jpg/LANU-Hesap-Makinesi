@@ -20,6 +20,18 @@ object CallAudioRoutePolicy {
     ): Boolean = deviceStillAvailable && activeRoute != null && priorities.firstOrNull() == activeRoute
 
     /**
+     * Android can switch directly between available communication devices.
+     * Only an explicit retry of the SAME selected route should force a clear
+     * before setCommunicationDevice(); refreshing or switching routes must
+     * not introduce an unnecessary silent gap.
+     */
+    fun needsExplicitRouteReset(
+        forceReapply: Boolean,
+        activeRoute: Route?,
+        desiredRoute: Route?
+    ): Boolean = forceReapply && activeRoute != null && activeRoute == desiredRoute
+
+    /**
      * A connected headset is preferred to the built-in speaker/microphone.
      * User requests remain preferred only while that route is available.
      * For audio calls use the earpiece; for video calls prefer loudspeaker.
