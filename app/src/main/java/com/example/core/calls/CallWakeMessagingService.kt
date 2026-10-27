@@ -26,7 +26,8 @@ class CallWakeMessagingService : FirebaseMessagingService() {
         // The service may be killed immediately after this callback. Persist
         // no token or identity in WorkManager; a network-constrained worker
         // always fetches the currently valid Firebase token when it runs.
-        if (CallWakePreferences.isEnabled(applicationContext)) {
+        if (CallWakePreferences.isEnabled(applicationContext) ||
+            CallWakePreferences.hasPendingRemoteRevoke(applicationContext)) {
             runCatching { CallWakeTokenRefreshWorker.enqueue(applicationContext) }
         }
         if (MessageWakePreferences.isEnabled(applicationContext) ||

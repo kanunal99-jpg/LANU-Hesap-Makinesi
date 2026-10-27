@@ -37,11 +37,14 @@ object CallWakePreferences {
         }
     } catch (_: Exception) { true } // Fail closed: do not re-enable until checked.
 
+    @Synchronized
     fun disableAndQueueRemoteRevoke(context: Context): Boolean = try {
         context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
-            .edit().putBoolean(OPTED_IN, false).putBoolean(PENDING_REVOKE, true).commit()
+            .edit().putBoolean(OPTED_IN, false).putBoolean(PENDING_REVOKE, true)
+            .putBoolean(REGISTRATION_IN_FLIGHT, false).commit()
     } catch (_: Exception) { false }
 
+    @Synchronized
     fun acknowledgeRemoteRevoke(context: Context): Boolean = try {
         context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
             .edit().putBoolean(PENDING_REVOKE, false)
@@ -53,6 +56,7 @@ object CallWakePreferences {
      * cleanup might be needed. Android process death after a server write
      * must never leave a device silently registered without local consent.
      */
+    @Synchronized
     fun beginRemoteRegistration(context: Context): Boolean = try {
         val prefs = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
         if (prefs.getBoolean(OPTED_IN, false) ||
@@ -62,6 +66,7 @@ object CallWakePreferences {
     } catch (_: Exception) { false }
 
     /** Commit final consent and clear the pre-network marker atomically. */
+    @Synchronized
     fun completeRemoteRegistration(context: Context): Boolean = try {
         val prefs = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
         if (!prefs.getBoolean(REGISTRATION_IN_FLIGHT, false) ||
@@ -71,9 +76,25 @@ object CallWakePreferences {
     } catch (_: Exception) { false }
 
     /** Only before any signed server registration request was attempted. */
+    @Synchronized
     fun abandonUnsentRegistration(context: Context): Boolean = try {
         context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
             .edit().putBoolean(REGISTRATION_IN_FLIGHT, false).commit()
+    } catch (_: Exception) { false }
+
+    /** Active UI enrollment owns its registration; workers must leave it alone. */
+    fun isRegistrationInProgress(context: Context): Boolean = try {
+        context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+            .getBoolean(REGISTRATION_IN_FLIGHT, false)
+    } catch (_: Exception) { false }
+
+    /** Called only at process startup, before any UI or worker can register. */
+    @Synchronized
+    fun recoverInterruptedRegistration(context: Context): Boolean = try {
+        val prefs = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(REGISTRATION_IN_FLIGHT, false)) true
+        else prefs.edit().putBoolean(OPTED_IN, false).putBoolean(PENDING_REVOKE, true)
+            .putBoolean(REGISTRATION_IN_FLIGHT, false).commit()
     } catch (_: Exception) { false }
 
     fun isEnabled(context: Context): Boolean = try {
