@@ -337,8 +337,10 @@ class NativeCallEngine(
             for (stat in report.statsMap.values) {
                 val kind = stat.members["kind"] ?: stat.members["mediaType"]
                 if (kind != "audio") continue
-                if (stat.type == "inbound-rtp") received += (stat.members["packetsReceived"] as? Number)?.toLong() ?: 0L
-                if (stat.type == "outbound-rtp") sent += (stat.members["packetsSent"] as? Number)?.toLong() ?: 0L
+                if (stat.type == "inbound-rtp")
+                    received = CallRtpCountPolicy.add(received, stat.members["packetsReceived"])
+                if (stat.type == "outbound-rtp")
+                    sent = CallRtpCountPolicy.add(sent, stat.members["packetsSent"])
             }
             rtpEvidence.observe(snapshotEpoch, received, sent,
                 snapshotSequence = snapshotSequence)?.let(evidence)
