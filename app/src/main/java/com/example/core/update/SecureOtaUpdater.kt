@@ -313,7 +313,7 @@ object SecureOtaUpdater {
             apk.inputStream().buffered().use { input ->
                 val buffer = ByteArray(32 * 1024)
                 while (true) {
-                    val read = input.read(buffer)
+                    val read = OtaStreamReadPolicy.read(input, buffer)
                     if (read < 0) break
                     md.update(buffer, 0, read)
                 }
@@ -418,7 +418,7 @@ object SecureOtaUpdater {
                         val buffer = ByteArray(32 * 1024)
                         while (true) {
                             currentCoroutineContext().ensureActive()
-                            val count = input.read(buffer)
+                            val count = OtaStreamReadPolicy.read(input, buffer)
                             if (count < 0) break
                             digest.update(buffer, 0, count)
                         }
@@ -438,7 +438,7 @@ object SecureOtaUpdater {
                         val buffer = ByteArray(32 * 1024)
                         while (true) {
                             currentCoroutineContext().ensureActive()
-                            val count = input.read(buffer)
+                            val count = OtaStreamReadPolicy.read(input, buffer)
                             if (count < 0) break
                             received += count
                             downloadedNow += count
@@ -534,7 +534,7 @@ object SecureOtaUpdater {
                             val buffer = ByteArray(32 * 1024)
                             while (true) {
                                 currentCoroutineContext().ensureActive()
-                                val count = input.read(buffer)
+                                val count = OtaStreamReadPolicy.read(input, buffer)
                                 if (count < 0) break
                                 output.write(buffer, 0, count)
                             }
@@ -626,7 +626,7 @@ object SecureOtaUpdater {
                 val output = java.io.ByteArrayOutputStream()
                 val buffer = ByteArray(8192)
                 while (true) {
-                    val count = input.read(buffer)
+                    val count = OtaStreamReadPolicy.read(input, buffer)
                     if (count == -1) break
                     require(output.size() + count <= limit) { "Sunucu yanıtı çok büyük." }
                     output.write(buffer, 0, count)
