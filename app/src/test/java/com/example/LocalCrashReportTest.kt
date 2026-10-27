@@ -9,6 +9,8 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
+import java.io.ByteArrayInputStream
+import java.io.InputStream
 
 /** Do not invoke the real uncaught handler in tests: it must terminate Android. */
 @RunWith(RobolectricTestRunner::class)
@@ -85,4 +87,34 @@ class LocalCrashReportTest {
         assertEquals(6, record.appFrames.size)
         assertFalse(record.sanitizedSummary().contains("secret"))
     }
+    @Test fun zeroProgressLocalFileReadCannotSpinForever() {
+        var calls = 0
+        val stalled = object : InputStream() {
+            override fun read(): Int = 0
+            override fun read(bytes: ByteArray, off: Int, len: Int): Int {
+                calls++
+                return 0
+            }
+        }
+        assertNull(LocalCrashReport.readBounded(stalled))
+        assertEquals(3, calls)
+    }
+
+    @Test fun intermittentZeroReadsMayRecoverButOversizedReportIsRejected() {
+        val text = "bounded local diagnostics"
+        val data = text.toByteArray(Charsets.UTF_8)
+        val input = object : InputStream() {
+            private var stalls = 0
+            private val source = ByteArrayInputStream(data)
+            override fun read(): Int = source.read()
+            override fun read(dst: ByteArray, offset: Int, length: Int): Int {
+                if (stalls++ < 2) return 0
+                return source.read(dst, offset, length)
+            }
+        }
+        assertArrayEquals(data, LocalCrashReport.readBounded(input))
+        assertNull(LocalCrashReport.readBounded(
+            ByteArrayInputStream(ByteArray(3073))))
+    }
+
 }
