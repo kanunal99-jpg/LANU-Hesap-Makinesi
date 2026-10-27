@@ -107,6 +107,9 @@ object DatabaseShadowParity {
         val total = MessageDigest.getInstance("SHA-256")
         // Version/domain separation: legacy string proofs cannot pass typed parity.
         total.update("LANU-SQLITE-TYPED-v1".toByteArray(Charsets.US_ASCII))
+        // Bind the proof to its named Room v4 table. Identical row bytes
+        // copied into another table must never replay the same typed digest.
+        total.update(table.toByteArray(Charsets.UTF_8))
         addInt(total, rows.size)
         rowHashes.forEach { total.update(it.toByteArray(Charsets.US_ASCII)) }
         return TableProof(table, rows.size, total.digest().toHex())
