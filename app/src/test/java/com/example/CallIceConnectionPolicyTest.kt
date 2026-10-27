@@ -1,14 +1,13 @@
 package com.example
 
 import com.example.core.calls.CallIceConnectionPolicy
+import com.example.core.calls.CallIceConnectionPolicy.Action
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
 import org.webrtc.PeerConnection
 
 class CallIceConnectionPolicyTest {
-    private val Action = CallIceConnectionPolicy.Action
-
     @Test fun failedAndDisconnectedIceAllowOwnerBoundedRecovery() {
         for (state in listOf(
             PeerConnection.PeerConnectionState.FAILED,
