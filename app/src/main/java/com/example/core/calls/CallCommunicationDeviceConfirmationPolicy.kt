@@ -24,7 +24,7 @@ internal object CallCommunicationDeviceConfirmationPolicy {
         availableDeviceRoutes: Map<Int, Route>,
         bluetoothAllowed: Boolean
     ): Boolean =
-        confirmed(requestedId, observedId) && requestedRoute != null &&
+        requestedId != null && confirmed(requestedId, observedId) && requestedRoute != null &&
             availableDeviceRoutes[requestedId] == requestedRoute &&
             (requestedRoute != Route.BLUETOOTH_HEADSET || bluetoothAllowed)
 
