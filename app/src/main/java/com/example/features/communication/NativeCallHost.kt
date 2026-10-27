@@ -17,6 +17,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -28,6 +29,7 @@ import androidx.compose.ui.window.SecureFlagPolicy
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleStartEffect
 import com.example.core.calls.NativeCallEngine
+import com.example.core.calls.CallAudioRouteLabelPolicy
 import kotlinx.coroutines.delay
 import org.webrtc.SurfaceViewRenderer
 
@@ -167,9 +169,19 @@ private fun CallAudioRouteControls(engine: NativeCallEngine, enabled: Boolean) {
     LaunchedEffect(enabled) { if (!enabled) menu = false }
     val bluetooth = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { engine.refreshRoutes() }
     Box {
-        TextButton(onClick = { menu = true }, enabled = enabled) { Text("Ses çıkışı: ${route.selected?.name?.let(::routeName) ?: "Sistem"}") }
+        TextButton(
+            onClick = { menu = true },
+            enabled = enabled,
+            modifier = Modifier.testTag("call_audio_route_status")
+        ) {
+            Text(CallAudioRouteLabelPolicy.label(route.running, route.status, route.selected, route.pending))
+        }
         DropdownMenu(expanded = menu && enabled, onDismissRequest = { menu = false }) {
-            for (item in route.available) DropdownMenuItem(text = { Text(routeName(item.name)) }, onClick = { menu = false; engine.chooseRoute(item) })
+            for (item in route.available.sortedBy { it.ordinal })
+                DropdownMenuItem(
+                    text = { Text(CallAudioRouteLabelPolicy.routeName(item)) },
+                    onClick = { menu = false; engine.chooseRoute(item) }
+                )
             if (Build.VERSION.SDK_INT >= 31 && ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)
                 DropdownMenuItem(text = { Text("Bluetooth kulaklığa izin ver") }, onClick = { menu = false; bluetooth.launch(Manifest.permission.BLUETOOTH_CONNECT) })
         }
@@ -181,10 +193,3 @@ private fun CallAudioRouteControls(engine: NativeCallEngine, enabled: Boolean) {
 internal fun canRenderNativeCallVideo(state: NativeCallUiState, enginePresent: Boolean): Boolean =
     enginePresent && state.video && state.phase == NativeCallPhase.CONNECTED
 
-private fun routeName(name: String) = when (name) {
-    "WIRED_HEADSET" -> "Kablolu / USB kulaklık"
-    "BLUETOOTH_HEADSET" -> "Bluetooth kulaklık"
-    "EARPIECE" -> "Ahize"
-    "SPEAKER" -> "Hoparlör"
-    else -> "Sistem"
-}
