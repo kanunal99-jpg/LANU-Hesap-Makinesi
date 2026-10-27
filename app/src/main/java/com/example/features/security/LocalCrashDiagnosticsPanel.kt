@@ -40,6 +40,7 @@ fun LocalCrashDiagnosticsPanel() {
     var systemExit by remember(context) { mutableStateOf(CrashDiagnostics.mostRecentAbnormalExit(context)) }
     var systemExitCounts by remember(context) { mutableStateOf(CrashDiagnostics.recentAbnormalCounts(context)) }
     var repeatedCrashRisk by remember(context) { mutableStateOf(CrashDiagnostics.recentCrashRisk(context)) }
+    var triageHint by remember(context) { mutableStateOf(CrashDiagnostics.recentTriageHint(context)) }
     var detailsVisible by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
     var relaySummary by remember { mutableStateOf(PrivateRelayHealth.safeSummary()) }
@@ -102,6 +103,11 @@ fun LocalCrashDiagnosticsPanel() {
                     modifier = Modifier.testTag("private_repeated_crash_warning")
                 )
             }
+            if (triageHint != null) {
+                Text(triageHint!! + " Kesin kök neden sayılmaz; kişisel veri gerektirmez.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.testTag("private_os_exit_triage"))
+            }
             if (systemExitCounts.isNotEmpty()) {
                 Text("Son 7 günde Android'in tuttuğu anormal kapanış kayıtları:",
                     style = MaterialTheme.typography.bodySmall)
@@ -122,6 +128,7 @@ fun LocalCrashDiagnosticsPanel() {
                 systemExit = CrashDiagnostics.mostRecentAbnormalExit(context)
                 systemExitCounts = CrashDiagnostics.recentAbnormalCounts(context)
                 repeatedCrashRisk = CrashDiagnostics.recentCrashRisk(context)
+                triageHint = CrashDiagnostics.recentTriageHint(context)
                 relaySummary = PrivateRelayHealth.safeSummary()
             }) {
                 Text("Kayıtları yenile")
