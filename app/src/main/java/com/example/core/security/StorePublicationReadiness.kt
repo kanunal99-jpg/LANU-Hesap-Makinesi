@@ -13,7 +13,8 @@ object StorePublicationReadiness {
         OWNER_IDENTITY, SUPPORT_CONTACT, PUBLIC_HTTPS_PRIVACY_POLICY,
         RETENTION_AND_DELETION, DATA_SAFETY_DECLARATION, PERMISSIONS_REVIEW,
         OPTIONAL_FCM_CALL_ALERTS, AUDIO_VIDEO_MEDIA_DISCLOSURE,
-        DATABASE_ENCRYPTION_CLAIMS, RATCHET_CLAIMS
+        DATABASE_ENCRYPTION_CLAIMS, RATCHET_CLAIMS,
+        ACCOUNT_DELETION_FLOW, PUBLIC_ACCOUNT_DELETION_REQUEST
     }
     data class Evidence(
         val ownerVerified: Boolean = false,
@@ -25,7 +26,9 @@ object StorePublicationReadiness {
         val optionalFcmCallAlertsReviewed: Boolean = false,
         val audioVideoMediaDisclosureReviewed: Boolean = false,
         val databaseEncryptionClaimsReviewed: Boolean = false,
-        val ratchetClaimsReviewed: Boolean = false
+        val ratchetClaimsReviewed: Boolean = false,
+        val accountDeletionFlowVerified: Boolean = false,
+        val accountDeletionRequestUrl: String = ""
     )
     sealed class Decision {
         data class Blocked(val missing: Set<Requirement>) : Decision()
@@ -83,6 +86,14 @@ object StorePublicationReadiness {
         if (!evidence.audioVideoMediaDisclosureReviewed) missing += Requirement.AUDIO_VIDEO_MEDIA_DISCLOSURE
         if (!evidence.databaseEncryptionClaimsReviewed) missing += Requirement.DATABASE_ENCRYPTION_CLAIMS
         if (!evidence.ratchetClaimsReviewed) missing += Requirement.RATCHET_CLAIMS
+        // Server-side account/data deletion is not implemented merely because
+        // a locally visible chat can be hidden. Account codes identify server
+        // profiles, and Play may require both a verified deletion flow and an
+        // external request path. URL syntax never proves a functioning service.
+        if (!evidence.accountDeletionFlowVerified)
+            missing += Requirement.ACCOUNT_DELETION_FLOW
+        if (!hasPublicHttpsPolicy(evidence.accountDeletionRequestUrl))
+            missing += Requirement.PUBLIC_ACCOUNT_DELETION_REQUEST
         return if (missing.isEmpty()) Decision.HumanLegalReviewRequired
             else Decision.Blocked(missing)
     }
