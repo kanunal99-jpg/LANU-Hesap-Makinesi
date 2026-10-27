@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -72,8 +73,19 @@ fun ChatDetailScreen(
     }?.envelope
 
     val textInput by viewModel.draftText.collectAsState()
-    var isSelfDestructEnabled by remember { mutableStateOf(false) }
+    var isSelfDestructEnabled by remember(conversationId) { mutableStateOf(false) }
+    var showClearConfirmation by remember(conversationId) { mutableStateOf(false) }
+    var previousMessageCount by remember(conversationId) { mutableIntStateOf(0) }
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val showJumpToLatest by remember(messages.size, listState) {
+        derivedStateOf {
+            messages.size > 1 && listState.layoutInfo.visibleItemsInfo.isNotEmpty() &&
+                !ChatReadingPositionPolicy.isNearLatest(
+                    messages.size, listState.layoutInfo.visibleItemsInfo.last().index
+                )
+        }
+    }
     // Silent UI policy: no sound or haptic feedback for chat actions.
     val triggerVibration: () -> Unit = {}
 
@@ -90,11 +102,40 @@ fun ChatDetailScreen(
     }
 
 
-    // Auto scroll to bottom when new messages arrive
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
-        }
+    // An incoming message must not steal the viewport while reading history.
+    LaunchedEffect(conversationId, messages.size) {
+        val newestCount = messages.size
+        val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+        val shouldScroll = ChatReadingPositionPolicy.shouldAutoScroll(
+            previousMessageCount, newestCount, lastVisibleIndex
+        )
+        previousMessageCount = newestCount
+        if (shouldScroll) listState.animateScrollToItem(newestCount - 1)
+    }
+
+    if (showClearConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirmation = false },
+            title = { Text("Sohbet geçmişi silinsin mi?") },
+            text = {
+                Text("Bu cihazdaki sohbet mesajları kaldırılacak. Karşı tarafın geçmişi silinmez. Bu işlem geri alınamaz.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showClearConfirmation = false
+                        viewModel.clearConversationMessages(conversationId)
+                    },
+                    modifier = Modifier.testTag("confirm_clear_chat")
+                ) { Text("Geçmişi sil", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showClearConfirmation = false },
+                    modifier = Modifier.testTag("cancel_clear_chat")
+                ) { Text("Vazgeç") }
+            }
+        )
     }
 
     Scaffold(
@@ -184,8 +225,7 @@ fun ChatDetailScreen(
                             onClick = {
                                 showMenu = false
                                 triggerVibration()
-                                viewModel.clearConversationMessages(conversationId)
-                                Toast.makeText(context, "Sohbet temizlendi", Toast.LENGTH_SHORT).show()
+                                showClearConfirmation = true
                             }
                         )
                     }
@@ -230,16 +270,16 @@ fun ChatDetailScreen(
             }
 
             // Decrypted E2EE Message Stream
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
+                    .fillMaxSize()
                     .padding(horizontal = 16.dp),
                 contentPadding = PaddingValues(vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                itemsIndexed(messages) { index, message ->
+                itemsIndexed(messages, key = { _, message -> message.id }) { index, message ->
                     val showDateHeader = index == 0 || !isSameDay(messages[index - 1].timestamp, message.timestamp)
                     if (showDateHeader) {
                         DateHeader(formatDateHeader(message.timestamp))
@@ -271,7 +311,20 @@ fun ChatDetailScreen(
                         onSaveAttachment = onSaveAttachment
                     )
                 }
-
+            }
+            if (showJumpToLatest) {
+                FilledTonalButton(
+                    onClick = {
+                        scope.launch { if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex) }
+                    },
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp)
+                        .testTag("chat_jump_to_latest")
+                ) {
+                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("En yeniye git")
+                }
+            }
             }
 
             // Input Control Panel
@@ -406,6 +459,7 @@ fun MessageBubble(
 
     var showMenu by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
     var editText by remember { mutableStateOf(text) }
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -557,7 +611,7 @@ fun MessageBubble(
                     leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp)) },
                     onClick = {
                         showMenu = false
-                        onDelete()
+                        showDeleteDialog = true
                     }
                 )
             }
@@ -577,6 +631,26 @@ fun MessageBubble(
                 Text(text = reaction, fontSize = 14.sp)
             }
         }
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Mesaj silinsin mi?") },
+            text = { Text("Bu işlem geri alınamaz. Gönderilen mesajın karşı taraftan silinmesi de istenebilir.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteDialog = false
+                        onDelete()
+                    },
+                    modifier = Modifier.testTag("confirm_delete_message")
+                ) { Text("Mesajı sil", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) { Text("Vazgeç") }
+            }
+        )
     }
 
     if (showEditDialog) {
