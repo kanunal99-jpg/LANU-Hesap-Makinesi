@@ -40,6 +40,33 @@ class CallCommunicationDeviceConfirmationPolicyTest {
             listOf(Route.BLUETOOTH_HEADSET, Route.SPEAKER)))
     }
 
+    @Test fun exactRouteConfirmationRejectsRecycledIdAndRevokedBluetoothPermission() {
+        val requestedId = 42
+        assertFalse(Policy.confirmedAvailableRoute(
+            requestedId, requestedId, Route.BLUETOOTH_HEADSET,
+            mapOf(requestedId to Route.SPEAKER), true
+        ))
+        assertFalse(Policy.confirmedAvailableRoute(
+            requestedId, requestedId, Route.BLUETOOTH_HEADSET,
+            mapOf(requestedId to Route.BLUETOOTH_HEADSET), false
+        ))
+        assertFalse(Policy.confirmedAvailableRoute(
+            requestedId, requestedId, Route.BLUETOOTH_HEADSET,
+            emptyMap(), true
+        ))
+        assertFalse(Policy.confirmedAvailableRoute(
+            requestedId, 99, Route.BLUETOOTH_HEADSET,
+            mapOf(requestedId to Route.BLUETOOTH_HEADSET), true
+        ))
+        assertTrue(Policy.confirmedAvailableRoute(
+            requestedId, requestedId, Route.BLUETOOTH_HEADSET,
+            mapOf(requestedId to Route.BLUETOOTH_HEADSET), true
+        ))
+        assertTrue(Policy.confirmedAvailableRoute(
+            10, 10, Route.EARPIECE, mapOf(10 to Route.EARPIECE), false
+        ))
+    }
+
     @Test fun timeoutIsBoundedAndRejectsInvalidClockSamples() {
         assertFalse(Policy.expired(1_000L, 30_999L))
         assertTrue(Policy.expired(1_000L, 31_000L))
