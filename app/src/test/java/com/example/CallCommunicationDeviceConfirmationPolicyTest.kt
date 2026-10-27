@@ -85,6 +85,43 @@ class CallCommunicationDeviceConfirmationPolicyTest {
         ))
     }
 
+    @Test fun activeRouteReuseRequiresExactCurrentDeviceTypeAndPermission() {
+        val bluetooth = Route.BLUETOOTH_HEADSET
+        val priorities = listOf(bluetooth, Route.SPEAKER)
+        val inventory = mapOf(42 to bluetooth, 10 to Route.SPEAKER)
+        assertTrue(Policy.reusableActiveRoute(
+            42, bluetooth, inventory, true, emptySet(), priorities
+        ))
+        // OEM hotplug can recycle ID 42 for a different output type.
+        assertFalse(Policy.reusableActiveRoute(
+            42, bluetooth, mapOf(42 to Route.SPEAKER, 99 to bluetooth),
+            true, emptySet(), priorities
+        ))
+        assertFalse(Policy.reusableActiveRoute(
+            42, bluetooth, inventory, false, emptySet(), priorities
+        ))
+        assertFalse(Policy.reusableActiveRoute(
+            42, bluetooth, inventory, true, setOf(42), priorities
+        ))
+    }
+
+    @Test fun activeRouteReuseRejectsMissingOrNonPreferredDevice() {
+        val priorities = listOf(Route.WIRED_HEADSET, Route.SPEAKER)
+        val inventory = mapOf(10 to Route.SPEAKER, 11 to Route.WIRED_HEADSET)
+        assertFalse(Policy.reusableActiveRoute(
+            10, Route.SPEAKER, inventory, true, emptySet(), priorities
+        ))
+        assertFalse(Policy.reusableActiveRoute(
+            99, Route.WIRED_HEADSET, inventory, true, emptySet(), priorities
+        ))
+        assertFalse(Policy.reusableActiveRoute(
+            null, Route.WIRED_HEADSET, inventory, true, emptySet(), priorities
+        ))
+        assertTrue(Policy.reusableActiveRoute(
+            11, Route.WIRED_HEADSET, inventory, false, emptySet(), priorities
+        ))
+    }
+
     @Test fun timeoutIsBoundedAndRejectsInvalidClockSamples() {
         assertFalse(Policy.expired(1_000L, 30_999L))
         assertTrue(Policy.expired(1_000L, 31_000L))

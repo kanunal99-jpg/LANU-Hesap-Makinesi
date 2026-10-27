@@ -28,6 +28,28 @@ internal object CallCommunicationDeviceConfirmationPolicy {
             availableDeviceRoutes[requestedId] == requestedRoute &&
             (requestedRoute != Route.BLUETOOTH_HEADSET || bluetoothAllowed)
 
+    /**
+     * An active Android device ID can be recycled across hotplug. Reuse is
+     * safe only when the current inventory still classifies that exact ID
+     * as the active route, permission remains granted, the device was not
+     * rejected and it is still the preferred output.
+     */
+    fun reusableActiveRoute(
+        activeDeviceId: Int?,
+        activeRoute: Route?,
+        availableDeviceRoutes: Map<Int, Route>,
+        bluetoothAllowed: Boolean,
+        rejectedDeviceIds: Set<Int>,
+        priorities: List<Route>
+    ): Boolean =
+        activeDeviceId != null && activeDeviceId !in rejectedDeviceIds &&
+            confirmedAvailableRoute(
+                activeDeviceId, activeDeviceId, activeRoute,
+                availableDeviceRoutes, bluetoothAllowed
+            ) && CallAudioRoutePolicy.keepActiveCommunicationDevice(
+                activeRoute, true, priorities
+            )
+
     fun stillPreferred(
         pendingDeviceId: Int?,
         pendingRoute: Route?,

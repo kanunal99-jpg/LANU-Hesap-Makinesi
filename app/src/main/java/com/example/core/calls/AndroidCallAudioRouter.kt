@@ -427,11 +427,9 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
                 }
             }
             clearPendingCommunication()
-            if (!forceReapply && CallAudioRoutePolicy.keepActiveCommunicationDevice(
-                    activeRoute,
-                    active != null && devices.any { it.id == active.id } &&
-                        active.id !in rejectedCommunicationIds,
-                    candidates
+            if (!forceReapply && CallCommunicationDeviceConfirmationPolicy.reusableActiveRoute(
+                    active?.id, activeRoute, communicationInventory(),
+                    bluetoothAllowed, rejectedCommunicationIds, candidates
                 )) {
                 return State(true, activeRoute, null, available, "ROUTED")
                     .also { _state.value = it }
