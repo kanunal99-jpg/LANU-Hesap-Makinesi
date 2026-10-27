@@ -43,13 +43,13 @@ class CallRtpEvidenceTracker {
         // Out-of-order clock samples in the same epoch must not alter RTP
         // baselines or extend proof of audio. All time values are monotonic.
         if (nowMs < 0L || (lastSampleAtMs != null && nowMs < lastSampleAtMs!!)) return null
-        lastSampleAtMs = nowMs
         // Async WebRTC getStats calls may finish out of order inside the SAME
         // ICE epoch. A stale callback must never roll RTP baselines backward.
         if (snapshotSequence != null) {
             if (snapshotSequence <= lastAcceptedSnapshotSequence) return null
             lastAcceptedSnapshotSequence = snapshotSequence
         }
+        lastSampleAtMs = nowMs
         if (!transportConnected) return CallMediaEvidence()
         if (received < 0L || sent < 0L) return CallMediaEvidence(true)
 
