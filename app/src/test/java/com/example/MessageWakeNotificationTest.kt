@@ -224,4 +224,23 @@ class MessageWakeNotificationTest {
         manager.cancel(8129)
     }
 
+    @Test fun freshEnrollmentCannotBeRevokedByOlderInflightTokenRefresh() = runBlocking {
+        assertTrue(MessageWakePreferences.beginEnrollment(context))
+        assertTrue(MessageWakePreferences.finishEnrollment(context))
+        val tokens = mutableListOf<String?>()
+        assertTrue(MessageWakeTokenRefreshPolicy.reconcile(context,
+            { "old-token" },
+            { token ->
+                tokens.add(token)
+                if (token != null) {
+                    assertTrue(MessageWakePreferences.disableAndQueueRemoteRevoke(context))
+                    assertTrue(MessageWakePreferences.acknowledgeRemoteRevoke(context))
+                    assertTrue(MessageWakePreferences.beginEnrollment(context))
+                }
+            }))
+        assertEquals(listOf<String?>("old-token"), tokens)
+        assertTrue(MessageWakePreferences.isEnrollmentInProgress(context))
+        assertTrue(MessageWakePreferences.hasPendingRemoteRevoke(context))
+    }
+
 }
