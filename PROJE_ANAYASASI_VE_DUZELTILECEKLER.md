@@ -3,16 +3,17 @@
 
 ## 27.10.2026 — Ara kapı: 70 puanın altında kategori kalmayacak
 
-**Kullanıcı kararı:** Önceki 80+ ve 90+ nihai hedefleri aynen korunur. Bunlardan önce, mevcut uzman değerlendirmesinde 70'in altında olan **dört kategori** için 70+ **kanıtlı ara kabul kapısı** getirilmiştir. Bu bir puan yükseltme talimatı değildir: gerçek test ve kaynak kod kanıtı olmadan 66/67/68 değerleri değiştirilmez. Önce kritik P0, sonra P1; başarısız test önce kök neden ve regresyon.
+**Kullanıcı kararı:** Önceki 80+ ve 90+ nihai hedefleri aynen korunur. Bunlardan önce, mevcut uzman değerlendirmesinde 70'in altında olan **beş kategori** için 70+ **kanıtlı ara kabul kapısı** getirilmiştir. Bu bir puan yükseltme talimatı değildir: gerçek test ve kaynak kod kanıtı olmadan 61/66/67/68 değerleri değiştirilmez. Önce kritik P0, sonra P1; başarısız test önce kök neden ve regresyon.
 
 | Sıra | Kategori | Başlangıç | Minimum | Uygulanacak en yakın iş ve kabul kanıtı |
 |---|---|---:|---:|---|
-| 1 P0 | Arka plan çağrı | 66 | 70 | #133: FCM sadece çağrı, gelen sesli zil+görsel; kilit ekranı, normal süreç ölümü, sessiz/DND, PIN yeniden kilidi; Android unit/CI ve **iki gerçek cihaz** ayrı |
-| 2 P0 | Android uyumluluğu | 67 | 70 | #82: A55 çökme/ANR çıkış nedeni; API23/29/34/36 matrisi, ikinci üretici; eski kurulum üstüne imzalı OTA veri koruması |
-| 3 P0 | Room / yerel koruma | 68 | 70 | #113: gerçek Room plaintext sınırını gizleme; sentetik v4 SQLCipher shadow migration + WAL/disk dolması/rollback + schema parity; üretim migration **onaysız etkinleştirilmez** |
-| 4 P1 | Gürültü engelleme | 68 | 70 | Gerçek WebRTC AEC/NS kullanımının yetenek/route testi; çifte işlemeyi engelleme, Bluetooth/kulaklık; ölçüm yoksa ANC/ENC/dB iyileşmesi iddiası yok |
+| 1 P0 | Mağaza / KVKK | 61 | 70 | [PR #220](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/pull/220) gizlilik URL/doğru özellik beyanı kod ve CI; **gerçek erişilebilir HTTPS politika, veri sorumlusu ve hukuki insan onayı ayrıca şarttır**. Kod değişikliği bu dış onayın yerine geçmez |
+| 2 P0 | Arka plan çağrı | 66 | 70 | #133: FCM sadece çağrı, gelen sesli zil+görsel; kilit ekranı, normal süreç ölümü, sessiz/DND, PIN yeniden kilidi; Android unit/CI ve **iki gerçek cihaz** ayrı |
+| 3 P0 | Android uyumluluğu | 67 | 70 | #82: A55 çökme/ANR çıkış nedeni; API23/29/34/36 matrisi, ikinci üretici; eski kurulum üstüne imzalı OTA veri koruması |
+| 4 P0 | Room / yerel koruma | 68 | 70 | #113: gerçek Room plaintext sınırını gizleme; sentetik v4 SQLCipher shadow migration + WAL/disk dolması/rollback + schema parity; üretim migration **onaysız etkinleştirilmez** |
+| 5 P1 | Gürültü engelleme | 68 | 70 | Gerçek WebRTC AEC/NS kullanımının yetenek/route testi; çifte işlemeyi engelleme, Bluetooth/kulaklık; ölçüm yoksa ANC/ENC/dB iyileşmesi iddiası yok |
 
-**İş sırası:** 1→2→3→4. Her adımda mevcut kod/CI incelenir; gerekirse ayrı küçük PR, son PR HEAD'de test, merge sonrası yeni main CI ve imzalı APK. Fiziksel cihaz veya bağımsız güvenlik onayı eksikse durum **kısmi/doğrulanmadı** olarak kalır. Başarı: 18 kategorinin **tamamı ≥70**; ardından 18/18 ≥80 ve kanıtlı 90+ programı. Kullanıcının Room/PIN/2011./E2EE/OTA imzası ve verileri silinmez. Ücretli servis izinsiz açılmaz.
+**İş sırası:** 1→2→3→4→5. Her adımda mevcut kod/CI incelenir; gerekirse ayrı küçük PR, son PR HEAD'de test, merge sonrası yeni main CI ve imzalı APK. Fiziksel cihaz veya bağımsız güvenlik onayı eksikse durum **kısmi/doğrulanmadı** olarak kalır. Başarı: 18 kategorinin **tamamı ≥70**; ardından 18/18 ≥80 ve kanıtlı 90+ programı. Kullanıcının Room/PIN/2011./E2EE/OTA imzası ve verileri silinmez. Ücretli servis izinsiz açılmaz.
 
 ---
 
