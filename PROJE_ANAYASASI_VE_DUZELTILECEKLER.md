@@ -932,3 +932,12 @@ Bu puanlar matematiksel sertifikasyon değil, testli geliştirme ve açık üret
 **Bağlantı:** Ön plandaki mevcut birleştirilmiş eşitleme ve HTTP bağlantı havuzu korunur; hata durumunda aşamalı geri çekilme, uygulama açıldığında yeniden deneme ve gereksiz arka plan poll/foreground-service açmama temel varsayılandır. Hız iyileşmesi ölçümle kanıtlanmadan yüzdelik performans iddiasında bulunulmaz.
 
 **Kabul kapıları:** Android API 23–36 izin/kilit ekranı/sessiz mod/kanal geçişi; call-only ve message-only tercih matrisi; geç gelen token, offline opt-out, yeniden kurulum/kimlik değişimi; sahte/tekrar/eskimiş FCM; backend RLS/mutual/duplicate/rate-limit; iki fiziksel cihazda uygulama kapalıyken bildirim ve hesap makinesi giriş testi. **Durum: mimari karar onaylı, uygulama ve saha doğrulaması bekliyor.**
+
+
+### 2026-10-27 — Mesaj bildirimi onayı için çökme güvenliği (sertleştirme)
+
+**Doğrulanmış hata modeli:** FCM cihaz tokenı sunucuda kaydedilmişken UI işlem sonunda yerel onay bayrağına geçmeden uygulama kapanırsa, sunucu izni kalıcı gibi kalabilir. Buna karşı mesaj bildirim kaydı yapılmadan **önce** yalnız boolean türünde `enrollment_in_progress + pending_remote_revoke` kurtarma işareti diske `commit()` ile yazılır. Sunucu başarı yanıtından **sonra** bu işaret atomik olarak açık tercihe dönüşür. Uygulama işlem ortasında kapanırsa sonraki açılışta işaret iptal-öncelikli hâle getirilir; FCM kayıt silme isteği mevcut ECDSA kimliğiyle ve ağ varsa gönderilir. Çalışan bir kayda aynı anda bağlanan WorkManager iptal gönderemez. Yeni token, sohbet, kullanıcı kimliği ve bildirim içeriği SharedPreferences/WorkManager/loglara eklenmez.
+
+**Kapatma mahremiyeti:** Kullanıcı bildirimleri kapattığında daha önceki *mesaj* sistem bildirimi cihazda iptal edilir; arama bildirim kimliği, kanalı ve izni korunur. Google Play Services/Firebase token alma işlemi sonlu süreli ve iptal edilebilir olmalıdır. Yarım kalan sunucu iptalinin kalıcılığı, offline/çökme/enrollment race senaryolarıyla test edilir. Mevcut şifreli mesaj geçmişi, hesap, kişi ve Room tabloları değişmez.
+
+**Kanıt kapısı:** Bu katman testlerinin yeşil olması, gerçek bir cihazda FCM ulaştığı anlamına gelmez. Ana dal/kararlı APK yayınından önce son PR commit'inin CI, Android 14 kabulü, imzalama ve bağımsız çağrı bildirim testi gerekir.

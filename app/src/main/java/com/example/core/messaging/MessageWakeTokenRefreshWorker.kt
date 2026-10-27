@@ -31,11 +31,20 @@ object MessageWakeTokenRefreshPolicy {
             register(null)
             return MessageWakePreferences.acknowledgeRemoteRevoke(context)
         }
+        // A newly opened private UI owns its in-flight signed registration.
+        // Do not race a worker-side revoke against that explicit enrollment.
+        // After process death, Application converts this marker to revoke-only.
+        if (MessageWakePreferences.isEnrollmentInProgress(context)) return true
         if (!MessageWakePreferences.isEnabled(context)) return revoke()
         val token = currentToken()
+        if (MessageWakePreferences.isEnrollmentInProgress(context)) return true
         if (!MessageWakePreferences.isEnabled(context)) return revoke()
         if (token.isNullOrBlank()) return false
         register(token)
+        // A NEW enrollment may have begun while an old token refresh was in
+        // flight. Its own signed registration owns the final state. Never
+        // wipe it with a stale worker's compensating revocation.
+        if (MessageWakePreferences.isEnrollmentInProgress(context)) return true
         // An opt-out racing an in-flight request must revoke the late write.
         if (!MessageWakePreferences.isEnabled(context)) return revoke(force = true)
         return true

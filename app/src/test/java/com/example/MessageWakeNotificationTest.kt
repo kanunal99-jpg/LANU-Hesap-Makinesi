@@ -5,9 +5,11 @@ import android.app.NotificationManager
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.RingtoneManager
+import androidx.core.app.NotificationCompat
 import androidx.test.core.app.ApplicationProvider
 import com.example.core.calls.CallWakePolicy
 import com.example.core.calls.CallWakePreferences
+import com.example.core.calls.CallWakeNotification
 import com.example.core.messaging.MessageWakeNotification
 import com.example.core.messaging.MessageWakePolicy
 import com.example.core.messaging.MessageWakePreferences
@@ -40,7 +42,8 @@ class MessageWakeNotificationTest {
 
     @Test fun optionalNotificationsDefaultOffAndRemoteOptOutIsDurable() {
         assertFalse(MessageWakePreferences.isEnabled(context))
-        assertTrue(MessageWakePreferences.enable(context))
+        assertTrue(MessageWakePreferences.beginEnrollment(context))
+        assertTrue(MessageWakePreferences.finishEnrollment(context))
         assertTrue(MessageWakePreferences.isEnabled(context))
         assertTrue(MessageWakePreferences.disableAndQueueRemoteRevoke(context))
         assertFalse(MessageWakePreferences.isEnabled(context))
@@ -86,7 +89,8 @@ class MessageWakeNotificationTest {
     @Test fun privateForegroundOrNoOptInSuppressesHintsWithoutFetchingChats() {
         val hint=mapOf("type" to MessageWakePolicy.TYPE,"at" to now.toString())
         assertFalse(MessageWakeNotification.show(context,hint,now))
-        MessageWakePreferences.enable(context)
+        MessageWakePreferences.beginEnrollment(context)
+        MessageWakePreferences.finishEnrollment(context)
         CallWakePolicy.privateAreaVisible=true
         assertFalse(MessageWakeNotification.show(context,hint,now))
         CallWakePolicy.privateAreaVisible=false
@@ -96,7 +100,8 @@ class MessageWakeNotificationTest {
     @Test fun separateCallAndMessageConsentNeverImplicitlyTurnEachOtherOn() {
         assertTrue(CallWakePreferences.setEnabled(context,true))
         assertFalse(MessageWakePreferences.isEnabled(context))
-        assertTrue(MessageWakePreferences.enable(context))
+        assertTrue(MessageWakePreferences.beginEnrollment(context))
+        assertTrue(MessageWakePreferences.finishEnrollment(context))
         assertTrue(CallWakePreferences.disableAndQueueRemoteRevoke(context))
         assertFalse(CallWakePreferences.isEnabled(context))
         assertTrue(MessageWakePreferences.isEnabled(context))
@@ -105,7 +110,8 @@ class MessageWakeNotificationTest {
     }
 
     @Test fun pendingRevokeNeverFetchesTokenAndNewRegistrationsUseCurrentToken() = runBlocking {
-        assertTrue(MessageWakePreferences.enable(context))
+        assertTrue(MessageWakePreferences.beginEnrollment(context))
+        assertTrue(MessageWakePreferences.finishEnrollment(context))
         val calls=mutableListOf<String?>()
         assertTrue(MessageWakeTokenRefreshPolicy.reconcile(context,
             { "new-device-token" }, { calls.add(it) }))
@@ -120,7 +126,8 @@ class MessageWakeNotificationTest {
     }
 
     @Test fun optOutRacingInflightRefreshRevokesLateRegistration() = runBlocking {
-        MessageWakePreferences.enable(context)
+        MessageWakePreferences.beginEnrollment(context)
+        MessageWakePreferences.finishEnrollment(context)
         val tokens=mutableListOf<String?>()
         assertTrue(MessageWakeTokenRefreshPolicy.reconcile(context,
             { "first-fcm-token" },
@@ -134,4 +141,129 @@ class MessageWakeNotificationTest {
         assertEquals(listOf<String?>("first-fcm-token",null),tokens)
         assertFalse(MessageWakePreferences.isEnabled(context))
     }
+    @Test fun explicitConsentRequiresCommittedRecoveryBarrier() {
+        assertFalse("Cannot acknowledge a registration which never began",
+            MessageWakePreferences.finishEnrollment(context))
+        assertFalse(MessageWakePreferences.isEnabled(context))
+        assertTrue(MessageWakePreferences.beginEnrollment(context))
+        assertTrue(MessageWakePreferences.isEnrollmentInProgress(context))
+        assertFalse("Unacknowledged server write must not enable alerts",
+            MessageWakePreferences.isEnabled(context))
+        assertFalse("Concurrent second enrollment is rejected",
+            MessageWakePreferences.beginEnrollment(context))
+        assertTrue(MessageWakePreferences.finishEnrollment(context))
+        assertTrue(MessageWakePreferences.isEnabled(context))
+        assertFalse(MessageWakePreferences.isEnrollmentInProgress(context))
+        assertFalse(MessageWakePreferences.hasPendingRemoteRevoke(context))
+    }
+
+    @Test fun processDeathAfterServerAckButBeforeLocalConsentForcesSignedRevoke() = runBlocking {
+        assertTrue(MessageWakePreferences.beginEnrollment(context))
+        // Simulate successful server registration followed by process death:
+        // the preference commit that enables alerts was never reached.
+        assertTrue(MessageWakePreferences.recoverInterruptedEnrollment(context))
+        assertFalse(MessageWakePreferences.isEnabled(context))
+        assertFalse(MessageWakePreferences.isEnrollmentInProgress(context))
+        assertTrue(MessageWakePreferences.hasPendingRemoteRevoke(context))
+
+        var fetched = false
+        val remoteCalls = mutableListOf<String?>()
+        assertTrue(MessageWakeTokenRefreshPolicy.reconcile(context,
+            { fetched = true; "should-not-fetch" }, { remoteCalls.add(it) }))
+        assertFalse(fetched)
+        assertEquals(listOf<String?>(null), remoteCalls)
+        assertFalse(MessageWakePreferences.hasPendingRemoteRevoke(context))
+    }
+
+    @Test fun workerCannotDeleteDeviceRegistrationWhilePrivateSettingsAreEnrolling() = runBlocking {
+        assertTrue(MessageWakePreferences.beginEnrollment(context))
+        var tokenFetches = 0
+        var remoteCalls = 0
+        assertTrue(MessageWakeTokenRefreshPolicy.reconcile(context,
+            { tokenFetches++; "forbidden" }, { remoteCalls++ }))
+        assertEquals(0, tokenFetches)
+        assertEquals(0, remoteCalls)
+        assertTrue(MessageWakePreferences.hasPendingRemoteRevoke(context))
+        assertTrue(MessageWakePreferences.isEnrollmentInProgress(context))
+    }
+
+    @Test fun abortedEnrollmentKeepsDurableRevokeIfRemoteIsOffline() = runBlocking {
+        assertTrue(MessageWakePreferences.beginEnrollment(context))
+        assertTrue(MessageWakePreferences.disableAndQueueRemoteRevoke(context))
+        assertFalse(MessageWakePreferences.isEnrollmentInProgress(context))
+        try {
+            MessageWakeTokenRefreshPolicy.reconcile(context,
+                { throw AssertionError("Cannot fetch token while revoking") },
+                { throw IllegalStateException("Offline simulated") })
+            throw AssertionError("Revoke should throw on network failure")
+        } catch (_: IllegalStateException) {
+            assertTrue(MessageWakePreferences.hasPendingRemoteRevoke(context))
+            assertFalse(MessageWakePreferences.isEnabled(context))
+        }
+    }
+
+    @Test fun optOutRemovesExistingNotificationWithoutTouchingCallCategory() {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        MessageWakeNotification.ensureChannel(manager)
+        val shown = NotificationCompat.Builder(context, MessageWakeNotification.CHANNEL_ID)
+            .setSmallIcon(com.example.R.drawable.ic_lanu_monochrome)
+            .setContentTitle("LANU Hesap Makinesi")
+            .build()
+        CallWakeNotification.ensureChannel(manager)
+        manager.notify(8129, NotificationCompat.Builder(context, CallWakeNotification.CHANNEL_ID)
+            .setSmallIcon(com.example.R.drawable.ic_lanu_monochrome)
+            .setContentTitle("Gelen arama")
+            .build())
+        manager.notify(8130, shown)
+        assertTrue(manager.activeNotifications.any { it.id == 8130 })
+        assertTrue(manager.activeNotifications.any { it.id == 8129 })
+        assertTrue(MessageWakeNotification.cancel(context))
+        assertFalse(manager.activeNotifications.any { it.id == 8130 })
+        assertTrue("Independent call alerts are not revoked",
+            manager.activeNotifications.any { it.id == 8129 })
+        manager.cancel(8129)
+    }
+
+    @Test fun freshEnrollmentCannotBeRevokedByOlderInflightTokenRefresh() = runBlocking {
+        assertTrue(MessageWakePreferences.beginEnrollment(context))
+        assertTrue(MessageWakePreferences.finishEnrollment(context))
+        val tokens = mutableListOf<String?>()
+        assertTrue(MessageWakeTokenRefreshPolicy.reconcile(context,
+            { "old-token" },
+            { token ->
+                tokens.add(token)
+                if (token != null) {
+                    assertTrue(MessageWakePreferences.disableAndQueueRemoteRevoke(context))
+                    assertTrue(MessageWakePreferences.acknowledgeRemoteRevoke(context))
+                    assertTrue(MessageWakePreferences.beginEnrollment(context))
+                }
+            }))
+        assertEquals(listOf<String?>("old-token"), tokens)
+        assertTrue(MessageWakePreferences.isEnrollmentInProgress(context))
+        assertTrue(MessageWakePreferences.hasPendingRemoteRevoke(context))
+    }
+
+    @Test fun optedOutBetweenNotifyAndDeliveryIsImmediatelyRetracted() {
+        var enabled = true
+        val actions = mutableListOf<String>()
+        val delivered = MessageWakePolicy.postIfStillEnabled(
+            isEnabled = { enabled },
+            post = {
+                actions.add("posted")
+                enabled = false // owner opts out while Android accepts the wake
+            },
+            cancel = { actions.add("cancelled") }
+        )
+        assertFalse(delivered)
+        assertEquals(listOf("posted", "cancelled"), actions)
+
+        actions.clear()
+        assertFalse(MessageWakePolicy.postIfStillEnabled(
+            isEnabled = { false },
+            post = { actions.add("posted") },
+            cancel = { actions.add("cancelled") }
+        ))
+        assertTrue(actions.isEmpty())
+    }
+
 }

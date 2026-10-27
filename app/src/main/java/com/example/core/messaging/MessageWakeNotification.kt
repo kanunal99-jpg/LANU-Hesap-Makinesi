@@ -26,6 +26,7 @@ object MessageWakePreferences {
     private const val STORE = "lanu_message_wake_v1"
     private const val ENABLED = "opted_in"
     private const val PENDING = "pending_remote_revoke"
+    private const val ENROLLING = "enrollment_in_progress"
 
     fun isEnabled(context: Context): Boolean = try {
         val p = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
@@ -37,19 +38,56 @@ object MessageWakePreferences {
             .getBoolean(PENDING, false)
     } catch (_: Exception) { true }
 
-    fun enable(context: Context): Boolean = try {
-        context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE).edit()
-            .putBoolean(ENABLED, true).putBoolean(PENDING, false).commit()
+    /**
+     * Crash-recovery barrier: commit this BEFORE sending a positive signed
+     * FCM registration request. A process death after server ACK, but before
+     * local consent becomes enabled, must leave a durable revoke marker.
+     * No token, identity, message or conversation enters SharedPreferences.
+     */
+    fun beginEnrollment(context: Context): Boolean = try {
+        val prefs = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(PENDING, false) || prefs.getBoolean(ENABLED, false)) false
+        else prefs.edit().putBoolean(ENABLED, false)
+            .putBoolean(PENDING, true).putBoolean(ENROLLING, true).commit()
+    } catch (_: Exception) { false }
+
+    /**
+     * Only a signed server ACK may complete registration. Enrollment runs in
+     * an active private UI, while the Worker must not race its rollback.
+     */
+    fun finishEnrollment(context: Context): Boolean = try {
+        val prefs = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(ENROLLING, false) || !prefs.getBoolean(PENDING, false)) false
+        else prefs.edit().putBoolean(ENABLED, true)
+            .putBoolean(PENDING, false).putBoolean(ENROLLING, false).commit()
+    } catch (_: Exception) { false }
+
+    fun isEnrollmentInProgress(context: Context): Boolean = try {
+        context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+            .getBoolean(ENROLLING, false)
+    } catch (_: Exception) { false }
+
+    /**
+     * The Application invokes this on every cold start BEFORE queuing retry
+     * workers. If the process died mid-registration, revoke the potentially
+     * registered remote token. All fields are harmless boolean flags.
+     */
+    fun recoverInterruptedEnrollment(context: Context): Boolean = try {
+        val prefs = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(ENROLLING, false)) true
+        else prefs.edit().putBoolean(ENABLED, false).putBoolean(PENDING, true)
+            .putBoolean(ENROLLING, false).commit()
     } catch (_: Exception) { false }
 
     fun disableAndQueueRemoteRevoke(context: Context): Boolean = try {
         context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE).edit()
-            .putBoolean(ENABLED, false).putBoolean(PENDING, true).commit()
+             .putBoolean(ENABLED, false).putBoolean(PENDING, true)
+            .putBoolean(ENROLLING, false).commit()
     } catch (_: Exception) { false }
 
     fun acknowledgeRemoteRevoke(context: Context): Boolean = try {
         context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE).edit()
-            .putBoolean(PENDING, false).commit()
+            .putBoolean(PENDING, false).putBoolean(ENROLLING, false).commit()
     } catch (_: Exception) { false }
 }
 
@@ -73,6 +111,26 @@ object MessageWakePolicy {
     @Synchronized
     fun releaseFailed(at: Long) { recent.remove(at) }
 
+    /**
+     * The user can opt out from the private settings while FCM is still
+     * preparing an alert on another thread. Recheck consent immediately
+     * before and after Android's notification service receives it.
+     * If opt-out won the race, retract the just-posted alert.
+     */
+    fun postIfStillEnabled(
+        isEnabled: () -> Boolean,
+        post: () -> Unit,
+        cancel: () -> Unit
+    ): Boolean {
+        if (!isEnabled()) return false
+        post()
+        if (!isEnabled()) {
+            cancel()
+            return false
+        }
+        return true
+    }
+
     fun safeShow(block: () -> Boolean): Boolean =
         try { block() } catch (_: SecurityException) { false }
         catch (_: RuntimeException) { false }
@@ -87,6 +145,17 @@ object MessageWakeTapPolicy {
 object MessageWakeNotification {
     const val CHANNEL_ID = "lanu_private_message_alerts_v1"
     private const val ID = 8130
+
+    /**
+     * A local opt-out must also remove an already displayed neutral alert.
+     * Never cancel call notifications: their consent and channel are separate.
+     */
+    fun cancel(context: Context): Boolean = MessageWakePolicy.safeShow {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            ?: return@safeShow false
+        manager.cancel(ID)
+        true
+    }
 
     fun ensureChannel(manager: NotificationManager) {
         if (Build.VERSION.SDK_INT < 26) return
@@ -136,8 +205,13 @@ object MessageWakeNotification {
                     .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
                     .setAutoCancel(true)
                     .build()
-                manager.notify(ID, notification)
-                true
+                val delivered = MessageWakePolicy.postIfStillEnabled(
+                    isEnabled = { MessageWakePreferences.isEnabled(context) },
+                    post = { manager.notify(ID, notification) },
+                    cancel = { manager.cancel(ID) }
+                )
+                if (!delivered) MessageWakePolicy.releaseFailed(at)
+                delivered
             } catch (e: SecurityException) {
                 MessageWakePolicy.releaseFailed(at)
                 false
