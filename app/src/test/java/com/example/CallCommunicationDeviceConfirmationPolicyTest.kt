@@ -14,7 +14,7 @@ class CallCommunicationDeviceConfirmationPolicyTest {
 
     @Test fun delayedBluetoothConfirmationCanRemainPendingWithoutCompetingRequest() {
         val routes = listOf(Route.BLUETOOTH_HEADSET, Route.EARPIECE)
-        assertTrue(Policy.stillPreferred(42, Route.BLUETOOTH_HEADSET, setOf(42, 15), routes))
+        assertTrue(Policy.stillPreferred(42, Route.BLUETOOTH_HEADSET, mapOf(42 to Route.BLUETOOTH_HEADSET, 15 to Route.EARPIECE), routes))
         assertFalse(Policy.confirmed(42, 15))
         assertFalse(Policy.expired(1_000L, 30_999L))
         assertTrue(Policy.confirmed(42, 42))
@@ -22,10 +22,22 @@ class CallCommunicationDeviceConfirmationPolicyTest {
 
     @Test fun unplugAndManualRouteChangeInvalidateOldPendingSelection() {
         val priorities = listOf(Route.BLUETOOTH_HEADSET, Route.SPEAKER)
-        assertFalse(Policy.stillPreferred(42, Route.BLUETOOTH_HEADSET, setOf(15), priorities))
-        assertFalse(Policy.stillPreferred(42, Route.BLUETOOTH_HEADSET, setOf(42, 15),
+        assertFalse(Policy.stillPreferred(42, Route.BLUETOOTH_HEADSET, mapOf(15 to Route.SPEAKER), priorities))
+        assertFalse(Policy.stillPreferred(42, Route.BLUETOOTH_HEADSET, mapOf(42 to Route.BLUETOOTH_HEADSET, 15 to Route.SPEAKER),
             listOf(Route.SPEAKER, Route.BLUETOOTH_HEADSET)))
-        assertFalse(Policy.stillPreferred(null, Route.BLUETOOTH_HEADSET, setOf(42), priorities))
+        assertFalse(Policy.stillPreferred(null, Route.BLUETOOTH_HEADSET, mapOf(42 to Route.BLUETOOTH_HEADSET), priorities))
+    }
+
+    @Test fun reusedAndroidDeviceIdWithDifferentAudioRouteIsNotAccepted() {
+        val oldBluetoothId = 42
+        // A fast unplug/plug cycle may recycle an ephemeral Android device ID.
+        // The newly attached SPEAKER must never prove an old Bluetooth route.
+        assertFalse(Policy.stillPreferred(oldBluetoothId, Route.BLUETOOTH_HEADSET,
+            mapOf(oldBluetoothId to Route.SPEAKER),
+            listOf(Route.BLUETOOTH_HEADSET, Route.SPEAKER)))
+        assertTrue(Policy.stillPreferred(oldBluetoothId, Route.BLUETOOTH_HEADSET,
+            mapOf(oldBluetoothId to Route.BLUETOOTH_HEADSET),
+            listOf(Route.BLUETOOTH_HEADSET, Route.SPEAKER)))
     }
 
     @Test fun timeoutIsBoundedAndRejectsInvalidClockSamples() {
@@ -44,9 +56,9 @@ class CallCommunicationDeviceConfirmationPolicyTest {
     }
 
     @Test fun missingInventoryOrInvalidPriorityCannotKeepRoutePending() {
-        assertFalse(Policy.stillPreferred(42, Route.BLUETOOTH_HEADSET, emptySet(),
+        assertFalse(Policy.stillPreferred(42, Route.BLUETOOTH_HEADSET, emptyMap(),
             listOf(Route.BLUETOOTH_HEADSET)))
-        assertFalse(Policy.stillPreferred(42, null, setOf(42), listOf(Route.BLUETOOTH_HEADSET)))
-        assertFalse(Policy.stillPreferred(42, Route.BLUETOOTH_HEADSET, setOf(42), emptyList()))
+        assertFalse(Policy.stillPreferred(42, null, mapOf(42 to Route.BLUETOOTH_HEADSET), listOf(Route.BLUETOOTH_HEADSET)))
+        assertFalse(Policy.stillPreferred(42, Route.BLUETOOTH_HEADSET, mapOf(42 to Route.BLUETOOTH_HEADSET), emptyList()))
     }
 }
