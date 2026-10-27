@@ -6,6 +6,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.media.AudioAttributes
 import android.media.RingtoneManager
+import androidx.core.app.NotificationCompat
+import com.example.core.messaging.MessageWakeNotification
 import androidx.test.core.app.ApplicationProvider
 import com.example.core.calls.CallWakeNotification
 import com.example.core.calls.CallWakeTapPolicy
@@ -183,4 +185,62 @@ class CallWakeNotificationTest {
         assertFalse(CallWakeNotification.show(context, mapOf(
             "type" to CallWakePolicy.TYPE, "at" to timestamp.toString()), timestamp))
     }
+    @Test fun revokingCallConsentWhileAndroidPostsRetractsOnlyCallAlert() {
+        var enabled = true
+        val effects = mutableListOf<String>()
+        assertFalse(CallWakePolicy.publishWhileConsented(
+            at = 1710000090001L,
+            isConsented = { enabled },
+            notify = { effects.add("posted"); enabled = false },
+            cancel = { effects.add("cancelled") }
+        ))
+        assertEquals(listOf("posted", "cancelled"), effects)
+
+        effects.clear()
+        assertFalse(CallWakePolicy.publishWhileConsented(
+            at = 1710000090002L,
+            isConsented = { false },
+            notify = { effects.add("posted") },
+            cancel = { effects.add("cancelled") }
+        ))
+        assertTrue(effects.isEmpty())
+    }
+
+    @Test fun consentedCallAlertPostsOnceButNeverRepeatsSameFcmTimestamp() {
+        var deliveries = 0
+        assertTrue(CallWakePolicy.publishWhileConsented(
+            at = 1710000090003L,
+            isConsented = { true },
+            notify = { deliveries++ },
+            cancel = { error("Must not cancel enabled alert") }
+        ))
+        assertFalse(CallWakePolicy.publishWhileConsented(
+            at = 1710000090003L,
+            isConsented = { true },
+            notify = { deliveries++ },
+            cancel = { }
+        ))
+        assertEquals(1, deliveries)
+    }
+
+    @Test fun localCallOptOutOnlyCancelsCallNotificationAndPreservesMessageAlert() {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        CallWakeNotification.ensureChannel(manager)
+        MessageWakeNotification.ensureChannel(manager)
+        manager.notify(8129, NotificationCompat.Builder(context, CallWakeNotification.CHANNEL_ID)
+            .setSmallIcon(com.example.R.drawable.ic_lanu_monochrome)
+            .setContentTitle("Gelen arama").build())
+        manager.notify(8130, NotificationCompat.Builder(context, MessageWakeNotification.CHANNEL_ID)
+            .setSmallIcon(com.example.R.drawable.ic_lanu_monochrome)
+            .setContentTitle("LANU Hesap Makinesi").build())
+        assertTrue(manager.activeNotifications.any { it.id == 8129 })
+        assertTrue(manager.activeNotifications.any { it.id == 8130 })
+        assertTrue(CallWakePreferences.disableAndQueueRemoteRevoke(context))
+        assertTrue(CallWakeNotification.cancel(context))
+        assertFalse(manager.activeNotifications.any { it.id == 8129 })
+        assertTrue("Message alerts are independently consented",
+            manager.activeNotifications.any { it.id == 8130 })
+        manager.cancel(8130)
+    }
+
 }
