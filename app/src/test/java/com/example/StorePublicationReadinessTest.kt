@@ -67,6 +67,28 @@ class StorePublicationReadinessTest {
         }
     }
 
+    @Test fun missingRemoteAccountDeletionImplementationMustBlockStore() {
+        // Local chat hiding or a reviewed retention paragraph is not remote
+        // identity/ciphertext deletion. Do not treat them as equivalent.
+        val decision = StorePublicationReadiness.assess(
+            complete().copy(accountDeletionFlowVerified = false))
+        assertTrue(decision is Decision.Blocked)
+        assertTrue(Requirement.ACCOUNT_DELETION_FLOW in (decision as Decision.Blocked).missing)
+    }
+
+    @Test fun accountDeletionRequestCannotPointToLocalPrivateOrNonHttpsSite() {
+        for (invalid in listOf("", "http://privacy.example.com/delete",
+            "https://127.0.0.1/delete", "https://localhost/delete",
+            "https://private.home.arpa/delete", "https://privacy.example.com:8080/delete",
+            "https://privacy.example.com/delete?token=secret")) {
+            val decision = StorePublicationReadiness.assess(
+                complete().copy(accountDeletionRequestUrl = invalid))
+            assertTrue(decision is Decision.Blocked)
+            assertTrue(Requirement.PUBLIC_ACCOUNT_DELETION_REQUEST in
+                (decision as Decision.Blocked).missing)
+        }
+    }
+
     @Test fun syntheticCompleteEvidenceStillRequiresHumanLegalReview() {
         assertEquals(Decision.HumanLegalReviewRequired,
             StorePublicationReadiness.assess(complete()))
@@ -78,5 +100,7 @@ class StorePublicationReadinessTest {
         retentionAndDeletionReviewed = true, dataSafetyReviewed = true,
         permissionsReviewed = true, optionalFcmCallAlertsReviewed = true,
         audioVideoMediaDisclosureReviewed = true,
-        databaseEncryptionClaimsReviewed = true, ratchetClaimsReviewed = true)
+        databaseEncryptionClaimsReviewed = true, ratchetClaimsReviewed = true,
+        accountDeletionFlowVerified = true,
+        accountDeletionRequestUrl = "https://privacy.example.com/delete-account")
 }
