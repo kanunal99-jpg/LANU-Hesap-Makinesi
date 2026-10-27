@@ -34,6 +34,7 @@ object DatabaseShadowParity {
             row.forEach { value ->
                 if (value == null) addInt(md, -1)
                 else {
+                    require(value.length <= 1_048_576) { "Shadow evidence value limit exceeded" }
                     val bytes = value.toByteArray(Charsets.UTF_8)
                     require(bytes.size <= 1_048_576) { "Shadow evidence value limit exceeded" }
                     aggregateBytes += bytes.size
@@ -92,6 +93,7 @@ object DatabaseShadowParity {
                     }
                     is SqlValue.Text -> {
                         md.update(3.toByte())
+                        require(cell.value.length <= 1_048_576) { "Shadow evidence value limit exceeded" }
                         val bytes = cell.value.toByteArray(Charsets.UTF_8)
                         require(bytes.size <= 1_048_576) { "Shadow evidence value limit exceeded" }
                         aggregateBytes += bytes.size
