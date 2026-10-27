@@ -12,6 +12,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -25,6 +26,8 @@ import androidx.compose.ui.unit.dp
 import com.example.core.diagnostics.CrashDiagnostics
 import com.example.core.diagnostics.LocalCrashReport
 import com.example.core.diagnostics.PrivateRelayHealth
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 
@@ -36,11 +39,25 @@ import java.util.Date
 fun LocalCrashDiagnosticsPanel() {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
-    var record by remember(context) { mutableStateOf(LocalCrashReport.read(context)) }
-    var systemExit by remember(context) { mutableStateOf(CrashDiagnostics.mostRecentAbnormalExit(context)) }
-    var systemExitCounts by remember(context) { mutableStateOf(CrashDiagnostics.recentAbnormalCounts(context)) }
-    var repeatedCrashRisk by remember(context) { mutableStateOf(CrashDiagnostics.recentCrashRisk(context)) }
-    var triageHint by remember(context) { mutableStateOf(CrashDiagnostics.recentTriageHint(context)) }
+    var record by remember(context) { mutableStateOf<LocalCrashReport.Record?>(null) }
+    var systemSnapshot by remember(context) { mutableStateOf(CrashDiagnostics.SystemExitSnapshot()) }
+    var refreshGeneration by remember(context) { mutableStateOf(0) }
+    var loading by remember(context) { mutableStateOf(true) }
+    // The old UI queried ActivityManager four times synchronously from Compose.
+    // Run exactly one sampled OS Binder query on IO, never on the UI thread.
+    LaunchedEffect(context, refreshGeneration) {
+        loading = true
+        val evidence = withContext(Dispatchers.IO) {
+            LocalCrashReport.read(context) to CrashDiagnostics.recentSnapshot(context)
+        }
+        record = evidence.first
+        systemSnapshot = evidence.second
+        loading = false
+    }
+    val systemExit = systemSnapshot.recent
+    val systemExitCounts = systemSnapshot.counts
+    val repeatedCrashRisk = systemSnapshot.repeatRisk
+    val triageHint = systemSnapshot.triage
     var detailsVisible by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
     var relaySummary by remember { mutableStateOf(PrivateRelayHealth.safeSummary()) }
@@ -86,7 +103,10 @@ fun LocalCrashDiagnosticsPanel() {
                 style = MaterialTheme.typography.bodySmall
             )
             val abnormal = systemExit
-            if (abnormal == null) {
+            if (loading) {
+                Text("Android kapanış kayıtları güvenli şekilde inceleniyor.",
+                    style = MaterialTheme.typography.bodySmall)
+            } else if (abnormal == null) {
                 Text("Android tarafından bildirilen yakın tarihli anormal kapanış yok veya bu cihaz desteklemiyor.",
                     style = MaterialTheme.typography.bodySmall)
             } else {
@@ -124,11 +144,8 @@ fun LocalCrashDiagnosticsPanel() {
             )
             Text(relaySummary, modifier = Modifier.testTag("private_relay_health_summary"))
             TextButton(onClick = {
-                record = LocalCrashReport.read(context)
-                systemExit = CrashDiagnostics.mostRecentAbnormalExit(context)
-                systemExitCounts = CrashDiagnostics.recentAbnormalCounts(context)
-                repeatedCrashRisk = CrashDiagnostics.recentCrashRisk(context)
-                triageHint = CrashDiagnostics.recentTriageHint(context)
+                // Refresh never performs process-history IPC on the main thread.
+                refreshGeneration++
                 relaySummary = PrivateRelayHealth.safeSummary()
             }) {
                 Text("Kayıtları yenile")
