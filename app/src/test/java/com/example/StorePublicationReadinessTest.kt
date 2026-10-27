@@ -18,12 +18,52 @@ class StorePublicationReadinessTest {
     @Test fun insecureOrDeceptivePrivacyUrlsAlwaysBlock() {
         val urls = listOf("", "http://privacy.example/test",
             "https://localhost/policy", "https://name@privacy.example/policy",
-            "https://privacy.example/policy#hidden", "not-a-url")
+            "https://privacy.example.com/policy#hidden", "not-a-url",
+            "https://127.0.0.1/policy", "https://192.168.1.22/privacy",
+            "https://[::1]/privacy", "https://intranet.local/policy",
+            "https://privacy.internal/policy", "https://private.home.arpa/policy",
+            "https://privacy.example/policy", "https://policy.test/privacy",
+            "https://foo.invalid/policy", "https://one.localhost/privacy",
+            "https://privacy.example.com:8080/policy",
+            "https://privacy.example.com/policy?q=token",
+            "https://foo..com/policy", "https://-bad.com/policy",
+            "https://privacy.example.com/policy#fragment",
+            "https://user:pass@privacy.example.com/policy")
         for (url in urls) {
             val ready = complete().copy(privacyPolicyUrl = url)
             val decision = StorePublicationReadiness.assess(ready)
             assertTrue(decision is Decision.Blocked)
             assertTrue(Requirement.PUBLIC_HTTPS_PRIVACY_POLICY in (decision as Decision.Blocked).missing)
+        }
+    }
+
+    @Test fun standardPublicHttpsDomainsAndPunycodeAreEligibleForHumanReview() {
+        for (url in listOf(
+            "https://privacy.example.com/policy",
+            "https://privacy.example.com:443/policy",
+            "https://xn--bcher-kva.de/datenschutz"
+        )) {
+            assertEquals(Decision.HumanLegalReviewRequired,
+                StorePublicationReadiness.assess(complete().copy(privacyPolicyUrl = url)))
+        }
+    }
+
+    @Test fun safeUrlShapeAloneNeverMeansPolicyIsActuallyPublished() {
+        assertEquals(Decision.HumanLegalReviewRequired,
+            StorePublicationReadiness.assess(complete()))
+    }
+
+    @Test fun everyCurrentDisclosureIsIndependentlyRequired() {
+        val cases = listOf(
+            complete().copy(optionalFcmCallAlertsReviewed = false) to Requirement.OPTIONAL_FCM_CALL_ALERTS,
+            complete().copy(audioVideoMediaDisclosureReviewed = false) to Requirement.AUDIO_VIDEO_MEDIA_DISCLOSURE,
+            complete().copy(databaseEncryptionClaimsReviewed = false) to Requirement.DATABASE_ENCRYPTION_CLAIMS,
+            complete().copy(ratchetClaimsReviewed = false) to Requirement.RATCHET_CLAIMS
+        )
+        cases.forEach { (evidence, requirement) ->
+            val decision = StorePublicationReadiness.assess(evidence)
+            assertTrue(decision is Decision.Blocked)
+            assertTrue(requirement in (decision as Decision.Blocked).missing)
         }
     }
 
@@ -34,7 +74,9 @@ class StorePublicationReadinessTest {
     }
 
     private fun complete() = Evidence(ownerVerified = true, supportVerified = true,
-        privacyPolicyUrl = "https://privacy.example/policy",
+        privacyPolicyUrl = "https://privacy.example.com/policy",
         retentionAndDeletionReviewed = true, dataSafetyReviewed = true,
-        permissionsReviewed = true)
+        permissionsReviewed = true, optionalFcmCallAlertsReviewed = true,
+        audioVideoMediaDisclosureReviewed = true,
+        databaseEncryptionClaimsReviewed = true, ratchetClaimsReviewed = true)
 }
