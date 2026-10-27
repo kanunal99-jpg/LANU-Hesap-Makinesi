@@ -11,7 +11,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -31,7 +30,6 @@ import kotlinx.coroutines.CancellationException
 fun UpdateCheckScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val recentAbnormalExit = remember(context) { CrashDiagnostics.mostRecentAbnormalExit(context) }
-    val uriHandler = LocalUriHandler.current
     val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf<UpdateStatus?>(null) }
     var ready by remember { mutableStateOf<VerifiedUpdate?>(null) }
@@ -49,7 +47,7 @@ fun UpdateCheckScreen(modifier: Modifier = Modifier) {
         status = null
         ready = null
         downloadProgress = null
-        operation = "GitHub sürümleri kontrol ediliyor…"
+        operation = "LANU güncellemeleri güvenli şekilde denetleniyor…"
         scope.launch {
             try {
                 status = SecureOtaUpdater.check(context)
@@ -72,7 +70,7 @@ fun UpdateCheckScreen(modifier: Modifier = Modifier) {
             Icon(Icons.Default.SecurityUpdate, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             Column {
                 Text("Güncelleme Kontrol", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text("Yalnız resmi LANU GitHub sürümleri",
+                Text("Yalnız doğrulanmış LANU sürümleri",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -140,20 +138,13 @@ fun UpdateCheckScreen(modifier: Modifier = Modifier) {
                                 style = MaterialTheme.typography.bodySmall
                             )
                             Text(
-                                "Henüz hiç PIN, sohbet veya hesap geçmişi oluşturmadıysanız yalnız bir defa " +
-                                    "temiz kurulum yapabilirsiniz: Resmî APK'yi indirin, " +
-                                    "Android Ayarlar'dan eski LANU'yu kaldırın, İndirilenler'den yeni APK'yi kurun. " +
-                                    "Kaldırma işlemi LANU içindeki bütün verileri siler. " +
-                                    "Veriniz varsa kaldırmayın; güvenli taşıma gereklidir.",
+                                "Kurulu LANU uygulamasını kaldırmayın. İmza uyuşmazlığı varsa " +
+                                    "bu sürümü verileri koruyarak Android üzerinden güncellemek güvenli değildir. " +
+                                    "PIN, mesaj, fotoğraf ve ayarlarınızı koruyun; uyumlu imzalı " +
+                                    "bir sürüm hazır olduğunda buradaki güncelleme denetimini yeniden çalıştırın.",
                                 style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.testTag("ota_clean_install_guidance")
+                                modifier = Modifier.testTag("ota_keep_installation_guidance")
                             )
-                            SecureOtaUpdater.officialReleasePage(current.tag)?.let { releasePage ->
-                                OutlinedButton(
-                                    onClick = { uriHandler.openUri(releasePage) },
-                                    modifier = Modifier.fillMaxWidth().testTag("ota_official_release_link")
-                                ) { Text("Resmî APK sayfasını aç") }
-                            }
                         }
                     }
                 }
