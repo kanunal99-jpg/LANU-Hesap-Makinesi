@@ -74,19 +74,26 @@ class SecureOtaUpdaterTest {
                 listOf("app-debug.apk", "app-debug.apk.sha256"))).toString(), 654))
     }
 
-    @Test fun `prerelease signed tags never become automatic OTA candidates`() {
-        val candidates = JSONArray()
+    @Test fun `published signed OTA releases marked prerelease remain installable`() {
+        // GitHub's production LANU publishing workflow marks signed releases
+        // prerelease=true. Rejecting that flag would hide the real OTA channel.
+        val published = JSONArray()
             .put(release("v1.2.0-signed.801").put("prerelease", true))
             .put(release("v1.2.0-signed.800"))
-        val raw = candidates.toString()
-        assertEquals("v1.2.0-signed.800", SecureOtaUpdater.chooseRelease(raw, 700)?.tag)
-        assertEquals("v1.2.0-signed.800" to 800L,
+        val raw = published.toString()
+        assertEquals("v1.2.0-signed.801", SecureOtaUpdater.chooseRelease(raw, 700)?.tag)
+        assertEquals("v1.2.0-signed.801" to 801L,
             SecureOtaUpdater.newestPublishedVersion(raw, 700))
 
-        val onlyPreview = JSONArray()
-            .put(release("v1.2.0-signed.801").put("prerelease", true)).toString()
-        assertNull(SecureOtaUpdater.chooseRelease(onlyPreview, 700))
-        assertNull(SecureOtaUpdater.newestPublishedVersion(onlyPreview, 700))
+        // Preview-like tags not on the explicitly supported signing channel,
+        // or missing integrity sidecars, still fail closed.
+        val unsupported = JSONArray()
+            .put(release("v1.2.0-debug.802").put("prerelease", true))
+            .put(release("v1.2.0-signed.803",
+                listOf("app-debug.apk")).put("prerelease", true))
+        assertNull(SecureOtaUpdater.chooseRelease(unsupported.toString(), 700))
+        assertEquals("v1.2.0-signed.803" to 803L,
+            SecureOtaUpdater.newestPublishedVersion(unsupported.toString(), 700))
     }
 
     @Test fun `same version signed bridge tags prefer current channel in either API order`() {
