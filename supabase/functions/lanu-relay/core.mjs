@@ -243,14 +243,22 @@ export function createRelay(store, clock = Date.now, options = {}) {
           try {
             const claimed = await store.messageWakeClaim(owner, data.peerId, data.messageId);
             if (claimed?.claimed === true && typeof claimed.wake_token === 'string') {
-              try { await options.sendMessageWake(claimed.wake_token, clock()); }
-              catch (error) {
-                if (error instanceof FcmUnregisteredTokenError &&
-                    typeof store.messageWakeInvalidate === 'function') {
-                  try { await store.messageWakeInvalidate(data.peerId, claimed.wake_token); }
-                  catch { /* Durable E2EE message must survive notification failure. */ }
+              const dispatch = async () => {
+                try { await options.sendMessageWake(claimed.wake_token, clock()); }
+                catch (error) {
+                  if (error instanceof FcmUnregisteredTokenError &&
+                      typeof store.messageWakeInvalidate === 'function') {
+                    try { await store.messageWakeInvalidate(data.peerId, claimed.wake_token); }
+                    catch { /* Durable E2EE message must survive notification failure. */ }
+                  }
                 }
-              }
+              };
+              // Supabase EdgeRuntime.waitUntil keeps this best-effort FCM request
+              // off the message response critical path. Node/local tests await.
+              const task = dispatch();
+              if (typeof options.scheduleMessageWake === 'function')
+                options.scheduleMessageWake(task);
+              else await task;
             }
           } catch { /* Optional push must never reject an accepted message. */ }
         }
