@@ -24,6 +24,9 @@ object DatabaseShadowParity {
     fun fingerprint(table: String, rows: List<List<String?>>): TableProof {
         require(table in TABLES) { "Unsupported table in shadow evidence" }
         require(rows.size <= 100_000) { "Shadow evidence row limit exceeded" }
+        // Legacy string proofs must obey the same aggregate input budget as
+        // typed proofs. A 100k-row fixture could otherwise hash gigabytes.
+        var aggregateBytes = 0L
         val hashes = rows.map { row ->
             require(row.size <= 128) { "Shadow evidence column limit exceeded" }
             val md = MessageDigest.getInstance("SHA-256")
@@ -33,6 +36,10 @@ object DatabaseShadowParity {
                 else {
                     val bytes = value.toByteArray(Charsets.UTF_8)
                     require(bytes.size <= 1_048_576) { "Shadow evidence value limit exceeded" }
+                    aggregateBytes += bytes.size
+                    require(aggregateBytes <= 16L * 1024 * 1024) {
+                        "Shadow evidence total limit exceeded"
+                    }
                     addInt(md, bytes.size)
                     md.update(bytes)
                 }
