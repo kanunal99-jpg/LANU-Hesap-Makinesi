@@ -32,7 +32,7 @@ object CallAudioRouteLabelPolicy {
         else -> "Ses çıkışı: Doğrulanamadı"
     }
 
-    private fun routeName(route: Route): String = when (route) {
+    fun routeName(route: Route): String = when (route) {
         Route.WIRED_HEADSET -> "Kablolu / USB kulaklık"
         Route.BLUETOOTH_HEADSET -> "Bluetooth kulaklık"
         Route.EARPIECE -> "Ahize"
