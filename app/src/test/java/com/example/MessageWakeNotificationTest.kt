@@ -243,4 +243,27 @@ class MessageWakeNotificationTest {
         assertTrue(MessageWakePreferences.hasPendingRemoteRevoke(context))
     }
 
+    @Test fun optedOutBetweenNotifyAndDeliveryIsImmediatelyRetracted() {
+        var enabled = true
+        val actions = mutableListOf<String>()
+        val delivered = MessageWakePolicy.postIfStillEnabled(
+            isEnabled = { enabled },
+            post = {
+                actions.add("posted")
+                enabled = false // owner opts out while Android accepts the wake
+            },
+            cancel = { actions.add("cancelled") }
+        )
+        assertFalse(delivered)
+        assertEquals(listOf("posted", "cancelled"), actions)
+
+        actions.clear()
+        assertFalse(MessageWakePolicy.postIfStillEnabled(
+            isEnabled = { false },
+            post = { actions.add("posted") },
+            cancel = { actions.add("cancelled") }
+        ))
+        assertTrue(actions.isEmpty())
+    }
+
 }
