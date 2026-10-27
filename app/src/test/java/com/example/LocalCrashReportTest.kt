@@ -101,7 +101,7 @@ class LocalCrashReportTest {
     }
 
     @Test fun intermittentZeroReadsMayRecoverButOversizedReportIsRejected() {
-        val text = "{\\"version\\":1}"
+        val text = "bounded local diagnostics"
         val data = text.toByteArray(Charsets.UTF_8)
         val input = object : InputStream() {
             private var stalls = 0
