@@ -56,6 +56,7 @@ import com.example.features.communication.CommunicationViewModel
 import com.example.features.communication.NativeCallViewModel
 import com.example.features.communication.NativeCallHost
 import com.example.core.calls.CallWakeTapPolicy
+import com.example.core.messaging.MessageWakeTapPolicy
 import com.example.features.security.SecurityScreen
 import com.example.features.security.SecurityViewModel
 import com.example.ui.theme.MyApplicationTheme
@@ -409,7 +410,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         nativeCallViewModel = ViewModelProvider(this, NativeCallViewModel.Factory(this, container.communicationRepository))[NativeCallViewModel::class.java]
         // Launching via an incoming-call notification is NOT authorization.
         // Lock even a restored private back stack before Compose draws it.
-        concealForCallWakeNotification(intent)
+        concealForPrivateWakeNotification(intent)
 
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
@@ -733,8 +734,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         super.onSaveInstanceState(outState)
     }
 
-    private fun concealForCallWakeNotification(incoming: Intent?) {
-        if (!CallWakeTapPolicy.requiresFreshEntry(incoming?.action)) return
+    private fun concealForPrivateWakeNotification(incoming: Intent?) {
+        if (!CallWakeTapPolicy.requiresFreshEntry(incoming?.action) &&
+            !MessageWakeTapPolicy.requiresFreshEntry(incoming?.action)) return
         if (!::securityViewModel.isInitialized || !::calcViewModel.isInitialized) return
         // Neither incoming intent extras nor stale in-process calls can unlock
         // the private area or auto-start microphone/camera.
@@ -746,7 +748,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         // CLEAR_TOP/SINGLE_TOP may reuse an already-authenticated activity.
-        concealForCallWakeNotification(intent)
+        concealForPrivateWakeNotification(intent)
     }
 
     override fun onStart() {
