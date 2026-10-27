@@ -41,6 +41,24 @@ class CommunicationAndDspTest {
     }
 
     @Test
+    fun invalidSuppressionSettingsMustNeverCorruptOrMutePcm() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val dsp = AudioDspProcessor(context)
+        val samples = shortArrayOf(2, -4, 11, -17, 23, 0, 301, -300)
+
+        for (invalid in listOf(Float.NaN, Float.POSITIVE_INFINITY,
+            Float.NEGATIVE_INFINITY, -1f, 0f)) {
+            val filtered = dsp.processPcmBuffer(samples, true, invalid)
+            assertSame("Invalid DSP preference must bypass instead of muting sound",
+                samples, filtered)
+            assertArrayEquals(samples, filtered)
+        }
+        assertSame(samples, dsp.processPcmBuffer(samples, false, 0.8f))
+        assertFalse(dsp.telemetry.value.isSoftwareActive)
+        assertEquals(0, dsp.telemetry.value.suppressionRatioDb)
+    }
+
+    @Test
     fun testMediaSyncEngine_latencyAndDriftCompensator() = runTest {
         val syncEngine = MediaSyncEngine()
         val telemetry = syncEngine.telemetry.value
