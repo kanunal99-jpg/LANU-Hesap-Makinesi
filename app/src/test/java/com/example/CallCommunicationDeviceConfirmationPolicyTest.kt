@@ -67,6 +67,24 @@ class CallCommunicationDeviceConfirmationPolicyTest {
         ))
     }
 
+    @Test fun activeRouteSwitchWithoutHotplugCannotKeepStaleBluetoothLabel() {
+        // The old route may be gone even though the inventory is unchanged:
+        // the OS switched from Bluetooth to a different active output.
+        val inventory = mapOf(
+            9 to Route.BLUETOOTH_HEADSET,
+            10 to Route.SPEAKER
+        )
+        assertFalse(Policy.confirmedAvailableRoute(
+            9, 10, Route.BLUETOOTH_HEADSET, inventory, true
+        ))
+        assertFalse(Policy.confirmedAvailableRoute(
+            null, null, Route.BLUETOOTH_HEADSET, inventory, true
+        ))
+        assertTrue(Policy.confirmedAvailableRoute(
+            10, 10, Route.SPEAKER, inventory, false
+        ))
+    }
+
     @Test fun timeoutIsBoundedAndRejectsInvalidClockSamples() {
         assertFalse(Policy.expired(1_000L, 30_999L))
         assertTrue(Policy.expired(1_000L, 31_000L))
