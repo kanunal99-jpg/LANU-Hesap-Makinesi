@@ -84,6 +84,20 @@ class DatabaseShadowParityTest {
         } catch (_: IllegalArgumentException) { }
     }
 
+    @Test fun oversizedStringIsRejectedBeforeUtf8BufferAllocation() {
+        val giant = "z".repeat(1_048_577)
+        try {
+            DatabaseShadowParity.fingerprint("messages", listOf(listOf(giant)))
+            fail("Legacy oversized UTF-16 evidence accepted")
+        } catch (_: IllegalArgumentException) { }
+
+        try {
+            DatabaseShadowParity.fingerprintTyped("messages", listOf(listOf(
+                DatabaseShadowParity.SqlValue.Text(giant))))
+            fail("Typed oversized UTF-16 evidence accepted")
+        } catch (_: IllegalArgumentException) { }
+    }
+
     @Test fun proofDoesNotContainDummyPrivateMessages() {
         val proof = DatabaseShadowParity.fingerprint("messages",
             listOf(listOf("Dummy PIN=1234", "Dummy secret content")))
