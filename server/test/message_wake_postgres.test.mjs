@@ -16,9 +16,9 @@ before(async()=>{
     '20261019073855_persistent_user_code_messaging.sql',
     '20261027195900_private_message_wake_opt_in.sql'
   ]) await db.exec(await readFile(new URL('../../supabase/migrations/'+name, import.meta.url),'utf8'));
-  for(const id of [alice,bob,stranger]) {
+  for(const [id, letter] of [[alice,'A'], [bob,'B'], [stranger,'C']]) {
     await db.query('insert into public.lanu_identities(id,code,nonce,public_key) values($1,$2,$3,$4)',
-      [id,'LANU-AAAA-AAAA-AAAA-AAAA-AAAA','A'.repeat(22),'test']);
+      [id, 'LANU-' + Array(5).fill(letter.repeat(4)).join('-'), 'A'.repeat(22), 'test']);
   }
   await db.query('insert into public.lanu_contacts(owner_id,peer_id,code_at_add) values ($1,$2,$3),($2,$1,$3)',
     [alice,bob,'LANU-AAAA-AAAA-AAAA-AAAA-AAAA']);
