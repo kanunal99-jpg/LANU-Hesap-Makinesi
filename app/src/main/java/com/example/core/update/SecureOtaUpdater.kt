@@ -70,7 +70,10 @@ object SecureOtaUpdater {
     private val approvedHosts = setOf(
         "api.github.com", "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"
     )
-    private val tagPattern = Regex("""v1\.(?:0\.0-debug|1\.0-signed)\.(\d+)""")
+    // v1.1.0-signed is retained as a bridge for already-installed OTA clients;
+    // the same verified APK is additionally published as v1.2.0-signed.
+    // Future tags are rejected until intentionally added and tested.
+    private val tagPattern = Regex("""v1\.(?:0\.0-debug|1\.0-signed|2\.0-signed)\.(\d+)""")
     private val shaPattern = Regex("[a-f0-9]{64}")
 
     /** Release metadata and content are limited to GitHub and its known download CDN. */
