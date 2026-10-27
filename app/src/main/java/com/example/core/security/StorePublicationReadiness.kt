@@ -10,7 +10,9 @@ import java.net.URI
 object StorePublicationReadiness {
     enum class Requirement {
         OWNER_IDENTITY, SUPPORT_CONTACT, PUBLIC_HTTPS_PRIVACY_POLICY,
-        RETENTION_AND_DELETION, DATA_SAFETY_DECLARATION, PERMISSIONS_REVIEW
+        RETENTION_AND_DELETION, DATA_SAFETY_DECLARATION, PERMISSIONS_REVIEW,
+        OPTIONAL_FCM_CALL_ALERTS, AUDIO_VIDEO_MEDIA_DISCLOSURE,
+        DATABASE_ENCRYPTION_CLAIMS, RATCHET_CLAIMS
     }
     data class Evidence(
         val ownerVerified: Boolean = false,
@@ -46,6 +48,10 @@ object StorePublicationReadiness {
             missing += Requirement.DATA_SAFETY_DECLARATION
         if (!evidence.permissionsReviewed)
             missing += Requirement.PERMISSIONS_REVIEW
+        if (!evidence.optionalFcmCallAlertsReviewed) missing += Requirement.OPTIONAL_FCM_CALL_ALERTS
+        if (!evidence.audioVideoMediaDisclosureReviewed) missing += Requirement.AUDIO_VIDEO_MEDIA_DISCLOSURE
+        if (!evidence.databaseEncryptionClaimsReviewed) missing += Requirement.DATABASE_ENCRYPTION_CLAIMS
+        if (!evidence.ratchetClaimsReviewed) missing += Requirement.RATCHET_CLAIMS
         return if (missing.isEmpty()) Decision.HumanLegalReviewRequired
             else Decision.Blocked(missing)
     }
