@@ -106,11 +106,25 @@ fun MessageWakeSettings(repository: CommunicationRepository) {
         }
         busy = true
         status = null
+        // The device may die after server registration but before local
+        // consent commits. Persist a non-secret recovery flag BEFORE FCM
+        // auto-init, token acquisition or any signed server write.
+        if (!MessageWakePreferences.beginRemoteRegistration(context)) {
+            pending = MessageWakePreferences.hasPendingRemoteRevoke(context)
+            status = "Bildirim kaydı başlatılamadı; bekleyen iptali kontrol edin."
+            busy = false
+            return
+        }
         try {
             FirebaseMessaging.getInstance().isAutoInitEnabled = true
             FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
                 val token = if (task.isSuccessful) task.result else null
                 if (token.isNullOrBlank()) {
+                    // No remote signed registration was attempted.
+                    if (!MessageWakePreferences.abandonUnsentRegistration(context)) {
+                        pending = true
+                        runCatching { MessageWakeTokenRefreshWorker.enqueue(context) }
+                    }
                     if (!CallWakePreferences.isEnabled(context)) {
                         runCatching { FirebaseMessaging.getInstance().isAutoInitEnabled = false }
                     }
@@ -119,7 +133,7 @@ fun MessageWakeSettings(repository: CommunicationRepository) {
                 } else scope.launch {
                     try {
                         repository.registerMessageWakeToken(token)
-                        check(MessageWakePreferences.enable(context))
+                        check(MessageWakePreferences.completeRemoteRegistration(context))
                         enabled = true
                         status = "Yalnız LANU Hesap Makinesi başlıklı, sesli bildirimler açık."
                     } catch (_: Exception) {
@@ -137,6 +151,11 @@ fun MessageWakeSettings(repository: CommunicationRepository) {
                 }
             }
         } catch (_: Exception) {
+            // No signed remote request started on synchronous setup failure.
+            if (!MessageWakePreferences.abandonUnsentRegistration(context)) {
+                pending = true
+                runCatching { MessageWakeTokenRefreshWorker.enqueue(context) }
+            }
             if (!CallWakePreferences.isEnabled(context)) {
                 runCatching { FirebaseMessaging.getInstance().isAutoInitEnabled = false }
             }
