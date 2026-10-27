@@ -350,9 +350,16 @@ class NativeCallEngine(
             if (closing.get()) return
             // Only fresh inbound AND outbound RTP after this transport epoch
             // can restore the "Connected" label following an ICE interruption.
-            evidence(rtpEvidence.updateTransport(state == PeerConnection.PeerConnectionState.CONNECTED))
-            if (state == PeerConnection.PeerConnectionState.FAILED)
-                failure("Ağlar arasında doğrudan bağlantı kurulamadı. Farklı bir ağ deneyin.")
+            val action = CallIceConnectionPolicy.classify(state)
+            evidence(rtpEvidence.updateTransport(
+                action == CallIceConnectionPolicy.Action.MEDIA_CONNECTED
+            ))
+            // FAILED/DISCONNECTED are recoverable for one authenticated,
+            // foreground-owned ICE restart. An immediate failure callback here
+            // would race its evidence callback and terminate the call first.
+            // The ViewModel already imposes its 25-second recovery deadline.
+            if (action == CallIceConnectionPolicy.Action.TERMINATE)
+                failure("Bağlantı kapandı. Yeniden aramayı deneyin.")
         }
         override fun onTrack(transceiver: RtpTransceiver) {
             val track = transceiver.receiver.track()
