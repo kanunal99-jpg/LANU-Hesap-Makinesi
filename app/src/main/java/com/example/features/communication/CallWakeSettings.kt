@@ -115,7 +115,7 @@ fun CallWakeSettings(repository: CommunicationRepository) {
                             // the local consent commit failed. Revoke defensively.
                             val revoked = completeRemoteRevoke()
                             status = if (revoked) "Sunucu kaydı doğrulanamadı. Bildirim kapalı."
-                                else "Bildirim kapalı; sunucu iptali ağ bağlantısında yeniden denenecek."
+                                else "Bildirim kapalı; sunucu iptali bekliyor. Gizli alan Ayarlarından yeniden deneyin."
                         } finally { busy = false }
                     }
                 }
