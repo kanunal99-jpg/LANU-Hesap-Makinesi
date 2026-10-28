@@ -36,9 +36,14 @@ class RoomActualOtaUpgradeTest {
         val args = InstrumentationRegistry.getArguments()
         val emulator = Build.HARDWARE.contains("ranchu", ignoreCase = true) ||
             Build.HARDWARE.contains("goldfish", ignoreCase = true)
-        assumeTrue("Explicit isolated-emulator acceptance only",
-            emulator && args.getString("lanu_ota_ci") == "isolated-emulator-v1" &&
-                args.getString("lanu_ota_phase") == phase)
+        // The normal Android test suite does not run the destructive seed
+        // phase. A CI-flagged invocation MUST fail, not silently skip, if
+        // the runtime is a physical device or the requested phase mismatches.
+        assumeTrue("Not part of normal Android test suite",
+            args.getString("lanu_ota_ci") == "isolated-emulator-v1")
+        check(emulator && args.getString("lanu_ota_phase") == phase) {
+            "OTA probes require an isolated emulator and the exact phase"
+        }
         val expected = args.getString("lanu_expected_version")?.toLongOrNull()
             ?: error("OTA expected version not provided")
         @Suppress("DEPRECATION")
