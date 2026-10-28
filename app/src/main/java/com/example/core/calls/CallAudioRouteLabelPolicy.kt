@@ -24,6 +24,8 @@ object CallAudioRouteLabelPolicy {
         }
         status == "BLUETOOTH_PENDING" && pending == Route.BLUETOOTH_HEADSET ->
             "Bluetooth ses bağlantısı kuruluyor…"
+        status == "ROUTE_PENDING" && pending != null ->
+            "Ses çıkışı bağlanıyor: ${routeName(pending)}"
         status == "ROUTED" && selected != null ->
             "Ses çıkışı: ${routeName(selected)}"
         status == "PLATFORM_ROUTE_REQUESTED" && selected != null ->

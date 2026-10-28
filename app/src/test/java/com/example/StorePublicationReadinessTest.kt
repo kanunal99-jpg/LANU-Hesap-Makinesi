@@ -18,17 +18,17 @@ class StorePublicationReadinessTest {
     @Test fun insecureOrDeceptivePrivacyUrlsAlwaysBlock() {
         val urls = listOf("", "http://privacy.example/test",
             "https://localhost/policy", "https://name@privacy.example/policy",
-            "https://privacy.example.com/policy#hidden", "not-a-url",
+            "https://privacy.lanu-policy.com/policy#hidden", "not-a-url",
             "https://127.0.0.1/policy", "https://192.168.1.22/privacy",
             "https://[::1]/privacy", "https://intranet.local/policy",
             "https://privacy.internal/policy", "https://private.home.arpa/policy",
             "https://privacy.example/policy", "https://policy.test/privacy",
             "https://foo.invalid/policy", "https://one.localhost/privacy",
-            "https://privacy.example.com:8080/policy",
-            "https://privacy.example.com/policy?q=token",
+            "https://privacy.lanu-policy.com:8080/policy",
+            "https://privacy.lanu-policy.com/policy?q=token",
             "https://foo..com/policy", "https://-bad.com/policy",
-            "https://privacy.example.com/policy#fragment",
-            "https://user:pass@privacy.example.com/policy")
+            "https://privacy.lanu-policy.com/policy#fragment",
+            "https://user:pass@privacy.lanu-policy.com/policy")
         for (url in urls) {
             val ready = complete().copy(privacyPolicyUrl = url)
             val decision = StorePublicationReadiness.assess(ready)
@@ -37,10 +37,24 @@ class StorePublicationReadinessTest {
         }
     }
 
+    @Test fun documentationOnlyExampleDomainsCannotPassPrivacyOrAccountDeletionGate() {
+        for (domain in listOf("example.com", "example.net", "example.org",
+            "privacy.example.com", "delete.privacy.example.net")) {
+            val url = "https://$domain/privacy"
+            val decision = StorePublicationReadiness.assess(
+                complete().copy(privacyPolicyUrl = url, accountDeletionRequestUrl = url)
+            )
+            assertTrue(decision is Decision.Blocked)
+            val reasons = (decision as Decision.Blocked).missing
+            assertTrue(Requirement.PUBLIC_HTTPS_PRIVACY_POLICY in reasons)
+            assertTrue(Requirement.PUBLIC_ACCOUNT_DELETION_REQUEST in reasons)
+        }
+    }
+
     @Test fun standardPublicHttpsDomainsAndPunycodeAreEligibleForHumanReview() {
         for (url in listOf(
-            "https://privacy.example.com/policy",
-            "https://privacy.example.com:443/policy",
+            "https://privacy.lanu-policy.com/policy",
+            "https://privacy.lanu-policy.com:443/policy",
             "https://xn--bcher-kva.de/datenschutz"
         )) {
             assertEquals(Decision.HumanLegalReviewRequired,
@@ -77,10 +91,10 @@ class StorePublicationReadinessTest {
     }
 
     @Test fun accountDeletionRequestCannotPointToLocalPrivateOrNonHttpsSite() {
-        for (invalid in listOf("", "http://privacy.example.com/delete",
+        for (invalid in listOf("", "http://privacy.lanu-policy.com/delete",
             "https://127.0.0.1/delete", "https://localhost/delete",
-            "https://private.home.arpa/delete", "https://privacy.example.com:8080/delete",
-            "https://privacy.example.com/delete?token=secret")) {
+            "https://private.home.arpa/delete", "https://privacy.lanu-policy.com:8080/delete",
+            "https://privacy.lanu-policy.com/delete?token=secret")) {
             val decision = StorePublicationReadiness.assess(
                 complete().copy(accountDeletionRequestUrl = invalid))
             assertTrue(decision is Decision.Blocked)
@@ -96,11 +110,11 @@ class StorePublicationReadinessTest {
     }
 
     private fun complete() = Evidence(ownerVerified = true, supportVerified = true,
-        privacyPolicyUrl = "https://privacy.example.com/policy",
+        privacyPolicyUrl = "https://privacy.lanu-policy.com/policy",
         retentionAndDeletionReviewed = true, dataSafetyReviewed = true,
         permissionsReviewed = true, optionalFcmCallAlertsReviewed = true,
         audioVideoMediaDisclosureReviewed = true,
         databaseEncryptionClaimsReviewed = true, ratchetClaimsReviewed = true,
         accountDeletionFlowVerified = true,
-        accountDeletionRequestUrl = "https://privacy.example.com/delete-account")
+        accountDeletionRequestUrl = "https://privacy.lanu-policy.com/delete-account")
 }

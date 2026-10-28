@@ -81,9 +81,16 @@ object PrivateMediaSourcePreflight {
                         ((prefix[1].toLong() and 255) shl 16) or
                         ((prefix[2].toLong() and 255) shl 8) or
                         (prefix[3].toLong() and 255)
-                    declaredBox in 16..4096 &&
+                    // ftyp holds major brand, 4-byte minor version and
+                    // optional 4-byte compatible brands: the box size must
+                    // be 4-byte aligned. A printable but all-punctuation
+                    // "brand" is not sufficient evidence of an MP4 file.
+                    declaredBox in 16..4096 && declaredBox % 4L == 0L &&
                         prefix.copyOfRange(4, 8).contentEquals(byteArrayOf(0x66, 0x74, 0x79, 0x70)) &&
-                        prefix.copyOfRange(8, 12).all { it.toInt() in 32..126 }
+                        prefix.copyOfRange(8, 12).all { it.toInt() in 32..126 } &&
+                        prefix.copyOfRange(8, 12).any {
+                            it.toInt().toChar().isLetterOrDigit()
+                        }
                 }
                 else -> false
             }

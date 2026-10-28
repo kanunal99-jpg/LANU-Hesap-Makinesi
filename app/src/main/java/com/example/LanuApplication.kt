@@ -40,6 +40,7 @@ class LanuApplication : Application(), Configuration.Provider {
         // A crash after the server accepted opt-in but before local consent
         // committed leaves a durable revoke marker. Recover before workers run.
         runCatching { MessageWakePreferences.recoverInterruptedEnrollment(this) }
+        runCatching { CallWakePreferences.recoverInterruptedRegistration(this) }
         if (!MessageWakePreferences.isEnabled(this)) {
             runCatching { MessageWakeNotification.cancel(this) }
         }
@@ -60,8 +61,8 @@ class LanuApplication : Application(), Configuration.Provider {
             }
         }
         credentialMigrationScope.launch {
-            // Only a prior explicit call-alert opt-in can schedule token
-            // re-registration. No token, identity or secret enters WorkManager.
+            // Prior consent permits refresh; pending cleanup permits revoke only.
+            // No token, identity or secret enters WorkManager.
             // KEEP prevents ordinary app relaunch from cancelling a retry.
             runCatching { CallWakeTokenRefreshWorker.enqueue(this@LanuApplication, replace = false) }
             runCatching { MessageWakeTokenRefreshWorker.enqueue(this@LanuApplication, replace = false) }

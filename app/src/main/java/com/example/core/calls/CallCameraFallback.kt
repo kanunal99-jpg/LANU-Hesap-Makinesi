@@ -17,11 +17,16 @@ internal object CallCameraFallback {
         enumerate: List<() -> List<Device>>,
         open: (sourceIndex: Int, device: Device) -> T?
     ): T? {
-        for ((index, source) in enumerate.withIndex()) {
+        // Broken OEM enumerators may report thousands of duplicate devices.
+        // Bound expensive native open/start retries; prefer physical front
+        // cameras without sorting or copying the entire reported list.
+        for ((index, source) in enumerate.take(4).withIndex()) {
             val devices = try { source() }
             catch (e: CancellationException) { throw e }
             catch (_: Exception) { continue }
-            for (device in devices.sortedBy { if (it.frontFacing) 0 else 1 }) {
+            val front = devices.asSequence().filter { it.frontFacing }.take(16)
+            val rear = devices.asSequence().filterNot { it.frontFacing }.take(16)
+            for (device in front + rear) {
                 val selected = try { open(index, device) }
                 catch (e: CancellationException) { throw e }
                 catch (_: Exception) { null }

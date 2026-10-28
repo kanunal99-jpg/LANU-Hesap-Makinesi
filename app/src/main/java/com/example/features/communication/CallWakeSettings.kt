@@ -31,11 +31,14 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.core.calls.CallWakePreferences
 import com.example.core.calls.CallWakeNotification
+import com.example.core.calls.CallWakeTokenRefreshPolicy
+import com.example.core.calls.CallWakeTokenRefreshWorker
 import com.example.core.messaging.MessageWakePreferences
 import com.example.core.repository.CommunicationRepository
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 
 /** Called only inside the already-unlocked private settings screen. */
 @Composable
@@ -51,18 +54,23 @@ fun CallWakeSettings(repository: CommunicationRepository) {
     // No token/identity is cached in local preferences or logs.
     suspend fun completeRemoteRevoke(): Boolean {
         return try {
-            repository.registerCallWakeToken(null)
-            check(CallWakePreferences.acknowledgeRemoteRevoke(context))
+            check(!CallWakePreferences.isRegistrationInProgress(context))
+            check(CallWakeTokenRefreshPolicy.reconcile(context, { null }) {
+                repository.registerCallWakeToken(it)
+            })
+            check(!CallWakePreferences.hasPendingRemoteRevoke(context))
             pendingRevoke = false
             true
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             pendingRevoke = true
             false
         }
     }
 
-    // Network failure at opt-out must survive process death. Retry only when
-    // the owner opens authenticated private settings; never silently mint keys.
+    // Manual fallback complements bounded WorkManager recovery. Both paths
+    // use the existing identity and serialize their signed network requests.
     LaunchedEffect(repository) {
         if (pendingRevoke) {
             busy = true
@@ -112,15 +120,18 @@ fun CallWakeSettings(repository: CommunicationRepository) {
                 } else {
                     scope.launch {
                         try {
-                            repository.registerCallWakeToken(token)
-                            check(CallWakePreferences.completeRemoteRegistration(context)) { "Yerel izin kaydedilemedi" }
+                            CallWakeTokenRefreshPolicy.completeRegistration(context, token) {
+                                repository.registerCallWakeToken(it)
+                            }
                             enabled = true
                             status = "Yalnız gelen sesli/görüntülü arama uyarıları etkin."
-                        } catch (_: Exception) {
+                        } catch (failure: Exception) {
                             // Server or credential failure is not success.
                             CallWakePreferences.disableAndQueueRemoteRevoke(context)
+                            runCatching { CallWakeTokenRefreshWorker.enqueue(context, replace = false) }
                             CallWakeNotification.cancel(context)
                             pendingRevoke = true
+                            if (failure is CancellationException) throw failure
                             FirebaseMessaging.getInstance().isAutoInitEnabled = MessageWakePreferences.isEnabled(context)
                             enabled = false
                             // A registration may have reached the server before
@@ -159,6 +170,7 @@ fun CallWakeSettings(repository: CommunicationRepository) {
         else if (enabled) OutlinedButton(onClick = {
             val saved = CallWakePreferences.disableAndQueueRemoteRevoke(context)
             if (saved) CallWakeNotification.cancel(context)
+            if (saved) runCatching { CallWakeTokenRefreshWorker.enqueue(context, replace = false) }
             runCatching { FirebaseMessaging.getInstance().isAutoInitEnabled = MessageWakePreferences.isEnabled(context) }
             if (!saved) {
                 status = "Yerel kapatma kaydedilemedi. Cihaz depolamasını kontrol edin."
