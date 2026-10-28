@@ -109,6 +109,9 @@ object HighPrecisionMathEngine {
         // original number to Double may become Infinity (e.g. 1E+400) or zero
         // (e.g. 1E-400), even though BigDecimal can represent both exactly.
         val decimalExponent = value.precision().toLong() - value.scale().toLong() - 1L
+        // Compact 1E+2147483647 is not safe to expand during Newton iterations.
+        if (decimalExponent !in -10_000L..10_000L)
+            throw ArithmeticException("Square root exponent exceeds resource budget")
         val halfExponent = Math.floorDiv(decimalExponent, 2L)
         if (halfExponent !in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()) {
             throw ArithmeticException("Square root exponent out of range")
@@ -131,6 +134,8 @@ object HighPrecisionMathEngine {
         // A Double seed overflows to Infinity for 1E+400 and underflows for
         // 1E-400. Use decimal magnitude for an entirely BigDecimal estimate.
         val decimalExponent = absVal.precision().toLong() - absVal.scale().toLong() - 1L
+        if (decimalExponent !in -10_000L..10_000L)
+            throw ArithmeticException("Cube root exponent exceeds resource budget")
         val thirdExponent = Math.floorDiv(decimalExponent, 3L)
         if (thirdExponent !in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()) {
             throw ArithmeticException("Cube root exponent out of range")

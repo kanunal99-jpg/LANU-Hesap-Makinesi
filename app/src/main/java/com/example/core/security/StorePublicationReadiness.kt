@@ -65,7 +65,9 @@ object StorePublicationReadiness {
                 labels.last().length >= 2 &&
                 labels.last().all { it in 'a'..'z' } &&
                 labels.last() !in reserved && !reservedDocumentationDomain &&
-                labels.none { it == "localhost" } &&
+                // RFC 6761 reserves .localhost and .test across subdomains;
+                // a nested "localhost" label cannot represent a public site.
+                labels.none { it in setOf("localhost", "test", "invalid", "example") } &&
                 !(labels.size >= 2 && labels.takeLast(2).joinToString(".") == "home.arpa")
             uri.scheme.equals("https", ignoreCase = true) &&
                 uri.rawAuthority != null &&
