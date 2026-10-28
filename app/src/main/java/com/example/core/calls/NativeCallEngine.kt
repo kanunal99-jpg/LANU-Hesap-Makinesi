@@ -65,6 +65,7 @@ class NativeCallEngine(
     // Per-camera token prevents late errors from an abandoned OEM capturer
     // from terminating a newly recovered camera session.
     private val cameraGeneration = AtomicInteger()
+    private val cameraSwitchGate = CallCameraSwitchGate()
     private var texture: SurfaceTextureHelper? = null
     private var videoEnabled = false
     // Thread-safe evidence tracker rejects cumulative RTP packets from prior ICE epochs.
@@ -330,7 +331,41 @@ class NativeCallEngine(
         check(!closing.get()) { "Görüşme sonlandırıldı." }
         videoEnabled = value
     }
-    override fun switchCamera() { scope.launch { capturer?.switchCamera(null) } }
+    override fun switchCamera() {
+        if (closing.get()) return
+        scope.launch {
+            val activeCamera = capturer ?: return@launch
+            val ticket = cameraSwitchGate.begin(!closing.get() && videoEnabled)
+                ?: return@launch
+            try {
+                // Camera1/Camera2 may complete this on another thread or
+                // throw synchronously on a broken OEM implementation.
+                activeCamera.switchCamera(object : CameraVideoCapturer.CameraSwitchHandler {
+                    override fun onCameraSwitchDone(isFrontCamera: Boolean) {
+                        cameraSwitchGate.finish(ticket)
+                    }
+                    override fun onCameraSwitchError(errorDescription: String?) {
+                        // A camera switch error should not kill the audio call
+                        // or surface vendor exception text to the private UI.
+                        cameraSwitchGate.finish(ticket)
+                    }
+                })
+                // Some OEMs never send a completion callback. Recover the
+                // UI action rather than permanently blocking camera controls.
+                scope.launch {
+                    delay(5_000)
+                    cameraSwitchGate.finish(ticket)
+                }
+            } catch (cancelled: CancellationException) {
+                cameraSwitchGate.finish(ticket)
+                throw cancelled
+            } catch (_: RuntimeException) {
+                cameraSwitchGate.finish(ticket)
+            } catch (_: LinkageError) {
+                cameraSwitchGate.finish(ticket)
+            }
+        }
+    }
     fun chooseRoute(route: CallAudioRoutePolicy.Route) { scope.launch { router.choose(route) } }
     fun refreshRoutes() { scope.launch { router.refresh() } }
 
@@ -392,6 +427,7 @@ class NativeCallEngine(
     /** Immediate mute, then release camera, renderers, codecs and audio off the UI thread. */
     override fun close() {
         if (!closing.compareAndSet(false, true)) return
+        cameraSwitchGate.invalidate()
         runCatching { localAudio?.setEnabled(false) }; runCatching { localVideo?.setEnabled(false) }
         scope.launch {
             try {
