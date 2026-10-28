@@ -13,6 +13,11 @@ import com.example.core.calls.CallWakeNotification
 import com.example.core.calls.CallWakeTapPolicy
 import com.example.core.calls.CallWakePolicy
 import com.example.core.calls.CallWakePreferences
+import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
@@ -103,6 +108,34 @@ class CallWakeNotificationTest {
         assertEquals(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE), channel.sound)
         assertNotNull(channel.audioAttributes)
         assertEquals(AudioAttributes.USAGE_NOTIFICATION_RINGTONE, channel.audioAttributes.usage)
+    }
+
+    @Test fun blockedCallChannelIsNotMistakenForDeliveryAcrossAndroidVersions() {
+        for (api in 23..25) {
+            assertTrue(CallWakePolicy.channelCanDisplay(api, null))
+        }
+        for (api in 26..36) {
+            assertFalse("Missing channel must fail closed on API $api",
+                CallWakePolicy.channelCanDisplay(api, null))
+            assertFalse("User-blocked channel must not be posted on API $api",
+                CallWakePolicy.channelCanDisplay(api, NotificationManager.IMPORTANCE_NONE))
+            assertTrue("User-selected quiet channel must stay usable on API $api",
+                CallWakePolicy.channelCanDisplay(api, NotificationManager.IMPORTANCE_LOW))
+            assertTrue(CallWakePolicy.channelCanDisplay(api, NotificationManager.IMPORTANCE_HIGH))
+        }
+    }
+
+    @Test fun blockedCallChannelDoesNotBurnDeduplicationWhenUserReenablesIt() {
+        val timestamp = 1710000090083L
+        var posts = 0
+        if (CallWakePolicy.channelCanDisplay(34, NotificationManager.IMPORTANCE_NONE)) {
+            CallWakePolicy.publishOnce(timestamp) { posts++ }
+        }
+        assertEquals(0, posts)
+        assertTrue(CallWakePolicy.channelCanDisplay(34, NotificationManager.IMPORTANCE_DEFAULT))
+        assertTrue(CallWakePolicy.publishOnce(timestamp) { posts++ })
+        assertFalse(CallWakePolicy.publishOnce(timestamp) { posts++ })
+        assertEquals(1, posts)
     }
 
     @Test fun oldCallChannelExplicitlyMutedDoesNotBecomeLoudOnUpgrade() {
@@ -223,6 +256,59 @@ class CallWakeNotificationTest {
         assertEquals(1, deliveries)
     }
 
+    @Test fun consentWithdrawnBeforeNotifyDoesNotConsumeTheWakeClaim() {
+        val at = 1710000090081L
+        var checks = 0
+        var notifications = 0
+        assertFalse(CallWakePolicy.publishWhileConsented(
+            at = at,
+            isConsented = { ++checks == 1 },
+            notify = { notifications++ },
+            cancel = { error("No notification was posted") }
+        ))
+        assertEquals(0, notifications)
+        assertTrue("Fresh opt-in may retry an undelivered hint",
+            CallWakePolicy.publishWhileConsented(
+                at = at,
+                isConsented = { true },
+                notify = { notifications++ },
+                cancel = { error("Consent is present") }
+            ))
+        assertEquals(1, notifications)
+        assertFalse("Successful notification still suppresses duplicates",
+            CallWakePolicy.publishWhileConsented(
+                at = at,
+                isConsented = { true },
+                notify = { notifications++ },
+                cancel = { }
+            ))
+        assertEquals(1, notifications)
+    }
+
+    @Test fun retractedAlertDoesNotBlockLaterValidWakeRetry() {
+        val at = 1710000090082L
+        var enabled = true
+        var posts = 0
+        var cancellations = 0
+        assertFalse(CallWakePolicy.publishWhileConsented(
+            at = at,
+            isConsented = { enabled },
+            notify = { posts++; enabled = false },
+            cancel = { cancellations++ }
+        ))
+        assertEquals(1, posts)
+        assertEquals(1, cancellations)
+        enabled = true
+        assertTrue(CallWakePolicy.publishWhileConsented(
+            at = at,
+            isConsented = { enabled },
+            notify = { posts++ },
+            cancel = { error("Must not cancel a valid retry") }
+        ))
+        assertEquals(2, posts)
+        assertEquals(1, cancellations)
+    }
+
     @Test fun localCallOptOutOnlyCancelsCallNotificationAndPreservesMessageAlert() {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         CallWakeNotification.ensureChannel(manager)
@@ -243,4 +329,113 @@ class CallWakeNotificationTest {
         manager.cancel(8130)
     }
 
+
+    @Test fun revokedOldWakeCannotCancelNewerConcurrentCallNotification() {
+        val firstPosted = CountDownLatch(1)
+        val secondReady = CountDownLatch(1)
+        val secondPosted = CountDownLatch(1)
+        val events = Collections.synchronizedList(mutableListOf<String>())
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            val older = executor.submit<Boolean> {
+                assertTrue("Second FCM callback must be ready", secondReady.await(2, TimeUnit.SECONDS))
+                var consentChecks = 0
+                CallWakePolicy.publishWhileConsented(
+                    at = 1710000090101L,
+                    isConsented = { ++consentChecks <= 2 },
+                    notify = {
+                        events.add("older-post")
+                        firstPosted.countDown()
+                        // Without transaction serialization, the newer alert posts
+                        // while this older notification is waiting to be revoked.
+                        secondPosted.await(400, TimeUnit.MILLISECONDS)
+                    },
+                    cancel = { events.add("older-cancel") }
+                )
+            }
+            val newer = executor.submit<Boolean> {
+                secondReady.countDown()
+                assertTrue(firstPosted.await(2, TimeUnit.SECONDS))
+                CallWakePolicy.publishWhileConsented(
+                    at = 1710000090102L,
+                    isConsented = { true },
+                    notify = {
+                        events.add("newer-post")
+                        secondPosted.countDown()
+                    },
+                    cancel = { error("A consented newer call must not be cancelled") }
+                )
+            }
+            assertFalse(older.get(4, TimeUnit.SECONDS))
+            assertTrue(newer.get(4, TimeUnit.SECONDS))
+            assertEquals(
+                "An older revoked callback must finish cancelling before the newer post",
+                listOf("older-post", "older-cancel", "newer-post"),
+                events.toList()
+            )
+            assertFalse("A successful newer call remains deduplicated",
+                CallWakePolicy.publishWhileConsented(
+                    at = 1710000090102L,
+                    isConsented = { true },
+                    notify = { error("Duplicate wake") },
+                    cancel = { error("Duplicate wake") }
+                ))
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test fun localOptOutCancelCannotRunBeforeInFlightWakePostFinishes() {
+        val enteredNotify = CountDownLatch(1)
+        val cancellationAttempted = CountDownLatch(1)
+        val cancellationFinished = CountDownLatch(1)
+        val enabled = AtomicBoolean(true)
+        val events = Collections.synchronizedList(mutableListOf<String>())
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            val posting = executor.submit<Boolean> {
+                CallWakePolicy.publishWhileConsented(
+                    at = 1710000090201L,
+                    isConsented = { enabled.get() },
+                    notify = {
+                        events.add("post-start")
+                        enteredNotify.countDown()
+                        assertTrue(cancellationAttempted.await(2, TimeUnit.SECONDS))
+                        assertFalse(
+                            "Local cancellation must wait for the in-flight notification",
+                            cancellationFinished.await(250, TimeUnit.MILLISECONDS)
+                        )
+                        events.add("post-finished")
+                    },
+                    cancel = { events.add("retract-revoked-post") }
+                )
+            }
+            val optingOut = executor.submit<Boolean> {
+                assertTrue(enteredNotify.await(2, TimeUnit.SECONDS))
+                enabled.set(false)
+                cancellationAttempted.countDown()
+                val cancelled = CallWakePolicy.cancelPostedCallAlert {
+                    events.add("local-cancel")
+                    true
+                }
+                cancellationFinished.countDown()
+                cancelled
+            }
+            assertFalse(posting.get(4, TimeUnit.SECONDS))
+            assertTrue(optingOut.get(4, TimeUnit.SECONDS))
+            assertEquals(
+                listOf("post-start", "post-finished", "retract-revoked-post", "local-cancel"),
+                events.toList()
+            )
+            assertTrue("An undelivered wake must remain retryable after new consent",
+                CallWakePolicy.publishWhileConsented(
+                    at = 1710000090201L,
+                    isConsented = { true },
+                    notify = { events.add("retry-post") },
+                    cancel = { error("A valid retry cannot be retracted") }
+                ))
+        } finally {
+            executor.shutdownNow()
+        }
+    }
 }

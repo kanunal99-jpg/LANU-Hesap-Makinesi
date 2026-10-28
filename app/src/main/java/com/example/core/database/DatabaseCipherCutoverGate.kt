@@ -51,7 +51,12 @@ object DatabaseCipherCutoverGate {
             return Decision.Blocked(BlockReason.BACKUP_NOT_RESTORED)
         if (!evidence.allRoomWritersStopped)
             return Decision.Blocked(BlockReason.WRITERS_STILL_ACTIVE)
-        if (snapshot.needsWalCheckpoint && !evidence.checkpointAndWalVerified)
+        // A contradictory or forged Snapshot.needsWalCheckpoint=false must
+        // never bypass an actual non-empty WAL/SHM/rollback companion.
+        val requiresCheckpoint = snapshot.needsWalCheckpoint ||
+            snapshot.walBytes > 0L || snapshot.sharedMemoryBytes > 0L ||
+            snapshot.rollbackJournalBytes > 0L
+        if (requiresCheckpoint && !evidence.checkpointAndWalVerified)
             return Decision.Blocked(BlockReason.WAL_CHECKPOINT_NOT_VERIFIED)
         if (!evidence.keystoreWrappingVerified)
             return Decision.Blocked(BlockReason.KEY_NOT_HARDWARE_PROTECTED)

@@ -1,5 +1,33 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 28.10.2026 — 80 altında kalan 11 kategoriyi eş zamanlı geliştirme (yeni kullanıcı kararı)
+
+**Bağlayıcı kapsam:** Son kanıtlı 18 kategori puanlamasında 80 altındaki 11 alan eş zamanlı mühendislik iş hattında tutulacaktır: E2EE/kimlik (73), medya (70), sesli arama (75), görüntülü arama (73), AEC/NS (68), arka plan/FCM (66), Room/yerel veri (68), Android uyumluluk (67), performans/tanılama (75), erişilebilirlik (74), KVKK/mağaza (61). İş sırası tek tek bitirmeyi beklemez; fakat P0 güvenlik ve veri kaybı önceliği, PR izolasyonu ve yayımlama kapıları değişmez.
+
+- Her kategori için var olan PR/issue önce kullanılır; olmayanlar için küçük, birbirinden bağımsız kod + başarısızlık yolu + regresyon/test PR'ları açılır. Bir PR'ın yeşil CI'ı başka kategoriye veya yayımlanmış APK'ya devredilemez.
+- Başarı: kod commit'i + son HEAD CI, güvenlik/kapsam testi, gerekiyorsa API23/29/34/36 ve A55/ikinci OEM fiziksel kabulü, sonra kontrollü main merge ve ayrı main CI / imzalı OTA read-back. **80 hedefi, 80 kanıtı demek değildir**; son belgelenmiş puanlar kabul eksikse aynen kalır.
+- E2EE protokolü ve DB canlı migration'ı, PIN, 2011., Room v4, mesaj/kimlikler, FCM opt-in, Android signing key, OTA signer, kişisel medya ve yerel veriler geri dönülmez veya onaysız değiştirilemez. Gizlilik yasal onayı, public hesap silme servisi ve iki fiziksel cihaz testi ancak gerçekten tamamlanınca kabul edilebilir; sentetik CI bunların yerine geçmez.
+- Eş zamanlı ilerleme, CI kaynaklarını boşa harcayan tekrar PR/kopya özellik anlamına gelmez. P0 PR'ların değişen SHA'sı tekrar doğrulanır; yalnız en son HEAD yeşilse merge adayı olur. Kullanıcı onaysız maliyet/yayın veya uygulama sıfırlama yok.
+- Kabul matrisi: docs/PREMIUM_KALITE_90PLUS_PROGRAM_2026-10-27.md ve ilgili issue/PR kanıt kayıtları.
+
+---
+
+
+## 27.10.2026 — Güncel bağlayıcı 10 özellik / 80 minimum / 95+ hedef
+
+Bu kullanıcı kararı önceki 70 ara kapısı ve 90+ hedeflerinden önceliklidir. On ana alanın ve alt kategorilerinin her biri için asgari **kanıtlanmış 80/100**, nihai hedef **95/100 ve üzeridir**: bağlantı hızı; otomatik yeniden bağlantı; gizli mesaj bildirimi; sesli arama bildirimi; bildirim/ses/titreşim ayarları; E2EE/güvenlik; açılış/performans; teslim/senkronizasyon/veri bütünlüğü; hata/kurtarma/fallback; OTA/imza/güvenli APK yayını. Puan hedefi test kanıtı değildir; on alan tamamlanmadan ürün tamamlandı denmez.
+
+Her değişiklikte araştır → kök neden → küçük güvenli kod → derle → birim/entegrasyon/regresyon/sınır/güvenlik/performans testleri → son PR HEAD CI → doğrula döngüsü uygulanır. Başarısız testi susturma, eski commit sonucunu yeni SHA'ya atfetme, eksik CI ile otomatik merge ve kanıtsız fiziksel cihaz kabulü yasaktır. Ana servis → alternatif → gerçek testli fallback → hata → güvenli varsayılan → mahrem tanılama → smoke zinciri korunur. MVVM/MVI, Compose, Hilt, Coroutines/Flow, R8, giriş doğrulama ve mahremiyet korumalı Crashlytics/global hata standardı sürer; uzak telemetry gereksiz gizli veri toplamaz.
+
+PIN tercihi, Room, kimlik, mesaj/geçmiş, E2EE anahtarı ve APK sertifikası korunur; destructive migration yok. Mesaj bildirimi varsayılan kapalı ve isteğe bağlıdır; gönderen/metin/önizleme gösterilmez. Ses/titreşim ve arama/mesaj izinleri bağımsız, Android sessiz/DND kararına tabidir. Ücretli servis açık kullanıcı onayı gerektirir. Her önemli yayınlanabilir sürümde Release APK, SHA256, sertifika sürekliliği ve yerinde güncelleme kabulü ayrı doğrulanır; Samsung A55, Samsung/Xiaomi/Huawei ve iki gerçek cihaz kanıtı emülatör sonucu ile karıştırılmaz.
+
+Aktif oturumda devam komutu beklenmez. Oturum dışı devam için mevcut `6ae102dc92c48191bcce1203fc304f7c` otomasyonu kullanılır; mükerrer görev oluşturulmaz. Kullanıcı durum raporu istemedikçe kısa kritik bulgu/engel bildirilir. Sürekli arka plan çalışma ve yapılmamış işlemler vaat edilmez.
+
+**Bu dalın doğrulanmış kök nedeni:** çağrı bildirimleri kapalıyken kalıcı `pending_remote_revoke` işaretine rağmen `CallWakeTokenRefreshWorker.enqueue` işi reddediyor. Çevrimdışı iptal ve yarım kayıt uygulama yeniden başlatıldığında otomatik toparlanamıyor. Sınırlı ağ-koşullu retry, soğuk başlangıçta yarım kaydın iptale dönüştürülmesi, aktif kayıt ile eski worker'ın çakışmasını engelleyen eşgüdüm ve regresyon testleri uygulanacaktır. Henüz CI/üretim/fiziksel kabul iddiası yoktur.
+
+---
+
+
 
 ## 27.10.2026 — Ara kapı: 70 puanın altında kategori kalmayacak
 

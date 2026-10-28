@@ -81,6 +81,27 @@ class SecurityPreferenceFallbackTest {
         }
     }
 
+    @Test fun oversizedEncryptedAuditMetadataCannotConsumeUnboundedParserMemory() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = context.getSharedPreferences(
+            "audit-oversized-" + System.nanoTime(), Context.MODE_PRIVATE
+        )
+        val legacy = "X".repeat(65_537)
+        try {
+            assertTrue(prefs.edit().putString("events_list", legacy).commit())
+            val tracker = SecurityEventTracker(context) { prefs }
+            assertTrue(tracker.getLoggedEvents().isEmpty())
+            tracker.logEvent("RAM_ONLY", "Synthetic event")
+            assertEquals("RAM_ONLY", tracker.getLoggedEvents().first()["type"])
+            assertEquals(legacy, prefs.getString("events_list", null))
+            val restarted = SecurityEventTracker(context) { prefs }
+            assertTrue("Original encrypted data is preserved; RAM is not persisted",
+                restarted.getLoggedEvents().isEmpty())
+        } finally {
+            prefs.edit().clear().commit()
+        }
+    }
+
     @Test fun `audit recovery respects 50 event limit without writing plaintext fallback`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val prefs = context.getSharedPreferences("audit-cap-" + System.nanoTime(), Context.MODE_PRIVATE)

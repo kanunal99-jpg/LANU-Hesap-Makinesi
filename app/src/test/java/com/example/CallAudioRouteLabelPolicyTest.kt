@@ -18,6 +18,16 @@ class CallAudioRouteLabelPolicyTest {
         assertFalse(feedback.contains("Ses çıkışı: Bluetooth"))
     }
 
+    @Test fun android12PendingRoutesNeverClaimBluetoothOrSpeakerConnected() {
+        val bluetooth = label(true, "ROUTE_PENDING", pending = Route.BLUETOOTH_HEADSET)
+        assertEquals("Ses çıkışı bağlanıyor: Bluetooth kulaklık", bluetooth)
+        assertFalse(bluetooth.contains("Ses çıkışı: Bluetooth"))
+        assertEquals("Ses çıkışı bağlanıyor: Hoparlör",
+            label(true, "ROUTE_PENDING", pending = Route.SPEAKER))
+        assertEquals("Ses çıkışı: Doğrulanamadı",
+            label(true, "ROUTE_PENDING"))
+    }
+
     @Test fun verifiedHardwareRouteCanBeShownAsActive() {
         assertEquals("Ses çıkışı: Bluetooth kulaklık", label(true, "ROUTED", Route.BLUETOOTH_HEADSET))
         assertEquals("Ses çıkışı: Hoparlör", label(true, "ROUTED", Route.SPEAKER))

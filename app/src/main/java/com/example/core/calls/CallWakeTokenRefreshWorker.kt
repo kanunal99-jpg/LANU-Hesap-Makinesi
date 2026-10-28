@@ -16,6 +16,8 @@ import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.TimeUnit
 
 /**
@@ -24,7 +26,29 @@ import java.util.concurrent.TimeUnit
  * The caller is already opted in; the worker never creates an E2EE identity.
  */
 object CallWakeTokenRefreshPolicy {
+    // UI enrollment, UI revoke and background refresh share one ordering.
+    // Never let a delayed revoke land after a newer positive registration.
+    private val registrationMutex = Mutex()
+
+    suspend fun completeRegistration(
+        context: Context,
+        token: String,
+        register: suspend (String?) -> Unit
+    ) = registrationMutex.withLock {
+        check(CallWakePreferences.isRegistrationInProgress(context))
+        register(token)
+        check(CallWakePreferences.completeRemoteRegistration(context))
+    }
+
     suspend fun reconcile(
+        context: Context,
+        currentToken: suspend () -> String?,
+        register: suspend (String?) -> Unit
+    ): Boolean = registrationMutex.withLock {
+        reconcileLocked(context, currentToken, register)
+    }
+
+    private suspend fun reconcileLocked(
         context: Context,
         currentToken: suspend () -> String?,
         register: suspend (String?) -> Unit
@@ -45,11 +69,15 @@ object CallWakeTokenRefreshPolicy {
             return CallWakePreferences.acknowledgeRemoteRevoke(context)
         }
 
+        if (CallWakePreferences.isRegistrationInProgress(context)) return true
         if (!CallWakePreferences.isEnabled(context)) return finishOptOut()
         val token = currentToken()
+        if (CallWakePreferences.isRegistrationInProgress(context)) return true
         if (!CallWakePreferences.isEnabled(context)) return finishOptOut()
         if (token.isNullOrBlank()) return false
         register(token)
+        // The new UI registration waits for this lock and owns the final write.
+        if (CallWakePreferences.isRegistrationInProgress(context)) return true
         // A user can revoke consent while an asynchronous request is in flight.
         if (!CallWakePreferences.isEnabled(context)) return finishOptOut(force = true)
         return true
@@ -58,9 +86,10 @@ object CallWakeTokenRefreshPolicy {
 
 /**
  * Retries explicit opt-in token rotation. A previously scheduled worker can
- * also finish a pending signed opt-out, but a cold launch never schedules an
- * opted-out device: pending revocation is retried inside authenticated
- * CallWakeSettings. Do not imply automatic background retry on reconnect.
+ * also finish a pending signed opt-out after offline failure or process death.
+ * New installs with neither consent nor pending cleanup schedule nothing.
+ * WorkManager controls network availability/backoff; manual settings retry
+ * remains available if scheduling fails or the bounded retries are exhausted.
  */
 @Keep
 class CallWakeTokenRefreshWorker(
@@ -98,7 +127,9 @@ class CallWakeTokenRefreshWorker(
         const val WORK_NAME = "lanu-call-wake-token-refresh-v1"
 
         fun enqueue(context: Context, replace: Boolean = true) {
-            if (!CallWakePreferences.isEnabled(context)) return
+            if (CallWakePreferences.isRegistrationInProgress(context)) return
+            if (!CallWakePreferences.isEnabled(context) &&
+                !CallWakePreferences.hasPendingRemoteRevoke(context)) return
             val request = OneTimeWorkRequestBuilder<CallWakeTokenRefreshWorker>()
                 .setConstraints(Constraints.Builder()
                     .setRequiredNetworkType(NetworkType.CONNECTED).build())

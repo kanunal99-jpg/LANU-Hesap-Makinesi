@@ -74,6 +74,21 @@ class DatabaseCipherCutoverGateTest {
             DatabaseCipherCutoverGate.BlockReason.INSUFFICIENT_DISK)
     }
 
+    @Test fun contradictoryWalFlagCannotBypassActualCompanionFiles() {
+        for (companion in listOf(
+            snapshot.copy(walBytes = 4096, sharedMemoryBytes = 0,
+                rollbackJournalBytes = 0, needsWalCheckpoint = false),
+            snapshot.copy(walBytes = 0, sharedMemoryBytes = 4096,
+                rollbackJournalBytes = 0, needsWalCheckpoint = false),
+            snapshot.copy(walBytes = 0, sharedMemoryBytes = 0,
+                rollbackJournalBytes = 4096, needsWalCheckpoint = false)
+        )) {
+            blocked(ready().copy(snapshot = companion,
+                checkpointAndWalVerified = false),
+                DatabaseCipherCutoverGate.BlockReason.WAL_CHECKPOINT_NOT_VERIFIED)
+        }
+    }
+
     @Test fun allEvidenceOnlyPermitsShadowTestNeverAutomaticCutover() {
         assertEquals(DatabaseCipherCutoverGate.Decision.ShadowTestOnly,
             DatabaseCipherCutoverGate.assess(ready()))

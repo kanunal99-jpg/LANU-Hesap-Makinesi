@@ -74,6 +74,41 @@ class SecureOtaUpdaterTest {
                 listOf("app-debug.apk", "app-debug.apk.sha256"))).toString(), 654))
     }
 
+    @Test fun `published signed OTA releases marked prerelease remain installable`() {
+        // GitHub's production LANU publishing workflow marks signed releases
+        // prerelease=true. Rejecting that flag would hide the real OTA channel.
+        val published = JSONArray()
+            .put(release("v1.2.0-signed.801").put("prerelease", true))
+            .put(release("v1.2.0-signed.800"))
+        val raw = published.toString()
+        assertEquals("v1.2.0-signed.801", SecureOtaUpdater.chooseRelease(raw, 700)?.tag)
+        assertEquals("v1.2.0-signed.801" to 801L,
+            SecureOtaUpdater.newestPublishedVersion(raw, 700))
+
+        // Preview-like tags not on the explicitly supported signing channel,
+        // or missing integrity sidecars, still fail closed.
+        val unsupported = JSONArray()
+            .put(release("v1.2.0-debug.802").put("prerelease", true))
+            .put(release("v1.2.0-signed.803",
+                listOf("app-debug.apk")).put("prerelease", true))
+        assertNull(SecureOtaUpdater.chooseRelease(unsupported.toString(), 700))
+        assertEquals("v1.2.0-signed.803" to 803L,
+            SecureOtaUpdater.newestPublishedVersion(unsupported.toString(), 700))
+    }
+
+    @Test fun `same version signed bridge tags prefer current channel in either API order`() {
+        val bridge = release("v1.1.0-signed.900")
+        val current = release("v1.2.0-signed.900")
+        for (raw in listOf(
+            JSONArray().put(bridge).put(current).toString(),
+            JSONArray().put(current).put(bridge).toString()
+        )) {
+            assertEquals("v1.2.0-signed.900", SecureOtaUpdater.chooseRelease(raw, 700)?.tag)
+            assertEquals("v1.2.0-signed.900" to 900L,
+                SecureOtaUpdater.newestPublishedVersion(raw, 700))
+        }
+    }
+
     @Test fun `checks newest greater code and ignores draft and obsolete releases`() {
         val data = JSONArray()
             .put(release("v1.0.0-debug.148"))

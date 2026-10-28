@@ -34,6 +34,23 @@ class CallAudioPreprocessorTest {
         assertNull(session.status.audioSessionId)
     }
 
+    @Test fun webRtcSoftwareApmMustNeverDoubleActivateHardwareEffects() {
+        val factory = FakeEffects()
+        val session = CallAudioPreprocessor(factory)
+        val skipped = session.attach(41, true, softwareApmAlreadyActive = true)
+        assertNull(skipped.audioSessionId)
+        assertFalse(skipped.hasAnyActiveEffect)
+        assertTrue(factory.created.isEmpty())
+        session.attach(42, true)
+        assertEquals(3, factory.created.size)
+        val switched = session.attach(42, true, softwareApmAlreadyActive = true)
+        assertFalse(switched.hasAnyActiveEffect)
+        assertEquals(3, factory.freed.size)
+        assertEquals(3, factory.created.size)
+        session.close()
+        assertEquals(3, factory.freed.size)
+    }
+
     @Test fun enablesSupportedAudioEffectsOnlyAfterSuccessfulActivation() {
         val factory = FakeEffects()
         val session = CallAudioPreprocessor(factory)

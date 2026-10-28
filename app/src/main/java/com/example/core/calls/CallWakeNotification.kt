@@ -37,11 +37,14 @@ object CallWakePreferences {
         }
     } catch (_: Exception) { true } // Fail closed: do not re-enable until checked.
 
+    @Synchronized
     fun disableAndQueueRemoteRevoke(context: Context): Boolean = try {
         context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
-            .edit().putBoolean(OPTED_IN, false).putBoolean(PENDING_REVOKE, true).commit()
+            .edit().putBoolean(OPTED_IN, false).putBoolean(PENDING_REVOKE, true)
+            .putBoolean(REGISTRATION_IN_FLIGHT, false).commit()
     } catch (_: Exception) { false }
 
+    @Synchronized
     fun acknowledgeRemoteRevoke(context: Context): Boolean = try {
         context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
             .edit().putBoolean(PENDING_REVOKE, false)
@@ -53,6 +56,7 @@ object CallWakePreferences {
      * cleanup might be needed. Android process death after a server write
      * must never leave a device silently registered without local consent.
      */
+    @Synchronized
     fun beginRemoteRegistration(context: Context): Boolean = try {
         val prefs = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
         if (prefs.getBoolean(OPTED_IN, false) ||
@@ -62,6 +66,7 @@ object CallWakePreferences {
     } catch (_: Exception) { false }
 
     /** Commit final consent and clear the pre-network marker atomically. */
+    @Synchronized
     fun completeRemoteRegistration(context: Context): Boolean = try {
         val prefs = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
         if (!prefs.getBoolean(REGISTRATION_IN_FLIGHT, false) ||
@@ -71,9 +76,25 @@ object CallWakePreferences {
     } catch (_: Exception) { false }
 
     /** Only before any signed server registration request was attempted. */
+    @Synchronized
     fun abandonUnsentRegistration(context: Context): Boolean = try {
         context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
             .edit().putBoolean(REGISTRATION_IN_FLIGHT, false).commit()
+    } catch (_: Exception) { false }
+
+    /** Active UI enrollment owns its registration; workers must leave it alone. */
+    fun isRegistrationInProgress(context: Context): Boolean = try {
+        context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+            .getBoolean(REGISTRATION_IN_FLIGHT, false)
+    } catch (_: Exception) { false }
+
+    /** Called only at process startup, before any UI or worker can register. */
+    @Synchronized
+    fun recoverInterruptedRegistration(context: Context): Boolean = try {
+        val prefs = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(REGISTRATION_IN_FLIGHT, false)) true
+        else prefs.edit().putBoolean(OPTED_IN, false).putBoolean(PENDING_REVOKE, true)
+            .putBoolean(REGISTRATION_IN_FLIGHT, false).commit()
     } catch (_: Exception) { false }
 
     fun isEnabled(context: Context): Boolean = try {
@@ -93,6 +114,11 @@ object CallWakePolicy {
     // Android 13+ notifications require runtime permission. The calculator
     // and foreground E2EE messages must remain usable without this permission.
     fun requiresNotificationPermission(api: Int): Boolean = api >= 33
+    // A muted (LOW/MIN) channel is still a valid silent notification; a
+    // blocked (NONE) or missing channel is not delivery. Do not consume a
+    // call's one-shot wake claim when Android cannot display it.
+    fun channelCanDisplay(api: Int, importance: Int?): Boolean =
+        api < 26 || (importance != null && importance > NotificationManager.IMPORTANCE_NONE)
     // Process-local only: the private foreground host already rings by E2EE.
     @Volatile var privateAreaVisible: Boolean = false
     // Duplicate wake hints should never repeatedly ring. Only timestamp
@@ -130,6 +156,10 @@ object CallWakePolicy {
      * retract that specific call ID if consent was withdrawn in flight.
      * This does not touch independent message alerts or start media.
      */
+    // All call hints share one Android notification ID. Serialize post/retract
+    // transactions so an older revoked wake cannot cancel a newer valid alert.
+    // The lock covers the post-consent check and cancellation, not UI consent writes.
+    @Synchronized
     fun publishWhileConsented(
         at: Long,
         isConsented: () -> Boolean,
@@ -148,8 +178,21 @@ object CallWakePolicy {
                 }
             }
         }
+        // If consent was withdrawn after the first check, no alert was
+        // delivered (or the just-posted alert was retracted). Do not burn the
+        // deduplication claim: a later valid retry after fresh opt-in must work.
+        // Successful delivery still keeps its claim to suppress duplicate rings.
+        if (succeeded && !delivered) releaseFailed(at)
         return succeeded && delivered
     }
+
+    /**
+     * Local opt-out must cancel after any in-flight post/retract transaction.
+     * Otherwise the UI may cancel first and a delayed FCM notify can leave a
+     * visible call alert after consent was withdrawn. Never touch message IDs.
+     */
+    @Synchronized
+    fun cancelPostedCallAlert(cancel: () -> Boolean): Boolean = cancel()
 
     @Synchronized private fun releaseFailed(at: Long) {
         recent.remove(at)
@@ -189,10 +232,12 @@ object CallWakeNotification {
 
     /** Clears only the already displayed call alert after local opt-out. */
     fun cancel(context: Context): Boolean = CallWakePolicy.safePlatformDelivery {
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-            ?: return@safePlatformDelivery false
-        manager.cancel(NOTIFICATION_ID)
-        true
+        CallWakePolicy.cancelPostedCallAlert {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                ?: return@cancelPostedCallAlert false
+            manager.cancel(NOTIFICATION_ID)
+            true
+        }
     }
 
     /**
@@ -241,6 +286,11 @@ object CallWakeNotification {
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return@safePlatformDelivery false
 
         if (Build.VERSION.SDK_INT >= 26) ensureChannel(manager)
+        if (!CallWakePolicy.channelCanDisplay(
+                Build.VERSION.SDK_INT,
+                if (Build.VERSION.SDK_INT >= 26)
+                    manager.getNotificationChannel(CHANNEL_ID)?.importance else null
+            )) return@safePlatformDelivery false
 
         // No call ID/peer ID/hidden-navigation extras: opening the notification
         // always follows the ordinary calculator -> 2011. -> optional PIN gate.

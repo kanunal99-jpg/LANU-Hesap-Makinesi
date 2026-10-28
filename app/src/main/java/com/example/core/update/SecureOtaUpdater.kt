@@ -130,7 +130,10 @@ object SecureOtaUpdater {
             val cert = url(SIGNER_NAME) ?: continue
             options += LanuUpdate(tag, n, apk, checksum, cert)
         }
-        return options.maxByOrNull { it.versionCode }
+        // A legacy bridge tag may share a versionCode with the current signed tag.
+        // Prefer the newer stable channel regardless of API response ordering.
+        return options.maxWithOrNull(compareBy<LanuUpdate> { it.versionCode }
+            .thenBy { it.tag.substringBeforeLast('.') })
     }
 
     /** Fail closed if an advertised higher-version release has no signed verification metadata. */
@@ -142,7 +145,9 @@ object SecureOtaUpdater {
             if (release.optBoolean("draft")) continue
             val tag = release.optString("tag_name")
             val number = tagPattern.matchEntire(tag)?.groupValues?.get(1)?.toLongOrNull() ?: continue
-            if (number > currentVersion && (latest == null || number > latest.second)) latest = tag to number
+            if (number > currentVersion && (latest == null || number > latest.second ||
+                    (number == latest.second && tag.substringBeforeLast('.') >
+                        latest.first.substringBeforeLast('.')))) latest = tag to number
         }
         return latest
     }

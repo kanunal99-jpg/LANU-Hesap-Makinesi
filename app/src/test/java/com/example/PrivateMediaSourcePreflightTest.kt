@@ -32,6 +32,25 @@ class PrivateMediaSourcePreflightTest {
         rejected { PrivateMediaSourcePreflight.inspect(ByteArrayInputStream("%PDF-1-X".toByteArray()),"application/pdf") }
     }
 
+    @Test fun adversarialMp4HeadersCannotSpoofAnFtypBox() {
+        for (bytes in listOf(
+            video().also { it[3] = 17 }, // ftyp box size must be 4-byte aligned
+            video().also { it[8] = 32; it[9] = 32; it[10] = 32; it[11] = 32 },
+            video().also { it[8] = 33; it[9] = 64; it[10] = 35; it[11] = 36 }
+        )) {
+            var closed = false
+            val source = object : ByteArrayInputStream(bytes) {
+                override fun close() { closed = true; super.close() }
+            }
+            rejected {
+                PrivateMediaSourcePreflight.inspect(
+                    source, "video/mp4", userApprovedOriginalVideo = true
+                )
+            }
+            assertTrue("Invalid provider stream must be closed", closed)
+        }
+    }
+
     @Test fun photosRequireSanitizationAndVideoRequiresUserApproval() {
         rejected { PrivateMediaSourcePreflight.inspect(ByteArrayInputStream(jpeg()),"image/jpeg") }
         rejected { PrivateMediaSourcePreflight.inspect(ByteArrayInputStream(png()),"image/png") }

@@ -48,6 +48,11 @@ object StorePublicationReadiness {
             val uri = URI(url)
             val host = uri.host?.lowercase(Locale.ROOT) ?: return@runCatching false
             val labels = host.split('.')
+            // RFC 2606 example.com/.net/.org are documentation domains,
+            // not evidence of an owner-operated privacy or deletion site.
+            val reservedDocumentationDomain = labels.size >= 2 &&
+                labels.takeLast(2).joinToString(".") in
+                    setOf("example.com", "example.net", "example.org")
             val reserved = setOf("localhost", "local", "lan", "internal",
                 "test", "example", "invalid", "onion", "arpa", "localdomain")
             // Domain labels must be valid ASCII/punycode DNS names; this
@@ -59,7 +64,7 @@ object StorePublicationReadiness {
                 labels.all { dnsLabel.matches(it) } &&
                 labels.last().length >= 2 &&
                 labels.last().all { it in 'a'..'z' } &&
-                labels.last() !in reserved &&
+                labels.last() !in reserved && !reservedDocumentationDomain &&
                 labels.none { it == "localhost" } &&
                 !(labels.size >= 2 && labels.takeLast(2).joinToString(".") == "home.arpa")
             uri.scheme.equals("https", ignoreCase = true) &&

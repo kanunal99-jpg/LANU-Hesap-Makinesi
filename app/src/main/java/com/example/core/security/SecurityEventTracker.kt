@@ -32,6 +32,17 @@ class SecurityEventTracker(
     }
     private val volatileEvents = ArrayDeque<JSONObject>()
     private val MAX_EVENTS = 50
+    private val MAX_ENCRYPTED_EVENT_JSON_CHARS = 64 * 1024
+
+    /** Hostile/legacy encrypted data may be corrupt or oversized. Do not
+     * allocate unbounded JSON parsing work; leave the original encrypted
+     * bytes untouched and record new events in volatile RAM instead.
+     */
+    private fun boundedStoredEvents(prefs: SharedPreferences): JSONArray? {
+        val stored = prefs.getString("events_list", "[]") ?: "[]"
+        if (stored.length > MAX_ENCRYPTED_EVENT_JSON_CHARS) return null
+        return JSONArray(stored)
+    }
 
     @Synchronized
     fun logEvent(eventType: String, details: String) {
@@ -43,7 +54,8 @@ class SecurityEventTracker(
         val prefs = securePreferences
         if (prefs != null) {
             try {
-                val current = JSONArray(prefs.getString("events_list", "[]") ?: "[]")
+                val current = boundedStoredEvents(prefs)
+                    ?: error("Encrypted audit metadata exceeds bounded parser budget")
                 // When previous writes failed, do not silently discard the RAM-only events.
                 // Persist them with the next successful encrypted write.
                 volatileEvents.forEach { current.put(it) }
@@ -67,7 +79,7 @@ class SecurityEventTracker(
     fun getLoggedEvents(): List<Map<String, Any>> {
         val prefs = securePreferences
         val stored = if (prefs == null) null else try {
-            JSONArray(prefs.getString("events_list", "[]") ?: "[]")
+            boundedStoredEvents(prefs)
         } catch (_: Exception) { null }
         // An encrypted store can remain readable even when writes fail. Show both
         // durable and RAM-only records until the next successful encrypted commit.

@@ -12,6 +12,10 @@ object CryptoUtils {
     private const val ALGORITHM = "AES/GCM/NoPadding"
     private const val TAG_LENGTH_BIT = 128
     private const val IV_LENGTH_BYTE = 12
+    // Legacy messages have no length-prefixed envelope. Bound untrusted Base64
+    // before allocating the decoded buffer; media uses a separate streaming
+    // crypto protocol. Preserve every existing valid message wire format.
+    internal const val MAX_CIPHERTEXT_BASE64_CHARS = 16 * 1024 * 1024
     private val secureRandom = SecureRandom()
 
     // SHA-256 key derivation from a password or conversation secret
@@ -56,6 +60,9 @@ object CryptoUtils {
      */
     fun decrypt(cipherText: String, secret: String): String {
         return try {
+            require(cipherText.length <= MAX_CIPHERTEXT_BASE64_CHARS) {
+                "Şifreli içerik boyutu geçersiz."
+            }
             val keySpec = deriveKey(secret)
             val decodedBytes = Base64.decode(cipherText, Base64.NO_WRAP)
             

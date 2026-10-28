@@ -26,7 +26,9 @@ internal object CallIceGatherPolicy {
         elapsedMs: Long,
         lastCandidateAgoMs: Long?
     ): Boolean {
-        if (lastCandidateAgoMs == null || lastCandidateAgoMs < 0) return false
+        // Reject impossible clock samples rather than prematurely signaling stale SDP.
+        if (elapsedMs < 0 || lastCandidateAgoMs == null ||
+            lastCandidateAgoMs < 0 || lastCandidateAgoMs > elapsedMs) return false
         // Candidate may not have been inserted into the local description yet.
         val sdp = localSdp ?: return false
         if (!sdp.contains("a=candidate:")) return false
