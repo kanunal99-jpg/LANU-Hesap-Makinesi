@@ -13,7 +13,9 @@ class DatabaseCipherCutoverGateTest {
         sharedMemoryBytes = 4096,
         rollbackJournalBytes = 0,
         availableBytes = 256L * 1024 * 1024,
-        conservativeRequiredBytes = 64L * 1024 * 1024,
+        conservativeRequiredBytes = DatabaseEncryptionPreflight.conservativeRequiredBytes(
+            8192, 8192, 4096, 0
+        ),
         sufficientDiskSpace = true,
         needsWalCheckpoint = true
     )
@@ -77,11 +79,17 @@ class DatabaseCipherCutoverGateTest {
     @Test fun contradictoryWalFlagCannotBypassActualCompanionFiles() {
         for (companion in listOf(
             snapshot.copy(walBytes = 4096, sharedMemoryBytes = 0,
-                rollbackJournalBytes = 0, needsWalCheckpoint = false),
+                rollbackJournalBytes = 0, needsWalCheckpoint = false,
+                conservativeRequiredBytes = DatabaseEncryptionPreflight.conservativeRequiredBytes(
+                    8192, 4096, 0, 0)),
             snapshot.copy(walBytes = 0, sharedMemoryBytes = 4096,
-                rollbackJournalBytes = 0, needsWalCheckpoint = false),
+                rollbackJournalBytes = 0, needsWalCheckpoint = false,
+                conservativeRequiredBytes = DatabaseEncryptionPreflight.conservativeRequiredBytes(
+                    8192, 0, 4096, 0)),
             snapshot.copy(walBytes = 0, sharedMemoryBytes = 0,
-                rollbackJournalBytes = 4096, needsWalCheckpoint = false)
+                rollbackJournalBytes = 4096, needsWalCheckpoint = false,
+                conservativeRequiredBytes = DatabaseEncryptionPreflight.conservativeRequiredBytes(
+                    8192, 0, 0, 4096))
         )) {
             blocked(ready().copy(snapshot = companion,
                 checkpointAndWalVerified = false),
@@ -103,7 +111,51 @@ class DatabaseCipherCutoverGateTest {
         assertEquals(DatabaseCipherCutoverGate.Decision.ShadowTestOnly,
             DatabaseCipherCutoverGate.assess(
                 ready().copy(snapshot = snapshot.copy(
-                    walBytes = 0, sharedMemoryBytes = 0, needsWalCheckpoint = false),
+                    walBytes = 0, sharedMemoryBytes = 0, needsWalCheckpoint = false,
+                    conservativeRequiredBytes = DatabaseEncryptionPreflight.conservativeRequiredBytes(
+                        8192, 0, 0, 0)),
                     checkpointAndWalVerified = false)))
     }
+    @Test fun forgedOrStaleDiskReservationCannotApproveShadowEncryption() {
+        val reason = DatabaseCipherCutoverGate.BlockReason.INVALID_SNAPSHOT_METADATA
+        for (wrong in listOf(0L, 1L, 64L * 1024 * 1024,
+            snapshot.conservativeRequiredBytes - 1,
+            snapshot.conservativeRequiredBytes + 1, Long.MAX_VALUE)) {
+            blocked(ready().copy(snapshot = snapshot.copy(
+                conservativeRequiredBytes = wrong)), reason)
+        }
+    }
+
+    @Test fun negativeOrOverflowedCompanionSizesAlwaysBlockShadowTest() {
+        val reason = DatabaseCipherCutoverGate.BlockReason.INVALID_SNAPSHOT_METADATA
+        for (bad in listOf(
+            snapshot.copy(walBytes = -1),
+            snapshot.copy(sharedMemoryBytes = -1),
+            snapshot.copy(rollbackJournalBytes = -1),
+            snapshot.copy(databaseBytes = -1),
+            snapshot.copy(databaseBytes = 511),
+            snapshot.copy(databaseBytes = Long.MAX_VALUE)
+        )) {
+            blocked(ready().copy(snapshot = bad), reason)
+        }
+        assertEquals(Long.MAX_VALUE,
+            DatabaseEncryptionPreflight.conservativeRequiredBytes(
+                Long.MAX_VALUE, 0, 0, 0))
+        assertEquals(Long.MAX_VALUE,
+            DatabaseEncryptionPreflight.conservativeRequiredBytes(
+                8192, -1, 0, 0))
+    }
+
+    @Test fun accurateDiskBudgetRetainsIsolatedShadowOnlyNotLiveCutover() {
+        val copy = snapshot.copy(
+            databaseBytes = 4096, walBytes = 0, sharedMemoryBytes = 0,
+            rollbackJournalBytes = 0, needsWalCheckpoint = false,
+            conservativeRequiredBytes = DatabaseEncryptionPreflight.conservativeRequiredBytes(
+                4096, 0, 0, 0)
+        )
+        assertEquals(DatabaseCipherCutoverGate.Decision.ShadowTestOnly,
+            DatabaseCipherCutoverGate.assess(ready().copy(
+                snapshot = copy, checkpointAndWalVerified = false)))
+    }
+
 }
