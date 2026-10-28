@@ -162,6 +162,12 @@ jobs:
           bash -n scripts/verify_existing_install_signer.sh
           python3 -m unittest discover -s scripts -p 'test_verify_existing_install_signer.py'
 
+      - name: Validate OTA emulator retry and signed-install harness
+        run: |
+          bash -n scripts/ci_prepare_android_image.sh
+          bash -n scripts/ci_ota_upgrade_acceptance.sh
+          python3 -m unittest discover -s scripts -p 'test_ci_ota_upgrade_contract.py'
+
       - name: Run Android Lint
         run: ./gradlew :app:lintDebug --no-daemon --stacktrace
 
@@ -374,6 +380,8 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      - name: Preinstall Android 14 system image with bounded corrupt-download retries
+        run: bash scripts/ci_prepare_android_image.sh
       - name: Exercise Room on an Android 14 runtime
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -396,10 +404,170 @@ jobs:
             app/build/reports/androidTests/connected/
             app/build/outputs/androidTest-results/connected/
 
+
+  ota-upgrade-acceptance:
+    name: Real Signed APK OTA Preservation (API 34 emulator)
+    # Main only: PRs never gain the production signing key.
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    needs: [build-and-test]
+    runs-on: ubuntu-22.04
+    env:
+      LANU_VERSION_CODE: ${{ github.run_number }}
+    steps:
+      - name: Checkout verified source
+        uses: actions/checkout@v5
+
+      - name: Checkout pinned previous release source for ABI-matched seed test
+        uses: actions/checkout@v5
+        with:
+          ref: dc307da8b082c32edee9fffccabedb99df2cb6d0
+          path: baseline-src
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Restore stable signing key for isolated instrumentation APK
+        shell: bash
+        env:
+          LANU_SIGNING_KEYSTORE_BASE64: ${{ secrets.LANU_SIGNING_KEYSTORE_BASE64 }}
+          LANU_SIGNING_STORE_PASSWORD: ${{ secrets.LANU_SIGNING_STORE_PASSWORD }}
+          LANU_SIGNING_KEY_PASSWORD: ${{ secrets.LANU_SIGNING_KEY_PASSWORD }}
+          LANU_SIGNING_KEY_ALIAS: ${{ secrets.LANU_SIGNING_KEY_ALIAS }}
+          LANU_SIGNING_CERT_SHA256: ${{ secrets.LANU_SIGNING_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          for value in "$LANU_SIGNING_KEYSTORE_BASE64" "$LANU_SIGNING_STORE_PASSWORD" "$LANU_SIGNING_KEY_PASSWORD" "$LANU_SIGNING_KEY_ALIAS" "$LANU_SIGNING_CERT_SHA256"; do
+            if [ -z "$value" ]; then echo "::error::Protected stable OTA signer incomplete"; exit 1; fi
+          done
+          expected="$(printf '%s' "$LANU_SIGNING_CERT_SHA256" | tr -d ' :\r\n' | tr '[:upper:]' '[:lower:]')"
+          if ! [[ "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::Invalid stable signing certificate fingerprint"
+            exit 1
+          fi
+          keystore="$RUNNER_TEMP/lanu-ota-test-signer.p12"
+          umask 077
+          printf '%s' "$LANU_SIGNING_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          test -s "$keystore"
+          echo "LANU_SIGNING_KEYSTORE_PATH=$keystore" >> "$GITHUB_ENV"
+          echo "LANU_SIGNING_STORE_PASSWORD=$LANU_SIGNING_STORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "LANU_SIGNING_KEY_PASSWORD=$LANU_SIGNING_KEY_PASSWORD" >> "$GITHUB_ENV"
+          echo "LANU_SIGNING_KEY_ALIAS=$LANU_SIGNING_KEY_ALIAS" >> "$GITHUB_ENV"
+
+      - name: Build release instrumentation without distributing it
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f ./gradlew ]; then gradle wrapper --gradle-version 9.3.1 --distribution-type bin; fi
+          chmod +x ./gradlew
+          ./gradlew -PlanuDeviceBuildType=release :app:assembleReleaseAndroidTest --no-daemon --stacktrace
+          mapfile -t tests < <(find app/build/outputs/apk/androidTest -type f -name '*androidTest*.apk')
+          if [ "${#tests[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one release instrumentation APK"
+            exit 1
+          fi
+          apksigner="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -1)"
+          "$apksigner" sign --ks "$LANU_SIGNING_KEYSTORE_PATH" --ks-type PKCS12 \
+            --ks-key-alias "$LANU_SIGNING_KEY_ALIAS" \
+            --ks-pass env:LANU_SIGNING_STORE_PASSWORD \
+            --key-pass env:LANU_SIGNING_KEY_PASSWORD \
+            --out "$RUNNER_TEMP/lanu-ota-new-instrumentation.apk" "${tests[0]}"
+          "$apksigner" verify "$RUNNER_TEMP/lanu-ota-new-instrumentation.apk"
+
+      - name: Compile baseline instrumentation against the actual previous release ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp app/src/androidTest/java/com/example/RoomActualOtaUpgradeTest.kt \
+            baseline-src/app/src/androidTest/java/com/example/RoomActualOtaUpgradeTest.kt
+          (
+            cd baseline-src
+            if [ ! -f ./gradlew ]; then gradle wrapper --gradle-version 9.3.1 --distribution-type bin; fi
+            chmod +x ./gradlew
+            LANU_VERSION_CODE=828 ./gradlew -PlanuDeviceBuildType=release \
+              :app:assembleReleaseAndroidTest --no-daemon --stacktrace
+          )
+          mapfile -t previous_tests < <(find baseline-src/app/build/outputs/apk/androidTest \
+            -type f -name '*androidTest*.apk')
+          if [ "${#previous_tests[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one prior-release instrumentation APK"
+            exit 1
+          fi
+          apksigner="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -1)"
+          "$apksigner" sign --ks "$LANU_SIGNING_KEYSTORE_PATH" --ks-type PKCS12 \
+            --ks-key-alias "$LANU_SIGNING_KEY_ALIAS" \
+            --ks-pass env:LANU_SIGNING_STORE_PASSWORD \
+            --key-pass env:LANU_SIGNING_KEY_PASSWORD \
+            --out "$RUNNER_TEMP/lanu-ota-baseline-instrumentation.apk" "${previous_tests[0]}"
+          "$apksigner" verify "$RUNNER_TEMP/lanu-ota-baseline-instrumentation.apk"
+
+      - name: Download trusted candidate APK
+        uses: actions/download-artifact@v4
+        with:
+          name: LANU-Calculator-Debug-APK
+          path: ${{ runner.temp }}/lanu-ota-current
+
+      - name: Verify previously published stable APK and candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline="$RUNNER_TEMP/lanu-ota-baseline"
+          mkdir -p "$baseline"
+          tag="v1.2.0-signed.828"
+          for asset in app-debug.apk app-debug.apk.sha256 app-debug.apk.signer.txt; do
+            curl --silent --show-error --fail --location --retry 4 --retry-all-errors \
+              --proto '=https' --proto-redir '=https' --max-time 240 \
+              "https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/$asset" \
+              --output "$baseline/$asset"
+          done
+          (cd "$baseline" && sha256sum -c app-debug.apk.sha256)
+          new="$RUNNER_TEMP/lanu-ota-current"
+          mapfile -t apk < <(find "$new" -type f -name app-debug.apk)
+          mapfile -t checksum < <(find "$new" -type f -name app-debug.apk.sha256)
+          mapfile -t signer < <(find "$new" -type f -name app-debug.apk.signer.txt)
+          if [ "${#apk[@]}" -ne 1 ] || [ "${#checksum[@]}" -ne 1 ] || [ "${#signer[@]}" -ne 1 ]; then
+            echo "::error::Candidate artifact incomplete or ambiguous"
+            exit 1
+          fi
+          (cd "$(dirname "${apk[0]}")" && sha256sum -c "${checksum[0]}")
+          python3 scripts/verify_stable_signer_continuity.py \
+            "${signer[0]}" "$baseline/app-debug.apk.signer.txt"
+          cp "${apk[0]}" "$RUNNER_TEMP/lanu-ota-new.apk"
+
+      - name: Permit KVM acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Preinstall Android 14 system image with bounded corrupt-download retries
+        run: bash scripts/ci_prepare_android_image.sh
+
+      - name: Install previous stable APK, seed seven tables, upgrade and read back
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          # Emulator Runner invokes each YAML script line independently;
+          # use ONE actual Bash command, not shell-continuation lines.
+          script: |
+            bash scripts/ci_ota_upgrade_acceptance.sh "$RUNNER_TEMP/lanu-ota-baseline/app-debug.apk" "$RUNNER_TEMP/lanu-ota-new.apk" "$RUNNER_TEMP/lanu-ota-baseline-instrumentation.apk" "$RUNNER_TEMP/lanu-ota-new-instrumentation.apk" 828 "$LANU_VERSION_CODE"
+
   publish:
     name: Publish verified APK
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-    needs: [build-and-test, android-runtime-acceptance]
+    needs: [build-and-test, android-runtime-acceptance, ota-upgrade-acceptance]
     runs-on: ubuntu-latest
     permissions:
       contents: write
