@@ -125,13 +125,9 @@ dependencies {
   // implementation(libs.androidx.navigation.compose)
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
-  // Real SQLCipher Room-v4 shadow acceptance only; NO live plaintext cutover.
-  // Verified upstream Community Edition API23+ / AndroidX SQLite 2.7.0.
+  // SQLCipher native library is used only by isolated shadow tests, never live Room.
+  // Keep a single Zetetic version to avoid conflicting native libraries/classes.
   implementation("net.zetetic:sqlcipher-android:4.20.0")
-  implementation("androidx.sqlite:sqlite:2.7.0")
-  // Zetetic maintained SQLCipher for Android (API23+, 16-KiB native page support).
-  // NOT wired into the production AppDatabase until lossless cutover acceptance.
-  implementation("net.zetetic:sqlcipher-android:4.19.1@aar")
   implementation("androidx.sqlite:sqlite:2.7.0")
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
