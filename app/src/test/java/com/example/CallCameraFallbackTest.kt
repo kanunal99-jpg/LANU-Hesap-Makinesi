@@ -37,6 +37,30 @@ class CallCameraFallbackTest {
         assertEquals("camera1", result)
         assertEquals(listOf("0:front", "0:back", "1:front"), calls)
     }
+    @Test fun runawayOemCameraListDoesNotExhaustRetriesOrStarveCamera1() {
+        val attempted = mutableListOf<String>()
+        val huge = (0 until 500).map {
+            CallCameraFallback.Device("broken-$it", it % 2 == 0)
+        }
+        val result = CallCameraFallback.select(
+            listOf({ huge }, { listOf(back) })
+        ) { index, device ->
+            attempted += "$index:${device.name}"
+            if (index == 1) "camera1-success" else null
+        }
+        assertEquals("camera1-success", result)
+        assertEquals(33, attempted.size) // 16 front + 16 rear + 1 Camera1
+    }
+
+    @Test fun malformedExtraOemProvidersAreNeverEnumerated() {
+        var excessEnumerated = 0
+        val providers: List<() -> List<CallCameraFallback.Device>> =
+            (0 until 20).map { { excessEnumerated++; emptyList() } }
+        val result = CallCameraFallback.select(providers) { _, _ -> "unexpected" }
+        assertNull(result)
+        assertEquals(4, excessEnumerated)
+    }
+
     @Test fun noWorkingCameraFailsClosedWithNoFabricatedCapturer() {
         val result = CallCameraFallback.select(
             listOf({ emptyList() }, { listOf(front) })
