@@ -223,6 +223,59 @@ class CallWakeNotificationTest {
         assertEquals(1, deliveries)
     }
 
+    @Test fun consentWithdrawnBeforeNotifyDoesNotConsumeTheWakeClaim() {
+        val at = 1710000090081L
+        var checks = 0
+        var notifications = 0
+        assertFalse(CallWakePolicy.publishWhileConsented(
+            at = at,
+            isConsented = { ++checks == 1 },
+            notify = { notifications++ },
+            cancel = { error("No notification was posted") }
+        ))
+        assertEquals(0, notifications)
+        assertTrue("Fresh opt-in may retry an undelivered hint",
+            CallWakePolicy.publishWhileConsented(
+                at = at,
+                isConsented = { true },
+                notify = { notifications++ },
+                cancel = { error("Consent is present") }
+            ))
+        assertEquals(1, notifications)
+        assertFalse("Successful notification still suppresses duplicates",
+            CallWakePolicy.publishWhileConsented(
+                at = at,
+                isConsented = { true },
+                notify = { notifications++ },
+                cancel = { }
+            ))
+        assertEquals(1, notifications)
+    }
+
+    @Test fun retractedAlertDoesNotBlockLaterValidWakeRetry() {
+        val at = 1710000090082L
+        var enabled = true
+        var posts = 0
+        var cancellations = 0
+        assertFalse(CallWakePolicy.publishWhileConsented(
+            at = at,
+            isConsented = { enabled },
+            notify = { posts++; enabled = false },
+            cancel = { cancellations++ }
+        ))
+        assertEquals(1, posts)
+        assertEquals(1, cancellations)
+        enabled = true
+        assertTrue(CallWakePolicy.publishWhileConsented(
+            at = at,
+            isConsented = { enabled },
+            notify = { posts++ },
+            cancel = { error("Must not cancel a valid retry") }
+        ))
+        assertEquals(2, posts)
+        assertEquals(1, cancellations)
+    }
+
     @Test fun localCallOptOutOnlyCancelsCallNotificationAndPreservesMessageAlert() {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         CallWakeNotification.ensureChannel(manager)
