@@ -516,6 +516,43 @@ class NativeCallStateTest {
         assertTrue(sent.value.isEmpty())
     }
 
+    @Test fun briefRadioGapRecoversWithoutSpendingTheOnlyIceRestart() = runBlocking {
+        vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
+        val invite=awaitSent(CallSignalKind.INVITE)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,false))
+        awaitSent(CallSignalKind.OFFER)
+        report!!(CallMediaEvidence(true,5,5));waitPhase(NativeCallPhase.CONNECTED)
+        report!!(CallMediaEvidence(false,5,5));waitPhase(NativeCallPhase.RECONNECTING)
+        // RTP resumes inside the short grace window; renegotiating here would
+        // burn our only ICE restart before a subsequent, genuine network loss.
+        delay(100)
+        report!!(CallMediaEvidence(true,6,6));waitPhase(NativeCallPhase.CONNECTED)
+        delay(850)
+        assertEquals("A self-healed handover must not restart ICE",0,iceRestarts)
+        assertEquals(1,sent.value.count { it.kind==CallSignalKind.OFFER })
+        // The next, persistent disconnection must still own one restart.
+        report!!(CallMediaEvidence(false,6,6));waitPhase(NativeCallPhase.RECONNECTING)
+        withTimeout(3_000) {
+            sent.first { list -> list.count { it.kind==CallSignalKind.OFFER } == 2 }
+        }
+        assertEquals(1,iceRestarts)
+        vm.end();waitPhase(NativeCallPhase.ENDED)
+    }
+
+    @Test fun endingCallDuringReconnectGraceCannotIssueLateOffer() = runBlocking {
+        vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
+        val invite=awaitSent(CallSignalKind.INVITE)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,false))
+        awaitSent(CallSignalKind.OFFER)
+        report!!(CallMediaEvidence(true,5,5));waitPhase(NativeCallPhase.CONNECTED)
+        report!!(CallMediaEvidence(false,5,5));waitPhase(NativeCallPhase.RECONNECTING)
+        vm.end();waitPhase(NativeCallPhase.ENDED)
+        delay(850)
+        assertEquals("Closed foreground call must not start a stale ICE restart",0,iceRestarts)
+        assertEquals(1,sent.value.count { it.kind==CallSignalKind.OFFER })
+        assertEquals(1,closes)
+    }
+
     @Test fun networkDisconnectTriesOnlyOneRealIceRestartAndRequiresFreshPacketEvidence() = runBlocking {
         vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
         val invite=awaitSent(CallSignalKind.INVITE)
