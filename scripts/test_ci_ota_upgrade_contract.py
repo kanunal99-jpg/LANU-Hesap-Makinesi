@@ -81,6 +81,75 @@ printf 'Signer #1 certificate SHA-256 digest: %s\n' "$digest"
                     self.assertNotIn(bad, output)
                     self.assertNotIn("Installing the EXACT", output)
 
+    def test_seed_failure_diagnostics_redact_private_instrumentation(self):
+        """An assertion failure must remain fatal without leaking probe output."""
+        import os
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root:
+            base = pathlib.Path(root)
+            build_tools = base / "sdk" / "build-tools" / "35.0.0"
+            bin_dir = base / "bin"
+            build_tools.mkdir(parents=True)
+            bin_dir.mkdir()
+            aapt = build_tools / "aapt"
+            aapt.write_text("""#!/usr/bin/env bash
+set -eu
+case "$(basename "$3")" in
+  *tests.apk) name=com.aistudio.lanucalc.kxwzqm.test ;;
+  *) name=com.aistudio.lanucalc.kxwzqm ;;
+esac
+case "$(basename "$3")" in
+  old*) version=828 ;;
+  *) version=1200 ;;
+esac
+echo "package: name='$name' versionCode='$version' versionName='1.2.0'"
+""")
+            signer = build_tools / "apksigner"
+            signer.write_text("""#!/usr/bin/env bash
+printf 'Signer #1 certificate SHA-256 digest: %064d\n' 0
+""")
+            adb = bin_dir / "adb"
+            adb.write_text("""#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$MOCK_ADB_LOG"
+if [[ "$1" == "shell" ]]; then
+  cat <<'EOF'
+INSTRUMENTATION_STATUS: lanu_ota_checkpoint=gate
+INSTRUMENTATION_STATUS: stack=java.lang.AssertionError: PRIVATE_KEY_DONT_LOG PIN_DONT_LOG
+INSTRUMENTATION_STATUS: stream=PRIVATE_MESSAGE_DONT_LOG
+INSTRUMENTATION_STATUS_CODE: -2
+FAILURES!!!
+INSTRUMENTATION_CODE: -1
+EOF
+fi
+""")
+            for tool in (aapt, signer, adb):
+                tool.chmod(0o755)
+            artifacts = [base / name for name in
+                         ("old.apk", "new.apk", "old-tests.apk", "new-tests.apk")]
+            for artifact in artifacts:
+                artifact.write_bytes(b"disposable-test-apk")
+            adb_log = base / "adb-calls.txt"
+            env = dict(os.environ, ANDROID_HOME=str(base / "sdk"),
+                       PATH=str(bin_dir) + os.pathsep + os.environ["PATH"],
+                       MOCK_ADB_LOG=str(adb_log))
+            proc = subprocess.run(
+                ["bash", str(ROOT / "scripts/ci_ota_upgrade_acceptance.sh"),
+                 *(str(x) for x in artifacts), "828", "1200"],
+                env=env, capture_output=True, text=True, check=False)
+            output = proc.stdout + proc.stderr
+            self.assertNotEqual(0, proc.returncode)
+            self.assertIn("OTA data preservation assertion failed in seed phase", output)
+            self.assertIn("OTA seed checkpoint: gate", output)
+            self.assertIn("OTA seed exception type: java.lang.AssertionError", output)
+            self.assertNotIn("PRIVATE_KEY_DONT_LOG", output)
+            self.assertNotIn("PIN_DONT_LOG", output)
+            self.assertNotIn("PRIVATE_MESSAGE_DONT_LOG", output)
+            self.assertNotIn("Applying the REAL candidate upgrade", output)
+            calls = adb_log.read_text().splitlines()
+            self.assertEqual(2, sum(line.startswith("install -r ") for line in calls))
+
     def test_publish_requires_main_only_signed_upgrade_acceptance(self):
         workflow = (ROOT / ".github/workflows/android.yml").read_text()
         self.assertIn("    needs: [build-and-test, android-runtime-acceptance, ota-upgrade-acceptance]", workflow)
