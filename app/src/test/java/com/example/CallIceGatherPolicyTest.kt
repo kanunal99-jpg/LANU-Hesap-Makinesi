@@ -47,9 +47,9 @@ class CallIceGatherPolicyTest {
     }
 
     @Test fun completedGatheringRejectsEmbeddedOrTruncatedCandidateStrings() {
-        val embedded = "v=0\\r\\na=x-note:a=candidate:1 1 udp 2113937151 198.51.100.12 43333 typ srflx\\r\\n"
-        val truncated = "v=0\\r\\na=candidate:1\\r\\n"
-        val missingTypeMarker = "v=0\\r\\na=candidate:1 1 udp 2113937151 198.51.100.12 43333 fake srflx\\r\\n"
+        val embedded = "v=0\r\na=x-note:a=candidate:1 1 udp 2113937151 198.51.100.12 43333 typ srflx\r\n"
+        val truncated = "v=0\r\na=candidate:1\r\n"
+        val missingTypeMarker = "v=0\r\na=candidate:1 1 udp 2113937151 198.51.100.12 43333 fake srflx\r\n"
         for (sdp in listOf(embedded, truncated, missingTypeMarker)) {
             assertFalse("Malformed SDP cannot be treated as ICE complete with an usable route",
                 ready(sdp, PeerConnection.IceGatheringState.COMPLETE, 8_000L, 500L))
