@@ -78,7 +78,7 @@ emit_safe_probe_diagnostics() {
         echo "OTA $phase runner: $line" ;;
     esac
   done <<< "$output"
-  exception_class="$(grep -Eo '(java|android|kotlin)\\.[A-Za-z0-9_.]*(Exception|Error)' <<< "$output" | sort -u | head -n 5 || true)"
+  exception_class="$(grep -Eo '(java|android|kotlin)\.[A-Za-z0-9_.]*(Exception|Error)' <<< "$output" | sort -u | head -n 5 || true)"
   if [[ -n "$exception_class" ]]; then
     while IFS= read -r line; do
       echo "OTA $phase exception type: $line"
@@ -97,7 +97,7 @@ run_probe() {
     "$runner" 2>&1)" || rc=$?
   # am instrument may exit 0 even if a JUnit assertion failed.
   if (( rc != 0 )) ||
-     ! grep -Eq 'OK \\(1 test\\)' <<< "$result" ||
+     ! grep -Eq 'OK \(1 test\)' <<< "$result" ||
      ! grep -Fq "lanu_ota_verified_phase=$phase" <<< "$result" ||
      grep -Eq 'FAILURES|INSTRUMENTATION_FAILED|INSTRUMENTATION_CODE: 0' <<< "$result"; then
     echo "::error::OTA data preservation assertion failed in $phase phase"
