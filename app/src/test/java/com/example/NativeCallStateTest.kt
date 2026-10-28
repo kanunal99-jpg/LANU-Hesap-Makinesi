@@ -45,6 +45,8 @@ class NativeCallStateTest {
     private var startGate:CompletableDeferred<Unit>?=null
     private var answerGate:CompletableDeferred<Unit>?=null
     private var answerEntered:CompletableDeferred<Unit>?=null
+    private var restartOfferGate:CompletableDeferred<Unit>?=null
+    private var restartOfferEntered:CompletableDeferred<Unit>?=null
     private var cameraGate:CompletableDeferred<Unit>?=null
     private var muteGate:CompletableDeferred<Unit>?=null
     private var failMute=false
@@ -134,7 +136,15 @@ class NativeCallStateTest {
             mediaCreated++;report=evidence;mediaFailure=failure
             object:CallMediaSession {
                 override suspend fun start(video:Boolean) { starts++;startGate?.await();check(!failStart) }
-                override suspend fun offer(restart:Boolean):String { if(restart) iceRestarts++;return sdp }
+                override suspend fun offer(restart:Boolean):String {
+                    if(restart) {
+                        iceRestarts++
+                        restartOfferEntered?.complete(Unit)
+                        // An OEM SDP callback may finish despite cancellation.
+                        restartOfferGate?.let { withContext(NonCancellable) { it.await() } }
+                    }
+                    return sdp
+                }
                 override suspend fun answer(remote:String): String {
                     answerEntered?.complete(Unit)
                     // Model uncooperative native callbacks: cancellation of a
@@ -165,6 +175,25 @@ class NativeCallStateTest {
     }
     private suspend fun waitPhase(phase:NativeCallPhase)=withTimeout(5000) { vm.state.first { it.phase==phase } }
     private suspend fun awaitSent(kind:CallSignalKind)=withTimeout(5000) { sent.first { it.any { s->s.kind==kind } }.last { it.kind==kind } }
+    // The fake relay can resume via Dispatchers.IO while viewModelScope uses
+    // a virtual Main dispatcher. Advance short virtual intervals and allow IO
+    // to complete between ticks. Never infer completion from a single clock
+    // jump or from a virtual withTimeout that advances ahead of IO.
+    private fun driveRelayRetries(offerId: String, expected: Int) {
+        var ticks = 0
+        while (outgoingSendAttempts.count { it.first == offerId } < expected && ticks < 120) {
+            mainTestDispatcher.scheduler.advanceTimeBy(250L)
+            mainTestDispatcher.scheduler.runCurrent()
+            Thread.sleep(20L)
+            ticks++
+        }
+        assertEquals("All expected encrypted signal attempts must actually occur",
+            expected, outgoingSendAttempts.count { it.first == offerId })
+        repeat(8) {
+            mainTestDispatcher.scheduler.runCurrent()
+            Thread.sleep(10L)
+        }
+    }
     private suspend fun inject(signal:CallSignal, badAad:Boolean=false) {
         val cipher=PeerMessageCrypto.encrypt(peer,own.id,own.publicKey,if(badAad) signal.id else CallSignaling.aadId(signal.id),CallSignaling.encode(signal))
         inbox+=JSONObject().put("id",signal.id).put("callId",signal.callId).put("senderId",peer.id).put("recipientId",own.id)
@@ -545,6 +574,57 @@ class NativeCallStateTest {
         vm.end();waitPhase(NativeCallPhase.ENDED)
     }
 
+    @Test fun recoveredRtpWhileNativeRestartOfferIsPendingMustNotSendStaleSdp() = runBlocking<Unit> {
+        restartOfferGate=CompletableDeferred()
+        restartOfferEntered=CompletableDeferred()
+        vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
+        val invite=awaitSent(CallSignalKind.INVITE)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,false))
+        awaitSent(CallSignalKind.OFFER)
+        report!!(CallMediaEvidence(true,5,5));waitPhase(NativeCallPhase.CONNECTED)
+        report!!(CallMediaEvidence(false,5,5));waitPhase(NativeCallPhase.RECONNECTING)
+        mainTestDispatcher.scheduler.advanceTimeBy(ICE_RESTART_GRACE_MS + 1L)
+        mainTestDispatcher.scheduler.runCurrent()
+        withTimeout(3_000) { restartOfferEntered!!.await() }
+        assertEquals(1,iceRestarts)
+        // Media recovers while native offer() is suspended; completing it
+        // must not renegotiate a healthy call.
+        report!!(CallMediaEvidence(true,6,6));waitPhase(NativeCallPhase.CONNECTED)
+        restartOfferGate!!.complete(Unit)
+        delay(50)
+        assertEquals("Recovered RTP must discard late ICE SDP",1,
+            sent.value.count { it.kind==CallSignalKind.OFFER })
+        assertEquals(NativeCallPhase.CONNECTED,vm.state.value.phase)
+        vm.end();waitPhase(NativeCallPhase.ENDED)
+    }
+
+    @Test fun previousOutageNativeOfferCannotSignalDuringNewDisconnectGeneration() = runBlocking<Unit> {
+        restartOfferGate=CompletableDeferred()
+        restartOfferEntered=CompletableDeferred()
+        vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
+        val invite=awaitSent(CallSignalKind.INVITE)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,false))
+        awaitSent(CallSignalKind.OFFER)
+        report!!(CallMediaEvidence(true,5,5));waitPhase(NativeCallPhase.CONNECTED)
+        report!!(CallMediaEvidence(false,5,5));waitPhase(NativeCallPhase.RECONNECTING)
+        mainTestDispatcher.scheduler.advanceTimeBy(ICE_RESTART_GRACE_MS + 1L)
+        mainTestDispatcher.scheduler.runCurrent()
+        withTimeout(3_000) { restartOfferEntered!!.await() }
+        report!!(CallMediaEvidence(true,6,6));waitPhase(NativeCallPhase.CONNECTED)
+        report!!(CallMediaEvidence(false,6,6));waitPhase(NativeCallPhase.RECONNECTING)
+        // The first native offer finishes in the second outage. Its old
+        // generation must not publish a mismatched SDP or answer slot.
+        restartOfferGate!!.complete(Unit)
+        mainTestDispatcher.scheduler.advanceTimeBy(ICE_RESTART_GRACE_MS + 1L)
+        mainTestDispatcher.scheduler.runCurrent()
+        delay(50)
+        assertEquals("Old outage must not send into newer generation",1,
+            sent.value.count { it.kind==CallSignalKind.OFFER })
+        assertEquals(1,iceRestarts)
+        assertEquals(NativeCallPhase.RECONNECTING,vm.state.value.phase)
+        vm.end();waitPhase(NativeCallPhase.ENDED)
+    }
+
     @Test fun endingCallDuringReconnectGraceCannotIssueLateOffer() = runBlocking<Unit> {
         vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
         val invite=awaitSent(CallSignalKind.INVITE)
@@ -772,4 +852,48 @@ class NativeCallStateTest {
         report!!(CallMediaEvidence(true,10,10))
         assertEquals(NativeCallPhase.IDLE,vm.state.value.phase);assertEquals(1,closes)
     }
+    @Test fun acceptedOfferWithLostRelayAcksDoesNotEndVerifiedTwoWayAudio() = runBlocking<Unit> {
+        vm.outgoing(UserCodes.conversationId(own.id, peer.id), false, true)
+        val invite = awaitSent(CallSignalKind.INVITE)
+        // Model a relay that stored the SDP once, allowing the peer to connect,
+        // but whose HTTP response is stripped by an intermediary on every try.
+        outgoingMissingAckResponses = CallSignalRetryPolicy.MAX_ATTEMPTS
+        inject(CallSignaling.create(invite.callId, CallSignalKind.ACCEPT, false))
+        val offer = withTimeout(3_000) {
+            sent.first { list -> list.any { it.kind == CallSignalKind.OFFER } }
+                .first { it.kind == CallSignalKind.OFFER }
+        }
+        report!!(CallMediaEvidence(true, 7, 9))
+        waitPhase(NativeCallPhase.CONNECTED)
+        driveRelayRetries(offer.id, CallSignalRetryPolicy.MAX_ATTEMPTS)
+        assertEquals("Same encrypted OFFER was tried exactly six times",
+            CallSignalRetryPolicy.MAX_ATTEMPTS,
+            outgoingSendAttempts.count { it.first == offer.id })
+        assertEquals("Relay UUID idempotency stores only one OFFER", 1,
+            sent.value.count { it.kind == CallSignalKind.OFFER })
+        assertEquals("Live authenticated media outlives a temporary HTTP ACK outage",
+            NativeCallPhase.CONNECTED, vm.state.value.phase)
+        assertEquals(0, closes)
+        vm.end()
+        waitPhase(NativeCallPhase.ENDED)
+        assertEquals(1, closes)
+    }
+
+    @Test fun lostRelayAcksWithoutRealMediaProofStillFailClosed() = runBlocking<Unit> {
+        vm.outgoing(UserCodes.conversationId(own.id, peer.id), false, true)
+        val invite = awaitSent(CallSignalKind.INVITE)
+        outgoingMissingAckResponses = CallSignalRetryPolicy.MAX_ATTEMPTS
+        inject(CallSignaling.create(invite.callId, CallSignalKind.ACCEPT, false))
+        val offer = withTimeout(3_000) {
+            sent.first { list -> list.any { it.kind == CallSignalKind.OFFER } }
+                .first { it.kind == CallSignalKind.OFFER }
+        }
+        // No real RTP evidence: after exhausted relay replies, fail closed.
+        driveRelayRetries(offer.id, CallSignalRetryPolicy.MAX_ATTEMPTS)
+        waitPhase(NativeCallPhase.FAILED)
+        assertEquals(CallSignalRetryPolicy.MAX_ATTEMPTS,
+            outgoingSendAttempts.count { it.first == offer.id })
+        assertEquals(1, closes)
+    }
+
 }
