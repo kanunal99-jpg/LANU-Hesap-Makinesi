@@ -175,6 +175,25 @@ class NativeCallStateTest {
     }
     private suspend fun waitPhase(phase:NativeCallPhase)=withTimeout(5000) { vm.state.first { it.phase==phase } }
     private suspend fun awaitSent(kind:CallSignalKind)=withTimeout(5000) { sent.first { it.any { s->s.kind==kind } }.last { it.kind==kind } }
+    // The fake relay can resume via Dispatchers.IO while viewModelScope uses
+    // a virtual Main dispatcher. Advance short virtual intervals and allow IO
+    // to complete between ticks. Never infer completion from a single clock
+    // jump or from a virtual withTimeout that advances ahead of IO.
+    private fun driveRelayRetries(offerId: String, expected: Int) {
+        var ticks = 0
+        while (outgoingSendAttempts.count { it.first == offerId } < expected && ticks < 120) {
+            mainTestDispatcher.scheduler.advanceTimeBy(250L)
+            mainTestDispatcher.scheduler.runCurrent()
+            Thread.sleep(20L)
+            ticks++
+        }
+        assertEquals("All expected encrypted signal attempts must actually occur",
+            expected, outgoingSendAttempts.count { it.first == offerId })
+        repeat(8) {
+            mainTestDispatcher.scheduler.runCurrent()
+            Thread.sleep(10L)
+        }
+    }
     private suspend fun inject(signal:CallSignal, badAad:Boolean=false) {
         val cipher=PeerMessageCrypto.encrypt(peer,own.id,own.publicKey,if(badAad) signal.id else CallSignaling.aadId(signal.id),CallSignaling.encode(signal))
         inbox+=JSONObject().put("id",signal.id).put("callId",signal.callId).put("senderId",peer.id).put("recipientId",own.id)
@@ -846,21 +865,7 @@ class NativeCallStateTest {
         }
         report!!(CallMediaEvidence(true, 7, 9))
         waitPhase(NativeCallPhase.CONNECTED)
-        // Repository retry delays use the test scheduler while the relay and
-        // crypto work may resume from a different dispatcher. An arbitrary
-        // one-shot time jump is NOT proof that all HTTP attempts finished.
-        // Drive a bounded amount of time in small increments, yielding to
-        // real asynchronous completions between scheduler ticks.
-        withTimeout(20_000) {
-            while (outgoingSendAttempts.count { it.first == offer.id } <
-                CallSignalRetryPolicy.MAX_ATTEMPTS) {
-                mainTestDispatcher.scheduler.advanceTimeBy(750L)
-                mainTestDispatcher.scheduler.runCurrent()
-                delay(25L)
-            }
-        }
-        mainTestDispatcher.scheduler.runCurrent()
-        delay(50L)
+        driveRelayRetries(offer.id, CallSignalRetryPolicy.MAX_ATTEMPTS)
         assertEquals("Same encrypted OFFER was tried exactly six times",
             CallSignalRetryPolicy.MAX_ATTEMPTS,
             outgoingSendAttempts.count { it.first == offer.id })
@@ -883,17 +888,8 @@ class NativeCallStateTest {
             sent.first { list -> list.any { it.kind == CallSignalKind.OFFER } }
                 .first { it.kind == CallSignalKind.OFFER }
         }
-        // Do not synthesize a CONNECTED state from HTTP success or old RTP.
-        // Wait for all six attempted ACK checks, not a speculative time jump.
-        withTimeout(20_000) {
-            while (outgoingSendAttempts.count { it.first == offer.id } <
-                CallSignalRetryPolicy.MAX_ATTEMPTS) {
-                mainTestDispatcher.scheduler.advanceTimeBy(750L)
-                mainTestDispatcher.scheduler.runCurrent()
-                delay(25L)
-            }
-        }
-        mainTestDispatcher.scheduler.runCurrent()
+        // No real RTP evidence: after exhausted relay replies, fail closed.
+        driveRelayRetries(offer.id, CallSignalRetryPolicy.MAX_ATTEMPTS)
         waitPhase(NativeCallPhase.FAILED)
         assertEquals(CallSignalRetryPolicy.MAX_ATTEMPTS,
             outgoingSendAttempts.count { it.first == offer.id })
