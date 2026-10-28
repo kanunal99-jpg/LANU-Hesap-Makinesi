@@ -39,6 +39,13 @@ class CallWakeNotificationTest {
         CallWakePolicy.privateAreaVisible = false
     }
 
+    @Test fun olderAndroidUsesCompatibleCallForegroundServiceOverload() {
+        for (api in 23..29) assertFalse(
+            com.example.core.calls.CallForegroundService.useTypedMediaForegroundService(api))
+        for (api in 30..36) assertTrue(
+            com.example.core.calls.CallForegroundService.useTypedMediaForegroundService(api))
+    }
+
     @Test fun revokedCallConsentCannotReopenInactiveCallUi() {
         assertFalse(CallWakeTapPolicy.mayOpenCallUi(false, false))
         assertTrue(CallWakeTapPolicy.mayOpenCallUi(true, false))

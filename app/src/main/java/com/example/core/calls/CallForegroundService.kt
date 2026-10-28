@@ -49,7 +49,7 @@ class CallForegroundService : Service() {
                 .setContentIntent(content)
                 .addAction(R.mipmap.ic_launcher, "Bitir", end)
                 .build()
-            if (Build.VERSION.SDK_INT >= 29) {
+            if (useTypedMediaForegroundService(Build.VERSION.SDK_INT)) {
                 val type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
                     (if (video) ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA else 0)
                 startForeground(ONGOING_ID, notification, type)
@@ -104,6 +104,9 @@ class CallForegroundService : Service() {
         private const val ACTION_END = "com.aistudio.lanucalc.kxwzqm.action.LANU_CALL_END"
         @Volatile var isRunning: Boolean = false
             private set
+        // camera/microphone FGS types were added in Android 11 (API 30).
+        // Android 10 uses the basic FGS overload, not unsupported type bits.
+        fun useTypedMediaForegroundService(api: Int): Boolean = api >= 30
         fun start(context: Context, video: Boolean): Boolean = try {
             ContextCompat.startForegroundService(context,
                 Intent(context, CallForegroundService::class.java).putExtra(EXTRA_VIDEO, video))
