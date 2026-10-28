@@ -18,6 +18,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -121,10 +125,23 @@ fun NativeCallHost(model: NativeCallViewModel, request: Pair<String, Boolean>?, 
                         val controlsReady = state.phase in setOf(NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING)
                         CallAudioRouteControls(engine!!, enabled = controlsReady)
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            FilledTonalIconButton(onClick = model::muted, enabled = controlsReady) { Icon(if (state.muted) Icons.Default.MicOff else Icons.Default.Mic, if (state.muted) "Mikrofonu aç" else "Mikrofonu sustur") }
+                            FilledTonalIconButton(
+                                onClick = model::muted, enabled = controlsReady,
+                                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                            ) { Icon(if (state.muted) Icons.Default.MicOff else Icons.Default.Mic,
+                                PrivateCallControlDescriptionPolicy.microphoneToggle(state.muted)) }
                             if (state.video) {
-                                FilledTonalIconButton(onClick = model::camera, enabled = controlsReady) { Icon(if (state.cameraOn) Icons.Default.Videocam else Icons.Default.VideocamOff, "Kamerayı aç/kapat") }
-                                FilledTonalIconButton(onClick = model::switchCamera, enabled = controlsReady && state.cameraOn) { Icon(Icons.Default.Cameraswitch, "Ön/arka kamera") }
+                                FilledTonalIconButton(
+                                    onClick = model::camera, enabled = controlsReady,
+                                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                                ) { Icon(if (state.cameraOn) Icons.Default.Videocam else Icons.Default.VideocamOff,
+                                    PrivateCallControlDescriptionPolicy.cameraToggle(state.cameraOn)) }
+                                FilledTonalIconButton(
+                                    onClick = model::switchCamera,
+                                    enabled = controlsReady && state.cameraOn,
+                                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                                ) { Icon(Icons.Default.Cameraswitch,
+                                    PrivateCallControlDescriptionPolicy.CAMERA_SWITCH) }
                             }
                         }
                         Text("WebRTC gürültü ve yankı azaltma · kalite cihaza ve ortama bağlıdır", style = MaterialTheme.typography.bodySmall)
@@ -168,13 +185,22 @@ private fun CallAudioRouteControls(engine: NativeCallEngine, enabled: Boolean) {
     var menu by remember { mutableStateOf(false) }
     LaunchedEffect(enabled) { if (!enabled) menu = false }
     val bluetooth = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { engine.refreshRoutes() }
+    val routeAnnouncement = CallAudioRouteLabelPolicy.label(
+        route.running, route.status, route.selected, route.pending
+    )
     Box {
         TextButton(
             onClick = { menu = true },
             enabled = enabled,
-            modifier = Modifier.testTag("call_audio_route_status")
+            modifier = Modifier
+                .testTag("call_audio_route_status")
+                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                .semantics {
+                    stateDescription = routeAnnouncement
+                    liveRegion = LiveRegionMode.Polite
+                }
         ) {
-            Text(CallAudioRouteLabelPolicy.label(route.running, route.status, route.selected, route.pending))
+            Text(routeAnnouncement)
         }
         DropdownMenu(expanded = menu && enabled, onDismissRequest = { menu = false }) {
             for (item in route.available.sortedBy { it.ordinal })
