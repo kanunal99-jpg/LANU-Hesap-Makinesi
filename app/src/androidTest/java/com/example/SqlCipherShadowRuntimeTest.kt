@@ -10,7 +10,10 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
 import java.io.FileInputStream
+import java.security.MessageDigest
+import java.util.UUID
 
 /** Real Zetetic SQLCipher+Room tests on an isolated Android runtime.
  * Never opens or writes production lanu_calculator_db and never migrates it.
@@ -155,5 +158,65 @@ class SqlCipherShadowRuntimeTest {
             context.deleteDatabase(name)
             SqlCipherShadowKeyVault.deleteIsolatedFixture(context, name)
         }
+    }
+
+    @Test
+    fun orphanedEncryptedShadowCannotSilentlyMintNewKeyAfterKeystoreLoss() {
+        val name = "lanu_ci_cipher_shadow_orphan_" +
+            UUID.randomUUID().toString().replace("-", "").take(16) + ".db"
+        val path = context.getDatabasePath(name)
+        assertTrue(SqlCipherShadowDatabase.isIsolatedName(name))
+        assertFalse(path.exists())
+        val key = SqlCipherShadowKeyVault.create(context, name)
+        try {
+            val room = SqlCipherShadowDatabase.open(context, name, key)
+            try {
+                room.settingsDao().insertSetting(SettingsEntity("pin_hash", "SYNTHETIC-RETAIN"))
+            } finally { room.close() }
+            assertTrue(path.isFile)
+            val originalHash = MessageDigest.getInstance("SHA-256").digest(path.readBytes())
+            // Simulate loss of both envelope AND AndroidKeyStore alias. The
+            // ciphertext must survive, and create must never rotate its key.
+            SqlCipherShadowKeyVault.deleteIsolatedFixture(context, name)
+            try {
+                SqlCipherShadowKeyVault.create(context, name)
+                fail("Orphaned ciphertext must forbid a new key")
+            } catch (_: IllegalStateException) { }
+            assertArrayEquals("An orphaned encrypted DB must remain intact",
+                originalHash, MessageDigest.getInstance("SHA-256").digest(path.readBytes()))
+            try {
+                SqlCipherShadowKeyVault.read(context, name)
+                fail("Lost wrapped key must not be recovered via plaintext fallback")
+            } catch (_: SecurityException) { }
+        } finally {
+            key.fill(0)
+            context.deleteDatabase(name)
+            SqlCipherShadowKeyVault.deleteIsolatedFixture(context, name)
+        }
+    }
+
+    @Test
+    fun orphanedSqliteSidecarsAlsoBlockReplacementKeyCreation() {
+        val name = "lanu_ci_cipher_shadow_sidecars_" +
+            UUID.randomUUID().toString().replace("-", "").take(12) + ".db"
+        val file = context.getDatabasePath(name)
+        assertTrue(SqlCipherShadowDatabase.isIsolatedName(name))
+        assertFalse(file.exists())
+        for (suffix in listOf("-wal", "-shm", "-journal")) {
+            val sidecar = File(file.absolutePath + suffix)
+            assertTrue(sidecar.parentFile!!.isDirectory || sidecar.parentFile!!.mkdirs())
+            assertTrue("Never overwrite an existing sidecar", sidecar.createNewFile())
+            try {
+                sidecar.writeBytes(byteArrayOf(1, 2, 3, 4))
+                try {
+                    SqlCipherShadowKeyVault.create(context, name)
+                    fail("Orphaned sidecar must block new key: $suffix")
+                } catch (_: IllegalStateException) { }
+                assertArrayEquals(byteArrayOf(1, 2, 3, 4), sidecar.readBytes())
+            } finally {
+                assertTrue("Only the isolated synthetic sidecar is removed", sidecar.delete())
+            }
+        }
+        assertFalse(file.exists())
     }
 }
