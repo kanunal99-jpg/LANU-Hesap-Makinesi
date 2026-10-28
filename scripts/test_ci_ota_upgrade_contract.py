@@ -20,6 +20,67 @@ class TestOtaContract(unittest.TestCase):
         self.assertIn("lanu_ota_verified_phase=$phase", content)
         self.assertIn("verifySameAccountAndAllSevenTablesAfterRealApkReplacement", content)
 
+    def test_signer_mismatch_names_only_the_failing_apk_and_never_installs(self):
+        """Exercise the real OTA shell preflight against disposable signer mocks."""
+        import os
+        import subprocess
+        import tempfile
+
+        good, bad = "a" * 64, "b" * 64
+        cases = {
+            "new.apk": "candidate release vs published baseline",
+            "old-tests.apk": "baseline instrumentation vs published baseline",
+            "new-tests.apk": "candidate instrumentation vs published baseline",
+        }
+        with tempfile.TemporaryDirectory() as root:
+            base = pathlib.Path(root)
+            build_tools = base / "sdk" / "build-tools" / "35.0.0"
+            build_tools.mkdir(parents=True)
+            aapt = build_tools / "aapt"
+            aapt.write_text("""#!/usr/bin/env bash
+set -eu
+case "$(basename "$3")" in
+  *tests.apk) name=com.aistudio.lanucalc.kxwzqm.test ;;
+  *) name=com.aistudio.lanucalc.kxwzqm ;;
+esac
+case "$(basename "$3")" in
+  old*) version=828 ;;
+  *) version=1200 ;;
+esac
+echo "package: name='$name' versionCode='$version' versionName='1.2.0'"
+""")
+            signer = build_tools / "apksigner"
+            signer.write_text("""#!/usr/bin/env bash
+set -eu
+if [[ "$(basename "$3")" == "$BAD_APK" ]]; then
+  digest="$BAD_DIGEST"
+else
+  digest="$GOOD_DIGEST"
+fi
+printf 'Signer #1 certificate SHA-256 digest: %s\n' "$digest"
+""")
+            for tool in (aapt, signer):
+                tool.chmod(0o755)
+            artifacts = [base / name for name in
+                         ("old.apk", "new.apk", "old-tests.apk", "new-tests.apk")]
+            for path in artifacts:
+                path.write_bytes(b"disposable-test-apk")
+            for bad_apk, expected in cases.items():
+                with self.subTest(bad_apk=bad_apk):
+                    env = dict(os.environ, ANDROID_HOME=str(base / "sdk"),
+                               BAD_APK=bad_apk, GOOD_DIGEST=good, BAD_DIGEST=bad)
+                    proc = subprocess.run(
+                        ["bash", str(ROOT / "scripts/ci_ota_upgrade_acceptance.sh"),
+                         *(str(x) for x in artifacts), "828", "1200"],
+                        env=env, capture_output=True, text=True, check=False)
+                    output = proc.stdout + proc.stderr
+                    self.assertNotEqual(0, proc.returncode)
+                    self.assertIn(expected, output)
+                    self.assertIn("preserve previous installation", output)
+                    self.assertNotIn(good, output)
+                    self.assertNotIn(bad, output)
+                    self.assertNotIn("Installing the EXACT", output)
+
     def test_publish_requires_main_only_signed_upgrade_acceptance(self):
         workflow = (ROOT / ".github/workflows/android.yml").read_text()
         self.assertIn("    needs: [build-and-test, android-runtime-acceptance, ota-upgrade-acceptance]", workflow)
