@@ -13,6 +13,10 @@ import com.example.core.calls.CallWakeNotification
 import com.example.core.calls.CallWakeTapPolicy
 import com.example.core.calls.CallWakePolicy
 import com.example.core.calls.CallWakePreferences
+import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
@@ -324,4 +328,59 @@ class CallWakeNotificationTest {
         manager.cancel(8130)
     }
 
+
+    @Test fun revokedOldWakeCannotCancelNewerConcurrentCallNotification() {
+        val firstPosted = CountDownLatch(1)
+        val secondReady = CountDownLatch(1)
+        val secondPosted = CountDownLatch(1)
+        val events = Collections.synchronizedList(mutableListOf<String>())
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            val older = executor.submit<Boolean> {
+                assertTrue("Second FCM callback must be ready", secondReady.await(2, TimeUnit.SECONDS))
+                var consentChecks = 0
+                CallWakePolicy.publishWhileConsented(
+                    at = 1710000090101L,
+                    isConsented = { ++consentChecks <= 2 },
+                    notify = {
+                        events.add("older-post")
+                        firstPosted.countDown()
+                        // Without transaction serialization, the newer alert posts
+                        // while this older notification is waiting to be revoked.
+                        secondPosted.await(400, TimeUnit.MILLISECONDS)
+                    },
+                    cancel = { events.add("older-cancel") }
+                )
+            }
+            val newer = executor.submit<Boolean> {
+                secondReady.countDown()
+                assertTrue(firstPosted.await(2, TimeUnit.SECONDS))
+                CallWakePolicy.publishWhileConsented(
+                    at = 1710000090102L,
+                    isConsented = { true },
+                    notify = {
+                        events.add("newer-post")
+                        secondPosted.countDown()
+                    },
+                    cancel = { error("A consented newer call must not be cancelled") }
+                )
+            }
+            assertFalse(older.get(4, TimeUnit.SECONDS))
+            assertTrue(newer.get(4, TimeUnit.SECONDS))
+            assertEquals(
+                "An older revoked callback must finish cancelling before the newer post",
+                listOf("older-post", "older-cancel", "newer-post"),
+                events.toList()
+            )
+            assertFalse("A successful newer call remains deduplicated",
+                CallWakePolicy.publishWhileConsented(
+                    at = 1710000090102L,
+                    isConsented = { true },
+                    notify = { error("Duplicate wake") },
+                    cancel = { error("Duplicate wake") }
+                ))
+        } finally {
+            executor.shutdownNow()
+        }
+    }
 }
