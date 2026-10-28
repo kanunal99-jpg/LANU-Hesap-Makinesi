@@ -76,7 +76,8 @@ object PrivateOfficeDocumentPreflight {
                 // name as an actual OOXML document. Rejected even if a later
                 // filename normalization would otherwise match.
                 if (entry.isDirectory) {
-                    require(path != required && path != "[Content_Types].xml") {
+                    val directoryName = path.trimEnd('/')
+                    require(directoryName != required && directoryName != "[Content_Types].xml") {
                         "Office paketinin zorunlu parçası bir dosya olmalı."
                     }
                     continue
