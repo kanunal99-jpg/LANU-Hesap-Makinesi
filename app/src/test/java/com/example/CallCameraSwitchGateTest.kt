@@ -5,6 +5,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 
 /** A pure-state unit regression; real Camera1/Camera2 needs physical OEM acceptance. */
@@ -35,10 +36,10 @@ class CallCameraSwitchGateTest {
         gate.invalidate()
         assertFalse(gate.finish(old))
         assertNull(gate.begin(false))
-        val fresh = assertNotNullAndReturn(gate.begin(true))
+        assertNull("A closed call must never reopen its camera switch gate", gate.begin(true))
+        gate.invalidate() // Idempotent, even if an OEM callback is still pending
         assertFalse(gate.finish(old))
         assertNull(gate.begin(true))
-        assertTrue(gate.finish(fresh))
     }
 
     @Test fun asynchronousOemCallbackAndUiRaceStillAllowOneOwnedSwitch() {
@@ -46,16 +47,23 @@ class CallCameraSwitchGateTest {
         val first = assertNotNullAndReturn(gate.begin(true))
         val started = CountDownLatch(1)
         val release = CountDownLatch(1)
+        val workerFailure = AtomicReference<Throwable?>()
         val worker = thread(start = true) {
-            started.countDown()
-            check(release.await(5, TimeUnit.SECONDS))
-            assertTrue(gate.finish(first))
+            try {
+                started.countDown()
+                check(release.await(5, TimeUnit.SECONDS))
+                assertTrue(gate.finish(first))
+            } catch (failure: Throwable) {
+                // A failed assertion on a worker thread must fail JUnit too.
+                workerFailure.set(failure)
+            }
         }
         assertTrue(started.await(5, TimeUnit.SECONDS))
         assertNull(gate.begin(true))
         release.countDown()
         worker.join(5_000)
         assertFalse(worker.isAlive)
+        assertNull("Background OEM callback assertion failed", workerFailure.get())
         assertNotNull(gate.begin(true))
     }
 
