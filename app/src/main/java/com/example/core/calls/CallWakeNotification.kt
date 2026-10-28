@@ -114,6 +114,11 @@ object CallWakePolicy {
     // Android 13+ notifications require runtime permission. The calculator
     // and foreground E2EE messages must remain usable without this permission.
     fun requiresNotificationPermission(api: Int): Boolean = api >= 33
+    // A muted (LOW/MIN) channel is still a valid silent notification; a
+    // blocked (NONE) or missing channel is not delivery. Do not consume a
+    // call's one-shot wake claim when Android cannot display it.
+    fun channelCanDisplay(api: Int, importance: Int?): Boolean =
+        api < 26 || (importance != null && importance > NotificationManager.IMPORTANCE_NONE)
     // Process-local only: the private foreground host already rings by E2EE.
     @Volatile var privateAreaVisible: Boolean = false
     // Duplicate wake hints should never repeatedly ring. Only timestamp
@@ -267,6 +272,11 @@ object CallWakeNotification {
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return@safePlatformDelivery false
 
         if (Build.VERSION.SDK_INT >= 26) ensureChannel(manager)
+        if (!CallWakePolicy.channelCanDisplay(
+                Build.VERSION.SDK_INT,
+                if (Build.VERSION.SDK_INT >= 26)
+                    manager.getNotificationChannel(CHANNEL_ID)?.importance else null
+            )) return@safePlatformDelivery false
 
         // No call ID/peer ID/hidden-navigation extras: opening the notification
         // always follows the ordinary calculator -> 2011. -> optional PIN gate.
