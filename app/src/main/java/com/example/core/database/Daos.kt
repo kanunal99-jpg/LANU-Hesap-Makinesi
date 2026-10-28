@@ -64,6 +64,24 @@ interface SettingsDao {
     @Query("DELETE FROM app_settings WHERE `key` = :key")
     suspend fun deleteSetting(key: String)
 
+    /**
+     * An old identity may have no contacts/messages yet still own durable
+     * drafts, delivery retry markers, private contact proofs or remote account
+     * registration. Never bind such settings to a different restored identity.
+     * PIN-only settings intentionally remain portable across fresh restores.
+     */
+    @Query("""
+        SELECT EXISTS(SELECT 1 FROM app_settings WHERE
+            `key` IN ('lanu_remote_registered', 'lanu_full_restore_identity')
+            OR `key` GLOB 'lanu_peer_*'
+            OR `key` GLOB 'lanu_hidden_*'
+            OR `key` GLOB 'lanu_draft_*'
+            OR `key` GLOB 'lanu_retry_after_*'
+            OR `key` GLOB 'lanu_message_revision_*'
+        )
+    """)
+    suspend fun hasIdentityBoundSettings(): Boolean
+
     @Transaction
     suspend fun persistPinGuard(failures: Int, until: Long, strike: Int) {
         // The deadline and its escalation tier must commit or roll back together.

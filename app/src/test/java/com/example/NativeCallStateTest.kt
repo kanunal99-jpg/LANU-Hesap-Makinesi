@@ -58,7 +58,10 @@ class NativeCallStateTest {
     private var outgoingMissingAckResponses=0
     private var outgoingLoseReplyAfterAccepted=false
     private val acceptedCallSignalIds=mutableSetOf<String>()
-    private val outgoingSendAttempts=mutableListOf<Triple<String,String,String>>()
+    // callSend callbacks may run on Dispatchers.IO while retry assertions
+    // run on the coroutine-test Main dispatcher. A plain MutableList has
+    // neither safe iteration nor cross-thread visibility guarantees.
+    private val outgoingSendAttempts=java.util.concurrent.CopyOnWriteArrayList<Triple<String,String,String>>()
     private var incomingChatEvent: JSONObject? = null
     private var chatAckCount=0
     private var acceptGate:CompletableDeferred<Unit>?=null

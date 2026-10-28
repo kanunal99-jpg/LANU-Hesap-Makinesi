@@ -1,5 +1,17 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 28.10.2026 — Tüm Room/yerel veritabanı güvenliği 80+ hedefi ve yayın kararı
+
+**Yeni kullanıcı talebi:** LANU'nun Room v4 / tüm yerel veritabanı koruması, atomik tam yedek–geri yükleme bütünlüğü, gerçek bozulma koruması ve kayıpsız OTA bakımından kanıtlı en az 80 puan düzeyine geliştirilecek; gerekli güvenli testlerden sonra imzalı APK yayımlanacaktır.
+
+- Öncelikli P0 risk: Şifreli tam yedekten geri yükleme esnasında SQLite `INSERT OR IGNORE`/trigger/çatışma nedeniyle kayıtların sessizce atlanması veya değişmesi; yedi tablo kaydı transaction COMMIT öncesi kayıpsız ve tür/alan eşleşmesiyle tekrar doğrulanır. Hata halinde **tüm Room yazımları geri alınır** ve önceki kimlik korunur.
+- Kullanıcının mevcut PIN'i, mesaj kuyruğu, rehber, hesap/çağrı geçmişi, `2011.`, Keystore E2EE kimliği ve imzalı APK sertifikası korunur. `fallbackToDestructiveMigration`, otomatik corruption delete, eski Room tablosu sıfırlaması, gizli veri loglama ve arşiv çakışmalarını sessizce görmezden gelmek yasaktır.
+- Tam cihaz içi SQLCipher hâlâ etkin değildir; canlı şifreleme ve gerçek cihazda disk/restore kabulü olmadan 'veritabanı tamamen şifreli', '80/100 kanıtlı' veya '2 gerçek cihazda veri koruması doğrulandı' denmez.
+- Gereken yayın kapıları: son HEAD PR CI / Android API34 testleri / R8 / lint başarı → `main` merge → **ayrı** `main` CI → stabil imzalı GitHub Release APK, SHA256 ve açık indirme read-back. CI başarısızsa yayın engellenir.
+
+---
+
+
 ## 28.10.2026 — Bağlantı kesintisi ve iki cihazda görüşme sürekliliği (kullanıcı kabul standardı)
 
 **Bağlayıcı kullanıcı kararı:** LANU'da kısa radyo/Wi‑Fi geçişi, çevrimdışı anları, relay HTTP yanıt kaybı ve geciken ICE/FCM olayları görüşmeyi veya kullanıcı verilerini gereksiz yere bozmayacak. Önce somut kök neden, sonra sınırlı güvenli yeniden deneme + gerçek regresyon + iki fiziksel cihaz kabulü yapılır.

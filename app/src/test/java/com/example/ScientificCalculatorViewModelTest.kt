@@ -60,6 +60,7 @@ class ScientificCalculatorViewModelTest {
         override suspend fun getSettingValue(key: String): String? = "16"
         override suspend fun insertSetting(setting: SettingsEntity) {}
         override suspend fun deleteSetting(key: String) {}
+        override suspend fun hasIdentityBoundSettings(): Boolean = false
     }
 
     private lateinit var repository: CalculatorRepository
