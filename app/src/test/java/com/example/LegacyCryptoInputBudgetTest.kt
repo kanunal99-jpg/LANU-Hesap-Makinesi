@@ -1,6 +1,5 @@
 package com.example
 
-import androidx.test.core.app.ApplicationProvider
 import com.example.core.crypto.CryptoUtils
 import org.junit.Assert.*
 import org.junit.Test
