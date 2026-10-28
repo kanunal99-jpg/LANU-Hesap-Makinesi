@@ -156,6 +156,10 @@ object CallWakePolicy {
      * retract that specific call ID if consent was withdrawn in flight.
      * This does not touch independent message alerts or start media.
      */
+    // All call hints share one Android notification ID. Serialize post/retract
+    // transactions so an older revoked wake cannot cancel a newer valid alert.
+    // The lock covers the post-consent check and cancellation, not UI consent writes.
+    @Synchronized
     fun publishWhileConsented(
         at: Long,
         isConsented: () -> Boolean,
