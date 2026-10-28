@@ -11,13 +11,16 @@ class CallSignalRetryPolicyTest {
         val cases = listOf(IOException("offline")) +
             listOf(408, 500, 502, 503, 504).map { RelayException(it, "offline") }
         for (failure in cases) {
-            assertEquals(400L, CallSignalRetryPolicy.delayAfter(failure, 1))
-            assertEquals(1_000L, CallSignalRetryPolicy.delayAfter(failure, 2))
-            assertNull(CallSignalRetryPolicy.delayAfter(failure, 3))
+            assertEquals(350L, CallSignalRetryPolicy.delayAfter(failure, 1))
+            assertEquals(900L, CallSignalRetryPolicy.delayAfter(failure, 2))
+            assertEquals(1_700L, CallSignalRetryPolicy.delayAfter(failure, 3))
+            assertEquals(3_000L, CallSignalRetryPolicy.delayAfter(failure, 4))
+            assertEquals(4_500L, CallSignalRetryPolicy.delayAfter(failure, 5))
+            assertNull(CallSignalRetryPolicy.delayAfter(failure, 6))
             assertNull(CallSignalRetryPolicy.delayAfter(failure, Int.MAX_VALUE))
             assertNull(CallSignalRetryPolicy.delayAfter(failure, -1))
         }
-        assertEquals(3, CallSignalRetryPolicy.MAX_ATTEMPTS)
+        assertEquals(6, CallSignalRetryPolicy.MAX_ATTEMPTS)
     }
 
     @Test fun authQuotaAndProtocolFailuresMustNeverRetry() {
