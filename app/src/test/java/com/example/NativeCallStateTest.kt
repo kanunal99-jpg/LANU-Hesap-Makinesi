@@ -25,6 +25,9 @@ import java.util.UUID
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk=[28],application=Application::class)
 class NativeCallStateTest {
+    // Coroutine test Main uses virtual time; advance it explicitly for the
+    // deferred ICE grace rather than waiting on real runBlocking wall time.
+    private val mainTestDispatcher = UnconfinedTestDispatcher()
     private lateinit var db: AppDatabase
     private lateinit var repo: CommunicationRepository
     private lateinit var own: MessagingIdentity
@@ -64,7 +67,7 @@ class NativeCallStateTest {
     private val sdp="v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=fingerprint:sha-256 AA:BB\r\n"
 
     @Before fun setup() = runBlocking {
-        Dispatchers.setMain(UnconfinedTestDispatcher())
+        Dispatchers.setMain(mainTestDispatcher)
         val context=ApplicationProvider.getApplicationContext<Context>()
         own=UserCodes.create(); peer=UserCodes.create()
         db=Room.inMemoryDatabaseBuilder(context,AppDatabase::class.java).allowMainThreadQueries().build()
@@ -527,11 +530,14 @@ class NativeCallStateTest {
         // burn our only ICE restart before a subsequent, genuine network loss.
         delay(100)
         report!!(CallMediaEvidence(true,6,6));waitPhase(NativeCallPhase.CONNECTED)
-        delay(ICE_RESTART_GRACE_MS + 150L)
+        mainTestDispatcher.scheduler.advanceTimeBy(ICE_RESTART_GRACE_MS + 150L)
+        mainTestDispatcher.scheduler.runCurrent()
         assertEquals("A self-healed handover must not restart ICE",0,iceRestarts)
         assertEquals(1,sent.value.count { it.kind==CallSignalKind.OFFER })
         // The next, persistent disconnection must still own one restart.
         report!!(CallMediaEvidence(false,6,6));waitPhase(NativeCallPhase.RECONNECTING)
+        mainTestDispatcher.scheduler.advanceTimeBy(ICE_RESTART_GRACE_MS + 1L)
+        mainTestDispatcher.scheduler.runCurrent()
         withTimeout(5_000) {
             sent.first { list -> list.count { it.kind==CallSignalKind.OFFER } == 2 }
         }
@@ -547,7 +553,8 @@ class NativeCallStateTest {
         report!!(CallMediaEvidence(true,5,5));waitPhase(NativeCallPhase.CONNECTED)
         report!!(CallMediaEvidence(false,5,5));waitPhase(NativeCallPhase.RECONNECTING)
         vm.end();waitPhase(NativeCallPhase.ENDED)
-        delay(ICE_RESTART_GRACE_MS + 150L)
+        mainTestDispatcher.scheduler.advanceTimeBy(ICE_RESTART_GRACE_MS + 150L)
+        mainTestDispatcher.scheduler.runCurrent()
         assertEquals("Closed foreground call must not start a stale ICE restart",0,iceRestarts)
         assertEquals(1,sent.value.count { it.kind==CallSignalKind.OFFER })
         assertEquals(1,closes)
@@ -560,6 +567,8 @@ class NativeCallStateTest {
         awaitSent(CallSignalKind.OFFER)
         report!!(CallMediaEvidence(true,8,11));waitPhase(NativeCallPhase.CONNECTED)
         report!!(CallMediaEvidence(false,8,11));waitPhase(NativeCallPhase.RECONNECTING)
+        mainTestDispatcher.scheduler.advanceTimeBy(ICE_RESTART_GRACE_MS + 1L)
+        mainTestDispatcher.scheduler.runCurrent()
         withTimeout(5000) { sent.first { list -> list.count { it.kind==CallSignalKind.OFFER } >= 2 } }
         assertEquals("Only one ICE restart may be attempted",1,iceRestarts)
         report!!(CallMediaEvidence(false,0,0))
@@ -602,6 +611,8 @@ class NativeCallStateTest {
         withTimeout(3000) { while(remoteAnswers < 1) delay(10) }
         report!!(CallMediaEvidence(true,10,10));waitPhase(NativeCallPhase.CONNECTED)
         report!!(CallMediaEvidence(false,10,10));waitPhase(NativeCallPhase.RECONNECTING)
+        mainTestDispatcher.scheduler.advanceTimeBy(ICE_RESTART_GRACE_MS + 1L)
+        mainTestDispatcher.scheduler.runCurrent()
         withTimeout(5000) { sent.first { events -> events.count { it.kind==CallSignalKind.OFFER } == 2 } }
         assertEquals(1,iceRestarts)
 
