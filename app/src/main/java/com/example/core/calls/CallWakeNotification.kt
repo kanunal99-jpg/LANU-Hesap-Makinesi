@@ -169,6 +169,11 @@ object CallWakePolicy {
                 }
             }
         }
+        // If consent was withdrawn after the first check, no alert was
+        // delivered (or the just-posted alert was retracted). Do not burn the
+        // deduplication claim: a later valid retry after fresh opt-in must work.
+        // Successful delivery still keeps its claim to suppress duplicate rings.
+        if (succeeded && !delivered) releaseFailed(at)
         return succeeded && delivered
     }
 
