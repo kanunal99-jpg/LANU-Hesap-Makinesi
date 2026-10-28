@@ -84,6 +84,32 @@ class RoomCorruptionRetentionTest {
         }
     }
 
+    @Test fun malformedExistingDatabaseIsNeverReplacedByAnEmptyOne() {
+        val name = "lanu_corruption_invalid_file_test.db"
+        context.deleteDatabase(name) // Only isolated synthetic test data.
+        val path = context.getDatabasePath(name)
+        path.parentFile?.mkdirs()
+        val corruptedBytes = ByteArray(8192) { 0x5c.toByte() }
+        path.writeBytes(corruptedBytes)
+        val factory = PreserveCorruptRoomFactory()
+        val helper = factory.create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(name).callback(callback()).build()
+        )
+        try {
+            var opened = false
+            try { helper.writableDatabase; opened = true }
+            catch (_: RuntimeException) { /* Expected invalid SQLite header. */ }
+            assertFalse("Corrupt DB must not silently become an empty v4 DB", opened)
+            assertTrue("The existing DB file must never be deleted", path.isFile)
+            assertArrayEquals("Preserve damaged bytes for controlled restore",
+                corruptedBytes, path.readBytes())
+        } finally {
+            helper.close()
+            context.deleteDatabase(name)
+        }
+    }
+
     @Test fun preservesCallerConfigurationAndNeverInvokesDestructiveCallback() {
         val name = "lanu_corruption_delegate_test.db"
         context.deleteDatabase(name)

@@ -16,8 +16,18 @@ def verify_room_source(app_database: str, all_kotlin_files: dict[str, str]) -> N
         raise ValueError("Room compiler schema export must remain enabled")
     if not re.search(r"\bclass\s+AppDatabase\s*:\s*RoomDatabase", app_database):
         raise ValueError("AppDatabase implementation missing")
+    # Room's default corruption handler can erase a private DB even when
+    # fallbackToDestructiveMigration is absent. Require the independent,
+    # non-deleting callback in the production singleton builder.
+    if not re.search(
+        r"\.\s*openHelperFactory\s*\(\s*PreserveCorruptRoomFactory\s*\(\s*\)\s*\)",
+        app_database
+    ):
+        raise ValueError("Room corruption retention factory is mandatory")
     for name, source in all_kotlin_files.items():
-        if UNSAFE.search(source):
+        if UNSAFE.search(source) or re.search(
+            r"\.\s*allowDataLossOnRecovery\s*\(\s*true\s*\)", source
+        ):
             raise ValueError(f"Unsafe destructive/foreground Room database action in {name}")
 
 
