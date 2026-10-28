@@ -61,20 +61,47 @@ if [[ "$new_test_cert" != "$old_cert" ]]; then
   exit 1
 fi
 
+# Instrumentation can include exception messages, stack traces, app data or
+# ciphertext. On failure print ONLY fixed checkpoints and exception CLASS names.
+# Never dump raw adb output into a public GitHub Actions log.
+emit_safe_probe_diagnostics() {
+  local phase="$1" output="$2" line checkpoint exception_class
+  while IFS= read -r line; do
+    case "$line" in
+      "INSTRUMENTATION_STATUS: lanu_ota_checkpoint="*)
+        checkpoint="${line#*=}"
+        case "$checkpoint" in
+          gate|fresh-identity|identity-crypto|database-open|seven-tables-written|sentinel-written|pending-verified)
+            echo "OTA $phase checkpoint: $checkpoint" ;;
+        esac ;;
+      "INSTRUMENTATION_STATUS_CODE: -1"|"INSTRUMENTATION_STATUS_CODE: -2"|"INSTRUMENTATION_CODE: 0"|"INSTRUMENTATION_CODE: -1")
+        echo "OTA $phase runner: $line" ;;
+    esac
+  done <<< "$output"
+  exception_class="$(grep -Eo '(java|android|kotlin)\\.[A-Za-z0-9_.]*(Exception|Error)' <<< "$output" | sort -u | head -n 5 || true)"
+  if [[ -n "$exception_class" ]]; then
+    while IFS= read -r line; do
+      echo "OTA $phase exception type: $line"
+    done <<< "$exception_class"
+  fi
+}
+
 run_probe() {
   local phase="$1" version="$2" method="$3"
-  local result
+  local result rc=0
   result="$(adb shell am instrument -w -r \
     -e lanu_ota_ci isolated-emulator-v1 \
     -e lanu_ota_phase "$phase" \
     -e lanu_expected_version "$version" \
     -e class "com.example.RoomActualOtaUpgradeTest#$method" \
-    "$runner")" || { echo "::error::OTA instrument failed in phase $phase"; exit 1; }
+    "$runner" 2>&1)" || rc=$?
   # am instrument may exit 0 even if a JUnit assertion failed.
-  if ! grep -Eq 'OK \(1 test\)' <<< "$result" ||
+  if (( rc != 0 )) ||
+     ! grep -Eq 'OK \\(1 test\\)' <<< "$result" ||
      ! grep -Fq "lanu_ota_verified_phase=$phase" <<< "$result" ||
      grep -Eq 'FAILURES|INSTRUMENTATION_FAILED|INSTRUMENTATION_CODE: 0' <<< "$result"; then
     echo "::error::OTA data preservation assertion failed in $phase phase"
+    emit_safe_probe_diagnostics "$phase" "$result"
     exit 1
   fi
   echo "OTA $phase: one complete Android instrumentation test passed."
