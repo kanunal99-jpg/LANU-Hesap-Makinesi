@@ -1,5 +1,17 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 28.10.2026 — 80 altında kalan 11 kategoriyi eş zamanlı geliştirme (yeni kullanıcı kararı)
+
+**Bağlayıcı kapsam:** Son kanıtlı 18 kategori puanlamasında 80 altındaki 11 alan eş zamanlı mühendislik iş hattında tutulacaktır: E2EE/kimlik (73), medya (70), sesli arama (75), görüntülü arama (73), AEC/NS (68), arka plan/FCM (66), Room/yerel veri (68), Android uyumluluk (67), performans/tanılama (75), erişilebilirlik (74), KVKK/mağaza (61). İş sırası tek tek bitirmeyi beklemez; fakat P0 güvenlik ve veri kaybı önceliği, PR izolasyonu ve yayımlama kapıları değişmez.
+
+- Her kategori için var olan PR/issue önce kullanılır; olmayanlar için küçük, birbirinden bağımsız kod + başarısızlık yolu + regresyon/test PR'ları açılır. Bir PR'ın yeşil CI'ı başka kategoriye veya yayımlanmış APK'ya devredilemez.
+- Başarı: kod commit'i + son HEAD CI, güvenlik/kapsam testi, gerekiyorsa API23/29/34/36 ve A55/ikinci OEM fiziksel kabulü, sonra kontrollü main merge ve ayrı main CI / imzalı OTA read-back. **80 hedefi, 80 kanıtı demek değildir**; son belgelenmiş puanlar kabul eksikse aynen kalır.
+- E2EE protokolü ve DB canlı migration'ı, PIN, 2011., Room v4, mesaj/kimlikler, FCM opt-in, Android signing key, OTA signer, kişisel medya ve yerel veriler geri dönülmez veya onaysız değiştirilemez. Gizlilik yasal onayı, public hesap silme servisi ve iki fiziksel cihaz testi ancak gerçekten tamamlanınca kabul edilebilir; sentetik CI bunların yerine geçmez.
+- Eş zamanlı ilerleme, CI kaynaklarını boşa harcayan tekrar PR/kopya özellik anlamına gelmez. P0 PR'ların değişen SHA'sı tekrar doğrulanır; yalnız en son HEAD yeşilse merge adayı olur. Kullanıcı onaysız maliyet/yayın veya uygulama sıfırlama yok.
+- Kabul matrisi: docs/PREMIUM_KALITE_90PLUS_PROGRAM_2026-10-27.md ve ilgili issue/PR kanıt kayıtları.
+
+---
+
 
 ## 27.10.2026 — Ara kapı: 70 puanın altında kategori kalmayacak
 
