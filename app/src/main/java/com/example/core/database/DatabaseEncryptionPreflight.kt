@@ -94,9 +94,9 @@ object DatabaseEncryptionPreflight {
                 State.UNREADABLE
             }
         }
-        val totalBytes = listOf(dbBytes, walBytes, shmBytes, journalBytes)
-            .fold(0L) { acc, size -> safeAdd(acc, size) }
-        val required = safeAdd(safeMultiply(totalBytes, 2L), HEADROOM_BYTES)
+        val required = conservativeRequiredBytes(
+            dbBytes, walBytes, shmBytes, journalBytes
+        )
         val spaceOkay = availableBytes >= required && required != Long.MAX_VALUE
 
         return Snapshot(
@@ -110,6 +110,22 @@ object DatabaseEncryptionPreflight {
             sufficientDiskSpace = spaceOkay,
             needsWalCheckpoint = walBytes > 0L || shmBytes > 0L || journalBytes > 0L
         )
+    }
+
+    /**
+     * Shared overflow-safe disk requirement for read-only preflight and the
+     * separately approved shadow test. Any unknown/negative companion length
+     * must fail closed instead of wrapping the temporary disk requirement.
+     */
+    internal fun conservativeRequiredBytes(
+        dbBytes: Long,
+        walBytes: Long,
+        shmBytes: Long,
+        journalBytes: Long
+    ): Long {
+        val total = listOf(dbBytes, walBytes, shmBytes, journalBytes)
+            .fold(0L) { acc, size -> safeAdd(acc, size) }
+        return safeAdd(safeMultiply(total, 2L), HEADROOM_BYTES)
     }
 
     private fun hasValidSqliteHeader(header: ByteArray, fileBytes: Long): Boolean {
