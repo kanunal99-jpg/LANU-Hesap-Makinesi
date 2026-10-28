@@ -11,6 +11,7 @@ package com.example.core.database
 object DatabaseCipherCutoverGate {
     enum class BlockReason {
         UNSUPPORTED_DATABASE,
+        INVALID_SNAPSHOT_METADATA,
         INSUFFICIENT_DISK,
         SIGNING_IDENTITY_NOT_VERIFIED,
         BACKUP_NOT_RESTORED,
@@ -42,6 +43,19 @@ object DatabaseCipherCutoverGate {
         val snapshot = evidence.snapshot
         if (snapshot.state != DatabaseEncryptionPreflight.State.PLAINTEXT_SQLITE)
             return Decision.Blocked(BlockReason.UNSUPPORTED_DATABASE)
+        // This is still only a SHADOW experiment, but even that cannot rely
+        // on a forged/stale Snapshot with a too-small disk reservation.
+        // Recompute using the exact overflow-safe preflight sizing contract.
+        val required = DatabaseEncryptionPreflight.conservativeRequiredBytes(
+            snapshot.databaseBytes, snapshot.walBytes,
+            snapshot.sharedMemoryBytes, snapshot.rollbackJournalBytes
+        )
+        if (snapshot.databaseBytes < 512L ||
+            listOf(snapshot.walBytes, snapshot.sharedMemoryBytes,
+                snapshot.rollbackJournalBytes).any { it < 0L } ||
+            required == Long.MAX_VALUE ||
+            snapshot.conservativeRequiredBytes != required)
+            return Decision.Blocked(BlockReason.INVALID_SNAPSHOT_METADATA)
         if (!snapshot.sufficientDiskSpace ||
             snapshot.availableBytes < snapshot.conservativeRequiredBytes)
             return Decision.Blocked(BlockReason.INSUFFICIENT_DISK)
