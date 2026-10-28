@@ -49,9 +49,16 @@ class CallAudioPreprocessor(
      * activation. Missing/failed device effects do not block other effects.
      */
     @Synchronized
-    fun attach(audioSessionId: Int, microphonePermissionGranted: Boolean): Status {
+    fun attach(
+        audioSessionId: Int,
+        microphonePermissionGranted: Boolean,
+        softwareApmAlreadyActive: Boolean = false
+    ): Status {
         releaseAttached()
-        if (audioSessionId <= 0 || !microphonePermissionGranted) return status
+        // Android AudioFX and WebRTC software APM must not run the same
+        // AEC/NS/AGC chain twice. Switching to APM first disposes old effects.
+        if (audioSessionId <= 0 || !microphonePermissionGranted ||
+            softwareApmAlreadyActive) return status
 
         fun attachOne(kind: Kind): Boolean {
             val effect = try {
