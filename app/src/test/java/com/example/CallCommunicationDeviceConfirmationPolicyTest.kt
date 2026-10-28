@@ -176,6 +176,48 @@ class CallCommunicationDeviceConfirmationPolicyTest {
         ))
     }
 
+    @Test fun expiredOemRouteCannotConfirmOldSpeakerWhenWiredHeadsetArrived() {
+        val pendingId = 7
+        val newInventory = mapOf(
+            pendingId to Route.SPEAKER,
+            8 to Route.WIRED_HEADSET
+        )
+        assertTrue(Policy.expired(1_000L, 31_000L))
+        // Android accepted the old request and eventually reports that same
+        // speaker ID; a new wired output is now the real preferred choice.
+        assertTrue(Policy.confirmedAvailableRoute(
+            pendingId, pendingId, Route.SPEAKER, newInventory, true
+        ))
+        assertFalse("The deadline cannot label a superseded output ROUTED",
+            Policy.confirmedPreferredPendingRoute(
+                pendingId, pendingId, Route.SPEAKER, newInventory, true,
+                listOf(Route.WIRED_HEADSET, Route.SPEAKER)
+            ))
+        // An explicit manual speaker selection remains authoritative.
+        assertTrue(Policy.confirmedPreferredPendingRoute(
+            pendingId, pendingId, Route.SPEAKER, newInventory, true,
+            listOf(Route.SPEAKER, Route.WIRED_HEADSET)
+        ))
+    }
+
+    @Test fun expiredOemBluetoothConfirmationRequiresLiveTypeAndPermission() {
+        val pendingId = 41
+        assertTrue(Policy.expired(0L, Policy.CONFIRMATION_TIMEOUT_MS))
+        val preference = listOf(Route.BLUETOOTH_HEADSET, Route.EARPIECE)
+        assertFalse(Policy.confirmedPreferredPendingRoute(
+            pendingId, pendingId, Route.BLUETOOTH_HEADSET,
+            mapOf(pendingId to Route.EARPIECE), true, preference
+        ))
+        assertFalse(Policy.confirmedPreferredPendingRoute(
+            pendingId, pendingId, Route.BLUETOOTH_HEADSET,
+            mapOf(pendingId to Route.BLUETOOTH_HEADSET), false, preference
+        ))
+        assertTrue(Policy.confirmedPreferredPendingRoute(
+            pendingId, pendingId, Route.BLUETOOTH_HEADSET,
+            mapOf(pendingId to Route.BLUETOOTH_HEADSET), true, preference
+        ))
+    }
+
     @Test fun staleCallbackOrPermissionLossCannotConfirmPendingRoute() {
         val inventory = mapOf(7 to Route.BLUETOOTH_HEADSET, 8 to Route.EARPIECE)
         val priorities = listOf(Route.BLUETOOTH_HEADSET, Route.EARPIECE)

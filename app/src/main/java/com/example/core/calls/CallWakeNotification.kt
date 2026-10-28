@@ -147,6 +147,12 @@ object CallWakePolicy {
         } catch (_: RuntimeException) {
             releaseFailed(at)
             false
+        } catch (_: LinkageError) {
+            // An OEM framework/linker mismatch must not crash the FCM
+            // callback or permanently consume an undelivered call alert.
+            // Never swallow VM failures such as OutOfMemoryError.
+            releaseFailed(at)
+            false
         }
     }
 
@@ -207,6 +213,11 @@ object CallWakePolicy {
     } catch (_: SecurityException) {
         false
     } catch (_: RuntimeException) {
+        false
+    } catch (_: LinkageError) {
+        // Some vendor notification APIs fail at runtime with an ABI/linker
+        // error even when the platform reports a compatible Android level.
+        // Treat this as a failed notification; foreground calls still work.
         false
     }
 
