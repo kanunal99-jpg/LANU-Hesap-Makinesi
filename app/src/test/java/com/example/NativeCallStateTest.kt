@@ -188,7 +188,13 @@ class NativeCallStateTest {
         while (outgoingSendAttempts.count { it.first == offerId } < expected && ticks < 120) {
             mainTestDispatcher.scheduler.advanceTimeBy(250L)
             mainTestDispatcher.scheduler.runCurrent()
-            Thread.sleep(20L)
+            // Relay/crypto callbacks can execute on a real IO dispatcher even
+            // while Main uses virtual time. Six bounded retries include over
+            // ten seconds of backoff on real dispatchers: racing 30 seconds
+            // of virtual time through just 2.4 seconds of wall time caused
+            // reproducible 4/6 failures on CI. Let real IO finish between
+            // virtual ticks; never reduce retries or soften the assertion.
+            Thread.sleep(150L)
             ticks++
         }
         assertEquals("All expected encrypted signal attempts must actually occur",

@@ -1,5 +1,20 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 28.10.2026 — Tam veritabanı şifrelemesi 95/100 hedefi (kullanıcı yeni kararı)
+
+**İstek:** LANU Room v4 `lanu_calculator_db` tamamı SQLCipher ile şifrelenerek, mevcut kullanıcı PIN/2011., rehber, kuyrukta bekleyen E2EE mesajlar, çağrı/geçmiş ve Keystore kimlikleri **korunarak**, 95/100 üretim kabulüne ulaşan doğrulanmış imzalı APK yayımlanacak.
+
+**Zorunlu veri kaybı önleme yayın kapısı:** Önce güncel, desteklenen Zetetic `net.zetetic:sqlcipher-android` (eski `android-database-sqlcipher` değil) Room entegrasyonunu API23+ / Android 14 / 16 KiB sayfa ve R8 üzerinde kontrol et. İlk aşamada yalnız **izole, sentetik Room v4** üzerinden gerçek SQLCipher kapalı gölge dosyası, Android Keystore AES-GCM ile sarılmış rastgele 256-bit veritabanı anahtarı, yanlış/bozuk anahtar reddi, eski/kopya dosya değişmezliği, yedi tablo/typed schema parity, WAL ve farklı hata yollarını test et.
+
+- Mevcut kurulu `lanu_calculator_db`, WAL/SHM/journal, `2011.`, PIN veya E2EE kullanıcı kimliği **asla otomatik taşınmaz, sıfırlanmaz, şifrelenmiş gibi raporlanmaz**. `AppDatabase.getDatabase()` şimdilik plaintext veri koruma faktörünü sürdürür; yeni gölge modül üretim açılışında çalışmaz. SQLCipher kütüphanesinin APK'ya konulması şifreleme etkinleştirmesi değildir.
+- Gerçek veriyi dönüştürmeye izin vermeden önce durdurulmuş bütün Room yazıcıları, tutarlı WAL checkpoint, bağımsız kullanıcının geri açabildiği şifreli yedek, kararlı signer, Keystore anahtar kaybı/disk dolması/güç kesintisi/yarım geçiş testleri, aynı yedi tablonun birebir karşılaştırılması ve geri alınabilir açılış stratejisi gerekir.
+- Eski uygulamanın yeni şifreli DB'yi plaintext sanarak açma riski ve OTA downgrade güvenliği doğrulanmadan **üretim SQLCipher cutover yoktur**. Anahtar kaybında plaintext'e düşme ya da otomatik yeni anahtar üretip eski mesajları atma kesin yasaktır.
+- Ölçüm kademeleri: `kod eklendi` → `CI Android runtime ile şifreli shadow testleri geçti` → `üretim migrasyonu kanıtlı` → `iki fiziksel telefon üstü kabul` → `imzalı Release ve public SHA256 read-back`. Yalnız son kademeleri geçen iş için 95/100 doğrulaması yapılır; kullanıcı iki cihazda eski plaintext OTA'nın veri kayıpsız çalıştığını bildirmiştir, **SQLCipher dönüşümünü değil**.
+- Mevcut OTA PR #290 bağımsızdır; son `main` + PR CI testleri ve sürüm yayın koşulları değiştirilmez. Başarısız test atlatılmaz; hiçbir kullanıcı verisi veya şifre/sır GitHub'a yazılmaz.
+
+---
+
+
 ## 28.10.2026 — Tüm Room/yerel veritabanı güvenliği 80+ hedefi ve yayın kararı
 
 **Yeni kullanıcı talebi:** LANU'nun Room v4 / tüm yerel veritabanı koruması, atomik tam yedek–geri yükleme bütünlüğü, gerçek bozulma koruması ve kayıpsız OTA bakımından kanıtlı en az 80 puan düzeyine geliştirilecek; gerekli güvenli testlerden sonra imzalı APK yayımlanacaktır.

@@ -125,6 +125,10 @@ dependencies {
   // implementation(libs.androidx.navigation.compose)
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
+  // SQLCipher native library is used only by isolated shadow tests, never live Room.
+  // Keep a single Zetetic version to avoid conflicting native libraries/classes.
+  implementation("net.zetetic:sqlcipher-android:4.20.0")
+  implementation("androidx.sqlite:sqlite:2.7.0")
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
