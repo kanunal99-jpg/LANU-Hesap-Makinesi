@@ -234,6 +234,10 @@ object CallWakeTapPolicy {
     const val ANSWER = "com.aistudio.lanucalc.kxwzqm.action.LANU_CALL_ANSWER"
     const val EXTRA_WAKE_AT = "lanu_wake_at"
     fun requiresFreshEntry(action: String?): Boolean = action == ACTION
+    fun matchesVerifiedInvite(hintAt: Long, inviteAt: Long, now: Long): Boolean =
+        hintAt > 0L && inviteAt > 0L && inviteAt in (hintAt - 30_000L)..(hintAt + 30_000L) &&
+            CallWakePolicy.eligible(mapOf("type" to CallWakePolicy.TYPE, "at" to hintAt.toString()), now)
+
 }
 
 object CallWakeNotification {

@@ -35,7 +35,7 @@ import androidx.lifecycle.compose.LifecycleStartEffect
 import com.example.core.calls.NativeCallEngine
 import com.example.core.calls.CallAudioRouteLabelPolicy
 import com.example.core.calls.CallForegroundService
-import com.example.core.calls.CallWakePolicy
+import com.example.core.calls.CallWakeTapPolicy
 import kotlinx.coroutines.delay
 import org.webrtc.SurfaceViewRenderer
 
@@ -66,7 +66,7 @@ fun NativeCallHost(
     var permissionTarget by remember { mutableStateOf<Triple<String, Boolean, Boolean>?>(null) }
     LifecycleStartEffect(model) {
         model.attachHost()
-        onStopOrDispose { permissionTarget = null; confirm = null; model.detachHost() }
+        onStopOrDispose { confirm = null; model.detachHost() }
     }
     LaunchedEffect(request) { if (request != null) { confirm = request; onRequestConsumed() } }
     LaunchedEffect(state.callId) {
@@ -102,10 +102,8 @@ fun NativeCallHost(
     // Accept only the separately decrypted, fresh E2EE INVITE matching this
     // alert's time window. Never auto-answer a different/newer incoming call.
     LaunchedEffect(state.phase, state.inviteAtMs, answerHintAtMs) {
-        if (answerHintAtMs > 0L && state.phase == NativeCallPhase.RINGING &&
-            kotlin.math.abs(state.inviteAtMs - answerHintAtMs) <= 30_000L &&
-            CallWakePolicy.eligible(mapOf(CallWakePolicy.TYPE.let { "type" to it },
-                "at" to answerHintAtMs.toString()), System.currentTimeMillis())) {
+        if (state.phase == NativeCallPhase.RINGING &&
+            CallWakeTapPolicy.matchesVerifiedInvite(answerHintAtMs, state.inviteAtMs, System.currentTimeMillis())) {
             onAnswerHintConsumed()
             authorize(state.callId, state.video, true)
         }
