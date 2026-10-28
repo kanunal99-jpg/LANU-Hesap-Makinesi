@@ -516,7 +516,7 @@ class NativeCallStateTest {
         assertTrue(sent.value.isEmpty())
     }
 
-    @Test fun briefRadioGapRecoversWithoutSpendingTheOnlyIceRestart() = runBlocking {
+    @Test fun briefRadioGapRecoversWithoutSpendingTheOnlyIceRestart() = runBlocking<Unit> {
         vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
         val invite=awaitSent(CallSignalKind.INVITE)
         inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,false))
@@ -539,7 +539,7 @@ class NativeCallStateTest {
         vm.end();waitPhase(NativeCallPhase.ENDED)
     }
 
-    @Test fun endingCallDuringReconnectGraceCannotIssueLateOffer() = runBlocking {
+    @Test fun endingCallDuringReconnectGraceCannotIssueLateOffer() = runBlocking<Unit> {
         vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
         val invite=awaitSent(CallSignalKind.INVITE)
         inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,false))
