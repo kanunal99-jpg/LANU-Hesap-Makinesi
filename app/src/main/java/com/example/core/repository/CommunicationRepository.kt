@@ -320,6 +320,12 @@ class CommunicationRepository(
                     val existingName = userProfileDao.getUserProfile()?.displayName.takeIf { previous?.id == opened.identity.id }
                     userProfileDao.replaceProfile(UserProfileEntity(opened.identity.code, existingName ?: opened.displayName()))
                     settingsDao.insertSetting(SettingsEntity("lanu_full_restore_identity", opened.identity.id))
+                    // Detect silent INSERT OR IGNORE, mutation triggers or missing
+                    // rows before this transaction is allowed to commit.
+                    FullDataBackup.verifyImported(database.openHelper.writableDatabase, opened)
+                    check(userProfileDao.getUserProfile()?.phoneNumber == opened.identity.code) {
+                        "Geri yüklenen hesap kimliği doğrulanamadı. Kayıtlar korunuyor."
+                    }
                 }
             } catch (e: Exception) {
                 if (identitySaved && previous != null && previous != opened.identity) {

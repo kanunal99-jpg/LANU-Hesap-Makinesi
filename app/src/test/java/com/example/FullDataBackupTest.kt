@@ -133,6 +133,51 @@ class FullDataBackupTest {
         } finally { source.close(); target.close() }
     }
 
+    @Test fun `silent SQLite ignore or tampered import rolls back entire backup restore`() = runBlocking {
+        val source = db()
+        try {
+            val original = Store()
+            populate(source, original)
+            val backup = repo(source, original).exportFullBackup(password)
+            // RAISE(IGNORE) does not throw. Old code could report successful
+            // restore with a missing encrypted message or call-log record.
+            for ((name, sql) in listOf(
+                "drop_message" to
+                    "CREATE TRIGGER drop_message BEFORE INSERT ON messages BEGIN SELECT RAISE(IGNORE); END",
+                "mutate_message" to
+                    "CREATE TRIGGER mutate_message AFTER INSERT ON messages BEGIN UPDATE messages SET content = 'wrong-ciphertext' WHERE id = NEW.id; END",
+                "drop_call_log" to
+                    "CREATE TRIGGER drop_call_log BEFORE INSERT ON call_logs BEGIN SELECT RAISE(IGNORE); END",
+                "drop_contact" to
+                    "CREATE TRIGGER drop_contact BEFORE INSERT ON contacts BEGIN SELECT RAISE(IGNORE); END"
+            )) {
+                val target = db()
+                try {
+                    val store = Store()
+                    val destination = repo(target, store)
+                    val before = destination.ensureIdentity()
+                    target.settingsDao().insertSetting(SettingsEntity("pin_hash", "KEEP_ORIGINAL_PIN"))
+                    target.openHelper.writableDatabase.execSQL(sql)
+                    try {
+                        destination.restoreFullBackup(backup, password)
+                        fail("Silent data loss must roll back: $name")
+                    } catch (_: IllegalArgumentException) {
+                        // A full transaction rejection is expected.
+                    }
+                    assertEquals(before, store.identity)
+                    assertEquals(before.code, target.userProfileDao().getUserProfile()?.phoneNumber)
+                    assertEquals("KEEP_ORIGINAL_PIN", target.settingsDao().getSettingValue("pin_hash"))
+                    assertNull(target.settingsDao().getSettingValue("lanu_full_restore_identity"))
+                    assertEquals(0, target.messageDao().countMessages())
+                    assertEquals(0, target.callLogDao().countCallLogs())
+                    assertTrue(target.contactDao().getAllContacts().first().isEmpty())
+                    assertTrue(target.conversationDao().getAllConversations().first().isEmpty())
+                    assertTrue(target.calculationHistoryDao().getAllHistory().first().isEmpty())
+                } finally { target.close() }
+            }
+        } finally { source.close() }
+    }
+
     @Test fun `read failure and broken encrypted identity store cannot create partial restore`() = runBlocking {
         val source = db(); val target = db()
         try {

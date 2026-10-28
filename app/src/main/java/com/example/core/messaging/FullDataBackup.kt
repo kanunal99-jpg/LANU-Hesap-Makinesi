@@ -151,6 +151,49 @@ object FullDataBackup {
         }
     }
 
+    /**
+     * Read back EVERY archived record in the same Room transaction, before COMMIT.
+     * INSERT OR IGNORE / RAISE(IGNORE) can silently skip a record; pre-import
+     * conflict checks cannot detect this. Never print archived values or paths.
+     */
+    fun verifyImported(db: SupportSQLiteDatabase, opened: Opened) {
+        for ((table, columns) in tables) {
+            if (table == "user_profiles") continue // Restored by the repository.
+            val rows = opened.rows(table)
+            for (i in 0 until rows.length()) {
+                val expected = rows.getJSONArray(i)
+                val verified = when (table) {
+                    "calculation_history", "call_logs" -> {
+                        // Numeric row IDs are local to each device. All other
+                        // fields must exist in one real row, without alteration.
+                        val conditions = columns.drop(1).joinToString(" AND ") { "`$it` IS ?" }
+                        val args = Array<Any?>(expected.length() - 1) { n ->
+                            expected.get(n + 1).takeUnless { it === JSONObject.NULL }
+                        }
+                        db.query("SELECT 1 FROM `$table` WHERE $conditions LIMIT 1", args)
+                            .use { it.moveToFirst() }
+                    }
+                    "app_settings" -> {
+                        // Existing PIN and lockout settings intentionally win
+                        // over imported settings; require key existence only.
+                        db.query("SELECT 1 FROM `app_settings` WHERE `key` = ? LIMIT 1",
+                            arrayOf(expected.getString(0))).use { it.moveToFirst() }
+                    }
+                    else -> {
+                        val query = "SELECT " + columns.joinToString(",") { "`$it`" } +
+                            " FROM `$table` WHERE `${columns.first()}` = ? LIMIT 1"
+                        db.query(query, arrayOf(expected.get(0))).use { actual ->
+                            actual.moveToFirst() && row(actual).toString() == expected.toString()
+                        }
+                    }
+                }
+                require(verified) {
+                    "Şifreli yedek kaydı doğrulanamadı. Mevcut kayıtlar korunuyor."
+                }
+            }
+        }
+    }
+
     private fun validate(payload: JSONObject): Opened {
         require(payload.getString("format") == "LANU-full-v1" && payload.getInt("schema") == 4)
         require(payload.keys().asSequence().toSet() == setOf("format", "schema", "createdAt", "tables", "identity"))
