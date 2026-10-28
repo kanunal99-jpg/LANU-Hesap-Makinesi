@@ -375,9 +375,20 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
                     // callback (OEM error); check before discarding real audio.
                     val currentId = try { audioManager.communicationDevice?.id }
                         catch (_: RuntimeException) { null }
-                    if (CallCommunicationDeviceConfirmationPolicy.confirmedAvailableRoute(
+                    // A higher-priority output can appear while the OEM
+                    // stalls this request, even before its device callback
+                    // arrives. Revalidate preference AND physical identity at
+                    // the deadline; an old accepted route is not success.
+                    val inventory = communicationInventory()
+                    val bluetoothAllowed = hasBluetoothAccess()
+                    val currentPriorities = CallAudioRoutePolicy.priorities(
+                        inventory.values.filter {
+                            it != Route.BLUETOOTH_HEADSET || bluetoothAllowed
+                        }.toSet(), videoCall, preferred
+                    )
+                    if (CallCommunicationDeviceConfirmationPolicy.confirmedPreferredPendingRoute(
                             deviceId, currentId, pendingCommunicationRoute,
-                            communicationInventory(), hasBluetoothAccess()
+                            inventory, bluetoothAllowed, currentPriorities
                         )) {
                         val route = pendingCommunicationRoute
                         clearPendingCommunication()
