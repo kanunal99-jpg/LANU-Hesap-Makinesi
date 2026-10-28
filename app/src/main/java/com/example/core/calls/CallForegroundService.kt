@@ -49,7 +49,8 @@ class CallForegroundService : Service() {
                 .setContentIntent(content)
                 .addAction(R.mipmap.ic_launcher, "Bitir", end)
                 .build()
-            if (useTypedMediaForegroundService(Build.VERSION.SDK_INT)) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                useTypedMediaForegroundService(Build.VERSION.SDK_INT)) {
                 val type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
                     (if (video) ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA else 0)
                 startForeground(ONGOING_ID, notification, type)
