@@ -36,6 +36,7 @@ class NativeCallViewModel(
     private val mediaFactory: ((CallMediaEvidence) -> Unit, (String) -> Unit) -> CallMediaSession =
         { evidence, failure -> NativeCallEngine(context.applicationContext, evidence, failure) }
 ) : ViewModel() {
+    private val appContext = context.applicationContext
     private val _state = MutableStateFlow(NativeCallUiState())
     val state = _state.asStateFlow()
     private val _media = MutableStateFlow<CallMediaSession?>(null)
@@ -170,11 +171,15 @@ class NativeCallViewModel(
         val current = session ?: return
         if (!foreground || current.id != callId || _state.value.phase != NativeCallPhase.RINGING) return
         if (!permissionGranted) { _notice.value = "Mikrofon/kamera izni verilmedi."; finish("İzin verilmedi.", CallSignalKind.REJECT); return }
+        CallWakeNotification.cancel(appContext)
         _state.value = _state.value.copy(phase = NativeCallPhase.CONNECTING)
         deadline(current, 35_000, "Bağlantı kurulamadı; farklı bir ağ deneyin.")
         pipeline = guarded(current) { send(current, CallSignalKind.ACCEPT) }
     }
-    fun reject() = finish("Arama reddedildi.", CallSignalKind.REJECT)
+    fun reject() {
+        CallWakeNotification.cancel(appContext)
+        finish("Arama reddedildi.", CallSignalKind.REJECT)
+    }
     fun end() = finish("Görüşme sonlandırıldı.")
     fun dismiss() { if (session == null) _state.value = NativeCallUiState(); _notice.value = null }
     fun clearNotice() { _notice.value = null }

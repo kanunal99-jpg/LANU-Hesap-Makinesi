@@ -42,7 +42,7 @@ class CallForegroundService : Service() {
             val notification = NotificationCompat.Builder(this, CHANNEL)
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentTitle("LANU görüşmesi")
-                .setContentText("Görüşme sürüyor")
+                .setContentText("Görüşme bağlantısı")
                 .setCategory(NotificationCompat.CATEGORY_CALL)
                 .setVisibility(NotificationCompat.VISIBILITY_SECRET)
                 .setOngoing(true)
@@ -63,6 +63,12 @@ class CallForegroundService : Service() {
         }
         if (!observing) {
             observing = true
+            // Avoid a permanent microphone-typed service if relay preparation
+            // failed before any call session could be created.
+            scope.launch {
+                delay(60_000L)
+                if (model.state.value.phase == NativeCallPhase.IDLE) stopSelf()
+            }
             scope.launch {
                 model.state.collect { state ->
                     if (state.phase == NativeCallPhase.ENDED || state.phase == NativeCallPhase.FAILED)
@@ -82,6 +88,13 @@ class CallForegroundService : Service() {
     override fun onDestroy() {
         isRunning = false
         scope.cancel()
+        val model = (application as LanuApplication).callModel
+        // A destroyed foreground service must never leave live microphone or
+        // video media running without Android's persistent call notification.
+        if (model.state.value.phase in setOf(NativeCallPhase.DIALING,
+                NativeCallPhase.RINGING, NativeCallPhase.CONNECTING,
+                NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING)) model.end()
+        model.releaseIdleHost()
         super.onDestroy()
     }
     companion object {

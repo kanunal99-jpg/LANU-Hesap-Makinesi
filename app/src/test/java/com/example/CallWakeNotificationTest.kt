@@ -47,6 +47,16 @@ class CallWakeNotificationTest {
         assertFalse(CallWakeTapPolicy.matchesVerifiedInvite(now, 0, now))
     }
 
+    @Test fun callOnlyScreenAndForegroundServiceAreNotExported() {
+        val pm = context.packageManager
+        val activity = pm.getActivityInfo(android.content.ComponentName(context,
+            com.example.IncomingCallActivity::class.java), 0)
+        val service = pm.getServiceInfo(android.content.ComponentName(context,
+            com.example.core.calls.CallForegroundService::class.java), 0)
+        assertFalse(activity.exported)
+        assertFalse(service.exported)
+    }
+
     @Test fun answerIntentIsSeparateFromPrivateEntryAndHasNoCallerIdentity() {
         assertFalse(CallWakeTapPolicy.requiresFreshEntry(CallWakeTapPolicy.ANSWER))
         assertTrue(CallWakeTapPolicy.ANSWER.startsWith(context.packageName))

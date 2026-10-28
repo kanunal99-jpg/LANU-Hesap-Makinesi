@@ -201,6 +201,17 @@ class NativeCallStateTest {
             .put("content",cipher).put("createdAt",System.currentTimeMillis()).put("expiresAt",System.currentTimeMillis()+90_000)
         repo.synchronize()
     }
+    @Test fun activeRingingIsNotClosedByCalculatorToCallScreenHandoff() = runBlocking {
+        val invite = CallSignaling.create(UUID.randomUUID().toString(), CallSignalKind.INVITE, false)
+        inject(invite)
+        waitPhase(NativeCallPhase.RINGING)
+        vm.attachHost()
+        vm.detachHost()
+        assertEquals(NativeCallPhase.RINGING, vm.state.value.phase)
+        vm.deactivate()
+        assertEquals(NativeCallPhase.IDLE, vm.state.value.phase)
+    }
+
     @Test fun nativeVideoRendererIsBoundOnlyAfterRealConnectionEvidence() {
         val base=NativeCallUiState(callId="test-call",video=true)
         assertFalse(canRenderNativeCallVideo(base,true))
