@@ -48,6 +48,12 @@ class NativeCallStateTest {
     private val cameraCommands=mutableListOf<Boolean>()
     private val muteCommands=mutableListOf<Boolean>()
     private var failCallAck=false
+    private var outgoingSendFailures=0
+    private var outgoingSendHttpStatus=0
+    private var outgoingMissingAckResponses=0
+    private var outgoingLoseReplyAfterAccepted=false
+    private val acceptedCallSignalIds=mutableSetOf<String>()
+    private val outgoingSendAttempts=mutableListOf<Triple<String,String,String>>()
     private var incomingChatEvent: JSONObject? = null
     private var chatAckCount=0
     private var acceptGate:CompletableDeferred<Unit>?=null
@@ -89,11 +95,30 @@ class NativeCallStateTest {
                 "ack" -> { chatAckCount++; JSONObject().put("acknowledged",true) }
                 "callSend" -> {
                     val id=data.getString("id")
+                    outgoingSendAttempts += Triple(id,data.getString("callId"),data.getString("content"))
+                    if(outgoingSendFailures > 0) {
+                        outgoingSendFailures--
+                        if(outgoingSendHttpStatus != 0)
+                            throw RelayException(outgoingSendHttpStatus,"simulated transient relay outage")
+                        throw java.io.IOException("simulated radio handover / lost HTTP reply")
+                    }
                     val plain=PeerMessageCrypto.decrypt(peer,own.id,own.publicKey,CallSignaling.aadId(id),own.id,data.getString("content"))
                     val signal=CallSignaling.decode(plain,id,data.getString("callId"),System.currentTimeMillis())
-                    sent.value=sent.value+signal
+                    // Model the real relay's UUID-keyed idempotent insert: an
+                    // accepted request can lose its HTTP reply, but a retry
+                    // must not create a second delivered signal.
+                    if(acceptedCallSignalIds.add(id)) sent.value=sent.value+signal
+                    if(outgoingLoseReplyAfterAccepted) {
+                        outgoingLoseReplyAfterAccepted=false
+                        throw java.io.IOException("simulated lost reply after committed signal")
+                    }
                     if(signal.kind==CallSignalKind.ACCEPT) acceptGate?.await()
-                    JSONObject().put("accepted",true)
+                    if(outgoingMissingAckResponses > 0) {
+                        // Relay accepted, but a proxy stripped the HTTP ACK.
+                        // Retry must retain exactly this signal/ciphertext.
+                        outgoingMissingAckResponses--
+                        JSONObject()
+                    } else JSONObject().put("accepted",true)
                 }
                 else -> JSONObject()
             }
@@ -409,6 +434,88 @@ class NativeCallStateTest {
         inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,false));waitPhase(NativeCallPhase.FAILED)
         assertEquals(1,starts);assertEquals(1,closes)
     }
+    @Test fun twoShortRadioDropoutsRetryTheExactSameAuthenticatedCallSignal() = runBlocking {
+        val peerRecord=repo.verifiedCallPeer(peer.id)!!
+        outgoingSendFailures=2
+        val signal=CallSignaling.create(UUID.randomUUID().toString(),CallSignalKind.OFFER,false,sdp)
+        repo.sendCallSignal(peerRecord,signal)
+        assertEquals(3,outgoingSendAttempts.size)
+        assertEquals("No new UUID, ciphertext or call ownership across retries",
+            1,outgoingSendAttempts.toSet().size)
+        assertEquals(signal.id,outgoingSendAttempts.first().first)
+        assertEquals(signal.callId,outgoingSendAttempts.first().second)
+        assertEquals(signal.id,sent.value.single().id)
+        assertEquals(CallSignalKind.OFFER,sent.value.single().kind)
+    }
+
+    @Test fun lostHttpAckAfterServerCommitDoesNotDuplicateEncryptedCallSignal() = runBlocking {
+        val peerRecord=repo.verifiedCallPeer(peer.id)!!
+        outgoingLoseReplyAfterAccepted=true
+        val signal=CallSignaling.create(UUID.randomUUID().toString(),CallSignalKind.OFFER,false,sdp)
+        repo.sendCallSignal(peerRecord,signal)
+        assertEquals(2,outgoingSendAttempts.size)
+        assertEquals("Retry must reuse exact ciphertext, call and signal IDs",
+            outgoingSendAttempts[0],outgoingSendAttempts[1])
+        assertEquals("Relay idempotency must preserve a single delivery",1,sent.value.size)
+        assertEquals(signal.id,sent.value.single().id)
+        assertEquals(signal.callId,sent.value.single().callId)
+    }
+
+    @Test fun missingHttp200AcceptanceCannotSilentlyLoseTheCallSignal() = runBlocking {
+        val peerRecord=repo.verifiedCallPeer(peer.id)!!
+        outgoingMissingAckResponses=1
+        val signal=CallSignaling.create(UUID.randomUUID().toString(),CallSignalKind.OFFER,false,sdp)
+        repo.sendCallSignal(peerRecord,signal)
+        assertEquals(2,outgoingSendAttempts.size)
+        assertEquals("Retry must not mint a new ciphertext or call UUID",
+            outgoingSendAttempts.first(),outgoingSendAttempts.last())
+        assertEquals("Server-side UUID dedupe must leave one committed signal",
+            1,sent.value.size)
+        assertEquals(1,sent.value.map { it.id }.toSet().size)
+        assertEquals(signal.id,sent.value.first().id)
+    }
+
+    @Test fun transientHttp503DuringOfferDoesNotChangeCallIdentityOrSdp() = runBlocking {
+        val peerRecord=repo.verifiedCallPeer(peer.id)!!
+        outgoingSendFailures=1
+        outgoingSendHttpStatus=503
+        val signal=CallSignaling.create(UUID.randomUUID().toString(),CallSignalKind.OFFER,true,sdp)
+        repo.sendCallSignal(peerRecord,signal)
+        assertEquals(2,outgoingSendAttempts.size)
+        assertEquals(outgoingSendAttempts[0],outgoingSendAttempts[1])
+        assertEquals(signal.id,sent.value.single().id)
+        assertEquals(signal.callId,sent.value.single().callId)
+        assertEquals(signal.sdp,sent.value.single().sdp)
+    }
+
+    @Test fun unauthorizedCallSignalCannotBeRetriedOrCreateAnotherEnvelope() = runBlocking {
+        val peerRecord=repo.verifiedCallPeer(peer.id)!!
+        outgoingSendFailures=1
+        outgoingSendHttpStatus=401
+        val signal=CallSignaling.create(UUID.randomUUID().toString(),CallSignalKind.OFFER,false,sdp)
+        try {
+            repo.sendCallSignal(peerRecord,signal)
+            fail("Auth errors must not retry")
+        } catch (e: RelayException) {
+            assertEquals(401,e.status)
+        }
+        assertEquals(1,outgoingSendAttempts.size)
+        assertTrue(sent.value.isEmpty())
+    }
+
+    @Test fun cancellingPendingRetryBeforeNetworkReturnsSendsNothingLate() = runBlocking {
+        val peerRecord=repo.verifiedCallPeer(peer.id)!!
+        outgoingSendFailures=5
+        val signal=CallSignaling.create(UUID.randomUUID().toString(),CallSignalKind.OFFER,false,sdp)
+        val attempt=launch { repo.sendCallSignal(peerRecord,signal) }
+        withTimeout(2_000) { while(outgoingSendAttempts.isEmpty()) delay(5) }
+        attempt.cancelAndJoin()
+        delay(1_100)
+        assertEquals("No resend after private call owner cancels the job",
+            1,outgoingSendAttempts.size)
+        assertTrue(sent.value.isEmpty())
+    }
+
     @Test fun networkDisconnectTriesOnlyOneRealIceRestartAndRequiresFreshPacketEvidence() = runBlocking {
         vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
         val invite=awaitSent(CallSignalKind.INVITE)

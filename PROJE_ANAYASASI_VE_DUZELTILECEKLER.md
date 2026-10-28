@@ -1,5 +1,17 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 28.10.2026 — Bağlantı kesintisi ve iki cihazda görüşme sürekliliği (kullanıcı kabul standardı)
+
+**Bağlayıcı kullanıcı kararı:** LANU'da kısa radyo/Wi‑Fi geçişi, çevrimdışı anları, relay HTTP yanıt kaybı ve geciken ICE/FCM olayları görüşmeyi veya kullanıcı verilerini gereksiz yere bozmayacak. Önce somut kök neden, sonra sınırlı güvenli yeniden deneme + gerçek regresyon + iki fiziksel cihaz kabulü yapılır.
+
+- **Sinyalleşme:** Aynı oturumdaki tekrar denemelerde kimliği doğrulanmış `callId`, sinyal UUID'si ve şifreli yük **değişmez**; kayıp HTTP ACK nedeniyle yeni SDP/arama oluşturulmaz. Yalnız geçici ağ/5xx hataları sınırlı gecikmeyle denenir; 400/401/403/409/429 gibi yetki, protokol, hız sınırı ve oturum ihlalleri otomatik tekrarlanmaz.
+- **Oturum güvenliği:** Yeniden bağlanma yalnız canlı, doğrulanmış foreground çağrısına aittir; ICE epoch/RTP tazeliği doğrulanır, eski callback veya tekrar gelen ANSWER kapalı oturumu canlandıramaz. Çağrının kapanışı, özel alandan çıkış ve iptal tüm bekleyen gecikmeli işi durdurur.
+- **Ölçüm/kabul:** İki gerçek cihazda Wi‑Fi↔mobil veri geçişi, 2–10 saniye kesinti, relay timeout/503, yinelenen davet, telefon kilidi/arka plan FCM ve görüşme kapatılırken geciken cevap ayrı ayrı denenir. Ağ/STUN kısıtı ve TURN yokluğu için her koşulda otomatik kurtarma vaadi verilmez.
+- **Veri/mahremiyet:** PIN/2011., Room v4, mesaj ve E2EE anahtarı, hesap silme sonucu, APK sertifikası korunur; kişisel SDP/IP/FCM token/hassas hata metni raporlanmaz. Birim/Android CI gerçek OEM saha testi yerine geçmez; kanıt olmadan 80+ verilmez.
+
+---
+
+
 ## 28.10.2026 — 80 altında kalan 11 kategoriyi eş zamanlı geliştirme (yeni kullanıcı kararı)
 
 **Bağlayıcı kapsam:** Son kanıtlı 18 kategori puanlamasında 80 altındaki 11 alan eş zamanlı mühendislik iş hattında tutulacaktır: E2EE/kimlik (73), medya (70), sesli arama (75), görüntülü arama (73), AEC/NS (68), arka plan/FCM (66), Room/yerel veri (68), Android uyumluluk (67), performans/tanılama (75), erişilebilirlik (74), KVKK/mağaza (61). İş sırası tek tek bitirmeyi beklemez; fakat P0 güvenlik ve veri kaybı önceliği, PR izolasyonu ve yayımlama kapıları değişmez.
