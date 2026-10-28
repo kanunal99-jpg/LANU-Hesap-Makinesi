@@ -41,6 +41,10 @@ object FullDataBackup {
 
     fun capture(db: SupportSQLiteDatabase, identity: MessagingIdentity): JSONObject {
         require(UserCodes.isConsistentIdentity(identity)) { "Kimlik doğrulanamadı; mevcut kayıtlar korunuyor." }
+        // Explicit user-requested backup only, in a Room read transaction:
+        // never seal/export a partially corrupted SQLite snapshot as a trusted
+        // recovery point. No automatic repair, deletion or startup scan.
+        RoomBackupIntegrityGate.requireHealthy(db)
         val data = JSONObject()
         var count = 0
         var estimatedBytes = 0L

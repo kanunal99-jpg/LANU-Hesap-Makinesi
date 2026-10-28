@@ -32,3 +32,8 @@ Android CI, lint ve API34 emülatör kapıları zorunludur. Samsung A55 ile ikin
 ### Hesap kimliği bağlama koruması
 
 Room tablosunda hiç mesaj/kayıt kalmasa bile `lanu_draft_*`, `lanu_peer_*`, `lanu_retry_after_*`, `lanu_hidden_*`, revizyon/uzak kayıt ve son restore marker'ları önceki E2EE kimliğine bağlı olabilir. `SettingsDao.hasIdentityBoundSettings()` bu durumu tek SELECT EXISTS ile algılar; yedekte **farklı** kimlik varsa restore reddedilir. PIN-only yeni kurulumlarda güvenli restore ve aynı-kimlikte tekrar geri yükleme korunur. Sekiz farklı marker ile Robolectric regresyonu eklendi.
+
+### 28.10.2026 — Bozuk SQLite üzerinden yanıltıcı yedek alınmasını engelleme
+
+- Tam yedek **yalnız kullanıcı talebiyle**, tutarlı Room transaction'ı içinde `PRAGMA quick_check(1)` ve `PRAGMA foreign_key_check` salt okunur kontrolden geçer. Bozuk indeks/sayfa veya FK uyumsuzluğu bulunursa güvenilirmiş gibi yeni bir arşiv üretmek yerine işlem genel/mahrem hata ile durur. Kullanıcının mevcut SQLite dosyası, WAL ve E2EE kimliği silinmez veya onarılmaya çalışılmaz.
+- Android başlangıcında rutin tam tablo taraması yapılmaz. Negatif sentetik fixture'lar boş/belirsiz/çoklu quick_check sonucu, bozuk referans ve sızıntısız hata metnini doğrular. Bu **veri kurtarma aracı veya tam veritabanı şifrelemesi değildir**; fiziksel cihazdaki gerçek dosya bozulması kabulü gerektirir.
