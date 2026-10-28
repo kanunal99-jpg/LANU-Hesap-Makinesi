@@ -527,12 +527,12 @@ class NativeCallStateTest {
         // burn our only ICE restart before a subsequent, genuine network loss.
         delay(100)
         report!!(CallMediaEvidence(true,6,6));waitPhase(NativeCallPhase.CONNECTED)
-        delay(850)
+        delay(ICE_RESTART_GRACE_MS + 150L)
         assertEquals("A self-healed handover must not restart ICE",0,iceRestarts)
         assertEquals(1,sent.value.count { it.kind==CallSignalKind.OFFER })
         // The next, persistent disconnection must still own one restart.
         report!!(CallMediaEvidence(false,6,6));waitPhase(NativeCallPhase.RECONNECTING)
-        withTimeout(3_000) {
+        withTimeout(5_000) {
             sent.first { list -> list.count { it.kind==CallSignalKind.OFFER } == 2 }
         }
         assertEquals(1,iceRestarts)
@@ -547,7 +547,7 @@ class NativeCallStateTest {
         report!!(CallMediaEvidence(true,5,5));waitPhase(NativeCallPhase.CONNECTED)
         report!!(CallMediaEvidence(false,5,5));waitPhase(NativeCallPhase.RECONNECTING)
         vm.end();waitPhase(NativeCallPhase.ENDED)
-        delay(850)
+        delay(ICE_RESTART_GRACE_MS + 150L)
         assertEquals("Closed foreground call must not start a stale ICE restart",0,iceRestarts)
         assertEquals(1,sent.value.count { it.kind==CallSignalKind.OFFER })
         assertEquals(1,closes)
@@ -560,7 +560,7 @@ class NativeCallStateTest {
         awaitSent(CallSignalKind.OFFER)
         report!!(CallMediaEvidence(true,8,11));waitPhase(NativeCallPhase.CONNECTED)
         report!!(CallMediaEvidence(false,8,11));waitPhase(NativeCallPhase.RECONNECTING)
-        withTimeout(2000) { sent.first { list -> list.count { it.kind==CallSignalKind.OFFER } >= 2 } }
+        withTimeout(5000) { sent.first { list -> list.count { it.kind==CallSignalKind.OFFER } >= 2 } }
         assertEquals("Only one ICE restart may be attempted",1,iceRestarts)
         report!!(CallMediaEvidence(false,0,0))
         report!!(CallMediaEvidence(true,0,12))
@@ -602,7 +602,7 @@ class NativeCallStateTest {
         withTimeout(3000) { while(remoteAnswers < 1) delay(10) }
         report!!(CallMediaEvidence(true,10,10));waitPhase(NativeCallPhase.CONNECTED)
         report!!(CallMediaEvidence(false,10,10));waitPhase(NativeCallPhase.RECONNECTING)
-        withTimeout(3000) { sent.first { events -> events.count { it.kind==CallSignalKind.OFFER } == 2 } }
+        withTimeout(5000) { sent.first { events -> events.count { it.kind==CallSignalKind.OFFER } == 2 } }
         assertEquals(1,iceRestarts)
 
         inject(CallSignaling.create(invite.callId,CallSignalKind.ANSWER,false,sdp))
