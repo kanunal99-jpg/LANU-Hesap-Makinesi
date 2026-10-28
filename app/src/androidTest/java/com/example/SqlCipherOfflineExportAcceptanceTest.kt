@@ -110,6 +110,16 @@ class SqlCipherOfflineExportAcceptanceTest {
                     header.contentEquals("SQLite format 3\u0000".toByteArray(Charsets.US_ASCII))
             })
 
+            // SQLCipher's Android ATTACH path may fail to create a missing
+            // destination inode on some runtimes (SQLITE_CANTOPEN / code 14).
+            // Claim only this unique, allowlisted fixture name, exclusively:
+            // do not open or truncate an existing DB, even a test shadow.
+            assertEquals(plainFile.canonicalFile.parentFile, shadowFile.canonicalFile.parentFile)
+            assertTrue("An empty isolated export destination must be created once",
+                shadowFile.createNewFile())
+            assertEquals("A newly claimed export target must not contain old data",
+                0L, shadowFile.length())
+
             System.loadLibrary("sqlcipher")
             val passphrase = Base64.encodeToString(
                 randomKey, Base64.NO_WRAP or Base64.URL_SAFE or Base64.NO_PADDING)
