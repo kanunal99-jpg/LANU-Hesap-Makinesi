@@ -45,6 +45,8 @@ class NativeCallStateTest {
     private var startGate:CompletableDeferred<Unit>?=null
     private var answerGate:CompletableDeferred<Unit>?=null
     private var answerEntered:CompletableDeferred<Unit>?=null
+    private var restartOfferGate:CompletableDeferred<Unit>?=null
+    private var restartOfferEntered:CompletableDeferred<Unit>?=null
     private var cameraGate:CompletableDeferred<Unit>?=null
     private var muteGate:CompletableDeferred<Unit>?=null
     private var failMute=false
@@ -134,7 +136,15 @@ class NativeCallStateTest {
             mediaCreated++;report=evidence;mediaFailure=failure
             object:CallMediaSession {
                 override suspend fun start(video:Boolean) { starts++;startGate?.await();check(!failStart) }
-                override suspend fun offer(restart:Boolean):String { if(restart) iceRestarts++;return sdp }
+                override suspend fun offer(restart:Boolean):String {
+                    if(restart) {
+                        iceRestarts++
+                        restartOfferEntered?.complete(Unit)
+                        // An OEM SDP callback may finish despite cancellation.
+                        restartOfferGate?.let { withContext(NonCancellable) { it.await() } }
+                    }
+                    return sdp
+                }
                 override suspend fun answer(remote:String): String {
                     answerEntered?.complete(Unit)
                     // Model uncooperative native callbacks: cancellation of a
@@ -542,6 +552,57 @@ class NativeCallStateTest {
             sent.first { list -> list.count { it.kind==CallSignalKind.OFFER } == 2 }
         }
         assertEquals(1,iceRestarts)
+        vm.end();waitPhase(NativeCallPhase.ENDED)
+    }
+
+    @Test fun recoveredRtpWhileNativeRestartOfferIsPendingMustNotSendStaleSdp() = runBlocking<Unit> {
+        restartOfferGate=CompletableDeferred()
+        restartOfferEntered=CompletableDeferred()
+        vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
+        val invite=awaitSent(CallSignalKind.INVITE)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,false))
+        awaitSent(CallSignalKind.OFFER)
+        report!!(CallMediaEvidence(true,5,5));waitPhase(NativeCallPhase.CONNECTED)
+        report!!(CallMediaEvidence(false,5,5));waitPhase(NativeCallPhase.RECONNECTING)
+        mainTestDispatcher.scheduler.advanceTimeBy(ICE_RESTART_GRACE_MS + 1L)
+        mainTestDispatcher.scheduler.runCurrent()
+        withTimeout(3_000) { restartOfferEntered!!.await() }
+        assertEquals(1,iceRestarts)
+        // Media recovers while native offer() is suspended; completing it
+        // must not renegotiate a healthy call.
+        report!!(CallMediaEvidence(true,6,6));waitPhase(NativeCallPhase.CONNECTED)
+        restartOfferGate!!.complete(Unit)
+        delay(50)
+        assertEquals("Recovered RTP must discard late ICE SDP",1,
+            sent.value.count { it.kind==CallSignalKind.OFFER })
+        assertEquals(NativeCallPhase.CONNECTED,vm.state.value.phase)
+        vm.end();waitPhase(NativeCallPhase.ENDED)
+    }
+
+    @Test fun previousOutageNativeOfferCannotSignalDuringNewDisconnectGeneration() = runBlocking<Unit> {
+        restartOfferGate=CompletableDeferred()
+        restartOfferEntered=CompletableDeferred()
+        vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
+        val invite=awaitSent(CallSignalKind.INVITE)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,false))
+        awaitSent(CallSignalKind.OFFER)
+        report!!(CallMediaEvidence(true,5,5));waitPhase(NativeCallPhase.CONNECTED)
+        report!!(CallMediaEvidence(false,5,5));waitPhase(NativeCallPhase.RECONNECTING)
+        mainTestDispatcher.scheduler.advanceTimeBy(ICE_RESTART_GRACE_MS + 1L)
+        mainTestDispatcher.scheduler.runCurrent()
+        withTimeout(3_000) { restartOfferEntered!!.await() }
+        report!!(CallMediaEvidence(true,6,6));waitPhase(NativeCallPhase.CONNECTED)
+        report!!(CallMediaEvidence(false,6,6));waitPhase(NativeCallPhase.RECONNECTING)
+        // The first native offer finishes in the second outage. Its old
+        // generation must not publish a mismatched SDP or answer slot.
+        restartOfferGate!!.complete(Unit)
+        mainTestDispatcher.scheduler.advanceTimeBy(ICE_RESTART_GRACE_MS + 1L)
+        mainTestDispatcher.scheduler.runCurrent()
+        delay(50)
+        assertEquals("Old outage must not send into newer generation",1,
+            sent.value.count { it.kind==CallSignalKind.OFFER })
+        assertEquals(1,iceRestarts)
+        assertEquals(NativeCallPhase.RECONNECTING,vm.state.value.phase)
         vm.end();waitPhase(NativeCallPhase.ENDED)
     }
 
