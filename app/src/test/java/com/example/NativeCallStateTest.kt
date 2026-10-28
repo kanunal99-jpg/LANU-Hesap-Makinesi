@@ -469,7 +469,8 @@ class NativeCallStateTest {
         assertEquals(2,outgoingSendAttempts.size)
         assertEquals("Retry must not mint a new ciphertext or call UUID",
             outgoingSendAttempts.first(),outgoingSendAttempts.last())
-        assertEquals(2,sent.value.size) // Same ACK-lost signal, not a second SDP.
+        assertEquals("Server-side UUID dedupe must leave one committed signal",
+            1,sent.value.size)
         assertEquals(1,sent.value.map { it.id }.toSet().size)
         assertEquals(signal.id,sent.value.first().id)
     }
