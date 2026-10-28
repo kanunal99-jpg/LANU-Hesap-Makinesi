@@ -50,6 +50,7 @@ class NativeCallStateTest {
     private var failCallAck=false
     private var outgoingSendFailures=0
     private var outgoingSendHttpStatus=0
+    private var outgoingMissingAckResponses=0
     private var outgoingLoseReplyAfterAccepted=false
     private val acceptedCallSignalIds=mutableSetOf<String>()
     private val outgoingSendAttempts=mutableListOf<Triple<String,String,String>>()
@@ -112,7 +113,12 @@ class NativeCallStateTest {
                         throw java.io.IOException("simulated lost reply after committed signal")
                     }
                     if(signal.kind==CallSignalKind.ACCEPT) acceptGate?.await()
-                    JSONObject().put("accepted",true)
+                    if(outgoingMissingAckResponses > 0) {
+                        // Relay accepted, but a proxy stripped the HTTP ACK.
+                        // Retry must retain exactly this signal/ciphertext.
+                        outgoingMissingAckResponses--
+                        JSONObject()
+                    } else JSONObject().put("accepted",true)
                 }
                 else -> JSONObject()
             }
@@ -453,6 +459,19 @@ class NativeCallStateTest {
         assertEquals("Relay idempotency must preserve a single delivery",1,sent.value.size)
         assertEquals(signal.id,sent.value.single().id)
         assertEquals(signal.callId,sent.value.single().callId)
+    }
+
+    @Test fun missingHttp200AcceptanceCannotSilentlyLoseTheCallSignal() = runBlocking {
+        val peerRecord=repo.verifiedCallPeer(peer.id)!!
+        outgoingMissingAckResponses=1
+        val signal=CallSignaling.create(UUID.randomUUID().toString(),CallSignalKind.OFFER,false,sdp)
+        repo.sendCallSignal(peerRecord,signal)
+        assertEquals(2,outgoingSendAttempts.size)
+        assertEquals("Retry must not mint a new ciphertext or call UUID",
+            outgoingSendAttempts.first(),outgoingSendAttempts.last())
+        assertEquals(2,sent.value.size) // Same ACK-lost signal, not a second SDP.
+        assertEquals(1,sent.value.map { it.id }.toSet().size)
+        assertEquals(signal.id,sent.value.first().id)
     }
 
     @Test fun transientHttp503DuringOfferDoesNotChangeCallIdentityOrSdp() = runBlocking {
