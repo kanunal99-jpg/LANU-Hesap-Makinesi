@@ -780,16 +780,30 @@ class NativeCallStateTest {
         // but whose HTTP response is stripped by an intermediary on every try.
         outgoingMissingAckResponses = CallSignalRetryPolicy.MAX_ATTEMPTS
         inject(CallSignaling.create(invite.callId, CallSignalKind.ACCEPT, false))
-        withTimeout(3_000) {
+        val offer = withTimeout(3_000) {
             sent.first { list -> list.any { it.kind == CallSignalKind.OFFER } }
+                .first { it.kind == CallSignalKind.OFFER }
         }
         report!!(CallMediaEvidence(true, 7, 9))
         waitPhase(NativeCallPhase.CONNECTED)
-        mainTestDispatcher.scheduler.advanceTimeBy(12_000L)
+        // Repository retry delays use the test scheduler while the relay and
+        // crypto work may resume from a different dispatcher. An arbitrary
+        // one-shot time jump is NOT proof that all HTTP attempts finished.
+        // Drive a bounded amount of time in small increments, yielding to
+        // real asynchronous completions between scheduler ticks.
+        withTimeout(20_000) {
+            while (outgoingSendAttempts.count { it.first == offer.id } <
+                CallSignalRetryPolicy.MAX_ATTEMPTS) {
+                mainTestDispatcher.scheduler.advanceTimeBy(750L)
+                mainTestDispatcher.scheduler.runCurrent()
+                delay(25L)
+            }
+        }
         mainTestDispatcher.scheduler.runCurrent()
-        assertEquals("Same encrypted OFFER was tried no more than six times",
+        delay(50L)
+        assertEquals("Same encrypted OFFER was tried exactly six times",
             CallSignalRetryPolicy.MAX_ATTEMPTS,
-            outgoingSendAttempts.count { it.first != invite.id })
+            outgoingSendAttempts.count { it.first == offer.id })
         assertEquals("Relay UUID idempotency stores only one OFFER", 1,
             sent.value.count { it.kind == CallSignalKind.OFFER })
         assertEquals("Live authenticated media outlives a temporary HTTP ACK outage",
@@ -805,13 +819,24 @@ class NativeCallStateTest {
         val invite = awaitSent(CallSignalKind.INVITE)
         outgoingMissingAckResponses = CallSignalRetryPolicy.MAX_ATTEMPTS
         inject(CallSignaling.create(invite.callId, CallSignalKind.ACCEPT, false))
-        withTimeout(3_000) {
+        val offer = withTimeout(3_000) {
             sent.first { list -> list.any { it.kind == CallSignalKind.OFFER } }
+                .first { it.kind == CallSignalKind.OFFER }
         }
         // Do not synthesize a CONNECTED state from HTTP success or old RTP.
-        mainTestDispatcher.scheduler.advanceTimeBy(12_000L)
+        // Wait for all six attempted ACK checks, not a speculative time jump.
+        withTimeout(20_000) {
+            while (outgoingSendAttempts.count { it.first == offer.id } <
+                CallSignalRetryPolicy.MAX_ATTEMPTS) {
+                mainTestDispatcher.scheduler.advanceTimeBy(750L)
+                mainTestDispatcher.scheduler.runCurrent()
+                delay(25L)
+            }
+        }
         mainTestDispatcher.scheduler.runCurrent()
         waitPhase(NativeCallPhase.FAILED)
+        assertEquals(CallSignalRetryPolicy.MAX_ATTEMPTS,
+            outgoingSendAttempts.count { it.first == offer.id })
         assertEquals(1, closes)
     }
 
