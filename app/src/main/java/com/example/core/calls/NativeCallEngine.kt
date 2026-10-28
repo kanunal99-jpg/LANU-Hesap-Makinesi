@@ -280,7 +280,7 @@ class NativeCallEngine(
                 delay(50)
             }
         }
-        check(pc.localDescription?.description?.contains("a=candidate:") == true) { "Ağ bağlantısı için aday bulunamadı." }
+        check(CallIceGatherPolicy.hasUsableCandidate(pc.localDescription?.description)) { "Ağ bağlantısı için aday bulunamadı." }
     }
     private suspend fun createSdp(start: (SdpObserver) -> Unit): SessionDescription = suspendCancellableCoroutine { c ->
         start(object : EmptySdpObserver() {
