@@ -80,6 +80,22 @@ internal object CallCommunicationDeviceConfirmationPolicy {
             availableDeviceRoutes[pendingDeviceId] == pendingRoute &&
             pendingRoute == priorities.firstOrNull()
 
+    /** An already-selected device is not a valid pending result if a new,
+     * higher-priority route appeared before the confirmation arrived. */
+    fun confirmedPreferredPendingRoute(
+        requestedId: Int?,
+        observedId: Int?,
+        requestedRoute: Route?,
+        availableDeviceRoutes: Map<Int, Route>,
+        bluetoothAllowed: Boolean,
+        priorities: List<Route>
+    ): Boolean =
+        stillPreferred(requestedId, requestedRoute, availableDeviceRoutes, priorities) &&
+            confirmedAvailableRoute(
+                requestedId, observedId, requestedRoute,
+                availableDeviceRoutes, bluetoothAllowed
+            )
+
     fun validCallCallback(running: Boolean, activeGeneration: Long, callbackGeneration: Long): Boolean =
         running && activeGeneration == callbackGeneration
 

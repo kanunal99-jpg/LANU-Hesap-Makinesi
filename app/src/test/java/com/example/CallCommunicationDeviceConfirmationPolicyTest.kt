@@ -160,6 +160,43 @@ class CallCommunicationDeviceConfirmationPolicyTest {
         assertFalse(Policy.expired(Long.MAX_VALUE, 31_000L))
     }
 
+    @Test fun pendingSpeakerConfirmationCannotOverrideNewlyAttachedWiredHeadset() {
+        val inventory = mapOf(7 to Route.SPEAKER, 8 to Route.WIRED_HEADSET)
+        assertTrue(Policy.confirmedAvailableRoute(
+            7, 7, Route.SPEAKER, inventory, true
+        ))
+        assertFalse(Policy.confirmedPreferredPendingRoute(
+            7, 7, Route.SPEAKER, inventory, true,
+            listOf(Route.WIRED_HEADSET, Route.SPEAKER)
+        ))
+        // An explicit user preference for speaker is still respected.
+        assertTrue(Policy.confirmedPreferredPendingRoute(
+            7, 7, Route.SPEAKER, inventory, true,
+            listOf(Route.SPEAKER, Route.WIRED_HEADSET)
+        ))
+    }
+
+    @Test fun staleCallbackOrPermissionLossCannotConfirmPendingRoute() {
+        val inventory = mapOf(7 to Route.BLUETOOTH_HEADSET, 8 to Route.EARPIECE)
+        val priorities = listOf(Route.BLUETOOTH_HEADSET, Route.EARPIECE)
+        assertFalse(Policy.confirmedPreferredPendingRoute(
+            7, 8, Route.BLUETOOTH_HEADSET, inventory, true, priorities
+        ))
+        assertFalse(Policy.confirmedPreferredPendingRoute(
+            7, null, Route.BLUETOOTH_HEADSET, inventory, true, priorities
+        ))
+        assertFalse(Policy.confirmedPreferredPendingRoute(
+            7, 7, Route.BLUETOOTH_HEADSET, inventory, false, priorities
+        ))
+        assertFalse(Policy.confirmedPreferredPendingRoute(
+            7, 7, Route.BLUETOOTH_HEADSET,
+            mapOf(7 to Route.EARPIECE), true, priorities
+        ))
+        assertTrue(Policy.confirmedPreferredPendingRoute(
+            7, 7, Route.BLUETOOTH_HEADSET, inventory, true, priorities
+        ))
+    }
+
     @Test fun lateCallbackFromClosedOrEarlierCallIsIgnored() {
         assertTrue(Policy.validCallCallback(true, 4L, 4L))
         assertFalse(Policy.validCallCallback(false, 4L, 4L))

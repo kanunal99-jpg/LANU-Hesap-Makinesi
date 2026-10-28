@@ -155,6 +155,15 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
                             catch (_: RuntimeException) { null },
                             pendingCommunicationRoute, communicationInventory(),
                             hasBluetoothAccess()
+                        ) &&
+                        CallCommunicationDeviceConfirmationPolicy.stillPreferred(
+                            pendingCommunicationDeviceId, pendingCommunicationRoute,
+                            communicationInventory(),
+                            CallAudioRoutePolicy.priorities(
+                                communicationInventory().values.filter {
+                                    it != Route.BLUETOOTH_HEADSET || hasBluetoothAccess()
+                                }.toSet(), videoCall, preferred
+                            )
                         )) {
                         val route = pendingCommunicationRoute ?: return@synchronized
                         clearPendingCommunication()
@@ -412,9 +421,9 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
             val activeRoute = active?.let { classify(it.type) }
             val pendingId = pendingCommunicationDeviceId
             if (!forceReapply && pendingId != null) {
-                if (CallCommunicationDeviceConfirmationPolicy.confirmedAvailableRoute(
+                if (CallCommunicationDeviceConfirmationPolicy.confirmedPreferredPendingRoute(
                         pendingId, active?.id, pendingCommunicationRoute,
-                        communicationInventory(), bluetoothAllowed
+                        communicationInventory(), bluetoothAllowed, candidates
                     )) {
                     val confirmedRoute = pendingCommunicationRoute
                     clearPendingCommunication()
@@ -465,13 +474,13 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
                     }
                     val selectedId = try { audioManager.communicationDevice?.id }
                         catch (_: RuntimeException) { null }
-                    val confirmed = CallCommunicationDeviceConfirmationPolicy.confirmedAvailableRoute(
+                    // Never infer success from an earlier ROUTED UI state:
+                    // an OEM may switch away between the callback and getter.
+                    val confirmed = CallCommunicationDeviceConfirmationPolicy.confirmedPreferredPendingRoute(
                         device.id, selectedId, route, communicationInventory(),
-                        hasBluetoothAccess()
+                        hasBluetoothAccess(), candidates
                     )
-                    val confirmedByCallback = pendingCommunicationDeviceId == null &&
-                        _state.value.status == "ROUTED" && _state.value.selected == route
-                    if (confirmed || confirmedByCallback) {
+                    if (confirmed) {
                         clearPendingCommunication()
                         return State(true, route, null, available, "ROUTED")
                             .also { _state.value = it }
