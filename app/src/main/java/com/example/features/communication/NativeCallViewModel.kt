@@ -65,14 +65,41 @@ class NativeCallViewModel(
     private var pendingHostRelease: Job? = null
     // A short grace transfers ownership between calculator and incoming-call
     // Activities without deleting a relay-ACKed authenticated invitation.
+    private var visibleIdlePoll: Job? = null
     fun attachHost() {
         attachedHosts++
         pendingHostRelease?.cancel()
         activate()
+        CallWakePolicy.privateAreaVisible = true
+        if (visibleIdlePoll == null) {
+            // FCM is only a wake hint. A consented calculator foreground must
+            // fetch and decrypt the actual INVITE itself, even if a previous
+            // one-shot sync finished before the caller rang.
+            visibleIdlePoll = viewModelScope.launch {
+                while (isActive && foreground && attachedHosts > 0) {
+                    var delayMs = 3_000L
+                    if (session == null && CallWakePreferences.isEnabled(appContext)) {
+                        try { repository.pollCallSignals() }
+                        catch (e: CancellationException) { throw e }
+                        catch (e: RelayException) {
+                            if (e.status == 429) delayMs = e.retryAfterMillis.coerceIn(5_000L, 120_000L)
+                        }
+                        catch (_: Exception) { /* No identity/peer or network: fail closed. */ }
+                    }
+                    delay(delayMs)
+                }
+            }
+        }
     }
     fun detachHost() {
         attachedHosts = (attachedHosts - 1).coerceAtLeast(0)
-        if (attachedHosts == 0) releaseIdleHost()
+        if (attachedHosts == 0) {
+            visibleIdlePoll?.cancel()
+            visibleIdlePoll = null
+            // Do not suppress FCM while every UI is backgrounded or locked.
+            CallWakePolicy.privateAreaVisible = false
+            releaseIdleHost()
+        }
     }
     fun releaseIdleHost() {
         if (attachedHosts != 0 || CallForegroundService.isRunning) return

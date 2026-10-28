@@ -201,6 +201,15 @@ class NativeCallStateTest {
             .put("content",cipher).put("createdAt",System.currentTimeMillis()).put("expiresAt",System.currentTimeMillis()+90_000)
         repo.synchronize()
     }
+    @Test fun leavingVisibleCallHostLetsBackgroundWakeNotifyAgain() {
+        vm.attachHost()
+        assertTrue("Visible call owner consumes INVITE directly",
+            com.example.core.calls.CallWakePolicy.privateAreaVisible)
+        vm.detachHost()
+        assertFalse("Background caller must not have FCM suppressed",
+            com.example.core.calls.CallWakePolicy.privateAreaVisible)
+    }
+
     @Test fun activeRingingIsNotClosedByCalculatorToCallScreenHandoff() = runBlocking {
         val invite = CallSignaling.create(UUID.randomUUID().toString(), CallSignalKind.INVITE, false)
         inject(invite)
