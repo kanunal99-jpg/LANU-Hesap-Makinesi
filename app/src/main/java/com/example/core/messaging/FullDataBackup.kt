@@ -174,10 +174,22 @@ object FullDataBackup {
                             .use { it.moveToFirst() }
                     }
                     "app_settings" -> {
-                        // Existing PIN and lockout settings intentionally win
-                        // over imported settings; require key existence only.
-                        db.query("SELECT 1 FROM `app_settings` WHERE `key` = ? LIMIT 1",
-                            arrayOf(expected.getString(0))).use { it.moveToFirst() }
+                        // Only PIN verifier / local lockout preferences can
+                        // deliberately retain a value different from the
+                        // encrypted archive. Peer proofs, drafts, identity
+                        // markers and delivery metadata must be EXACT: a
+                        // conflicting INSERT OR IGNORE is otherwise silent.
+                        val key = expected.getString(0)
+                        val locallyProtectedPinKey = key in setOf(
+                            "pin_hash", "entry_pin_enabled",
+                            "pin_attempt_state", "pin_lockout_strikes"
+                        )
+                        db.query("SELECT `key`, `value` FROM `app_settings` WHERE `key` = ? LIMIT 1",
+                            arrayOf(key)).use { actual ->
+                            actual.moveToFirst() &&
+                                (locallyProtectedPinKey ||
+                                    row(actual).toString() == expected.toString())
+                        }
                     }
                     else -> {
                         val query = "SELECT " + columns.joinToString(",") { "`$it`" } +

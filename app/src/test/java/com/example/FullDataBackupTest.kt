@@ -216,6 +216,68 @@ class FullDataBackupTest {
         } finally { source.close() }
     }
 
+
+    @Test fun `restore refuses conflicting encrypted peer setting and retains all device rows`() = runBlocking {
+        val source = db()
+        val target = db()
+        try {
+            val original = Store()
+            val (conversation, _) = populate(source, original)
+            val backup = repo(source, original).exportFullBackup(password)
+            // Same real identity: conflict detection must not short-circuit on
+            // account mismatch. App settings were previously INSERT OR IGNORE.
+            val owner = Store(original.identity)
+            val destination = repo(target, owner)
+            destination.ensureIdentity()
+            val boundKey = "lanu_peer_conv_$conversation"
+            target.settingsDao().insertSetting(
+                SettingsEntity(boundKey, "EXISTING_DIFFERENT_PEER_PROOF")
+            )
+            val originalPin = PinCredentialCodec.create("654321")
+            target.settingsDao().insertSetting(SettingsEntity("pin_hash", originalPin))
+            try {
+                destination.restoreFullBackup(backup, password)
+                fail("A conflicting peer proof must not be ignored by SQLite")
+            } catch (_: IllegalArgumentException) {
+                // Entire Room transaction must roll back including imports.
+            }
+            assertEquals("EXISTING_DIFFERENT_PEER_PROOF",
+                target.settingsDao().getSettingValue(boundKey))
+            assertEquals(originalPin, target.settingsDao().getSettingValue("pin_hash"))
+            assertEquals(0, target.messageDao().countMessages())
+            assertEquals(0, target.callLogDao().countCallLogs())
+            assertEquals(original.identity, owner.identity)
+            assertNull(target.settingsDao().getSettingValue("lanu_full_restore_identity"))
+        } finally { source.close(); target.close() }
+    }
+
+    @Test fun `restore rejects silently rewritten encrypted settings in same transaction`() = runBlocking {
+        val source = db()
+        val target = db()
+        try {
+            val original = Store()
+            populate(source, original)
+            val backup = repo(source, original).exportFullBackup(password)
+            val owner = Store(original.identity)
+            val destination = repo(target, owner)
+            destination.ensureIdentity()
+            target.openHelper.writableDatabase.execSQL("""
+                CREATE TRIGGER corrupt_peer_backup AFTER INSERT ON app_settings
+                WHEN NEW.`key` GLOB 'lanu_peer_conv_*'
+                BEGIN UPDATE app_settings SET value = 'REPLACED_PEER_PROOF'
+                  WHERE `key` = NEW.`key`; END
+            """.trimIndent())
+            try {
+                destination.restoreFullBackup(backup, password)
+                fail("SQLite trigger-mangled settings must not be reported as restored")
+            } catch (_: IllegalArgumentException) { }
+            assertEquals(0, target.messageDao().countMessages())
+            assertEquals(0, target.callLogDao().countCallLogs())
+            assertTrue(target.contactDao().getAllContacts().first().isEmpty())
+            assertEquals(original.identity, owner.identity)
+            assertNull(target.settingsDao().getSettingValue("lanu_full_restore_identity"))
+        } finally { source.close(); target.close() }
+    }
     @Test fun `read failure and broken encrypted identity store cannot create partial restore`() = runBlocking {
         val source = db(); val target = db()
         try {
