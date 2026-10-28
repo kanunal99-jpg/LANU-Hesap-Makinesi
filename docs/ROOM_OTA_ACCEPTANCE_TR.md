@@ -52,3 +52,15 @@ ADB/kurulum kanıtları zorunludur.
 **90/100 hedefinin gerçekleştiğini bu emülatör işinden tek başına
 çıkaramayız.** Canlı SQLCipher dönüşümü ve gerçek fiziksel OTA verisi
 tamamlanana kadar ölçülmeyen noktalar eksik sayılır.
+
+### Önceki R8 sürümünün ABI uyumu
+
+Önceki .822 APK R8 ile küçültüldüğü için *yeni* kaynakla derlenen bir
+AndroidTest APK'sını doğrudan eski APK'ya bağlamak yanlış
+\`NoSuchMethodError\` verebilir. CI eski \`f7f587...\` kaynak
+commit'ini ayrıca denetimli şekilde checkout eder; **aynı test kaynağını**
+eski uygulamanın ABI'sine karşı tekrar derler ve aynı stabil anahtarla
+yalnız izole CI içinde imzalar. Önceki APK'yı eski test APK'sı ile seed eder;
+\`adb install -r\` sonrası yeni test APK'sını (aynı .test package +
+aynı sertifika) yerinde güncelleyerek yeni uygulamayı doğrular.
+Özel anahtarlı test APK'ları hiçbir Release veya CI artifact'a yüklenmez.

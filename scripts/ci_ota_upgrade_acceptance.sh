@@ -3,12 +3,12 @@
 # and Keystore identity seeded by instrumentation, then candidate applied with
 # adb install -r (same-package, same-signer, NO uninstall or pm clear).
 set -Eeuo pipefail
-if [[ "$#" -ne 5 ]]; then
-  echo "usage: $0 baseline.apk new.apk signed-test.apk baseline-version new-version" >&2
+if [[ "$#" -ne 6 ]]; then
+  echo "usage: $0 baseline.apk new.apk old-signed-test.apk new-signed-test.apk baseline-version new-version" >&2
   exit 2
 fi
-old="$1"; candidate="$2"; tests="$3"; old_version="$4"; new_version="$5"
-for file in "$old" "$candidate" "$tests"; do
+old="$1"; candidate="$2"; old_tests="$3"; new_tests="$4"; old_version="$5"; new_version="$6"
+for file in "$old" "$candidate" "$old_tests" "$new_tests"; do
   [[ -s "$file" ]] || { echo "::error::OTA test APK artifact missing" >&2; exit 1; }
 done
 [[ "$old_version" =~ ^[0-9]+$ && "$new_version" =~ ^[0-9]+$ ]] || exit 2
@@ -31,8 +31,12 @@ cert() {
   { echo "::error::OTA package identity changed"; exit 1; }
 [[ "$(ver "$old")" == "$old_version" && "$(ver "$candidate")" == "$new_version" ]] ||
   { echo "::error::OTA version mismatch"; exit 1; }
-old_cert="$(cert "$old")"; current_cert="$(cert "$candidate")"; test_cert="$(cert "$tests")"
-[[ "$old_cert" =~ ^[a-f0-9]{64}$ && "$current_cert" == "$old_cert" && "$test_cert" == "$old_cert" ]] ||
+old_cert="$(cert "$old")"; current_cert="$(cert "$candidate")"
+old_test_cert="$(cert "$old_tests")"; new_test_cert="$(cert "$new_tests")"
+[[ "$(pkg "$old_tests")" == "$package.test" && "$(pkg "$new_tests")" == "$package.test" ]] ||
+  { echo "::error::Instrumentation package identity mismatch"; exit 1; }
+[[ "$old_cert" =~ ^[a-f0-9]{64}$ && "$current_cert" == "$old_cert" &&
+   "$old_test_cert" == "$old_cert" && "$new_test_cert" == "$old_cert" ]] ||
   { echo "::error::OTA signer mismatch; preserve previous installation"; exit 1; }
 
 run_probe() {
@@ -54,9 +58,12 @@ run_probe() {
 }
 echo "Installing the EXACT previously published stable APK into fresh emulator"
 adb install -r "$old" > /dev/null
-adb install -r "$tests" > /dev/null
+adb install -r "$old_tests" > /dev/null
 run_probe seed "$old_version" seedPreviouslyInstalledStableRelease
 echo "Applying the REAL candidate upgrade with adb install -r; no data clear"
 adb install -r "$candidate" > /dev/null
+# The previous phase links to the previous R8-minified APK. Rebuild the test
+# against the new code for the new APK ABI; never mask an R8 method mismatch.
+adb install -r "$new_tests" > /dev/null
 run_probe verify "$new_version" verifySameAccountAndAllSevenTablesAfterRealApkReplacement
 echo "OTA Android 14: all seven Room v4 tables, encrypted queued message, PIN and Keystore identity survived signed APK replacement."

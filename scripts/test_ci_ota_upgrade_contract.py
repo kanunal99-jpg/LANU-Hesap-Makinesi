@@ -10,7 +10,7 @@ class TestOtaContract(unittest.TestCase):
         content = (ROOT / "scripts/ci_ota_upgrade_acceptance.sh").read_text()
         commands = [line.strip() for line in content.splitlines()
                     if line.lstrip().startswith("adb ")]
-        self.assertGreaterEqual(sum(line.startswith("adb install -r ") for line in commands), 3)
+        self.assertGreaterEqual(sum(line.startswith("adb install -r ") for line in commands), 4)
         self.assertFalse(any(" uninstall " in (" " + line + " ") or
                              " pm clear " in (" " + line + " ")
                              for line in commands))
@@ -26,6 +26,8 @@ class TestOtaContract(unittest.TestCase):
         self.assertIn("github.event_name == 'push'", workflow)
         self.assertIn("scripts/ci_prepare_android_image.sh", workflow)
         self.assertIn("scripts/ci_ota_upgrade_acceptance.sh", workflow)
+        self.assertIn("Checkout pinned previous release source", workflow)
+        self.assertIn("Compile baseline instrumentation against the actual previous release ABI", workflow)
 
     def test_probe_is_explicit_emulator_only_and_checks_real_record_continuity(self):
         source = (ROOT / "app/src/androidTest/java/com/example/RoomActualOtaUpgradeTest.kt").read_text()
