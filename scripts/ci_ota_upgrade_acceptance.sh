@@ -24,7 +24,7 @@ pkg() { "$aapt" dump badging "$1" | sed -nE "s/^package: name='([^']+)'.*/\\1/p"
 ver() { "$aapt" dump badging "$1" | sed -nE "s/^package:.*versionCode='([0-9]+)'.*/\\1/p" | head -1; }
 cert() {
  "$apksigner" verify --print-certs "$1" |
- sed -nE 's/.*certificate SHA-256 digest:[[:space:]]*([0-9a-fA-F:]+).*/\\1/p' |
+ sed -nE 's/.*certificate SHA-256 digest:[[:space:]]*([0-9a-fA-F:]+).*/\1/p' |
  head -1 | tr -d ':' | tr '[:upper:]' '[:lower:]'
 }
 [[ "$(pkg "$old")" == "$package" && "$(pkg "$candidate")" == "$package" ]] ||
@@ -35,9 +35,31 @@ old_cert="$(cert "$old")"; current_cert="$(cert "$candidate")"
 old_test_cert="$(cert "$old_tests")"; new_test_cert="$(cert "$new_tests")"
 [[ "$(pkg "$old_tests")" == "$package.test" && "$(pkg "$new_tests")" == "$package.test" ]] ||
   { echo "::error::Instrumentation package identity mismatch"; exit 1; }
-[[ "$old_cert" =~ ^[a-f0-9]{64}$ && "$current_cert" == "$old_cert" &&
-   "$old_test_cert" == "$old_cert" && "$new_test_cert" == "$old_cert" ]] ||
-  { echo "::error::OTA signer mismatch; preserve previous installation"; exit 1; }
+# Fail closed, but identify WHICH of the four signed APKs differs.
+# Do not echo certificate fingerprints or keystore secrets in GitHub Actions.
+require_signer_digest() {
+  local label="$1" digest="$2"
+  if [[ ! "$digest" =~ ^[a-f0-9]{64}$ ]]; then
+    echo "::error::OTA certificate unreadable for $label; preserve previous installation" >&2
+    exit 1
+  fi
+}
+require_signer_digest "published baseline" "$old_cert"
+require_signer_digest "candidate release" "$current_cert"
+require_signer_digest "baseline instrumentation" "$old_test_cert"
+require_signer_digest "candidate instrumentation" "$new_test_cert"
+if [[ "$current_cert" != "$old_cert" ]]; then
+  echo "::error::OTA signer mismatch: candidate release vs published baseline; preserve previous installation" >&2
+  exit 1
+fi
+if [[ "$old_test_cert" != "$old_cert" ]]; then
+  echo "::error::OTA signer mismatch: baseline instrumentation vs published baseline; preserve previous installation" >&2
+  exit 1
+fi
+if [[ "$new_test_cert" != "$old_cert" ]]; then
+  echo "::error::OTA signer mismatch: candidate instrumentation vs published baseline; preserve previous installation" >&2
+  exit 1
+fi
 
 run_probe() {
   local phase="$1" version="$2" method="$3"
