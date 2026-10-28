@@ -125,6 +125,10 @@ dependencies {
   // implementation(libs.androidx.navigation.compose)
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
+  // Zetetic maintained SQLCipher for Android (API23+, 16-KiB native page support).
+  // NOT wired into the production AppDatabase until lossless cutover acceptance.
+  implementation("net.zetetic:sqlcipher-android:4.19.1@aar")
+  implementation("androidx.sqlite:sqlite:2.7.0")
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
