@@ -117,6 +117,10 @@ object MessageWakePolicy {
      * before and after Android's notification service receives it.
      * If opt-out won the race, retract the just-posted alert.
      */
+    // Every private-message hint shares one Android notification ID.
+    // Keep the consent check, post and possible retraction in one transaction:
+    // an older revoked hint must never cancel a newer valid hint.
+    @Synchronized
     fun postIfStillEnabled(
         isEnabled: () -> Boolean,
         post: () -> Unit,
@@ -130,6 +134,11 @@ object MessageWakePolicy {
         }
         return true
     }
+
+    // The settings opt-out must wait for any in-flight Android notify().
+    // Otherwise an alert may be posted AFTER the local cancel completes.
+    @Synchronized
+    fun cancelPostedMessageAlert(cancel: () -> Boolean): Boolean = cancel()
 
     fun safeShow(block: () -> Boolean): Boolean =
         try { block() } catch (_: SecurityException) { false }
@@ -151,10 +160,12 @@ object MessageWakeNotification {
      * Never cancel call notifications: their consent and channel are separate.
      */
     fun cancel(context: Context): Boolean = MessageWakePolicy.safeShow {
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-            ?: return@safeShow false
-        manager.cancel(ID)
-        true
+        MessageWakePolicy.cancelPostedMessageAlert {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                ?: return@cancelPostedMessageAlert false
+            manager.cancel(ID)
+            true
+        }
     }
 
     fun ensureChannel(manager: NotificationManager) {
@@ -206,7 +217,9 @@ object MessageWakeNotification {
                     .setAutoCancel(true)
                     .build()
                 val delivered = MessageWakePolicy.postIfStillEnabled(
-                    isEnabled = { MessageWakePreferences.isEnabled(context) },
+                    isEnabled = {
+                        !CallWakePolicy.privateAreaVisible && MessageWakePreferences.isEnabled(context)
+                    },
                     post = { manager.notify(ID, notification) },
                     cancel = { manager.cancel(ID) }
                 )
