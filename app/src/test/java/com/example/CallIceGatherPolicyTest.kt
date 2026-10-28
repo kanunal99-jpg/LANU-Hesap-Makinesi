@@ -45,4 +45,21 @@ class CallIceGatherPolicyTest {
         val malicious = "v=0\r\na=x-fake: typ srflx\r\n" + host
         assertFalse(ready(malicious, PeerConnection.IceGatheringState.GATHERING, 3000, 1000))
     }
+
+    @Test fun completedGatheringRejectsEmbeddedOrTruncatedCandidateStrings() {
+        val embedded = "v=0\\r\\na=x-note:a=candidate:1 1 udp 2113937151 198.51.100.12 43333 typ srflx\\r\\n"
+        val truncated = "v=0\\r\\na=candidate:1\\r\\n"
+        val missingTypeMarker = "v=0\\r\\na=candidate:1 1 udp 2113937151 198.51.100.12 43333 fake srflx\\r\\n"
+        for (sdp in listOf(embedded, truncated, missingTypeMarker)) {
+            assertFalse("Malformed SDP cannot be treated as ICE complete with an usable route",
+                ready(sdp, PeerConnection.IceGatheringState.COMPLETE, 8_000L, 500L))
+            assertFalse("Timeout fallback must enforce the same candidate grammar",
+                CallIceGatherPolicy.hasUsableCandidate(sdp))
+        }
+        assertTrue("A valid host candidate remains usable on a local network",
+            CallIceGatherPolicy.hasUsableCandidate(host))
+        assertTrue("A valid reflexive candidate keeps the early reconnect path",
+            ready(reflexive, PeerConnection.IceGatheringState.GATHERING, 1_400L, 650L))
+    }
+
 }
