@@ -126,9 +126,14 @@ class SqlCipherOfflineExportAcceptanceTest {
             // The export connection MUST NEVER open a production file. The
             // source is intentionally plaintext, with a non-destructive error
             // handler so corrupt SQLite cannot be silently recreated/deleted.
+            // Source is a frozen plaintext snapshot. A writable SQLCipher
+            // connection may touch source header/journal metadata even while
+            // exporting to a different attached file, violating losslessness.
+            // SQLite supports a read-only main with a separately writable
+            // attached export database: never grant writes to the source.
             val connection = SQLiteDatabase.openDatabase(
                 plainFile.absolutePath, null as SQLiteDatabase.CursorFactory?,
-                SQLiteDatabase.OPEN_READWRITE)
+                SQLiteDatabase.OPEN_READONLY)
             try {
                 connection.rawQuery("PRAGMA integrity_check", emptyArray()).use {
                     assertTrue(it.moveToFirst())
