@@ -16,6 +16,11 @@ import com.example.core.messaging.MessageWakePreferences
 import com.example.core.messaging.MessageWakeTapPolicy
 import com.example.core.messaging.MessageWakeTokenRefreshPolicy
 import kotlinx.coroutines.runBlocking
+import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -264,6 +269,99 @@ class MessageWakeNotificationTest {
             cancel = { actions.add("cancelled") }
         ))
         assertTrue(actions.isEmpty())
+    }
+
+    @Test fun revokedOlderHintCannotRetractNewerValidMessageAlert() {
+        val events = Collections.synchronizedList(mutableListOf<String>())
+        val oldConsent = AtomicBoolean(true)
+        val oldPostEntered = CountDownLatch(1)
+        val releaseOldPost = CountDownLatch(1)
+        val newerStarted = CountDownLatch(1)
+        val newerFinished = CountDownLatch(1)
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            val older = pool.submit<Boolean> {
+                MessageWakePolicy.postIfStillEnabled(
+                    isEnabled = { oldConsent.get() },
+                    post = {
+                        events.add("older-post")
+                        oldPostEntered.countDown()
+                        check(releaseOldPost.await(5, TimeUnit.SECONDS))
+                        oldConsent.set(false)
+                    },
+                    cancel = { events.add("older-retract") }
+                )
+            }
+            assertTrue(oldPostEntered.await(5, TimeUnit.SECONDS))
+            val newer = pool.submit<Boolean> {
+                newerStarted.countDown()
+                try {
+                    MessageWakePolicy.postIfStillEnabled(
+                        isEnabled = { true },
+                        post = { events.add("newer-post") },
+                        cancel = { events.add("newer-retract") }
+                    )
+                } finally {
+                    newerFinished.countDown()
+                }
+            }
+            assertTrue(newerStarted.await(5, TimeUnit.SECONDS))
+            assertFalse("Newer notify must wait until older revoke finishes",
+                newerFinished.await(200, TimeUnit.MILLISECONDS))
+            releaseOldPost.countDown()
+            assertFalse(older.get(5, TimeUnit.SECONDS))
+            assertTrue(newer.get(5, TimeUnit.SECONDS))
+            assertEquals(listOf("older-post", "older-retract", "newer-post"), events)
+        } finally {
+            releaseOldPost.countDown()
+            pool.shutdownNow()
+        }
+    }
+
+    @Test fun localMessageOptOutCannotCancelBeforeInflightNotifyFinishes() {
+        val events = Collections.synchronizedList(mutableListOf<String>())
+        val consent = AtomicBoolean(true)
+        val postEntered = CountDownLatch(1)
+        val releasePost = CountDownLatch(1)
+        val cancelStarted = CountDownLatch(1)
+        val cancelFinished = CountDownLatch(1)
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            val posting = pool.submit<Boolean> {
+                MessageWakePolicy.postIfStillEnabled(
+                    isEnabled = { consent.get() },
+                    post = {
+                        events.add("post")
+                        postEntered.countDown()
+                        check(releasePost.await(5, TimeUnit.SECONDS))
+                    },
+                    cancel = { events.add("retract") }
+                )
+            }
+            assertTrue(postEntered.await(5, TimeUnit.SECONDS))
+            consent.set(false)
+            val cancelling = pool.submit<Boolean> {
+                cancelStarted.countDown()
+                try {
+                    MessageWakePolicy.cancelPostedMessageAlert {
+                        events.add("local-cancel")
+                        true
+                    }
+                } finally {
+                    cancelFinished.countDown()
+                }
+            }
+            assertTrue(cancelStarted.await(5, TimeUnit.SECONDS))
+            assertFalse("Opt-out cancellation must wait for in-flight notify",
+                cancelFinished.await(200, TimeUnit.MILLISECONDS))
+            releasePost.countDown()
+            assertFalse(posting.get(5, TimeUnit.SECONDS))
+            assertTrue(cancelling.get(5, TimeUnit.SECONDS))
+            assertEquals(listOf("post", "retract", "local-cancel"), events)
+        } finally {
+            releasePost.countDown()
+            pool.shutdownNow()
+        }
     }
 
 }
