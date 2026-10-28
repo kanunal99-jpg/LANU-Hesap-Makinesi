@@ -24,7 +24,7 @@ pkg() { "$aapt" dump badging "$1" | sed -nE "s/^package: name='([^']+)'.*/\\1/p"
 ver() { "$aapt" dump badging "$1" | sed -nE "s/^package:.*versionCode='([0-9]+)'.*/\\1/p" | head -1; }
 cert() {
  "$apksigner" verify --print-certs "$1" |
- sed -nE 's/.*certificate SHA-256 digest:[[:space:]]*([0-9a-fA-F:]+).*/\\1/p' |
+ sed -nE 's/.*certificate SHA-256 digest:[[:space:]]*([0-9a-fA-F:]+).*/\1/p' |
  head -1 | tr -d ':' | tr '[:upper:]' '[:lower:]'
 }
 [[ "$(pkg "$old")" == "$package" && "$(pkg "$candidate")" == "$package" ]] ||
