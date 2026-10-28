@@ -81,13 +81,19 @@ class CommunicationRepository(
         if (signal.kind == CallSignalKind.INVITE) data.put("wake", true)
 
         suspend fun sendCompatible() {
-            try { relay.request(own, "callSend", data) }
+            val response = try { relay.request(own, "callSend", data) }
             catch (e: RelayException) {
                 // Older deployed relays reject the optional wake field. Do not
                 // break existing 2-phone calls during a staged backend rollout.
                 if (signal.kind != CallSignalKind.INVITE || e.status != 400) throw e
                 relay.request(own, "callSend", JSONObject(data.toString()).apply { remove("wake") })
             }
+            // A successful HTTP status or empty intermediary response is not
+            // proof that the authenticated relay persisted our signal. Require
+            // the exact Boolean ACK from the current and compatible relay.
+            // Re-sending the same immutable UUID/ciphertext is idempotent.
+            if (response.opt("accepted") != true)
+                throw RelayException(503, "Arama teslim onayı alınamadı.")
         }
         // Retry ONLY short transient connection/server outages, never auth,
         // quota or protocol errors. All attempts reuse the same immutable
