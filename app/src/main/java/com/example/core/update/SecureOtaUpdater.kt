@@ -77,8 +77,14 @@ object SecureOtaUpdater {
     private val shaPattern = Regex("[a-f0-9]{64}")
 
     /** Release metadata and content are limited to GitHub and its known download CDN. */
-    fun isApprovedEndpoint(scheme: String, host: String): Boolean =
-        scheme == "https" && host in approvedHosts
+    fun isApprovedEndpoint(
+        scheme: String,
+        host: String,
+        port: Int = 443,
+        username: String = "",
+        password: String = ""
+    ): Boolean = scheme == "https" && host in approvedHosts && port == 443 &&
+        username.isEmpty() && password.isEmpty()
 
     /** Only open release pages for strictly validated tags from the official LANU repository. */
     fun officialReleasePage(tag: String): String? =
@@ -592,7 +598,7 @@ object SecureOtaUpdater {
     private suspend fun trustedGet(url: String, accept: String, rangeStart: Long? = null): Response {
         var next = Request.Builder().url(url).build().url
         repeat(MAX_REDIRECTS + 1) { hop ->
-            require(isApprovedEndpoint(next.scheme, next.host)) {
+            require(isApprovedEndpoint(next.scheme, next.host, next.port, next.username, next.password)) {
                 "Güncelleme indirmesi onaylanmamış bir adrese yönlendirildi."
             }
             val builder = Request.Builder().url(next)

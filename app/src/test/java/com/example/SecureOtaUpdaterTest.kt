@@ -229,6 +229,16 @@ class SecureOtaUpdaterTest {
         assertFalse(SecureOtaUpdater.isApprovedEndpoint("https", "github.com.attacker.invalid"))
         assertFalse(SecureOtaUpdater.isApprovedEndpoint("https", "evil.example"))
         assertFalse(SecureOtaUpdater.isApprovedEndpoint("file", "github.com"))
+        // Redirect authority is part of the trust boundary: an approved DNS
+        // name on a nonstandard TLS port or with URL credentials is NOT trusted.
+        assertTrue(SecureOtaUpdater.isApprovedEndpoint("https", "github.com", 443))
+        assertTrue(SecureOtaUpdater.isApprovedEndpoint("https", "objects.githubusercontent.com", 443))
+        assertFalse(SecureOtaUpdater.isApprovedEndpoint("https", "github.com", 8443))
+        assertFalse(SecureOtaUpdater.isApprovedEndpoint("https", "api.github.com", 80))
+        assertFalse(SecureOtaUpdater.isApprovedEndpoint("https", "release-assets.githubusercontent.com", 0))
+        assertFalse(SecureOtaUpdater.isApprovedEndpoint("https", "github.com", 443, "user", ""))
+        assertFalse(SecureOtaUpdater.isApprovedEndpoint("https", "github.com", 443, "", "password"))
+        assertFalse(SecureOtaUpdater.isApprovedEndpoint("http", "github.com", 443))
     }
 
     @Test fun `tampered cached APK fails before package inspection`() {

@@ -49,6 +49,11 @@ object PrivateOfficeDocumentPreflight {
             val names = HashSet<String>()
             var files = 0
             var expanded = 0L
+            // ZIP names alone are not evidence of readable OOXML package parts.
+            // Parts are case-sensitive inside the package, must be real files,
+            // and cannot be empty placeholders or directory lookalikes.
+            var contentTypesVerified = false
+            var requiredPartVerified = false
             val entries = zip.entries()
             while (entries.hasMoreElements()) {
                 val entry: ZipEntry = entries.nextElement()
@@ -67,7 +72,16 @@ object PrivateOfficeDocumentPreflight {
                 require(!path.endsWith("vbaProject.bin", ignoreCase = true)) {
                     "Makro içeren Office dosyaları desteklenmiyor."
                 }
-                if (entry.isDirectory) continue
+                // Do not count a directory with a misleading required-part
+                // name as an actual OOXML document. Rejected even if a later
+                // filename normalization would otherwise match.
+                if (entry.isDirectory) {
+                    val directoryName = path.trimEnd('/')
+                    require(directoryName != required && directoryName != "[Content_Types].xml") {
+                        "Office paketinin zorunlu parçası bir dosya olmalı."
+                    }
+                    continue
+                }
                 require(entry.method == ZipEntry.DEFLATED || entry.method == ZipEntry.STORED)
                 require(entry.size >= 0 && entry.size <= MAX_EXPANDED_BYTES &&
                     entry.compressedSize >= 0) {
@@ -82,11 +96,19 @@ object PrivateOfficeDocumentPreflight {
                     }
                 }
                 if (path == "[Content_Types].xml") {
-                    require(entry.size in 1..MAX_METADATA_XML_BYTES)
+                    require(entry.size in 1..MAX_METADATA_XML_BYTES) {
+                        "Office içerik türü tanımı boş veya büyük."
+                    }
+                    contentTypesVerified = true
+                }
+                if (path == required) {
+                    require(entry.size in 1..MAX_EXPANDED_BYTES) {
+                        "Office belgesinin asıl XML içeriği boş veya büyük."
+                    }
+                    requiredPartVerified = true
                 }
             }
-            require(names.contains("[content_types].xml") &&
-                names.contains(required.lowercase(java.util.Locale.ROOT))) {
+            require(contentTypesVerified && requiredPartVerified) {
                 "Dosya, belirtilen Office belgesi yapısına sahip değil."
             }
         }

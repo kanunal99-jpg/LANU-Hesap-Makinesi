@@ -109,4 +109,57 @@ class PrivateOfficeDocumentPreflightTest {
             PrivateOfficeDocumentPreflight.validate(file, PrivateOfficeDocumentPreflight.XLSX_MIME)
         }
     }
+    @Test fun emptyOrCaseSpoofedRequiredXmlPartsCannotPassStructuralGate() {
+        val formats = listOf(
+            Triple("reject-empty-docx.docx", PrivateOfficeDocumentPreflight.DOCX_MIME, "word/document.xml"),
+            Triple("reject-empty-xlsx.xlsx", PrivateOfficeDocumentPreflight.XLSX_MIME, "xl/workbook.xml"),
+            Triple("reject-empty-pptx.pptx", PrivateOfficeDocumentPreflight.PPTX_MIME, "ppt/presentation.xml")
+        )
+        for ((name, mime, required) in formats) {
+            val emptyRequired = temp.newFile(name)
+            ZipOutputStream(FileOutputStream(emptyRequired)).use { zip ->
+                zip.putNextEntry(ZipEntry("[Content_Types].xml"))
+                zip.write("<Types/>".toByteArray())
+                zip.closeEntry()
+                zip.putNextEntry(ZipEntry(required))
+                zip.closeEntry() // Empty placeholder is not a valid document part
+            }
+            assertRejected { PrivateOfficeDocumentPreflight.validate(emptyRequired, mime) }
+
+            val wrongCase = officeArchive("wrong-case-$name", "[Content_Types].xml", required.uppercase())
+            assertRejected { PrivateOfficeDocumentPreflight.validate(wrongCase, mime) }
+
+            val correct = officeArchive("nonempty-$name", "[Content_Types].xml", required)
+            PrivateOfficeDocumentPreflight.validate(correct, mime)
+        }
+    }
+
+    @Test fun missingOrDirectoryOnlyContentTypesCannotPassStructuralGate() {
+        val mime = PrivateOfficeDocumentPreflight.DOCX_MIME
+        val empty = temp.newFile("missing-types.docx")
+        ZipOutputStream(FileOutputStream(empty)).use { zip ->
+            zip.putNextEntry(ZipEntry("[Content_Types].xml"))
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("word/document.xml"))
+            zip.write("<document/>".toByteArray())
+            zip.closeEntry()
+        }
+        assertRejected { PrivateOfficeDocumentPreflight.validate(empty, mime) }
+
+        for (directory in listOf("[Content_Types].xml/", "word/document.xml/")) {
+            val spoofed = temp.newFile("fake-dir-" + directory.hashCode() + ".docx")
+            ZipOutputStream(FileOutputStream(spoofed)).use { zip ->
+                zip.putNextEntry(ZipEntry("[Content_Types].xml"))
+                zip.write("<Types/>".toByteArray())
+                zip.closeEntry()
+                zip.putNextEntry(ZipEntry("word/document.xml"))
+                zip.write("<document/>".toByteArray())
+                zip.closeEntry()
+                zip.putNextEntry(ZipEntry(directory))
+                zip.closeEntry()
+            }
+            assertRejected { PrivateOfficeDocumentPreflight.validate(spoofed, mime) }
+        }
+    }
+
 }
