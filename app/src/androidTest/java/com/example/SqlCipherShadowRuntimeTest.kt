@@ -161,7 +161,7 @@ class SqlCipherShadowRuntimeTest {
     }
 
     @Test
-    fun orphanedEncryptedShadowCannotSilentlyMintNewKeyAfterKeystoreLoss() {
+    fun orphanedEncryptedShadowCannotSilentlyMintNewKeyAfterKeystoreLoss() = runBlocking {
         val name = "lanu_ci_cipher_shadow_orphan_" +
             UUID.randomUUID().toString().replace("-", "").take(16) + ".db"
         val path = context.getDatabasePath(name)
