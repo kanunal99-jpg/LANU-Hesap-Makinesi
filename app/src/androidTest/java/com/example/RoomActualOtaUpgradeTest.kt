@@ -1,6 +1,7 @@
 package com.example
 
 import android.content.Context
+import android.os.Bundle
 import android.os.Build
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -49,6 +50,14 @@ class RoomActualOtaUpgradeTest {
         @Suppress("DEPRECATION")
         val actual = context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
         assertEquals("Wrong installed APK; upgrade experiment is invalid", expected, actual)
+    }
+
+    private fun confirmPhase(phase: String) {
+        // An AndroidJUnitRunner assumption/skip can still end in "OK (1 test)".
+        // Emit an explicit instrumentation-status marker ONLY after every data
+        // preservation assertion succeeds, so CI cannot accept an empty skip.
+        InstrumentationRegistry.getInstrumentation().sendStatus(0,
+            Bundle().apply { putString("lanu_ota_verified_phase", phase) })
     }
 
     private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
@@ -108,6 +117,7 @@ class RoomActualOtaUpgradeTest {
         assertTrue("The pre-update sentinel must be durably saved", persisted)
         assertEquals(messageId, database.messageDao().getPendingMessages(
             now = System.currentTimeMillis(), limit = 200).single().id)
+        confirmPhase("seed")
     }
 
     @Test
@@ -147,6 +157,7 @@ class RoomActualOtaUpgradeTest {
             .single { it.id == 44001L }.result)
         assertEquals(5, db.callLogDao().getAllCallLogs().first()
             .single { it.id == 55001L }.durationSeconds)
+        confirmPhase("verify")
         // Deliberately leave the installed app and data intact for debugging.
         // CI discards the entire ephemeral emulator VM, never the user database.
     }

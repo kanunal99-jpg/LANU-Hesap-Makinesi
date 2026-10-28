@@ -17,6 +17,7 @@ class TestOtaContract(unittest.TestCase):
         self.assertIn("cert \"$old\"", content)
         self.assertIn("cert \"$candidate\"", content)
         self.assertIn("seedPreviouslyInstalledStableRelease", content)
+        self.assertIn("lanu_ota_verified_phase=$phase", content)
         self.assertIn("verifySameAccountAndAllSevenTablesAfterRealApkReplacement", content)
 
     def test_publish_requires_main_only_signed_upgrade_acceptance(self):
@@ -36,6 +37,8 @@ class TestOtaContract(unittest.TestCase):
                        "isConsistentIdentity", "getAllHistory", "getAllCallLogs",
                        "getMessage", "getContactByPhone", "getConversationById"):
             self.assertIn(marker, source)
+        self.assertIn("confirmPhase(\"seed\")", source)
+        self.assertIn("confirmPhase(\"verify\")", source)
         self.assertNotIn("deleteDatabase(", source)
         self.assertNotIn("clearApplicationUserData", source)
 

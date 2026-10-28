@@ -50,6 +50,7 @@ run_probe() {
     "$runner")" || { echo "::error::OTA instrument failed in phase $phase"; exit 1; }
   # am instrument may exit 0 even if a JUnit assertion failed.
   if ! grep -Eq 'OK \(1 test\)' <<< "$result" ||
+     ! grep -Fq "lanu_ota_verified_phase=$phase" <<< "$result" ||
      grep -Eq 'FAILURES|INSTRUMENTATION_FAILED|INSTRUMENTATION_CODE: 0' <<< "$result"; then
     echo "::error::OTA data preservation assertion failed in $phase phase"
     exit 1
