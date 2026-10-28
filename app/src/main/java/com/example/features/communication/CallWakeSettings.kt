@@ -127,18 +127,32 @@ fun CallWakeSettings(repository: CommunicationRepository) {
                             status = "Yalnız gelen sesli/görüntülü arama uyarıları etkin."
                         } catch (failure: Exception) {
                             // Server or credential failure is not success.
-                            CallWakePreferences.disableAndQueueRemoteRevoke(context)
-                            runCatching { CallWakeTokenRefreshWorker.enqueue(context, replace = false) }
-                            CallWakeNotification.cancel(context)
-                            pendingRevoke = true
+                            // Never block the Compose main thread on OEM
+                            // NotificationManager/WorkManager Binder calls.
+                            val persisted = CallWakeLocalOptOut.persistAndPrepareRevoke(
+                                persistDisabledWithPendingRevoke = {
+                                    CallWakePreferences.disableAndQueueRemoteRevoke(context)
+                                },
+                                cancelPostedCall = { CallWakeNotification.cancel(context) },
+                                scheduleRemoteRevoke = {
+                                    CallWakeTokenRefreshWorker.enqueue(context, replace = false)
+                                },
+                                resetFirebaseAutoInit = {
+                                    FirebaseMessaging.getInstance().isAutoInitEnabled =
+                                        MessageWakePreferences.isEnabled(context)
+                                }
+                            )
+                            pendingRevoke = CallWakePreferences.hasPendingRemoteRevoke(context)
+                            enabled = CallWakePreferences.isEnabled(context)
                             if (failure is CancellationException) throw failure
-                            FirebaseMessaging.getInstance().isAutoInitEnabled = MessageWakePreferences.isEnabled(context)
-                            enabled = false
                             // A registration may have reached the server before
                             // the local consent commit failed. Revoke defensively.
-                            val revoked = completeRemoteRevoke()
-                            status = if (revoked) "Sunucu kaydı doğrulanamadı. Bildirim kapalı."
-                                else "Bildirim kapalı; sunucu iptali bekliyor. Gizli alan Ayarlarından yeniden deneyin."
+                            val revoked = if (persisted) completeRemoteRevoke() else false
+                            status = when {
+                                !persisted -> "Bildirim kaydı güvenle kapatılamadı. Cihaz depolamasını kontrol edin."
+                                revoked -> "Sunucu kaydı doğrulanamadı. Bildirim kapalı."
+                                else -> "Bildirim kapalı; sunucu iptali bekliyor. Gizli alan Ayarlarından yeniden deneyin."
+                            }
                         } finally { busy = false }
                     }
                 }
@@ -168,23 +182,37 @@ fun CallWakeSettings(repository: CommunicationRepository) {
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 8.dp))
         if (busy) CircularProgressIndicator()
         else if (enabled) OutlinedButton(onClick = {
-            val saved = CallWakePreferences.disableAndQueueRemoteRevoke(context)
-            if (saved) CallWakeNotification.cancel(context)
-            if (saved) runCatching { CallWakeTokenRefreshWorker.enqueue(context, replace = false) }
-            runCatching { FirebaseMessaging.getInstance().isAutoInitEnabled = MessageWakePreferences.isEnabled(context) }
-            if (!saved) {
-                status = "Yerel kapatma kaydedilemedi. Cihaz depolamasını kontrol edin."
-            } else {
-                enabled = false
-                pendingRevoke = true
-                busy = true
-                status = "Bu cihazda kapalı; sunucu iptali doğrulanıyor."
-                scope.launch {
-                    val revoked = completeRemoteRevoke()
-                    status = if (revoked) "Bu cihazda ve sunucuda arama bildirimi kapalı."
-                        else "Bu cihazda kapalı; sunucu iptali bekliyor. Yeniden deneyin."
-                    busy = false
-                }
+            // Disable is committed first, on IO; only a successful durable
+            // pending-revoke marker may schedule/cancel external services.
+            // The UI shows progress immediately and never blocks on Binder.
+            busy = true
+            status = "Arama bildirimi kapatma işlemi kaydediliyor."
+            scope.launch {
+                try {
+                    val saved = CallWakeLocalOptOut.persistAndPrepareRevoke(
+                        persistDisabledWithPendingRevoke = {
+                            CallWakePreferences.disableAndQueueRemoteRevoke(context)
+                        },
+                        cancelPostedCall = { CallWakeNotification.cancel(context) },
+                        scheduleRemoteRevoke = {
+                            CallWakeTokenRefreshWorker.enqueue(context, replace = false)
+                        },
+                        resetFirebaseAutoInit = {
+                            FirebaseMessaging.getInstance().isAutoInitEnabled =
+                                MessageWakePreferences.isEnabled(context)
+                        }
+                    )
+                    if (!saved) {
+                        status = "Yerel kapatma kaydedilemedi. Cihaz depolamasını kontrol edin."
+                    } else {
+                        enabled = false
+                        pendingRevoke = true
+                        status = "Bu cihazda kapalı; sunucu iptali doğrulanıyor."
+                        val revoked = completeRemoteRevoke()
+                        status = if (revoked) "Bu cihazda ve sunucuda arama bildirimi kapalı."
+                            else "Bu cihazda kapalı; sunucu iptali bekliyor. Yeniden deneyin."
+                    }
+                } finally { busy = false }
             }
         }) { Text("Arama bildirimlerini kapat") }
         else if (pendingRevoke) OutlinedButton(onClick = {
