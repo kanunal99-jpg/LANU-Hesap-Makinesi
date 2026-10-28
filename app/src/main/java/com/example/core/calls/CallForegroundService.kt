@@ -34,7 +34,7 @@ class CallForegroundService : Service() {
             createChannel()
             val content = PendingIntent.getActivity(this, 10,
                 Intent(this, IncomingCallActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    this.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             val end = PendingIntent.getService(this, 11,
                 Intent(this, CallForegroundService::class.java).setAction(ACTION_END),
