@@ -12,6 +12,11 @@ import kotlinx.coroutines.flow.*
 import java.security.MessageDigest
 import java.util.UUID
 
+// WebRTC evidence is sampled about once per second. Waiting longer than one
+// sample gives a brief self-healing radio handover time to earn fresh RTP
+// evidence before spending the only signed ICE restart. The separate 25s
+// call deadline still bounds genuine outages.
+internal const val ICE_RESTART_GRACE_MS = 2_250L
 enum class NativeCallPhase { IDLE, DIALING, RINGING, CONNECTING, CONNECTED, RECONNECTING, ENDED, FAILED }
 data class NativeCallUiState(
     val callId: String = "", val name: String = "", val video: Boolean = false,
@@ -280,7 +285,7 @@ class NativeCallViewModel(
                         // Mobile radio/Wi-Fi handovers often recover on their
                         // own. Give the existing ICE transport a brief grace
                         // period before spending the ONE authorized restart.
-                        delay(750L)
+                        delay(ICE_RESTART_GRACE_MS)
                         if (session !== current || !foreground ||
                             current.reconnectGeneration != generation ||
                             _state.value.phase != NativeCallPhase.RECONNECTING ||
