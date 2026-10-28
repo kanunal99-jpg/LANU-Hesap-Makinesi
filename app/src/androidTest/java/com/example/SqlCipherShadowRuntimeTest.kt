@@ -79,9 +79,21 @@ class SqlCipherShadowRuntimeTest {
                     assertEquals("lanu2:DO_NOT_LEAK_CIPHERTEXT", queued.content)
                     assertEquals(9L, reopened.calculationHistoryDao().getAllHistory().first().single().id)
                     assertEquals(11L, reopened.callLogDao().getAllCallLogs().first().single().id)
+                    // SQLCipher's cipher_integrity_check returns rows ONLY for HMAC
+                    // failures; an intact encrypted database produces zero rows.
+                    reopened.openHelper.readableDatabase.query("PRAGMA cipher_version").use {
+                        assertTrue("Real SQLCipher engine must expose its version", it.moveToFirst())
+                        assertTrue("SQLCipher version must be nonempty", !it.getString(0).isNullOrBlank())
+                    }
                     reopened.openHelper.readableDatabase.query("PRAGMA cipher_integrity_check").use {
-                        assertTrue(it.moveToFirst())
+                        assertFalse("SQLCipher must report no HMAC integrity errors", it.moveToFirst())
+                    }
+                    // SQLite's structural integrity_check has different semantics:
+                    // it emits one 'ok' row for a healthy database.
+                    reopened.openHelper.readableDatabase.query("PRAGMA integrity_check").use {
+                        assertTrue("Structural integrity result must exist", it.moveToFirst())
                         assertEquals("ok", it.getString(0))
+                        assertFalse("No additional structural errors expected", it.moveToNext())
                     }
                 } finally { reopened.close() }
             } finally { reopenedKey.fill(0) }
