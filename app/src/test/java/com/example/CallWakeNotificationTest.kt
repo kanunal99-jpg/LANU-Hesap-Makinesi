@@ -39,6 +39,12 @@ class CallWakeNotificationTest {
         CallWakePolicy.privateAreaVisible = false
     }
 
+    @Test fun revokedCallConsentCannotReopenInactiveCallUi() {
+        assertFalse(CallWakeTapPolicy.mayOpenCallUi(false, false))
+        assertTrue(CallWakeTapPolicy.mayOpenCallUi(true, false))
+        assertTrue(CallWakeTapPolicy.mayOpenCallUi(false, true))
+    }
+
     @Test fun notificationAnswerMatchesOnlyItsFreshInvitation() {
         val now = 1_710_000_000_000L
         assertTrue(CallWakeTapPolicy.matchesVerifiedInvite(now - 1000, now - 10_000, now))

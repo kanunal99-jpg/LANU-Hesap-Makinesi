@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.dp
 import com.example.core.calls.CallWakePolicy
 import com.example.core.calls.CallWakePreferences
 import com.example.core.calls.CallWakeTapPolicy
+import com.example.features.communication.NativeCallPhase
 import com.example.features.communication.NativeCallHost
 import com.example.ui.theme.MyApplicationTheme
 
@@ -30,6 +31,7 @@ class IncomingCallActivity : ComponentActivity() {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
         }
+        if (!mayOpenCallUi()) { finish(); return }
         readWakeIntent(intent)
         setContent {
             MyApplicationTheme {
@@ -56,7 +58,14 @@ class IncomingCallActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (!mayOpenCallUi()) { finish(); return }
         readWakeIntent(intent)
+    }
+    private fun mayOpenCallUi(): Boolean {
+        val phase = (application as LanuApplication).callModel.state.value.phase
+        val live = phase in setOf(NativeCallPhase.RINGING, NativeCallPhase.DIALING,
+            NativeCallPhase.CONNECTING, NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING)
+        return CallWakeTapPolicy.mayOpenCallUi(CallWakePreferences.isEnabled(this), live)
     }
     private fun readWakeIntent(incoming: Intent?) {
         answerAt = 0L
