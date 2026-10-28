@@ -34,6 +34,9 @@ class NativeCallViewModel(
     val notice = _notice.asStateFlow()
     private class Session(val id: String, val peer: CallPeer, val video: Boolean, val outgoing: Boolean) {
         val reconnectBudget = CallReconnectBudget()
+        // Increment on each real recovery or disconnect; stale delayed ICE
+        // restarts must never spend the single budget on a later outage.
+        var reconnectGeneration = 0L
         var offers = 0
         // Keep only a hash, never SDP/IP metadata or raw offer contents.
         // A retransmission with a fresh envelope UUID is still the same OFFER.
@@ -264,14 +267,24 @@ class NativeCallViewModel(
         { value -> viewModelScope.launch {
             if (session !== current || !foreground) return@launch
             if (value.connected) {
+                current.reconnectGeneration++ // invalidate any short-disconnect grace timer
                 timeout?.cancel()
                 _state.value = _state.value.copy(phase = NativeCallPhase.CONNECTED,
                     connectedAt = _state.value.connectedAt.takeIf { it > 0 } ?: android.os.SystemClock.elapsedRealtime())
             } else if (_state.value.phase == NativeCallPhase.CONNECTED && !value.transportConnected) {
                 _state.value = _state.value.copy(phase = NativeCallPhase.RECONNECTING)
+                val generation = ++current.reconnectGeneration
                 deadline(current, 25_000, "Ağ bağlantısı kesildi.")
-                if (current.outgoing && current.reconnectBudget.claim()) {
+                if (current.outgoing) {
                     pipeline = guarded(current) {
+                        // Mobile radio/Wi-Fi handovers often recover on their
+                        // own. Give the existing ICE transport a brief grace
+                        // period before spending the ONE authorized restart.
+                        delay(750L)
+                        if (session !== current || !foreground ||
+                            current.reconnectGeneration != generation ||
+                            _state.value.phase != NativeCallPhase.RECONNECTING ||
+                            !current.reconnectBudget.claim()) return@guarded
                         val engine = _media.value ?: return@guarded
                         val offerSdp = engine.offer(restart = true)
                         if (session !== current || !foreground) return@guarded
