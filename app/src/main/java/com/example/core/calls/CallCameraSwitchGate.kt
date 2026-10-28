@@ -8,10 +8,12 @@ package com.example.core.calls
 internal class CallCameraSwitchGate {
     private var generation = 0L
     private var pending: Long? = null
+    // This gate belongs to one NativeCallEngine; closing it is terminal.
+    private var closed = false
 
     @Synchronized
     fun begin(canSwitch: Boolean): Long? {
-        if (!canSwitch || pending != null) return null
+        if (closed || !canSwitch || pending != null) return null
         generation++
         pending = generation
         return generation
@@ -28,6 +30,7 @@ internal class CallCameraSwitchGate {
     /** Call closure invalidates all callbacks still owned by the OEM HAL. */
     @Synchronized
     fun invalidate() {
+        closed = true
         generation++
         pending = null
     }
