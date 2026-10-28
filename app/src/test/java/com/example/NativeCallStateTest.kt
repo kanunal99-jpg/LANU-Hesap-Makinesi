@@ -64,6 +64,7 @@ class NativeCallStateTest {
     private var acceptGate:CompletableDeferred<Unit>?=null
     private var preparationGate:CompletableDeferred<Unit>?=null
     private var preparationEntered:CompletableDeferred<Unit>?=null
+    private var evidenceNowMs = 1_000L
     private var report: ((CallMediaEvidence)->Unit)?=null
     private var mediaFailure: ((String)->Unit)?=null
     private val sdp="v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=fingerprint:sha-256 AA:BB\r\n"
@@ -132,7 +133,7 @@ class NativeCallStateTest {
             object:MessagingIdentityStore { override fun read()=own;override fun save(identity:MessagingIdentity) { error("No key replacement") } },relay,db)
         repo.ensureIdentity()
         repo.synchronize()
-        vm=NativeCallViewModel(context,repo) { evidence,failure ->
+        vm=NativeCallViewModel(context,repo, mediaClockMs = { evidenceNowMs }) { evidence,failure ->
             mediaCreated++;report=evidence;mediaFailure=failure
             object:CallMediaSession {
                 override suspend fun start(video:Boolean) { starts++;startGate?.await();check(!failStart) }
@@ -877,6 +878,38 @@ class NativeCallStateTest {
         vm.end()
         waitPhase(NativeCallPhase.ENDED)
         assertEquals(1, closes)
+    }
+
+    @Test fun expiredMediaCallbackCannotMaskRelayAckOutage() = runBlocking<Unit> {
+        vm.outgoing(UserCodes.conversationId(own.id, peer.id), false, true)
+        val invite = awaitSent(CallSignalKind.INVITE)
+        outgoingMissingAckResponses = CallSignalRetryPolicy.MAX_ATTEMPTS
+        inject(CallSignaling.create(invite.callId, CallSignalKind.ACCEPT, false))
+        val offer = awaitSent(CallSignalKind.OFFER)
+        report!!(CallMediaEvidence(true, 7, 9))
+        waitPhase(NativeCallPhase.CONNECTED)
+        // UI still says CONNECTED, but the native stats callback has stalled.
+        evidenceNowMs += CALL_MEDIA_PROOF_CALLBACK_MAX_AGE_MS + 1L
+        driveRelayRetries(offer.id, CallSignalRetryPolicy.MAX_ATTEMPTS)
+        waitPhase(NativeCallPhase.FAILED)
+        assertEquals("A stale UI label cannot suppress an exhausted relay error", 1, closes)
+    }
+
+    @Test fun expiredRtpProofCannotMaskRelayAckOutageWithConnectedIce() = runBlocking<Unit> {
+        vm.outgoing(UserCodes.conversationId(own.id, peer.id), false, true)
+        val invite = awaitSent(CallSignalKind.INVITE)
+        outgoingMissingAckResponses = CallSignalRetryPolicy.MAX_ATTEMPTS
+        inject(CallSignaling.create(invite.callId, CallSignalKind.ACCEPT, false))
+        val offer = awaitSent(CallSignalKind.OFFER)
+        report!!(CallMediaEvidence(true, 7, 9))
+        waitPhase(NativeCallPhase.CONNECTED)
+        // ICE may stay CONNECTED while RX/TX RTP has expired (silence or
+        // stalled stats). The view deliberately does not hang up on silence.
+        report!!(CallMediaEvidence(true, 0, 0))
+        assertEquals(NativeCallPhase.CONNECTED, vm.state.value.phase)
+        driveRelayRetries(offer.id, CallSignalRetryPolicy.MAX_ATTEMPTS)
+        waitPhase(NativeCallPhase.FAILED)
+        assertEquals("No fresh two-way RTP means lost ACK cannot be ignored", 1, closes)
     }
 
     @Test fun lostRelayAcksWithoutRealMediaProofStillFailClosed() = runBlocking<Unit> {

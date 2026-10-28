@@ -146,6 +146,50 @@ class DatabaseEncryptionPreflightTest {
         assertFalse(snapshot.safeToBeginOfflineMigrationDesign)
     }
 
+    @Test fun forgedReadinessSnapshotCannotBypassExactDiskAndWalEvidence() {
+        val db = database()
+        val original = sqlite()
+        db.writeBytes(original)
+        val baseline = DatabaseEncryptionPreflight.inspect(db, 128L * 1024 * 1024)
+        assertTrue(baseline.safeToBeginOfflineMigrationDesign)
+        val required = baseline.conservativeRequiredBytes
+
+        for (forged in listOf(
+            baseline.copy(databaseBytes = 511),
+            baseline.copy(databaseBytes = -1),
+            baseline.copy(walBytes = -1),
+            baseline.copy(sharedMemoryBytes = -1),
+            baseline.copy(rollbackJournalBytes = -1),
+            baseline.copy(availableBytes = required - 1, sufficientDiskSpace = true),
+            baseline.copy(sufficientDiskSpace = false),
+            baseline.copy(conservativeRequiredBytes = required - 1),
+            baseline.copy(conservativeRequiredBytes = Long.MAX_VALUE),
+            baseline.copy(needsWalCheckpoint = true),
+            baseline.copy(databaseBytes = Long.MAX_VALUE,
+                conservativeRequiredBytes = Long.MAX_VALUE)
+        )) {
+            assertFalse("Forged or stale snapshot must not claim readiness: $forged",
+                forged.safeToBeginOfflineMigrationDesign)
+        }
+
+        val forgedWal = baseline.copy(
+            walBytes = 1024,
+            conservativeRequiredBytes = DatabaseEncryptionPreflight.conservativeRequiredBytes(
+                baseline.databaseBytes, 1024, 0, 0),
+            needsWalCheckpoint = false
+        )
+        assertFalse(forgedWal.safeToBeginOfflineMigrationDesign)
+
+        val wal = File(db.path + "-wal")
+        val walData = ByteArray(1024) { 0x42.toByte() }
+        wal.writeBytes(walData)
+        val withWal = DatabaseEncryptionPreflight.inspect(db, 128L * 1024 * 1024)
+        assertTrue(withWal.needsWalCheckpoint)
+        assertTrue(withWal.safeToBeginOfflineMigrationDesign)
+        assertArrayEquals(original, db.readBytes())
+        assertArrayEquals(walData, wal.readBytes())
+    }
+
     @Test fun reportCannotAccidentallyDiscloseContentPinOrDatabasePath() {
         val db = database()
         db.writeBytes(sqlite())
