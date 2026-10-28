@@ -1,0 +1,178 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { PGlite } from '@electric-sql/pglite';
+
+/**
+ * ALL rows below are disposable synthetic PGlite fixtures.
+ * This never contacts the user's live Supabase database, deletes a
+ * production user or enables the staged Edge deletion feature flag.
+ */
+const alice = 'a'.repeat(64), bob = 'b'.repeat(64), carol = 'c'.repeat(64);
+const code = x => 'LANU-' + Array(5).fill(x.repeat(4)).join('-');
+const migrations = [
+  '20261019073855_persistent_user_code_messaging.sql',
+  '20261024105720_private_media_grants_and_quota.sql',
+  '20261025123907_private_call_signaling.sql',
+  '20261026091500_call_only_push_opt_in.sql',
+  '20261026134500_invalidate_expired_fcm_token.sql',
+  '20261027174242_private_message_wake_opt_in_20261027.sql'
+];
+const relations = [
+  'lanu_identities','lanu_contacts','lanu_messages','lanu_events',
+  'lanu_nonces','lanu_media_objects','lanu_call_signals',
+  'lanu_call_wake_devices','lanu_message_wake_devices',
+  'lanu_message_wake_claims'
+];
+
+async function createFixture() {
+  const db = new PGlite();
+  try {
+    await db.exec(`
+      create role anon;
+      create role authenticated;
+      create role service_role bypassrls;
+      create schema storage;
+      create table storage.buckets(
+        id text primary key, name text not null, public boolean not null,
+        file_size_limit bigint, allowed_mime_types text[]
+      );
+    `);
+    for (const name of migrations) {
+      await db.exec(await readFile(
+        new URL('../../supabase/migrations/' + name, import.meta.url), 'utf8'
+      ));
+    }
+    await db.exec(await readFile(
+      new URL('../staged/lanu_account_erasure_v1.sql', import.meta.url), 'utf8'
+    ));
+    await db.query(`
+      insert into public.lanu_identities(id,code,nonce,public_key)
+      values($1,$2,$7,$8),($3,$4,$7,$8),($5,$6,$7,$8)
+    `, [alice, code('A'), bob, code('B'), carol, code('C'), 'A'.repeat(22), 'synthetic-public-key']);
+    await db.query(`
+      insert into public.lanu_contacts(owner_id,peer_id,code_at_add)
+      values($1,$2,$3),($2,$1,$4),($2,$5,$6),($5,$2,$7)
+    `, [alice,bob,code('B'),code('A'),carol,code('C'),code('B')]);
+    const shared = randomUUID(), unrelated = randomUUID();
+    await db.query(`
+      insert into public.lanu_messages(id,sender_id,recipient_id,content)
+      values($1,$2,$3,$4),($5,$3,$6,$7)
+    `, [shared,alice,bob,'lanu2:'+'A'.repeat(64),unrelated,carol,'lanu2:'+'B'.repeat(64)]);
+    await db.query('insert into public.lanu_nonces(owner_id,request_id) values($1,$2)',
+      [alice,randomUUID()]);
+    await db.query(`
+      insert into public.lanu_call_signals(id,call_id,sender_id,recipient_id,content)
+      values($1,$2,$3,$4,$5),($6,$7,$4,$8,$9)
+    `, [randomUUID(),randomUUID(),alice,bob,'lanu2:'+'C'.repeat(64),
+         randomUUID(),randomUUID(),carol,'lanu2:'+'D'.repeat(64)]);
+    await db.query(`
+      insert into public.lanu_call_wake_devices(owner_id,fcm_token)
+      values($1,$2),($3,$4)
+    `, [alice,'A'.repeat(48),bob,'B'.repeat(48)]);
+    await db.query(`
+      insert into public.lanu_message_wake_devices(owner_id,fcm_token)
+      values($1,$2),($3,$4)
+    `, [alice,'M'.repeat(48),bob,'N'.repeat(48)]);
+    await db.query(`
+      insert into public.lanu_message_wake_claims(message_id,sender_id,recipient_id)
+      values($1,$2,$3),($4,$3,$5)
+    `, [shared,alice,bob,unrelated,carol]);
+    return {db,shared,unrelated};
+  } catch (e) { await db.close(); throw e; }
+}
+
+async function count(db,table,where='',params=[]) {
+  const r = await db.query(
+    'select count(*)::int as n from public.'+table+(where ? ' where '+where : ''), params);
+  return r.rows[0].n;
+}
+async function fingerprint(db) {
+  return Object.fromEntries(await Promise.all(relations.map(
+    async name => [name, await count(db,name)]
+  )));
+}
+
+test('signed-owner server erasure is atomic and never removes unrelated peer identity, calls or FCM', async () => {
+  const {db,shared,unrelated} = await createFixture();
+  try {
+    assert.equal(await count(db,'lanu_identities'),3);
+    assert.equal(await count(db,'lanu_events'),4);
+    assert.equal(await count(db,'lanu_message_wake_claims'),2);
+    const res = await db.query(
+      'select public.lanu_delete_account_v1($1,$2) as result', [alice,code('A')]);
+    assert.equal(res.rows[0].result.deleted,true);
+
+    assert.equal(await count(db,'lanu_identities','id=$1',[alice]),0);
+    assert.equal(await count(db,'lanu_identities'),2);
+    assert.equal(await count(db,'lanu_contacts','owner_id=$1 or peer_id=$1',[alice]),0);
+    assert.equal(await count(db,'lanu_messages','sender_id=$1 or recipient_id=$1',[alice]),0);
+    assert.equal(await count(db,'lanu_events','message_id=$1',[shared]),0);
+    assert.equal(await count(db,'lanu_message_wake_claims','message_id=$1',[shared]),0);
+    assert.equal(await count(db,'lanu_call_wake_devices','owner_id=$1',[alice]),0);
+    assert.equal(await count(db,'lanu_message_wake_devices','owner_id=$1',[alice]),0);
+    assert.equal(await count(db,'lanu_nonces','owner_id=$1',[alice]),0);
+    assert.equal(await count(db,'lanu_call_signals','sender_id=$1 or recipient_id=$1',[alice]),0);
+
+    // Bob/Carol retain their own identity, mutual contact, call signal,
+    // message notification consent, unrelated encrypted message and events.
+    assert.equal(await count(db,'lanu_contacts'),2);
+    assert.equal(await count(db,'lanu_messages','id=$1',[unrelated]),1);
+    assert.equal(await count(db,'lanu_events','message_id=$1',[unrelated]),2);
+    assert.equal(await count(db,'lanu_message_wake_claims','message_id=$1',[unrelated]),1);
+    assert.equal(await count(db,'lanu_call_wake_devices','owner_id=$1',[bob]),1);
+    assert.equal(await count(db,'lanu_message_wake_devices','owner_id=$1',[bob]),1);
+    assert.equal(await count(db,'lanu_call_signals'),1);
+
+    const retry = await db.query(
+      'select public.lanu_delete_account_v1($1,$2) as result', [alice,code('A')]);
+    assert.equal(retry.rows[0].result.deleted,false,
+      'A nonexistent user must not be reported as successfully deleted');
+  } finally { await db.close(); }
+});
+
+test('incomplete private-media Storage cleanup blocks ALL account deletion and rolls back', async () => {
+  const {db} = await createFixture();
+  try {
+    await db.query(`
+      insert into public.lanu_media_objects(
+        file_id,message_id,sender_id,recipient_id,cipher_bytes,cipher_sha256,state
+      ) values($1,$2,$3,$4,$5,$6,$7)
+    `, ['f'.repeat(32),randomUUID(),alice,bob,512,'e'.repeat(64),'ready']);
+    const before = await fingerprint(db);
+    await assert.rejects(db.query(
+      'select public.lanu_delete_account_v1($1,$2)',[alice,code('A')]),
+      /media cleanup not verified/i);
+    assert.deepEqual(await fingerprint(db),before);
+    assert.equal(await count(db,'lanu_call_wake_devices','owner_id=$1',[alice]),1);
+    assert.equal(await count(db,'lanu_identities','id=$1',[alice]),1);
+    // Even an altered/expired owner code cannot delete a different user.
+    const wrong = await db.query(
+      'select public.lanu_delete_account_v1($1,$2) as result',[alice,code('B')]);
+    assert.equal(wrong.rows[0].result.deleted,false);
+    assert.deepEqual(await fingerprint(db),before);
+  } finally { await db.close(); }
+});
+
+test('account erasure RPC is denied to anonymous or authenticated mobile clients', async () => {
+  const {db} = await createFixture();
+  try {
+    for (const role of ['anon','authenticated']) {
+      const grant = await db.query(
+        "select has_function_privilege($1,'public.lanu_delete_account_v1(text,text)','EXECUTE') as allowed",
+        [role]
+      );
+      assert.equal(grant.rows[0].allowed,false);
+      await db.exec('set role '+role);
+      try {
+        await assert.rejects(db.query(
+          'select public.lanu_delete_account_v1($1,$2)',[alice,code('A')]));
+      } finally { await db.exec('reset role'); }
+    }
+    const service = await db.query(
+      "select has_function_privilege('service_role','public.lanu_delete_account_v1(text,text)','EXECUTE') as allowed");
+    assert.equal(service.rows[0].allowed,true);
+    assert.equal(await count(db,'lanu_identities'),3);
+  } finally { await db.close(); }
+});
