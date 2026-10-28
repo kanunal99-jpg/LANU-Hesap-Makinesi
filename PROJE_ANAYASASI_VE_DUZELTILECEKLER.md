@@ -1,5 +1,14 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 28.10.2026 — Kullanıcı kararı: gizli alan açmadan normal gelen arama, arka plan sürekliliği ve gerçek AEC/NS
+
+- Kullanıcı onaylı LANU gelen çağrı uyarısı, calculator/ana ekran üzerinden ve sistem çağrı bildiriminin **Yanıtla** eyleminden gizli alana / 2011. / isteğe bağlı PIN'e girmeden açılabilmeli. Bu yalnızca **kriptografik olarak doğrulanmış ve güncel karşılıklı kişi çağrısına** ait medya iznidir; mesaj, rehber, geçmiş, PIN, 2011., yedek ve gizli veriler kilitli kalır. Yalnız FCM işareti kimlik doğrulaması sayılmaz; izin verilmeden mikrofon/kamera açılmaz; arayan adı kilitli ekranda açığa çıkarılmaz.
+- Çağrı akışı ana ekran/gizli alan arasında gezinince sırf ekran değişti diye kapanmamalı; aktif görüşme sırasında izinli foreground service ile Android'in normal arama/arka plan sınırlamalarına uyumlu yaşam döngüsü uygulanmalı. Kapat/ret/expiry, çağrı akışı güvenliği ve kimlik doğrulaması korunur; süreç sonlandırması / OEM pil kısıtlarında garanti iddiası yoktur.
+- Gürültü engelleme WebRTC JavaAudioDeviceModule AEC/NS/AGC üzerinden gerçek kayıt oturumu ile çalışmalı; donanımsal destek yoksa yazılım fallback; aynı anda ikinci Android AudioFX zinciri çalışmamalı. ANC, dB/% kazanımı ve iki gerçek telefon kabulü ölçülmeden tamamlandı iddiası yasaktır. Android API23–36 testleri, güncel HEAD CI, imzalı APK/OTA read-back ayrı kabul kapılarıdır.
+
+---
+
+
 ## 28.10.2026 — Bağlantı kesintisi ve iki cihazda görüşme sürekliliği (kullanıcı kabul standardı)
 
 **Bağlayıcı kullanıcı kararı:** LANU'da kısa radyo/Wi‑Fi geçişi, çevrimdışı anları, relay HTTP yanıt kaybı ve geciken ICE/FCM olayları görüşmeyi veya kullanıcı verilerini gereksiz yere bozmayacak. Önce somut kök neden, sonra sınırlı güvenli yeniden deneme + gerçek regresyon + iki fiziksel cihaz kabulü yapılır.
