@@ -772,4 +772,47 @@ class NativeCallStateTest {
         report!!(CallMediaEvidence(true,10,10))
         assertEquals(NativeCallPhase.IDLE,vm.state.value.phase);assertEquals(1,closes)
     }
+
+    @Test fun acceptedOfferWithLostRelayAcksDoesNotEndVerifiedTwoWayAudio() = runBlocking<Unit> {
+        vm.outgoing(UserCodes.conversationId(own.id, peer.id), false, true)
+        val invite = awaitSent(CallSignalKind.INVITE)
+        // Model a relay that stored the SDP once, allowing the peer to connect,
+        // but whose HTTP response is stripped by an intermediary on every try.
+        outgoingMissingAckResponses = CallSignalRetryPolicy.MAX_ATTEMPTS
+        inject(CallSignaling.create(invite.callId, CallSignalKind.ACCEPT, false))
+        withTimeout(3_000) {
+            sent.first { list -> list.any { it.kind == CallSignalKind.OFFER } }
+        }
+        report!!(CallMediaEvidence(true, 7, 9))
+        waitPhase(NativeCallPhase.CONNECTED)
+        mainTestDispatcher.scheduler.advanceTimeBy(12_000L)
+        mainTestDispatcher.scheduler.runCurrent()
+        assertEquals("Same encrypted OFFER was tried no more than six times",
+            CallSignalRetryPolicy.MAX_ATTEMPTS,
+            outgoingSendAttempts.count { it.first != invite.id })
+        assertEquals("Relay UUID idempotency stores only one OFFER", 1,
+            sent.value.count { it.kind == CallSignalKind.OFFER })
+        assertEquals("Live authenticated media outlives a temporary HTTP ACK outage",
+            NativeCallPhase.CONNECTED, vm.state.value.phase)
+        assertEquals(0, closes)
+        vm.end()
+        waitPhase(NativeCallPhase.ENDED)
+        assertEquals(1, closes)
+    }
+
+    @Test fun lostRelayAcksWithoutRealMediaProofStillFailClosed() = runBlocking<Unit> {
+        vm.outgoing(UserCodes.conversationId(own.id, peer.id), false, true)
+        val invite = awaitSent(CallSignalKind.INVITE)
+        outgoingMissingAckResponses = CallSignalRetryPolicy.MAX_ATTEMPTS
+        inject(CallSignaling.create(invite.callId, CallSignalKind.ACCEPT, false))
+        withTimeout(3_000) {
+            sent.first { list -> list.any { it.kind == CallSignalKind.OFFER } }
+        }
+        // Do not synthesize a CONNECTED state from HTTP success or old RTP.
+        mainTestDispatcher.scheduler.advanceTimeBy(12_000L)
+        mainTestDispatcher.scheduler.runCurrent()
+        waitPhase(NativeCallPhase.FAILED)
+        assertEquals(1, closes)
+    }
+
 }
