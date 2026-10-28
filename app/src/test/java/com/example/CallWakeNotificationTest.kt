@@ -15,6 +15,7 @@ import com.example.core.calls.CallWakePolicy
 import com.example.core.calls.CallWakePreferences
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import org.junit.After
@@ -378,6 +379,60 @@ class CallWakeNotificationTest {
                     isConsented = { true },
                     notify = { error("Duplicate wake") },
                     cancel = { error("Duplicate wake") }
+                ))
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test fun localOptOutCancelCannotRunBeforeInFlightWakePostFinishes() {
+        val enteredNotify = CountDownLatch(1)
+        val cancellationAttempted = CountDownLatch(1)
+        val cancellationFinished = CountDownLatch(1)
+        val enabled = AtomicBoolean(true)
+        val events = Collections.synchronizedList(mutableListOf<String>())
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            val posting = executor.submit<Boolean> {
+                CallWakePolicy.publishWhileConsented(
+                    at = 1710000090201L,
+                    isConsented = { enabled.get() },
+                    notify = {
+                        events.add("post-start")
+                        enteredNotify.countDown()
+                        assertTrue(cancellationAttempted.await(2, TimeUnit.SECONDS))
+                        assertFalse(
+                            "Local cancellation must wait for the in-flight notification",
+                            cancellationFinished.await(250, TimeUnit.MILLISECONDS)
+                        )
+                        events.add("post-finished")
+                    },
+                    cancel = { events.add("retract-revoked-post") }
+                )
+            }
+            val optingOut = executor.submit<Boolean> {
+                assertTrue(enteredNotify.await(2, TimeUnit.SECONDS))
+                enabled.set(false)
+                cancellationAttempted.countDown()
+                val cancelled = CallWakePolicy.cancelPostedCallAlert {
+                    events.add("local-cancel")
+                    true
+                }
+                cancellationFinished.countDown()
+                cancelled
+            }
+            assertFalse(posting.get(4, TimeUnit.SECONDS))
+            assertTrue(optingOut.get(4, TimeUnit.SECONDS))
+            assertEquals(
+                listOf("post-start", "post-finished", "retract-revoked-post", "local-cancel"),
+                events.toList()
+            )
+            assertTrue("An undelivered wake must remain retryable after new consent",
+                CallWakePolicy.publishWhileConsented(
+                    at = 1710000090201L,
+                    isConsented = { true },
+                    notify = { events.add("retry-post") },
+                    cancel = { error("A valid retry cannot be retracted") }
                 ))
         } finally {
             executor.shutdownNow()
