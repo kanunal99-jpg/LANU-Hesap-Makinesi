@@ -6,7 +6,7 @@ Kaynak: `RoomActualOtaUpgradeTest.kt`, `scripts/ci_ota_upgrade_acceptance.sh`,
 `scripts/ci_prepare_android_image.sh`, `.github/workflows/android.yml`.
 
 **P0 yayın koşulu**: Kullanıcının kurulu sürümünü kaldırmadan, önceki
-`v1.2.0-signed.822` APK'sını Google API Android 14 **izole emülatörüne**
+`v1.2.0-signed.828` APK'sını Google API Android 14 **izole emülatörüne**
 kurmak; yeni test APK'sını **aynı stabil imzayla** hazırlamak; baz sürümde
 `lanu_calculator_db` Room v4'ün 7 tablosuna kayıtlar, PIN verifier,
 kuyrukta uçtan uca şifreli mesaj ve Android Keystore destekli E2EE kimliği
@@ -57,7 +57,7 @@ tamamlanana kadar ölçülmeyen noktalar eksik sayılır.
 
 Önceki .822 APK R8 ile küçültüldüğü için *yeni* kaynakla derlenen bir
 AndroidTest APK'sını doğrudan eski APK'ya bağlamak yanlış
-\`NoSuchMethodError\` verebilir. CI eski \`f7f587...\` kaynak
+\`NoSuchMethodError\` verebilir. CI eski \`dc307da8...\` kaynak
 commit'ini ayrıca denetimli şekilde checkout eder; **aynı test kaynağını**
 eski uygulamanın ABI'sine karşı tekrar derler ve aynı stabil anahtarla
 yalnız izole CI içinde imzalar. Önceki APK'yı eski test APK'sı ile seed eder;

@@ -420,7 +420,7 @@ jobs:
       - name: Checkout pinned previous release source for ABI-matched seed test
         uses: actions/checkout@v5
         with:
-          ref: f7f5875985652e3def7589901a3823279924f69f
+          ref: dc307da8b082c32edee9fffccabedb99df2cb6d0
           path: baseline-src
           persist-credentials: false
 
@@ -492,7 +492,7 @@ jobs:
             cd baseline-src
             if [ ! -f ./gradlew ]; then gradle wrapper --gradle-version 9.3.1 --distribution-type bin; fi
             chmod +x ./gradlew
-            LANU_VERSION_CODE=822 ./gradlew -PlanuDeviceBuildType=release \
+            LANU_VERSION_CODE=828 ./gradlew -PlanuDeviceBuildType=release \
               :app:assembleReleaseAndroidTest --no-daemon --stacktrace
           )
           mapfile -t previous_tests < <(find baseline-src/app/build/outputs/apk/androidTest \
@@ -521,7 +521,7 @@ jobs:
           set -euo pipefail
           baseline="$RUNNER_TEMP/lanu-ota-baseline"
           mkdir -p "$baseline"
-          tag="v1.2.0-signed.822"
+          tag="v1.2.0-signed.828"
           for asset in app-debug.apk app-debug.apk.sha256 app-debug.apk.signer.txt; do
             curl --silent --show-error --fail --location --retry 4 --retry-all-errors \
               --proto '=https' --proto-redir '=https' --max-time 240 \
@@ -562,7 +562,7 @@ jobs:
           # Emulator Runner invokes each YAML script line independently;
           # use ONE actual Bash command, not shell-continuation lines.
           script: |
-            bash scripts/ci_ota_upgrade_acceptance.sh "$RUNNER_TEMP/lanu-ota-baseline/app-debug.apk" "$RUNNER_TEMP/lanu-ota-new.apk" "$RUNNER_TEMP/lanu-ota-baseline-instrumentation.apk" "$RUNNER_TEMP/lanu-ota-new-instrumentation.apk" 822 "$LANU_VERSION_CODE"
+            bash scripts/ci_ota_upgrade_acceptance.sh "$RUNNER_TEMP/lanu-ota-baseline/app-debug.apk" "$RUNNER_TEMP/lanu-ota-new.apk" "$RUNNER_TEMP/lanu-ota-baseline-instrumentation.apk" "$RUNNER_TEMP/lanu-ota-new-instrumentation.apk" 828 "$LANU_VERSION_CODE"
 
   publish:
     name: Publish verified APK
