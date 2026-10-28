@@ -17,6 +17,9 @@ import java.util.UUID
 // evidence before spending the only signed ICE restart. The separate 25s
 // call deadline still bounds genuine outages.
 internal const val ICE_RESTART_GRACE_MS = 2_250L
+// RTP stats are sampled once per second. An old CONNECTED UI phase alone
+// cannot prove a live call if the native stats callback stops arriving.
+internal const val CALL_MEDIA_PROOF_CALLBACK_MAX_AGE_MS = 3_000L
 enum class NativeCallPhase { IDLE, DIALING, RINGING, CONNECTING, CONNECTED, RECONNECTING, ENDED, FAILED }
 data class NativeCallUiState(
     val callId: String = "", val name: String = "", val video: Boolean = false,
@@ -28,6 +31,7 @@ data class NativeCallUiState(
 class NativeCallViewModel(
     context: Context,
     private val repository: CommunicationRepository,
+    private val mediaClockMs: () -> Long = { android.os.SystemClock.elapsedRealtime() },
     private val mediaFactory: ((CallMediaEvidence) -> Unit, (String) -> Unit) -> CallMediaSession =
         { evidence, failure -> NativeCallEngine(context.applicationContext, evidence, failure) }
 ) : ViewModel() {
@@ -42,6 +46,9 @@ class NativeCallViewModel(
         // Increment on each real recovery or disconnect; stale delayed ICE
         // restarts must never spend the single budget on a later outage.
         var reconnectGeneration = 0L
+        // Updated only by fresh, bidirectional RTP evidence; never by ICE
+        // transport alone or the UI's last CONNECTED label.
+        var lastConfirmedMediaAtMs: Long? = null
         var offers = 0
         // Keep only a hash, never SDP/IP metadata or raw offer contents.
         // A retransmission with a fresh envelope UUID is still the same OFFER.
@@ -272,11 +279,16 @@ class NativeCallViewModel(
         { value -> viewModelScope.launch {
             if (session !== current || !foreground) return@launch
             if (value.connected) {
+                current.lastConfirmedMediaAtMs = mediaClockMs().takeIf { it >= 0L }
                 current.reconnectGeneration++ // invalidate any short-disconnect grace timer
                 timeout?.cancel()
                 _state.value = _state.value.copy(phase = NativeCallPhase.CONNECTED,
                     connectedAt = _state.value.connectedAt.takeIf { it > 0 } ?: android.os.SystemClock.elapsedRealtime())
-            } else if (_state.value.phase == NativeCallPhase.CONNECTED && !value.transportConnected) {
+            } else {
+                // A silent/stalled stream can retain a CONNECTED UI phase
+                // while the RTP tracker has expired its last two-way proof.
+                current.lastConfirmedMediaAtMs = null
+                if (_state.value.phase == NativeCallPhase.CONNECTED && !value.transportConnected) {
                 _state.value = _state.value.copy(phase = NativeCallPhase.RECONNECTING)
                 val generation = ++current.reconnectGeneration
                 deadline(current, 25_000, "Ağ bağlantısı kesildi.")
@@ -302,6 +314,7 @@ class NativeCallViewModel(
                         current.awaitingAnswer = true
                         send(current, CallSignalKind.OFFER, offerSdp)
                     }
+                }
                 }
             }
         } }, { message -> viewModelScope.launch { if (session === current) fail(message) } })
@@ -345,8 +358,12 @@ class NativeCallViewModel(
             // Only call setup/negotiation signals and transient transport
             // errors qualify. Never mask TLS trust, authentication, quota,
             // malformed protocol, or a call that is no longer media-connected.
+            val now = mediaClockMs()
+            val proofAt = current.lastConfirmedMediaAtMs
             val activeMedia = session === current && foreground &&
-                _state.value.phase == NativeCallPhase.CONNECTED
+                _state.value.phase == NativeCallPhase.CONNECTED &&
+                proofAt != null && now >= proofAt &&
+                now - proofAt <= CALL_MEDIA_PROOF_CALLBACK_MAX_AGE_MS
             val setupSignal = kind in setOf(CallSignalKind.INVITE, CallSignalKind.ACCEPT,
                 CallSignalKind.OFFER, CallSignalKind.ANSWER)
             if (!activeMedia || !setupSignal ||
