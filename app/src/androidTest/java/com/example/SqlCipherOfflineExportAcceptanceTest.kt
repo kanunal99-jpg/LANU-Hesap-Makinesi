@@ -14,6 +14,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.io.FileOutputStream
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -66,12 +67,15 @@ class SqlCipherOfflineExportAcceptanceTest {
     @Test fun exportedExistingRoomV4DataReopensEncryptedAndPreservesPlainSource() = runBlocking {
         val suffix = UUID.randomUUID().toString().replace("-", "").take(20)
         val sourceName = "lanu_ci_export_plain_$suffix.db"
+        val workingName = "lanu_ci_export_working_$suffix.db"
         val shadowName = "lanu_ci_cipher_shadow_export_$suffix.db"
         val plainFile = ctx.getDatabasePath(sourceName)
+        val workingFile = ctx.getDatabasePath(workingName)
         val shadowFile = ctx.getDatabasePath(shadowName)
         assertTrue(SqlCipherShadowDatabase.isIsolatedName(shadowName))
         assertFalse("Never use the live DB", plainFile.name == "lanu_calculator_db")
         assertFalse(plainFile.exists())
+        assertFalse(workingFile.exists())
         assertFalse(shadowFile.exists())
 
         var source: AppDatabase? = null
@@ -101,14 +105,39 @@ class SqlCipherOfflineExportAcceptanceTest {
             assertTrue(before.all { it.count > 0 })
             val version = db.openHelper.writableDatabase.version
             assertEquals("Room v4 only", 4, version)
-            // Source is a disposable fixture and no writers remain after close.
+            // Freeze the disposable source before copying its main file. A main
+            // file byte-copy alone loses committed rows still in the WAL.
+            // This test owns all writers; production needs a separate global
+            // writer-quiescence and durable-backup gate before any cutover.
+            db.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(TRUNCATE)").use {
+                assertTrue("WAL checkpoint must return an outcome", it.moveToFirst())
+                assertEquals("WAL checkpoint must not have blocked writers", 0, it.getInt(0))
+            }
             db.close(); source = null
+            val sourceWal = File(plainFile.absolutePath + "-wal")
+            assertTrue("Frozen Room source must not retain uncheckpointed WAL bytes",
+                !sourceWal.exists() || sourceWal.length() == 0L)
             val beforeHash = digest(plainFile)
             assertTrue(plainFile.inputStream().use {
                 val header = ByteArray(16)
                 it.read(header) == 16 &&
                     header.contentEquals("SQLite format 3\u0000".toByteArray(Charsets.US_ASCII))
             })
+
+            // The SQLCipher Android helper requires a writable main connection
+            // for sqlcipher_export, which may modify source page/header bytes.
+            // Never grant that helper write access to the original: claim and
+            // fsync a distinct disposable copy only after the WAL checkpoint.
+            assertEquals(plainFile.canonicalFile.parentFile, workingFile.canonicalFile.parentFile)
+            assertTrue("Working snapshot must be created exclusively", workingFile.createNewFile())
+            plainFile.inputStream().use { input ->
+                FileOutputStream(workingFile, false).use { output ->
+                    input.copyTo(output)
+                    output.fd.sync()
+                }
+            }
+            assertEquals("Copy must initially match the frozen source exactly",
+                beforeHash, digest(workingFile))
 
             // SQLCipher's Android ATTACH path may fail to create a missing
             // destination inode on some runtimes (SQLITE_CANTOPEN / code 14).
@@ -123,17 +152,12 @@ class SqlCipherOfflineExportAcceptanceTest {
             System.loadLibrary("sqlcipher")
             val passphrase = Base64.encodeToString(
                 randomKey, Base64.NO_WRAP or Base64.URL_SAFE or Base64.NO_PADDING)
-            // The export connection MUST NEVER open a production file. The
-            // source is intentionally plaintext, with a non-destructive error
-            // handler so corrupt SQLite cannot be silently recreated/deleted.
-            // Source is a frozen plaintext snapshot. A writable SQLCipher
-            // connection may touch source header/journal metadata even while
-            // exporting to a different attached file, violating losslessness.
-            // SQLite supports a read-only main with a separately writable
-            // attached export database: never grant writes to the source.
+            // A writable SQLCipher connection must be scoped to the scratch
+            // copy only. The original Room database remains closed and never
+            // opens through SQLCipher, so its header and bytes cannot change.
             val connection = SQLiteDatabase.openDatabase(
-                plainFile.absolutePath, null as SQLiteDatabase.CursorFactory?,
-                SQLiteDatabase.OPEN_READONLY)
+                workingFile.absolutePath, null as SQLiteDatabase.CursorFactory?,
+                SQLiteDatabase.OPEN_READWRITE)
             try {
                 connection.rawQuery("PRAGMA integrity_check", emptyArray()).use {
                     assertTrue(it.moveToFirst())
@@ -181,6 +205,7 @@ class SqlCipherOfflineExportAcceptanceTest {
             randomKey.fill(0)
             // Only disposable randomly named test fixtures.
             ctx.deleteDatabase(shadowName)
+            ctx.deleteDatabase(workingName)
             ctx.deleteDatabase(sourceName)
             SqlCipherShadowKeyVault.deleteIsolatedFixture(ctx, shadowName)
         }
