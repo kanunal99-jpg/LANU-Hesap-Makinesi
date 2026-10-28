@@ -559,13 +559,10 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
+          # Emulator Runner invokes each YAML script line independently;
+          # use ONE actual Bash command, not shell-continuation lines.
           script: |
-            bash scripts/ci_ota_upgrade_acceptance.sh \
-              "$RUNNER_TEMP/lanu-ota-baseline/app-debug.apk" \
-              "$RUNNER_TEMP/lanu-ota-new.apk" \
-              "$RUNNER_TEMP/lanu-ota-baseline-instrumentation.apk" \
-              "$RUNNER_TEMP/lanu-ota-new-instrumentation.apk" \
-              822 "$LANU_VERSION_CODE"
+            bash scripts/ci_ota_upgrade_acceptance.sh "$RUNNER_TEMP/lanu-ota-baseline/app-debug.apk" "$RUNNER_TEMP/lanu-ota-new.apk" "$RUNNER_TEMP/lanu-ota-baseline-instrumentation.apk" "$RUNNER_TEMP/lanu-ota-new-instrumentation.apk" 822 "$LANU_VERSION_CODE"
 
   publish:
     name: Publish verified APK
