@@ -3,6 +3,12 @@
 # WebRTC JNI resolves Java names/callbacks. Verified by a native DTLS loopback
 # test on both debug and minified release, not by disabling R8.
 -keep class org.webrtc.** { *; }
+# The separate release AndroidTest APK exercises genuine SQLCipher 4.20.0 JNI
+# and Room's SQLCipher SupportOpenHelperFactory. Preserve its external ABI.
+# Do not skip this test or mark encrypted-at-rest complete if it fails.
+-keep class net.zetetic.database.** { *; }
+-keep class com.example.core.database.IsolatedSqlcipherRoomFactory { *; }
+-keep class com.example.core.database.IsolatedSqlcipherShadowKeyVault { *; }
 # Keep the concrete, JNI-invoked override adapter across minified releases.
 # Without these explicit methods, older Android desugaring may attempt an
 # Observer$-CC companion that is not present in the release APK (CI #412).
