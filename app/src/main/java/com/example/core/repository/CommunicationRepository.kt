@@ -7,6 +7,7 @@ import com.example.core.database.*
 import com.example.core.messaging.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -88,11 +89,23 @@ class CommunicationRepository(
                 relay.request(own, "callSend", JSONObject(data.toString()).apply { remove("wake") })
             }
         }
-        // The same encrypted signal UUID and content survive retries.
-        try { sendCompatible() }
-        catch (e: CancellationException) { throw e }
-        catch (e: RelayException) { throw e }
-        catch (_: java.io.IOException) { sendCompatible() }
+        // Retry ONLY short transient connection/server outages, never auth,
+        // quota or protocol errors. All attempts reuse the same immutable
+        // encrypted signal, UUID and callId (including lost HTTP acknowledgments).
+        // Coroutine cancellation interrupts backoff immediately at call close.
+        var failures = 0
+        while (true) {
+            try {
+                sendCompatible()
+                return
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: java.io.IOException) {
+                failures++
+                val waitMs = CallSignalRetryPolicy.delayAfter(e, failures) ?: throw e
+                delay(waitMs)
+            }
+        }
     }
 
     /**
