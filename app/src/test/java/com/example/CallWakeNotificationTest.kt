@@ -168,6 +168,48 @@ class CallWakeNotificationTest {
         assertEquals(2, deliveries)
     }
 
+    @Test fun oemLinkageErrorCannotKillFcmAndUndeliveredCallCanRetry() {
+        val timestamp = 1710000000907L
+        var delivered = 0
+        // Examples of vendor ABI failures: missing method at channel setup
+        // and abstract framework dispatch during notification publishing.
+        assertFalse(CallWakePolicy.safePlatformDelivery {
+            throw NoSuchMethodError("simulated OEM notification ABI mismatch")
+        })
+        assertFalse(CallWakePolicy.publishOnce(timestamp) {
+            delivered++
+            throw AbstractMethodError("simulated OEM notification dispatch")
+        })
+        assertEquals(1, delivered)
+        assertTrue("Failed OEM notification must not burn the wake claim",
+            CallWakePolicy.publishOnce(timestamp) { delivered++ })
+        assertFalse("An actually delivered call remains deduplicated",
+            CallWakePolicy.publishOnce(timestamp) { delivered++ })
+        assertEquals(2, delivered)
+    }
+
+    @Test fun revokedConsentAfterOemLinkageFailureNeverReportsDelivery() {
+        val at = 1710000000908L
+        var posts = 0
+        assertFalse(CallWakePolicy.publishWhileConsented(
+            at = at,
+            isConsented = { true },
+            notify = {
+                posts++
+                throw NoSuchMethodError("simulated OEM notify API")
+            },
+            cancel = { error("Nothing was posted") }
+        ))
+        assertEquals(1, posts)
+        assertTrue(CallWakePolicy.publishWhileConsented(
+            at = at,
+            isConsented = { true },
+            notify = { posts++ },
+            cancel = { error("A valid notification must not be cancelled") }
+        ))
+        assertEquals(2, posts)
+    }
+
     @Test fun runtimeNotificationFailureAlsoReleasesOnlyItsOwnTimestamp() {
         val failedTimestamp = 1710000000902L
         val deliveredTimestamp = 1710000000903L
