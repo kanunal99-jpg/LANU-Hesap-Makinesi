@@ -26,14 +26,14 @@ internal object SqlCipherShadowDatabase {
         System.loadLibrary("sqlcipher")
         val passphrase = Base64.encode(randomKey, Base64.NO_WRAP or
             Base64.NO_PADDING or Base64.URL_SAFE)
-        try {
-            return Room.databaseBuilder(
-                context.applicationContext, AppDatabase::class.java, name
-            ).openHelperFactory(
-                PreserveCorruptRoomFactory(SupportOpenHelperFactory(passphrase, null, true))
-            ).build()
-        } finally {
-            passphrase.fill(0)
-        }
+        // Room opens lazily. SupportOpenHelperFactory retains this distinct
+        // passphrase byte array and needs it when the database is first opened,
+        // so wiping it here would silently make every new shadow unusable.
+        // The caller may zero randomKey; only this private wrapper copy remains.
+        return Room.databaseBuilder(
+            context.applicationContext, AppDatabase::class.java, name
+        ).openHelperFactory(
+            PreserveCorruptRoomFactory(SupportOpenHelperFactory(passphrase, null, true))
+        ).build()
     }
 }
