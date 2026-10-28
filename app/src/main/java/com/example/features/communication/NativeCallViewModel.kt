@@ -288,11 +288,17 @@ class NativeCallViewModel(
                         delay(ICE_RESTART_GRACE_MS)
                         if (session !== current || !foreground ||
                             current.reconnectGeneration != generation ||
-                            _state.value.phase != NativeCallPhase.RECONNECTING ||
-                            !current.reconnectBudget.claim()) return@guarded
+                            _state.value.phase != NativeCallPhase.RECONNECTING) return@guarded
                         val engine = _media.value ?: return@guarded
+                        if (!current.reconnectBudget.claim()) return@guarded
                         val offerSdp = engine.offer(restart = true)
-                        if (session !== current || !foreground) return@guarded
+                        // Native SDP generation may complete after RTP recovered,
+                        // even if the suspended operation ignored cancellation.
+                        // Never send a stale restart offer into a healthy call
+                        // or a newer disconnect generation.
+                        if (session !== current || !foreground ||
+                            current.reconnectGeneration != generation ||
+                            _state.value.phase != NativeCallPhase.RECONNECTING) return@guarded
                         current.awaitingAnswer = true
                         send(current, CallSignalKind.OFFER, offerSdp)
                     }
@@ -324,8 +330,29 @@ class NativeCallViewModel(
             }
         }
     }
-    private suspend fun send(current: Session, kind: CallSignalKind, sdp: String = "") =
-        repository.sendCallSignal(current.peer, CallSignaling.create(current.id, kind, current.video, sdp))
+    private suspend fun send(current: Session, kind: CallSignalKind, sdp: String = "") {
+        val signal = CallSignaling.create(current.id, kind, current.video, sdp)
+        try {
+            repository.sendCallSignal(current.peer, signal)
+        } catch (e: java.io.IOException) {
+            // An HTTP ACK can disappear AFTER the peer received this very
+            // signal. A foreground call with confirmed two-way audio RTP has
+            // already proved the remote side established the session.
+            // Do not tear down healthy media solely because the relay is
+            // temporarily unreachable; the repository has already exhausted
+            // its bounded same-UUID/same-ciphertext retransmissions.
+            //
+            // Only call setup/negotiation signals and transient transport
+            // errors qualify. Never mask TLS trust, authentication, quota,
+            // malformed protocol, or a call that is no longer media-connected.
+            val activeMedia = session === current && foreground &&
+                _state.value.phase == NativeCallPhase.CONNECTED
+            val setupSignal = kind in setOf(CallSignalKind.INVITE, CallSignalKind.ACCEPT,
+                CallSignalKind.OFFER, CallSignalKind.ANSWER)
+            if (!activeMedia || !setupSignal ||
+                CallSignalRetryPolicy.delayAfter(e, 1) == null) throw e
+        }
+    }
     private fun deadline(current: Session, millis: Long, message: String) {
         timeout?.cancel()
         timeout = viewModelScope.launch { delay(millis); if (session === current) finish(message) }
