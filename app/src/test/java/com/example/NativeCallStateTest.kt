@@ -179,23 +179,37 @@ class NativeCallStateTest {
     }
     private suspend fun waitPhase(phase:NativeCallPhase)=withTimeout(5000) { vm.state.first { it.phase==phase } }
     private suspend fun awaitSent(kind:CallSignalKind)=withTimeout(5000) { sent.first { it.any { s->s.kind==kind } }.last { it.kind==kind } }
-    // The fake relay can resume via Dispatchers.IO while viewModelScope uses
-    // a virtual Main dispatcher. Advance short virtual intervals and allow IO
-    // to complete between ticks. Never infer completion from a single clock
-    // jump or from a virtual withTimeout that advances ahead of IO.
+    // The retry timer runs on virtual Main, while some authenticated relay/crypto
+    // callbacks finish on real IO. Advancing an arbitrary cumulative 30-second
+    // virtual clock races those callbacks and can trigger the 25s call deadline
+    // after only four of the six required sends. Step through the REAL policy's
+    // bounded backoff one attempt at a time; never reduce MAX_ATTEMPTS.
     private fun driveRelayRetries(offerId: String, expected: Int) {
-        var ticks = 0
-        while (outgoingSendAttempts.count { it.first == offerId } < expected && ticks < 120) {
-            mainTestDispatcher.scheduler.advanceTimeBy(250L)
-            mainTestDispatcher.scheduler.runCurrent()
-            // Relay/crypto callbacks can execute on a real IO dispatcher even
-            // while Main uses virtual time. Six bounded retries include over
-            // ten seconds of backoff on real dispatchers: racing 30 seconds
-            // of virtual time through just 2.4 seconds of wall time caused
-            // reproducible 4/6 failures on CI. Let real IO finish between
-            // virtual ticks; never reduce retries or soften the assertion.
-            Thread.sleep(150L)
-            ticks++
+        require(expected in 1..CallSignalRetryPolicy.MAX_ATTEMPTS)
+        val transient = RelayException(503, "test missing HTTP ACK")
+        for (attempt in 1..expected) {
+            val deadlineNanos = System.nanoTime() + 10_000_000_000L
+            // Wait for the actual relay callback to be recorded before
+            // scheduling the next virtual retry. A bounded real deadline
+            // catches deadlock instead of masking a missing send.
+            while (outgoingSendAttempts.count { it.first == offerId } < attempt &&
+                System.nanoTime() < deadlineNanos) {
+                mainTestDispatcher.scheduler.advanceTimeBy(25L)
+                mainTestDispatcher.scheduler.runCurrent()
+                Thread.sleep(25L)
+            }
+            assertTrue("Encrypted relay send attempt $attempt was not observed",
+                outgoingSendAttempts.count { it.first == offerId } >= attempt)
+            if (attempt < expected) {
+                // Allow the fake relay to return its missing ACK and the
+                // repository to enqueue the real policy's next delay.
+                mainTestDispatcher.scheduler.runCurrent()
+                Thread.sleep(50L)
+                val backoff = CallSignalRetryPolicy.delayAfter(transient, attempt)
+                    ?: error("Unexpected retry policy termination at attempt $attempt")
+                mainTestDispatcher.scheduler.advanceTimeBy(backoff + 1L)
+                mainTestDispatcher.scheduler.runCurrent()
+            }
         }
         assertEquals("All expected encrypted signal attempts must actually occur",
             expected, outgoingSendAttempts.count { it.first == offerId })
