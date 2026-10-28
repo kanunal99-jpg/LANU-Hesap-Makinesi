@@ -64,7 +64,7 @@ class RoomActualOtaUpgradeTest {
         assertNull("Seed only a fresh isolated emulator", identityStore.read())
         val identity = UserCodes.create()
         identityStore.save(identity)
-        val pin = PinCredentialCodec.create("fixture-only-739188")
+        val pin = PinCredentialCodec.create("739188")
         val cipher = PeerMessageCrypto.encrypt(
             identity, identity.id, identity.publicKey, messageId,
             "OTA encrypted test message"
