@@ -288,11 +288,17 @@ class NativeCallViewModel(
                         delay(ICE_RESTART_GRACE_MS)
                         if (session !== current || !foreground ||
                             current.reconnectGeneration != generation ||
-                            _state.value.phase != NativeCallPhase.RECONNECTING ||
-                            !current.reconnectBudget.claim()) return@guarded
+                            _state.value.phase != NativeCallPhase.RECONNECTING) return@guarded
                         val engine = _media.value ?: return@guarded
+                        if (!current.reconnectBudget.claim()) return@guarded
                         val offerSdp = engine.offer(restart = true)
-                        if (session !== current || !foreground) return@guarded
+                        // Native SDP generation may complete after RTP recovered,
+                        // even if the suspended operation ignored cancellation.
+                        // Never send a stale restart offer into a healthy call
+                        // or a newer disconnect generation.
+                        if (session !== current || !foreground ||
+                            current.reconnectGeneration != generation ||
+                            _state.value.phase != NativeCallPhase.RECONNECTING) return@guarded
                         current.awaitingAnswer = true
                         send(current, CallSignalKind.OFFER, offerSdp)
                     }
