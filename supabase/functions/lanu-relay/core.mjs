@@ -209,6 +209,24 @@ export function createRelay(store, clock = Date.now, options = {}) {
         await store.callAck(owner, data.ids); return { acknowledged: true };
       }
       case 'register': return { code: identity.code, nonce: identity.nonce };
+      case 'deleteAccount': {
+        // This is a STAGED feature. Live Edge does NOT enable the flag,
+        // and the SQL transaction is outside deployed migration paths.
+        // A local conversation delete must never trigger server erasure.
+        insist(options.accountDeletionEnabled === true &&
+          typeof store.accountDelete === 'function', 503,
+          'Sunucu hesabı silme henüz kullanılamıyor.');
+        insist(Object.keys(data).sort().join(',') === 'confirmation,expectedCode' &&
+          data.confirmation === 'DELETE_ACCOUNT' &&
+          data.expectedCode === identity.code, 409,
+          'Hesap silme teyidi veya güncel kodu doğrulanamadı.');
+        // The owner is exclusively the P-256 signed identityId verified above.
+        // No client-supplied peerId or accountId can select a victim.
+        const result = await store.accountDelete(owner, identity.code);
+        insist(result?.deleted === true, 503,
+          'Sunucu hesap silme işlemi doğrulanamadı.');
+        return { deleted: true };
+      }
       case 'rotate': {
         insist(noncePattern.test(data.nonce ?? '') && data.expectedCode === identity.code, 409, 'Kod değişti; kimliği yenileyip tekrar deneyin.');
         const code = await publicCode(publicKey, data.nonce);
@@ -460,6 +478,12 @@ export class RestStore {
   async callWakeInvalidate(owner, token) {
     return this.query('rpc/lanu_call_wake_invalidate', 'POST',
       { p_owner: owner, p_token: token });
+  }
+  async accountDelete(owner, expectedCode) {
+    // A single database transaction. Never implement as successive REST
+    // DELETEs: a timeout or process death would leave partial erasure.
+    return this.query('rpc/lanu_delete_account_v1', 'POST',
+      { p_owner: owner, p_expected_code: expectedCode });
   }
 }
 
