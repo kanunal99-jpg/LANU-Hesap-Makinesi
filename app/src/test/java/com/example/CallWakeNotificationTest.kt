@@ -105,6 +105,34 @@ class CallWakeNotificationTest {
         assertEquals(AudioAttributes.USAGE_NOTIFICATION_RINGTONE, channel.audioAttributes.usage)
     }
 
+    @Test fun blockedCallChannelIsNotMistakenForDeliveryAcrossAndroidVersions() {
+        for (api in 23..25) {
+            assertTrue(CallWakePolicy.channelCanDisplay(api, null))
+        }
+        for (api in 26..36) {
+            assertFalse("Missing channel must fail closed on API $api",
+                CallWakePolicy.channelCanDisplay(api, null))
+            assertFalse("User-blocked channel must not be posted on API $api",
+                CallWakePolicy.channelCanDisplay(api, NotificationManager.IMPORTANCE_NONE))
+            assertTrue("User-selected quiet channel must stay usable on API $api",
+                CallWakePolicy.channelCanDisplay(api, NotificationManager.IMPORTANCE_LOW))
+            assertTrue(CallWakePolicy.channelCanDisplay(api, NotificationManager.IMPORTANCE_HIGH))
+        }
+    }
+
+    @Test fun blockedCallChannelDoesNotBurnDeduplicationWhenUserReenablesIt() {
+        val timestamp = 1710000090083L
+        var posts = 0
+        if (CallWakePolicy.channelCanDisplay(34, NotificationManager.IMPORTANCE_NONE)) {
+            CallWakePolicy.publishOnce(timestamp) { posts++ }
+        }
+        assertEquals(0, posts)
+        assertTrue(CallWakePolicy.channelCanDisplay(34, NotificationManager.IMPORTANCE_DEFAULT))
+        assertTrue(CallWakePolicy.publishOnce(timestamp) { posts++ })
+        assertFalse(CallWakePolicy.publishOnce(timestamp) { posts++ })
+        assertEquals(1, posts)
+    }
+
     @Test fun oldCallChannelExplicitlyMutedDoesNotBecomeLoudOnUpgrade() {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.createNotificationChannel(NotificationChannel(
