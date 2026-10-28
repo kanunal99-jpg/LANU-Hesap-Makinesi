@@ -289,32 +289,32 @@ class NativeCallViewModel(
                 // while the RTP tracker has expired its last two-way proof.
                 current.lastConfirmedMediaAtMs = null
                 if (_state.value.phase == NativeCallPhase.CONNECTED && !value.transportConnected) {
-                _state.value = _state.value.copy(phase = NativeCallPhase.RECONNECTING)
-                val generation = ++current.reconnectGeneration
-                deadline(current, 25_000, "Ağ bağlantısı kesildi.")
-                if (current.outgoing) {
-                    pipeline = guarded(current) {
-                        // Mobile radio/Wi-Fi handovers often recover on their
-                        // own. Give the existing ICE transport a brief grace
-                        // period before spending the ONE authorized restart.
-                        delay(ICE_RESTART_GRACE_MS)
-                        if (session !== current || !foreground ||
-                            current.reconnectGeneration != generation ||
-                            _state.value.phase != NativeCallPhase.RECONNECTING) return@guarded
-                        val engine = _media.value ?: return@guarded
-                        if (!current.reconnectBudget.claim()) return@guarded
-                        val offerSdp = engine.offer(restart = true)
-                        // Native SDP generation may complete after RTP recovered,
-                        // even if the suspended operation ignored cancellation.
-                        // Never send a stale restart offer into a healthy call
-                        // or a newer disconnect generation.
-                        if (session !== current || !foreground ||
-                            current.reconnectGeneration != generation ||
-                            _state.value.phase != NativeCallPhase.RECONNECTING) return@guarded
-                        current.awaitingAnswer = true
-                        send(current, CallSignalKind.OFFER, offerSdp)
+                    _state.value = _state.value.copy(phase = NativeCallPhase.RECONNECTING)
+                    val generation = ++current.reconnectGeneration
+                    deadline(current, 25_000, "Ağ bağlantısı kesildi.")
+                    if (current.outgoing) {
+                        pipeline = guarded(current) {
+                            // Mobile radio/Wi-Fi handovers often recover on their
+                            // own. Give the existing ICE transport a brief grace
+                            // period before spending the ONE authorized restart.
+                            delay(ICE_RESTART_GRACE_MS)
+                            if (session !== current || !foreground ||
+                                current.reconnectGeneration != generation ||
+                                _state.value.phase != NativeCallPhase.RECONNECTING) return@guarded
+                            val engine = _media.value ?: return@guarded
+                            if (!current.reconnectBudget.claim()) return@guarded
+                            val offerSdp = engine.offer(restart = true)
+                            // Native SDP generation may complete after RTP recovered,
+                            // even if the suspended operation ignored cancellation.
+                            // Never send a stale restart offer into a healthy call
+                            // or a newer disconnect generation.
+                            if (session !== current || !foreground ||
+                                current.reconnectGeneration != generation ||
+                                _state.value.phase != NativeCallPhase.RECONNECTING) return@guarded
+                            current.awaitingAnswer = true
+                            send(current, CallSignalKind.OFFER, offerSdp)
+                        }
                     }
-                }
                 }
             }
         } }, { message -> viewModelScope.launch { if (session === current) fail(message) } })
