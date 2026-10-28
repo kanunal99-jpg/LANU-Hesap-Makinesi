@@ -39,6 +39,12 @@ class CallWakeNotificationTest {
         CallWakePolicy.privateAreaVisible = false
     }
 
+    @Test fun answerIntentIsSeparateFromPrivateEntryAndHasNoCallerIdentity() {
+        assertFalse(CallWakeTapPolicy.requiresFreshEntry(CallWakeTapPolicy.ANSWER))
+        assertTrue(CallWakeTapPolicy.ANSWER.startsWith(context.packageName))
+        assertEquals("lanu_wake_at", CallWakeTapPolicy.EXTRA_WAKE_AT)
+    }
+
     @Test fun notificationTapIsReentryOnlyAndNeverAChatDeepLink() {
         assertTrue(CallWakeTapPolicy.requiresFreshEntry(CallWakeTapPolicy.ACTION))
         assertFalse(CallWakeTapPolicy.requiresFreshEntry(null))

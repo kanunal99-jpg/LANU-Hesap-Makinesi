@@ -34,12 +34,18 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleStartEffect
 import com.example.core.calls.NativeCallEngine
 import com.example.core.calls.CallAudioRouteLabelPolicy
+import com.example.core.calls.CallForegroundService
+import com.example.core.calls.CallWakePolicy
 import kotlinx.coroutines.delay
 import org.webrtc.SurfaceViewRenderer
 
 /** Secure dialog shared by the home and chat screens; media is never auto-accepted. */
 @Composable
-fun NativeCallHost(model: NativeCallViewModel, request: Pair<String, Boolean>?, onRequestConsumed: () -> Unit) {
+fun NativeCallHost(
+    model: NativeCallViewModel, request: Pair<String, Boolean>?, onRequestConsumed: () -> Unit,
+    revealPeerName: Boolean = true, answerHintAtMs: Long = 0L,
+    onAnswerHintConsumed: () -> Unit = {}
+) {
     val state by model.state.collectAsState()
     val media by model.media.collectAsState()
     val engine = media as? NativeCallEngine
@@ -59,8 +65,8 @@ fun NativeCallHost(model: NativeCallViewModel, request: Pair<String, Boolean>?, 
     var confirm by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     var permissionTarget by remember { mutableStateOf<Triple<String, Boolean, Boolean>?>(null) }
     LifecycleStartEffect(model) {
-        model.activate()
-        onStopOrDispose { permissionTarget = null; confirm = null; model.deactivate() }
+        model.attachHost()
+        onStopOrDispose { permissionTarget = null; confirm = null; model.detachHost() }
     }
     LaunchedEffect(request) { if (request != null) { confirm = request; onRequestConsumed() } }
     LaunchedEffect(state.callId) {
@@ -72,24 +78,42 @@ fun NativeCallHost(model: NativeCallViewModel, request: Pair<String, Boolean>?, 
         if (target != null) {
             val microphone = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
             val camera = !target.second || ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-            if (target.third) model.accept(target.first, microphone && camera)
-            else model.outgoing(target.first, target.second, microphone && camera)
+            if (microphone && camera && CallForegroundService.start(context, target.second)) {
+                if (target.third) model.accept(target.first, true)
+                else model.outgoing(target.first, target.second, true)
+            } else if (microphone && camera) model.reportServiceUnavailable()
+            else if (target.third) model.accept(target.first, false)
+            else model.outgoing(target.first, target.second, false)
         }
     }
     fun authorize(id: String, video: Boolean, incoming: Boolean) {
         val needed = listOfNotNull(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA.takeIf { video })
             .filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
         if (needed.isEmpty()) {
-            if (incoming) model.accept(id, true) else model.outgoing(id, video, true)
+            if (CallForegroundService.start(context, video)) {
+                if (incoming) model.accept(id, true) else model.outgoing(id, video, true)
+            } else model.reportServiceUnavailable()
         } else {
             permissionTarget = Triple(id, video, incoming)
             permissions.launch(needed.toTypedArray())
         }
     }
+    // The answer action is a user gesture, NOT an authenticated caller ID.
+    // Accept only the separately decrypted, fresh E2EE INVITE matching this
+    // alert's time window. Never auto-answer a different/newer incoming call.
+    LaunchedEffect(state.phase, state.inviteAtMs, answerHintAtMs) {
+        if (answerHintAtMs > 0L && state.phase == NativeCallPhase.RINGING &&
+            kotlin.math.abs(state.inviteAtMs - answerHintAtMs) <= 30_000L &&
+            CallWakePolicy.eligible(mapOf(CallWakePolicy.TYPE.let { "type" to it },
+                "at" to answerHintAtMs.toString()), System.currentTimeMillis())) {
+            onAnswerHintConsumed()
+            authorize(state.callId, state.video, true)
+        }
+    }
     if (confirm != null) {
         val target = confirm!!
         AlertDialog(onDismissRequest = { confirm = null }, title = { Text(if (target.second) "Görüntülü arama" else "Sesli arama") },
-            text = { Text("İki telefonda da güncel LANU ve güvenli alan açık olmalıdır. Doğrudan görüşmede IP adresinizi karşı taraf ve Google/Cloudflare STUN hizmetleri görebilir. Mikrofon ve kamera yalnız görüşme kabul edilince açılır. Güvenli alandan çıkarsanız görüşme kapanır.") },
+            text = { Text("İki telefonda da güncel LANU ve güvenli alan açık olmalıdır. Doğrudan görüşmede IP adresinizi karşı taraf ve Google/Cloudflare STUN hizmetleri görebilir. Mikrofon ve kamera yalnız görüşme kabul edilince açılır. Görüşme devam ederken hesap makinesine dönebilirsiniz.") },
             confirmButton = { TextButton(onClick = { confirm = null; authorize(target.first, target.second, false) }) { Text("Aramayı başlat") } },
             dismissButton = { TextButton(onClick = { confirm = null }) { Text("Vazgeç") } })
     }
@@ -101,7 +125,7 @@ fun NativeCallHost(model: NativeCallViewModel, request: Pair<String, Boolean>?, 
             Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                 Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(18.dp),
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(state.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text(if (revealPeerName) state.name else "LANU araması", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Text(when (state.phase) {
                         NativeCallPhase.RINGING -> if (state.video) "Gelen görüntülü arama" else "Gelen sesli arama"
                         NativeCallPhase.DIALING -> "Aranıyor…"
@@ -147,7 +171,7 @@ fun NativeCallHost(model: NativeCallViewModel, request: Pair<String, Boolean>?, 
                         Text("WebRTC gürültü ve yankı azaltma · kalite cihaza ve ortama bağlıdır", style = MaterialTheme.typography.bodySmall)
                     }
                     if (state.phase == NativeCallPhase.RINGING) {
-                        Text("Doğrudan görüşmede IP adresinizi karşı taraf ve Google/Cloudflare STUN hizmetleri görebilir. Güvenli alandan çıkarsanız görüşme biter.",
+                        Text("Doğrudan görüşmede IP adresinizi karşı taraf ve Google/Cloudflare STUN hizmetleri görebilir. Gizli alanı açmadan yanıtlayabilirsiniz.",
                             style = MaterialTheme.typography.bodySmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                             Button(onClick = { authorize(state.callId, state.video, true) }) { Text("Kabul et") }

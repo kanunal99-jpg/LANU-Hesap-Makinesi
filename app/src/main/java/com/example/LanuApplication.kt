@@ -2,6 +2,7 @@ package com.example
 
 import android.app.Application
 import com.example.core.di.AppContainer
+import com.example.features.communication.NativeCallViewModel
 import com.example.core.diagnostics.LocalCrashHandler
 import com.example.core.calls.CallWakeTokenRefreshWorker
 import com.example.core.calls.CallWakeNotification
@@ -25,6 +26,11 @@ class LanuApplication : Application(), Configuration.Provider {
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder().setMinimumLoggingLevel(android.util.Log.ERROR).build()
     @Inject lateinit var container: AppContainer
+    // One call owner survives private-area navigation and activity recreation;
+    // it never unlocks the hidden screens or writes call IDs into persistent storage.
+    val callModel: NativeCallViewModel by lazy(LazyThreadSafetyMode.NONE) {
+        NativeCallViewModel(this, container.communicationRepository)
+    }
     private val credentialMigrationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {

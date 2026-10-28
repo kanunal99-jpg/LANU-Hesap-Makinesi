@@ -19,4 +19,13 @@ class CallAudioProcessingPolicyTest {
         assertTrue(both.hardwareAec)
         assertTrue(both.hardwareNs)
     }
+
+    @org.junit.Test fun oemAudioFxFailureFallsBackToSingleSoftwareApm() {
+        val hardware = com.example.core.calls.CallAudioProcessingPolicy.choose(true, true)
+        val fallback = com.example.core.calls.CallAudioProcessingPolicy.softwareFallback(hardware)
+        org.junit.Assert.assertFalse(fallback.hardwareAec)
+        org.junit.Assert.assertFalse(fallback.hardwareNs)
+        org.junit.Assert.assertEquals(fallback,
+            com.example.core.calls.CallAudioProcessingPolicy.softwareFallback(fallback))
+    }
 }

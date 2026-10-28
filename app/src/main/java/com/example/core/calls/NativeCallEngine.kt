@@ -90,9 +90,10 @@ class NativeCallEngine(
             aecReported = runCatching { JavaAudioDeviceModule.isBuiltInAcousticEchoCancelerSupported() }.getOrDefault(false),
             nsReported = runCatching { JavaAudioDeviceModule.isBuiltInNoiseSuppressorSupported() }.getOrDefault(false)
         )
-        adm = JavaAudioDeviceModule.builder(context).setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
-            .setUseHardwareAcousticEchoCanceler(audioProcessing.hardwareAec)
-            .setUseHardwareNoiseSuppressor(audioProcessing.hardwareNs)
+        fun createAdm(hardwareAec: Boolean, hardwareNs: Boolean): JavaAudioDeviceModule =
+            JavaAudioDeviceModule.builder(context).setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+            .setUseHardwareAcousticEchoCanceler(hardwareAec)
+            .setUseHardwareNoiseSuppressor(hardwareNs)
             .setAudioRecordErrorCallback(object : JavaAudioDeviceModule.AudioRecordErrorCallback {
                 override fun onWebRtcAudioRecordInitError(error: String) = audioFailure()
                 override fun onWebRtcAudioRecordStartError(code: JavaAudioDeviceModule.AudioRecordStartErrorCode, error: String) = audioFailure()
@@ -104,6 +105,15 @@ class NativeCallEngine(
                 override fun onWebRtcAudioTrackError(error: String) = audioFailure()
             })
             .createAudioDeviceModule()
+        adm = try {
+            createAdm(audioProcessing.hardwareAec, audioProcessing.hardwareNs)
+        } catch (e: RuntimeException) {
+            // Broken OEM hardware-effect initialization: retry this call once
+            // with the WebRTC software APM, never double-stack Android AudioFX.
+            val fallback = CallAudioProcessingPolicy.softwareFallback(audioProcessing)
+            if (fallback == audioProcessing) throw e
+            createAdm(fallback.hardwareAec, fallback.hardwareNs)
+        }
         factory = PeerConnectionFactory.builder().setAudioDeviceModule(adm)
             .setVideoEncoderFactory(DefaultVideoEncoderFactory(egl!!.eglBaseContext, true, true))
             .setVideoDecoderFactory(DefaultVideoDecoderFactory(egl!!.eglBaseContext)).createPeerConnectionFactory()
