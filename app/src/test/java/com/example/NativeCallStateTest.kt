@@ -194,7 +194,9 @@ class NativeCallStateTest {
             // catches deadlock instead of masking a missing send.
             while (outgoingSendAttempts.count { it.first == offerId } < attempt &&
                 System.nanoTime() < deadlineNanos) {
-                mainTestDispatcher.scheduler.advanceTimeBy(25L)
+                // IO completion is wall-clock work. Do not consume virtual
+                // call-deadline time while waiting for the real relay attempt;
+                // advance virtual time only by the policy backoff below.
                 mainTestDispatcher.scheduler.runCurrent()
                 Thread.sleep(25L)
             }
