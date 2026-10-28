@@ -186,6 +186,14 @@ object CallWakePolicy {
         return succeeded && delivered
     }
 
+    /**
+     * Local opt-out must cancel after any in-flight post/retract transaction.
+     * Otherwise the UI may cancel first and a delayed FCM notify can leave a
+     * visible call alert after consent was withdrawn. Never touch message IDs.
+     */
+    @Synchronized
+    fun cancelPostedCallAlert(cancel: () -> Boolean): Boolean = cancel()
+
     @Synchronized private fun releaseFailed(at: Long) {
         recent.remove(at)
     }
@@ -224,10 +232,12 @@ object CallWakeNotification {
 
     /** Clears only the already displayed call alert after local opt-out. */
     fun cancel(context: Context): Boolean = CallWakePolicy.safePlatformDelivery {
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-            ?: return@safePlatformDelivery false
-        manager.cancel(NOTIFICATION_ID)
-        true
+        CallWakePolicy.cancelPostedCallAlert {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                ?: return@cancelPostedCallAlert false
+            manager.cancel(NOTIFICATION_ID)
+            true
+        }
     }
 
     /**
