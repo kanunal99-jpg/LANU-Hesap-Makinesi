@@ -117,6 +117,40 @@ class CallRtpEvidenceTrackerTest {
         assertFalse(t.observe(second, 41, 41, 7001L)!!.connected)
     }
 
+    @Test fun malformedNativeStatsRevokePreviousRtpProofUntilBothDirectionsAdvanceAgain() {
+        val t = CallRtpEvidenceTracker()
+        t.updateTransport(true)
+        val epoch = t.currentEpoch()
+        assertFalse(t.observe(epoch, 100, 100, 1_000L, 1)!!.connected)
+        assertTrue(t.observe(epoch, 101, 101, 1_100L, 2)!!.connected)
+
+        val invalid = t.observe(epoch, -1, 101, 1_200L, 3)!!
+        assertTrue("Invalid stats must not terminate an otherwise connected ICE transport",
+            invalid.transportConnected)
+        assertFalse("Malformed native stats must revoke old two-way RTP proof", invalid.connected)
+
+        // Neither a delayed callback nor the same cumulative counters can
+        // restore an old proof; both audio directions must actually progress.
+        assertNull(t.observe(epoch, 999, 999, 1_190L, 4))
+        assertNull(t.observe(epoch, 999, 999, 1_300L, 2))
+        assertFalse(t.observe(epoch, 101, 101, 1_300L, 5)!!.connected)
+        assertFalse(t.observe(epoch, 102, 101, 1_400L, 6)!!.connected)
+        assertTrue(t.observe(epoch, 102, 102, 1_500L, 7)!!.connected)
+    }
+
+    @Test fun invalidSentDirectionAlsoInvalidatesReceiveProofWithoutChangingIceEpoch() {
+        val t = CallRtpEvidenceTracker()
+        t.updateTransport(true)
+        val epoch = t.currentEpoch()
+        t.observe(epoch, 20, 30, 2_000L, 1)
+        assertTrue(t.observe(epoch, 21, 31, 2_100L, 2)!!.connected)
+        assertFalse(t.observe(epoch, 21, -1, 2_200L, 3)!!.connected)
+        assertEquals(epoch, t.currentEpoch())
+        assertFalse(t.observe(epoch, 21, 31, 2_300L, 4)!!.connected)
+        assertFalse(t.observe(epoch, 22, 31, 2_400L, 5)!!.connected)
+        assertTrue(t.observe(epoch, 22, 32, 2_500L, 6)!!.connected)
+    }
+
     @Test fun nonConnectedAndNegativeCountersNeverShowConnected() {
         val t = CallRtpEvidenceTracker()
         assertFalse(t.observe(t.currentEpoch(), 100, 100)!!.connected)

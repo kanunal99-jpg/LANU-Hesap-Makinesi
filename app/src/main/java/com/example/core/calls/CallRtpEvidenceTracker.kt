@@ -51,7 +51,14 @@ class CallRtpEvidenceTracker {
         }
         lastSampleAtMs = nowMs
         if (!transportConnected) return CallMediaEvidence()
-        if (received < 0L || sent < 0L) return CallMediaEvidence(true)
+        if (received < 0L || sent < 0L) {
+            // An invalid native stats direction invalidates BOTH media baselines.
+            // Otherwise the next unchanged cumulative sample could reuse fresh
+            // packet progress from before the malformed report as live proof.
+            // Preserve epoch sequence/clock guards against late callbacks.
+            resetMediaCounters()
+            return CallMediaEvidence(true)
+        }
 
         if (receiveBaseline == null || sendBaseline == null ||
             (lastReceived != null && received < lastReceived!!) ||
@@ -80,13 +87,17 @@ class CallRtpEvidenceTracker {
         )
     }
 
-    private fun resetCounters() {
+    private fun resetMediaCounters() {
         receiveBaseline = null
         sendBaseline = null
         lastReceived = null
         lastSent = null
         lastRxProgressAt = null
         lastTxProgressAt = null
+    }
+
+    private fun resetCounters() {
+        resetMediaCounters()
         lastAcceptedSnapshotSequence = 0L
         lastSampleAtMs = null
     }
