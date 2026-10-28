@@ -78,7 +78,7 @@ class NativeCallViewModel(
             visibleIdlePoll = viewModelScope.launch {
                 while (isActive && foreground && attachedHosts > 0) {
                     var delayMs = 3_000L
-                    if (session == null && CallWakePreferences.isEnabled(appContext)) {
+                    if (session == null) {
                         try { repository.pollCallSignals() }
                         catch (e: CancellationException) { throw e }
                         catch (e: RelayException) {
