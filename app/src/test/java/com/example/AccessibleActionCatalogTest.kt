@@ -16,6 +16,19 @@ class AccessibleActionCatalogTest {
             AccessibleActionCatalog.description(Action.CALCULATOR_TOOLS))
     }
 
+    @Test fun everySensitiveControlHasSafeContextFreeSpeechLabel() {
+        val critical = setOf(Action.END_CALL, Action.MUTE_MICROPHONE,
+            Action.SWITCH_CAMERA, Action.ANSWER_CALL, Action.DECLINE_CALL,
+            Action.PRIVATE_DIAGNOSTICS, Action.BACK_TO_CALCULATOR)
+        for (action in critical) {
+            val label = AccessibleActionCatalog.description(action)
+            assertTrue(label.length >= 15)
+            assertFalse(label.contains("PIN"))
+            assertFalse(label.contains("LANU-"))
+            assertFalse(label.contains("http"))
+        }
+    }
+
     @Test fun documentedInteractiveMinimumIsAtLeast48Dp() {
         assertTrue(AccessibleActionCatalog.MIN_TOUCH_TARGET_DP >= 48)
     }

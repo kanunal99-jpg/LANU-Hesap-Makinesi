@@ -44,7 +44,25 @@ object DatabaseEncryptionPreflight {
         // This is only a readiness-to-investigate signal, never permission
         // to migrate or delete data in place.
         val safeToBeginOfflineMigrationDesign: Boolean
-            get() = state == State.PLAINTEXT_SQLITE && sufficientDiskSpace
+            get() {
+                // A Snapshot is a copyable data class, not an authorization
+                // token. Do not trust a stale or caller-forged disk flag,
+                // budget or WAL marker even for offline migration planning.
+                if (state != State.PLAINTEXT_SQLITE || databaseBytes < MIN_SQLITE_BYTES ||
+                    walBytes < 0L || sharedMemoryBytes < 0L ||
+                    rollbackJournalBytes < 0L
+                ) return false
+                val required = conservativeRequiredBytes(
+                    databaseBytes, walBytes, sharedMemoryBytes, rollbackJournalBytes
+                )
+                val hasCompanions = walBytes > 0L || sharedMemoryBytes > 0L ||
+                    rollbackJournalBytes > 0L
+                return required != Long.MAX_VALUE &&
+                    conservativeRequiredBytes == required &&
+                    availableBytes >= required &&
+                    sufficientDiskSpace &&
+                    needsWalCheckpoint == hasCompanions
+            }
     }
 
     fun inspect(context: Context): Snapshot =
