@@ -160,6 +160,32 @@ class ScientificCalculatorViewModelTest {
     }
 
     @Test
+    fun `extreme sqrt and cbrt exponents reject without BigDecimal expansion`() {
+        for (input in listOf("1E+2147483647", "1E-2147483647",
+            "-1E+2147483647", "-1E-2147483647")) {
+            val n = BigDecimal(input)
+            if (n.signum() > 0) {
+                try {
+                    HighPrecisionMathEngine.sqrt(n)
+                    org.junit.Assert.fail("Extreme square root was accepted")
+                } catch (expected: ArithmeticException) {
+                    assertTrue(expected.message.orEmpty().contains("resource budget"))
+                }
+            }
+            try {
+                HighPrecisionMathEngine.cbrt(n)
+                org.junit.Assert.fail("Extreme cube root was accepted")
+            } catch (expected: ArithmeticException) {
+                assertTrue(expected.message.orEmpty().contains("resource budget"))
+            }
+        }
+        assertEquals(0, HighPrecisionMathEngine.sqrt(BigDecimal("1E+400"))
+            .compareTo(BigDecimal("1E+200")))
+        assertEquals(0, HighPrecisionMathEngine.cbrt(BigDecimal("1E+300"))
+            .compareTo(BigDecimal("1E+100")))
+    }
+
+    @Test
     fun `square root supports magnitudes beyond Double range`() {
         val huge = HighPrecisionMathEngine.sqrt(BigDecimal("1E+400"))
         val tiny = HighPrecisionMathEngine.sqrt(BigDecimal("1E-400"))
