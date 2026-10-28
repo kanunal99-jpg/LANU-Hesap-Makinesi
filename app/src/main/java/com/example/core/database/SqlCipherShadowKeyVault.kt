@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import java.io.File
 import java.security.KeyStore
 import java.security.SecureRandom
 import javax.crypto.Cipher
@@ -45,6 +46,14 @@ internal object SqlCipherShadowKeyVault {
     /** Called on a fresh isolated fixture ONCE. Never overwrite a key. */
     fun create(context: Context, name: String): ByteArray = synchronized(lock) {
         requireIsolated(name)
+        // A deleted Keystore entry AND missing envelope must not cause a new
+        // data key to be generated if an encrypted DB (or any sidecar) remains.
+        // This is checked BEFORE creating the AES wrapping key. It is an
+        // intentionally strict CI-only guard, never a production cutover.
+        val database = context.applicationContext.getDatabasePath(name)
+        check(listOf("", "-wal", "-shm", "-journal").none { suffix ->
+            File(database.absolutePath + suffix).exists()
+        }) { "Mevcut şifreli gölge dosyası için yeni anahtar oluşturulmadı." }
         val prefs = preferences(context)
         check(!prefs.contains(name) && !keystore().containsAlias(alias(name))) {
             "Mevcut şifreli anahtarın üzerine yazılmadı."
