@@ -28,3 +28,7 @@ Android CI, lint ve API34 emülatör kapıları zorunludur. Samsung A55 ile ikin
 - `FullDataBackup.verifyImported` yedi tablodaki yedek satırlarının gerçekten SQLite tarafından yazıldığını **tek Room transaction'ı içinde COMMIT öncesi** denetler. Mesaj/kişi/sohbet kolonları birebir; arama/hesap geçmişi cihaz-yerel ID yerine içerik eşitliği; PIN/ayar tercihleri overwrite edilmeksizin anahtar korunması; profil kimliği ayrıca kontrol edilir.
 - `INSERT OR IGNORE` veya SQLite trigger ile satır sessiz atlanır ya da şifreli mesaj değiştirilirse restore tamamlanmaz, Room rollback yapar, Keystore kimliği önceki hesaba geri döner. Veriler, PIN ve 2011. korunur.
 - İzole regresyon: atlanan mesaj, sonradan değiştirilen mesaj, atlanan arama kaydı, atlanan rehber kaydı. Bunlar fiziksel cihaz veya tam SQLCipher şifreleme kabulü yerine geçmez; canlı SQLCipher migration otomatik etkinleştirilmez.
+
+### Hesap kimliği bağlama koruması
+
+Room tablosunda hiç mesaj/kayıt kalmasa bile `lanu_draft_*`, `lanu_peer_*`, `lanu_retry_after_*`, `lanu_hidden_*`, revizyon/uzak kayıt ve son restore marker'ları önceki E2EE kimliğine bağlı olabilir. `SettingsDao.hasIdentityBoundSettings()` bu durumu tek SELECT EXISTS ile algılar; yedekte **farklı** kimlik varsa restore reddedilir. PIN-only yeni kurulumlarda güvenli restore ve aynı-kimlikte tekrar geri yükleme korunur. Sekiz farklı marker ile Robolectric regresyonu eklendi.

@@ -133,6 +133,44 @@ class FullDataBackupTest {
         } finally { source.close(); target.close() }
     }
 
+    @Test fun `restore rejects different identity when only unsent drafts or peer proof settings remain`() = runBlocking {
+        val source = db()
+        try {
+            val original = Store()
+            populate(source, original)
+            val backup = repo(source, original).exportFullBackup(password)
+            for (marker in listOf(
+                "lanu_remote_registered",
+                "lanu_full_restore_identity",
+                "lanu_peer_conv_fixture",
+                "lanu_peer_id_fixture",
+                "lanu_draft_fixture",
+                "lanu_retry_after_fixture",
+                "lanu_message_revision_fixture",
+                "lanu_hidden_conv_fixture"
+            )) {
+                val target = db()
+                try {
+                    val store = Store()
+                    val destination = repo(target, store)
+                    val before = destination.ensureIdentity()
+                    target.settingsDao().insertSetting(SettingsEntity(marker, "PRIVATE_DO_NOT_REBIND"))
+                    target.settingsDao().insertSetting(SettingsEntity("pin_hash", "OLD_PIN"))
+                    try {
+                        destination.restoreFullBackup(backup, password)
+                        fail("Existing account data must not attach to a new owner: $marker")
+                    } catch (_: IllegalArgumentException) { }
+                    assertEquals(before, store.identity)
+                    assertEquals(before.code, target.userProfileDao().getUserProfile()?.phoneNumber)
+                    assertEquals("OLD_PIN", target.settingsDao().getSettingValue("pin_hash"))
+                    assertEquals("PRIVATE_DO_NOT_REBIND",
+                        target.settingsDao().getSettingValue(marker))
+                    assertEquals(0, target.messageDao().countMessages())
+                } finally { target.close() }
+            }
+        } finally { source.close() }
+    }
+
     @Test fun `silent SQLite ignore or tampered import rolls back entire backup restore`() = runBlocking {
         val source = db()
         try {

@@ -292,8 +292,13 @@ class CommunicationRepository(
         val opened = withContext(Dispatchers.Default) { FullDataBackup.open(bytes, password) }
         identityMutex.withLock {
             val previous = _identity.value ?: withContext(Dispatchers.IO) { identityStore.read() }
+            // A previous account can have zero conversations/messages but
+            // still own encrypted drafts, peer proofs and delivery markers.
+            // Never silently attach these to a different recovered identity.
             val hasCommunicationRows = conversationDao.getAllConversations().first().isNotEmpty() ||
-                contactDao.getAllContacts().first().isNotEmpty() || messageDao.countMessages() > 0 || callLogDao.countCallLogs() > 0
+                contactDao.getAllContacts().first().isNotEmpty() ||
+                messageDao.countMessages() > 0 || callLogDao.countCallLogs() > 0 ||
+                settingsDao.hasIdentityBoundSettings()
             if (hasCommunicationRows) {
                 require(previous?.id == opened.identity.id || (previous == null && userProfileDao.getUserProfile()?.phoneNumber == opened.identity.code)) {
                     "Bu cihazdaki sohbetler farklı bir kimliğe ait. Kayıtların üzerine yazılmadı."
