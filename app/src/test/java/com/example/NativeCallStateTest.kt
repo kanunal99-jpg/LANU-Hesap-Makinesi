@@ -433,6 +433,19 @@ class NativeCallStateTest {
         assertEquals(CallSignalKind.OFFER,sent.value.single().kind)
     }
 
+    @Test fun transientHttp503DuringOfferDoesNotChangeCallIdentityOrSdp() = runBlocking {
+        val peerRecord=repo.verifiedCallPeer(peer.id)!!
+        outgoingSendFailures=1
+        outgoingSendHttpStatus=503
+        val signal=CallSignaling.create(UUID.randomUUID().toString(),CallSignalKind.OFFER,true,sdp)
+        repo.sendCallSignal(peerRecord,signal)
+        assertEquals(2,outgoingSendAttempts.size)
+        assertEquals(outgoingSendAttempts[0],outgoingSendAttempts[1])
+        assertEquals(signal.id,sent.value.single().id)
+        assertEquals(signal.callId,sent.value.single().callId)
+        assertEquals(signal.sdp,sent.value.single().sdp)
+    }
+
     @Test fun unauthorizedCallSignalCannotBeRetriedOrCreateAnotherEnvelope() = runBlocking {
         val peerRecord=repo.verifiedCallPeer(peer.id)!!
         outgoingSendFailures=1
