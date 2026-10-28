@@ -90,43 +90,44 @@ class SqlcipherShadowRoomAcceptanceTest {
             assertArrayEquals(key, IsolatedSqlcipherShadowKeyVault.unlockOrCreate(
                 context, id, shadowExists = false
             ))
-            original = Room.databaseBuilder(context, AppDatabase::class.java, sourceName)
+            val source = Room.databaseBuilder(context, AppDatabase::class.java, sourceName)
                 .openHelperFactory(PreserveCorruptRoomFactory()).build()
+            original = source
             val identity = UserCodes.create()
             val encryptedMessage = PeerMessageCrypto.encrypt(
                 identity, identity.id, identity.publicKey,
                 "m-1", "private fixture ciphertext"
             )
-            original.settingsDao().insertSetting(SettingsEntity("pin_hash", "synthetic-pin-verifier"))
-            original.settingsDao().insertSetting(SettingsEntity("lanu_peer_key", identity.publicKey))
-            original.userProfileDao().insertProfile(
+            source.settingsDao().insertSetting(SettingsEntity("pin_hash", "synthetic-pin-verifier"))
+            source.settingsDao().insertSetting(SettingsEntity("lanu_peer_key", identity.publicKey))
+            source.userProfileDao().insertProfile(
                 UserProfileEntity(identity.code, "Fixture owner", registeredAt = 1)
             )
-            original.contactDao().insertContact(
+            source.contactDao().insertContact(
                 ContactEntity("LANU-FRIEND", "Fixture", isBlocked = true)
             )
-            original.conversationDao().insertConversation(
+            source.conversationDao().insertConversation(
                 ConversationEntity("conversation-1", "LANU-FRIEND", "Fixture", unreadCount = 3)
             )
-            original.messageDao().insertMessage(
+            source.messageDao().insertMessage(
                 MessageEntity("m-1", "conversation-1", identity.id,
                     "Fixture owner", encryptedMessage, timestamp = 8, status = "PENDING")
             )
-            original.calculationHistoryDao().insertHistory(
+            source.calculationHistoryDao().insertHistory(
                 CalculationHistoryEntity(id = 99, expression = "7*6", result = "42", timestamp = 9)
             )
-            original.callLogDao().insertCallLog(
+            source.callLogDao().insertCallLog(
                 CallLogEntity(id = 10, partnerName = "Fixture", partnerPhone = "LANU-FRIEND",
                     isVideo = false, durationSeconds = 10, isOutgoing = false, timestamp = 11)
             )
             val snapshot = DatabaseShadowParity.TABLES.sorted().map { table ->
-                val (columns, rows) = values(original.openHelper.writableDatabase, table)
+                val (columns, rows) = values(source.openHelper.writableDatabase, table)
                 Triple(table, columns, rows)
             }
             assertEquals(7, snapshot.size)
             assertTrue(snapshot.all { it.third.isNotEmpty() })
-            encrypted = IsolatedSqlcipherRoomFactory.open(context, shadowFile, key)
-            val dest = encrypted
+            val dest = IsolatedSqlcipherRoomFactory.open(context, shadowFile, key)
+            encrypted = dest
             dest.withTransaction {
                 val writable = dest.openHelper.writableDatabase
                 for ((table, columns, rows) in snapshot) {
@@ -151,10 +152,10 @@ class SqlcipherShadowRoomAcceptanceTest {
                 }
             }
             assertEquals("synthetic-pin-verifier",
-                encrypted.settingsDao().getSettingValue("pin_hash"))
-            assertEquals(encryptedMessage, encrypted.messageDao().getMessage("m-1")?.content)
-            original.close(); original = null
-            encrypted.close(); encrypted = null
+                dest.settingsDao().getSettingValue("pin_hash"))
+            assertEquals(encryptedMessage, dest.messageDao().getMessage("m-1")?.content)
+            source.close(); original = null
+            dest.close(); encrypted = null
             val originalBefore = hash(sourceFile)
             assertTrue(sourceFile.readBytes().take(16).toByteArray()
                 .contentEquals("SQLite format 3\u0000".toByteArray(Charsets.US_ASCII)))
@@ -180,13 +181,14 @@ class SqlcipherShadowRoomAcceptanceTest {
                 context, id, shadowExists = true
             )
             assertArrayEquals(key, recovered)
-            reopened = IsolatedSqlcipherRoomFactory.open(context, shadowFile, recovered)
+            val checked = IsolatedSqlcipherRoomFactory.open(context, shadowFile, recovered)
+            reopened = checked
             assertEquals("synthetic-pin-verifier",
-                reopened.settingsDao().getSettingValue("pin_hash"))
-            assertEquals(encryptedMessage, reopened.messageDao().getMessage("m-1")?.content)
+                checked.settingsDao().getSettingValue("pin_hash"))
+            assertEquals(encryptedMessage, checked.messageDao().getMessage("m-1")?.content)
             val afterProofs = snapshot.map { (table, _, _) ->
                 DatabaseShadowParity.fingerprintTyped(
-                    table, values(reopened.openHelper.writableDatabase, table).second)
+                    table, values(checked.openHelper.writableDatabase, table).second)
             }
             val beforeProofs = snapshot.map { (table, _, rows) ->
                 DatabaseShadowParity.fingerprintTyped(table, rows)
