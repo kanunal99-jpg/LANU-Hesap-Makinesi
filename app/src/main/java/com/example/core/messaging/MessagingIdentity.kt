@@ -133,6 +133,13 @@ object PeerMessageCrypto {
     private val encodedChars = Regex("[A-Za-z0-9_-]+")
 
     private fun key(identity: MessagingIdentity, peerId: String, publicKey: String): SecretKeySpec {
+        // A relay-supplied or stale public key must not be accepted under an
+        // unrelated trusted peer ID. Peer IDs are SHA-256 of encoded public keys.
+        // Keep legacy v1 ciphertext and KDF untouched; this is an admission
+        // check only, not Double Ratchet or a protocol migration.
+        require(UserCodes.id(publicKey) == peerId) {
+            "Mesajlaşma eş kimliği ve açık anahtarı uyuşmuyor."
+        }
         val factory = KeyFactory.getInstance("EC")
         val privateKey = factory.generatePrivate(PKCS8EncodedKeySpec(UserCodes.decode(identity.privateKey)))
         val peer = factory.generatePublic(X509EncodedKeySpec(UserCodes.decode(publicKey)))
