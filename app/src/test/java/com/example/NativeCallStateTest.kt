@@ -55,7 +55,9 @@ class NativeCallStateTest {
     private var failCallAck=false
     private var outgoingSendFailures=0
     private var outgoingSendHttpStatus=0
-    private var outgoingMissingAckResponses=0
+    // The fake relay runs on IO while the test configures missing ACKs on Main.
+    // Atomic read/decrement avoids a stale or lost response budget across threads.
+    private val outgoingMissingAckResponses=java.util.concurrent.atomic.AtomicInteger(0)
     private var outgoingLoseReplyAfterAccepted=false
     private val acceptedCallSignalIds=mutableSetOf<String>()
     // callSend callbacks may run on Dispatchers.IO while retry assertions
@@ -126,10 +128,9 @@ class NativeCallStateTest {
                         throw java.io.IOException("simulated lost reply after committed signal")
                     }
                     if(signal.kind==CallSignalKind.ACCEPT) acceptGate?.await()
-                    if(outgoingMissingAckResponses > 0) {
+                    if(outgoingMissingAckResponses.getAndUpdate { (it - 1).coerceAtLeast(0) } > 0) {
                         // Relay accepted, but a proxy stripped the HTTP ACK.
                         // Retry must retain exactly this signal/ciphertext.
-                        outgoingMissingAckResponses--
                         missingAckRepliesCompleted += id
                         JSONObject()
                     } else JSONObject().put("accepted",true)
@@ -532,7 +533,7 @@ class NativeCallStateTest {
 
     @Test fun missingHttp200AcceptanceCannotSilentlyLoseTheCallSignal() = runBlocking {
         val peerRecord=repo.verifiedCallPeer(peer.id)!!
-        outgoingMissingAckResponses=1
+        outgoingMissingAckResponses.set(1)
         val signal=CallSignaling.create(UUID.randomUUID().toString(),CallSignalKind.OFFER,false,sdp)
         repo.sendCallSignal(peerRecord,signal)
         assertEquals(2,outgoingSendAttempts.size)
@@ -894,7 +895,7 @@ class NativeCallStateTest {
         val invite = awaitSent(CallSignalKind.INVITE)
         // Model a relay that stored the SDP once, allowing the peer to connect,
         // but whose HTTP response is stripped by an intermediary on every try.
-        outgoingMissingAckResponses = CallSignalRetryPolicy.MAX_ATTEMPTS
+        outgoingMissingAckResponses.set(CallSignalRetryPolicy.MAX_ATTEMPTS)
         inject(CallSignaling.create(invite.callId, CallSignalKind.ACCEPT, false))
         val offer = withTimeout(3_000) {
             sent.first { list -> list.any { it.kind == CallSignalKind.OFFER } }
@@ -919,7 +920,7 @@ class NativeCallStateTest {
     @Test fun expiredMediaCallbackCannotMaskRelayAckOutage() = runBlocking<Unit> {
         vm.outgoing(UserCodes.conversationId(own.id, peer.id), false, true)
         val invite = awaitSent(CallSignalKind.INVITE)
-        outgoingMissingAckResponses = CallSignalRetryPolicy.MAX_ATTEMPTS
+        outgoingMissingAckResponses.set(CallSignalRetryPolicy.MAX_ATTEMPTS)
         inject(CallSignaling.create(invite.callId, CallSignalKind.ACCEPT, false))
         val offer = awaitSent(CallSignalKind.OFFER)
         report!!(CallMediaEvidence(true, 7, 9))
@@ -934,7 +935,7 @@ class NativeCallStateTest {
     @Test fun expiredRtpProofCannotMaskRelayAckOutageWithConnectedIce() = runBlocking<Unit> {
         vm.outgoing(UserCodes.conversationId(own.id, peer.id), false, true)
         val invite = awaitSent(CallSignalKind.INVITE)
-        outgoingMissingAckResponses = CallSignalRetryPolicy.MAX_ATTEMPTS
+        outgoingMissingAckResponses.set(CallSignalRetryPolicy.MAX_ATTEMPTS)
         inject(CallSignaling.create(invite.callId, CallSignalKind.ACCEPT, false))
         val offer = awaitSent(CallSignalKind.OFFER)
         report!!(CallMediaEvidence(true, 7, 9))
@@ -951,7 +952,7 @@ class NativeCallStateTest {
     @Test fun lostRelayAcksWithoutRealMediaProofStillFailClosed() = runBlocking<Unit> {
         vm.outgoing(UserCodes.conversationId(own.id, peer.id), false, true)
         val invite = awaitSent(CallSignalKind.INVITE)
-        outgoingMissingAckResponses = CallSignalRetryPolicy.MAX_ATTEMPTS
+        outgoingMissingAckResponses.set(CallSignalRetryPolicy.MAX_ATTEMPTS)
         inject(CallSignaling.create(invite.callId, CallSignalKind.ACCEPT, false))
         val offer = withTimeout(3_000) {
             sent.first { list -> list.any { it.kind == CallSignalKind.OFFER } }
