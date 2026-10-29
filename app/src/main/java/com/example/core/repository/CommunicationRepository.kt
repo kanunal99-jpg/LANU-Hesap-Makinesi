@@ -513,6 +513,11 @@ class CommunicationRepository(
     private suspend fun queueEncryptedContent(conversationId: String, plaintext: String): String = draftMutex.withLock {
         val own = ensureIdentity()
         val peer = peerForConversation(conversationId) ?: throw IllegalStateException("Kişinin kodunu sunucudan doğrulayın.")
+        check(PeerConversationBindingPolicy.matches(own.id, conversationId,
+            peer.getString("id"), peer.getString("publicKey"),
+            peer.getString("code"), peer.getString("nonce"))) {
+            "Sohbetin kişi kimliği doğrulanamadı. Mesaj oluşturulmadı."
+        }
         val id = UUID.randomUUID().toString()
         val encrypted = withContext(Dispatchers.Default) {
             PeerMessageCrypto.encrypt(own, peer.getString("id"), peer.getString("publicKey"), id, plaintext)
@@ -634,6 +639,19 @@ class CommunicationRepository(
         }
         for (message in messageDao.getPendingMessages(now = clock(), limit = if (callInProgress) 1 else 5 - contactRequests)) {
             val peer = peerForConversation(message.conversationId) ?: continue
+            // Never send a queued ciphertext to an unrelated peer if cached
+            // contact metadata was corrupted/rebound after this draft was saved.
+            if (!PeerConversationBindingPolicy.matches(own.id, message.conversationId,
+                peer.getString("id"), peer.getString("publicKey"),
+                peer.getString("code"), peer.getString("nonce"))) {
+                database.withTransaction {
+                    // Preserve the original encrypted content and UUID. Explicit
+                    // retry remains available only after peer binding is repaired.
+                    messageDao.updateMessageStatus(message.id, "FAILED")
+                    settingsDao.deleteSetting("lanu_retry_after_${message.id}")
+                }
+                continue
+            }
             try {
                 val result = relay.request(own, "send", JSONObject().put("messageId", message.id).put("peerId", peer.getString("id")).put("content", message.content))
                 database.withTransaction {
