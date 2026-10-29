@@ -56,6 +56,34 @@ class PeerMessageSizeContractTest {
         }
     }
 
+    @Test fun `peer public key cannot be substituted under a trusted identity`() {
+        val sender = UserCodes.create()
+        val receiver = UserCodes.create()
+        val impostor = UserCodes.create()
+        val id = UUID.randomUUID().toString()
+        val verified = PeerMessageCrypto.encrypt(
+            sender, receiver.id, receiver.publicKey, id, "güvenli"
+        )
+        assertEquals("güvenli", PeerMessageCrypto.decrypt(
+            receiver, sender.id, sender.publicKey, id, sender.id, verified
+        ))
+        try {
+            PeerMessageCrypto.encrypt(sender, receiver.id, impostor.publicKey, id, "güvenli")
+            fail("A mismatched peer identity must not be used for ECDH")
+        } catch (_: IllegalArgumentException) { }
+        try {
+            PeerMessageCrypto.decrypt(
+                receiver, sender.id, impostor.publicKey, id, sender.id, verified
+            )
+            fail("An untrusted substitution must not be accepted for decryption")
+        } catch (_: IllegalArgumentException) { }
+        // Neither a failed send nor a failed receive rotates or replaces
+        // the existing identity; the original peer still decrypts as before.
+        assertEquals("güvenli", PeerMessageCrypto.decrypt(
+            receiver, sender.id, sender.publicKey, id, sender.id, verified
+        ))
+    }
+
     @Test fun `normal Turkish text and empty authenticated message remain compatible`() {
         val sender = UserCodes.create()
         val receiver = UserCodes.create()
