@@ -47,6 +47,27 @@ cleanup() {
   rm -rf -- "$scratch"
 }
 trap cleanup EXIT INT TERM
+
+# A removable/cloud-synced backup can change between the three archive
+# inspections and extraction. Snapshot the encrypted bytes ONCE into the
+# private 0700 scratch directory, and decrypt only that immutable-by-path
+# local copy. A source swapped to a symlink during copy must fail closed.
+# This never touches the original encrypted backup or signing keystore.
+cp -P -- "$archive" "$scratch/backup.gpg" || {
+  echo 'RECOVERY FAILED: cannot create private encrypted backup snapshot.' >&2
+  exit 1
+}
+[[ -f "$scratch/backup.gpg" && ! -L "$scratch/backup.gpg" &&
+   -s "$scratch/backup.gpg" ]] || {
+  echo 'RECOVERY FAILED: encrypted backup snapshot is unsafe.' >&2
+  exit 1
+}
+(( $(stat -c '%s' "$scratch/backup.gpg") <= 4194304 )) || {
+  echo 'RECOVERY FAILED: encrypted backup changed size during snapshot.' >&2
+  exit 1
+}
+archive="$scratch/backup.gpg"
+
 [[ -r /dev/tty ]] || { echo 'Open a trusted interactive terminal to enter the recovery password.' >&2; exit 1; }
 printf 'Enter encrypted backup password (never sent anywhere): ' > /dev/tty
 IFS= read -r -s passphrase < /dev/tty || { echo 'Unable to read backup password.' >&2; exit 1; }
