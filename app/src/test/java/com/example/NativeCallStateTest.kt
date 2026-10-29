@@ -62,6 +62,10 @@ class NativeCallStateTest {
     // run on the coroutine-test Main dispatcher. A plain MutableList has
     // neither safe iteration nor cross-thread visibility guarantees.
     private val outgoingSendAttempts=java.util.concurrent.CopyOnWriteArrayList<Triple<String,String,String>>()
+    // An attempt is observed before the fake relay decrypts and returns its
+    // response. The test must not advance virtual retry time until the
+    // previous HTTP result has actually completed.
+    private val missingAckRepliesCompleted=java.util.concurrent.CopyOnWriteArrayList<String>()
     private var incomingChatEvent: JSONObject? = null
     private var chatAckCount=0
     private var acceptGate:CompletableDeferred<Unit>?=null
@@ -126,6 +130,7 @@ class NativeCallStateTest {
                         // Relay accepted, but a proxy stripped the HTTP ACK.
                         // Retry must retain exactly this signal/ciphertext.
                         outgoingMissingAckResponses--
+                        missingAckRepliesCompleted += id
                         JSONObject()
                     } else JSONObject().put("accepted",true)
                 }
@@ -192,21 +197,27 @@ class NativeCallStateTest {
             // Wait for the actual relay callback to be recorded before
             // scheduling the next virtual retry. A bounded real deadline
             // catches deadlock instead of masking a missing send.
-            while (outgoingSendAttempts.count { it.first == offerId } < attempt &&
+            while ((outgoingSendAttempts.count { it.first == offerId } < attempt ||
+                    missingAckRepliesCompleted.count { it == offerId } < attempt) &&
                 System.nanoTime() < deadlineNanos) {
-                // IO completion is wall-clock work. Do not consume virtual
-                // call-deadline time while waiting for the real relay attempt;
-                // advance virtual time only by the policy backoff below.
+                // Recording the invocation occurs *before* E2EE decryption
+                // and the missing ACK response. Waiting only for invocation
+                // races the real retry coroutine: a virtual time jump can
+                // happen before the corresponding backoff is even scheduled.
                 mainTestDispatcher.scheduler.runCurrent()
                 Thread.sleep(25L)
             }
             assertTrue("Encrypted relay send attempt $attempt was not observed",
                 outgoingSendAttempts.count { it.first == offerId } >= attempt)
+            assertTrue("The missing ACK for relay attempt $attempt was not returned",
+                missingAckRepliesCompleted.count { it == offerId } >= attempt)
             if (attempt < expected) {
-                // Allow the fake relay to return its missing ACK and the
-                // repository to enqueue the real policy's next delay.
+                // The fake HTTP response has actually completed. Drain the
+                // pending continuation before advancing only the real
+                // retry-policy backoff, keeping the 25s call deadline intact.
                 mainTestDispatcher.scheduler.runCurrent()
-                Thread.sleep(50L)
+                Thread.sleep(10L)
+                mainTestDispatcher.scheduler.runCurrent()
                 val backoff = CallSignalRetryPolicy.delayAfter(transient, attempt)
                     ?: error("Unexpected retry policy termination at attempt $attempt")
                 mainTestDispatcher.scheduler.advanceTimeBy(backoff + 1L)
