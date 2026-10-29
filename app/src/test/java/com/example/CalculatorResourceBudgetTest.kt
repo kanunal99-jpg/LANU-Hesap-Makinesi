@@ -19,7 +19,7 @@ class CalculatorResourceBudgetTest {
     @Test fun legacyParserRejectsNestedParenthesesAndUnaryOrPowerChains() {
         val cases = listOf(
             "(".repeat(130) + "1" + ")".repeat(130),
-            "-".repeat(130) + "1",
+            "+".repeat(130) + "1",
             "2^".repeat(130) + "2"
         )
         for (expression in cases) {
