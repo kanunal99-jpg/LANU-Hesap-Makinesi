@@ -55,6 +55,26 @@ class CalculatorResourceBudgetTest {
         ).compareTo(BigDecimal("1024")))
     }
 
+    @Test fun directScientificApisRejectUnboundedPrecisionIncludingExactAngleFastPaths() {
+        // Direct API calls bypass evaluate() and must obey the same CPU/size
+        // contract as the expression parser, even when an exact result would
+        // otherwise return before any MathContext validation.
+        for (bad in listOf(MathContext.UNLIMITED, MathContext(101))) {
+            expectInvalid { HighPrecisionMathEngine.sqrt(BigDecimal("2"), bad) }
+            expectInvalid { HighPrecisionMathEngine.cbrt(BigDecimal("8"), bad) }
+            expectInvalid { HighPrecisionMathEngine.ln(BigDecimal("2"), bad) }
+            expectInvalid { HighPrecisionMathEngine.sin(BigDecimal.ZERO, mc = bad) }
+            expectInvalid { HighPrecisionMathEngine.cos(BigDecimal.ZERO, mc = bad) }
+            expectInvalid { HighPrecisionMathEngine.tan(BigDecimal.ZERO, mc = bad) }
+            expectInvalid { HighPrecisionMathEngine.asin(BigDecimal.ZERO, mc = bad) }
+            expectInvalid { HighPrecisionMathEngine.acos(BigDecimal.ZERO, mc = bad) }
+            expectInvalid { HighPrecisionMathEngine.atan(BigDecimal.ZERO, mc = bad) }
+        }
+        assertEquals(BigDecimal.ZERO, HighPrecisionMathEngine.sin(BigDecimal.ZERO))
+        assertEquals(BigDecimal.ONE, HighPrecisionMathEngine.cos(BigDecimal.ZERO))
+        assertEquals(BigDecimal.ZERO, HighPrecisionMathEngine.atan(BigDecimal.ZERO))
+    }
+
     private inline fun expectInvalid(block: () -> Unit) {
         try {
             block()
