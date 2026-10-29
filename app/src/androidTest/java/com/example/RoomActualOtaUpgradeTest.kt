@@ -203,6 +203,105 @@ class RoomActualOtaUpgradeTest {
         ))
     }
 
+    /** Works against v828 R8 and current R8 without statically linking constructors. */
+    private fun openCompatibleIdentityStore(): EncryptedMessagingIdentityStore = try {
+        val constructors = EncryptedMessagingIdentityStore::class.java.declaredConstructors
+        val ctor = constructors.singleOrNull { candidate ->
+            candidate.parameterTypes.size == 2 &&
+                candidate.parameterTypes[0] == Context::class.java &&
+                !candidate.parameterTypes[1].isPrimitive
+        } ?: constructors.singleOrNull { candidate ->
+            candidate.parameterTypes.size == 1 &&
+                candidate.parameterTypes[0] == Context::class.java
+        } ?: error("Published identity-store constructor ABI unsupported")
+        @Suppress("UNCHECKED_CAST")
+        (if (ctor.parameterTypes.size == 2) ctor.newInstance(context, null)
+         else ctor.newInstance(context)) as EncryptedMessagingIdentityStore
+    } catch (failure: ReflectiveOperationException) {
+        throw IllegalStateException("Published identity-store ABI probe failed", failure)
+    }
+
+    /**
+     * R8 removes MessagingIdentity getters and obfuscates its five String fields.
+     * Read them by type, never by obfuscated names or declaration order. The
+     * exact seeded five-field digest resolves the unique correct permutation.
+     * No private values are logged or copied into the instrumentation bundle.
+     */
+    private fun recoverIdentityForProof(record: MessagingIdentity, expectedDigest: String): SeedIdentity {
+        val fields = record.javaClass.declaredFields
+            .filter { it.type == String::class.java && !Modifier.isStatic(it.modifiers) }
+        check(fields.size == 5) { "Unexpected encrypted identity data ABI" }
+        val values = fields.map { field ->
+            field.isAccessible = true
+            field.get(record) as String
+        }
+        var matched: SeedIdentity? = null
+        for (id in values.indices) for (code in values.indices) for (nonce in values.indices)
+            for (pub in values.indices) for (priv in values.indices) {
+                if (setOf(id, code, nonce, pub, priv).size != 5) continue
+                val candidate = SeedIdentity(record, values[id], values[code],
+                    values[nonce], values[pub], values[priv])
+                val digest = sha256(candidate.privateKey + candidate.publicKey +
+                    candidate.id + candidate.code + candidate.nonce)
+                if (MessageDigest.isEqual(
+                    digest.toByteArray(Charsets.US_ASCII),
+                    expectedDigest.toByteArray(Charsets.US_ASCII)
+                )) {
+                    check(matched == null) { "Ambiguous persisted identity fields" }
+                    matched = candidate
+                }
+            }
+        return checkNotNull(matched) { "Encrypted account identity was not preserved" }
+    }
+
+    private fun verifyFixtureKeyPair(identity: SeedIdentity): Boolean = runCatching {
+        if (identity.id != sha256(identity.publicKey)) return@runCatching false
+        fun decode(v: String) = Base64.decode(
+            v, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+        val factory = KeyFactory.getInstance("EC")
+        val privateKey = factory.generatePrivate(PKCS8EncodedKeySpec(decode(identity.privateKey)))
+        val publicKey = factory.generatePublic(X509EncodedKeySpec(decode(identity.publicKey)))
+        val challenge = "LANU-signed-OTA-identity-keypair-v1".toByteArray(Charsets.UTF_8)
+        val signature = Signature.getInstance("SHA256withECDSA").run {
+            initSign(privateKey)
+            update(challenge)
+            sign()
+        }
+        Signature.getInstance("SHA256withECDSA").run {
+            initVerify(publicKey)
+            update(challenge)
+            verify(signature)
+        }
+    }.getOrDefault(false)
+
+    private fun decryptLegacyCompatibleCipher(
+        identity: SeedIdentity, messageId: String, content: String
+    ): String {
+        require(content.startsWith("lanu2:"))
+        fun decode(v: String) = Base64.decode(
+            v, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+        val bytes = decode(content.removePrefix("lanu2:"))
+        require(bytes.size >= 28)
+        val factory = KeyFactory.getInstance("EC")
+        val privateKey = factory.generatePrivate(PKCS8EncodedKeySpec(decode(identity.privateKey)))
+        val publicKey = factory.generatePublic(X509EncodedKeySpec(decode(identity.publicKey)))
+        val shared = KeyAgreement.getInstance("ECDH").run {
+            init(privateKey)
+            doPhase(publicKey, true)
+            generateSecret()
+        }
+        val hash = MessageDigest.getInstance("SHA-256")
+        hash.update(shared)
+        hash.update(("LANU-v1:" + sha256(identity.id + ":" + identity.id))
+            .toByteArray(Charsets.UTF_8))
+        val aes = Cipher.getInstance("AES/GCM/NoPadding")
+        aes.init(Cipher.DECRYPT_MODE, SecretKeySpec(hash.digest(), "AES"),
+            GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
+        aes.updateAAD((messageId + ":" + identity.id + ":" + identity.id)
+            .toByteArray(Charsets.UTF_8))
+        return String(aes.doFinal(bytes.copyOfRange(12, bytes.size)), Charsets.UTF_8)
+    }
+
     private val sentinels: android.content.SharedPreferences
         get() = context.getSharedPreferences("lanu_ci_ota_preservation_probe", Context.MODE_PRIVATE)
 
@@ -218,26 +317,7 @@ class RoomActualOtaUpgradeTest {
         // The published v828 target is R8-minified. Separately compiled tests
         // must not link Kotlin's synthetic default-argument constructor, which
         // is not a guaranteed ABI of the previously published APK.
-        val identityStore = try {
-            // The published R8 APK may have a different constructor ABI than
-            // the current test compilation. Resolve only a known safe Context
-            // constructor at runtime; never weaken the OTA assertions.
-            val constructors = EncryptedMessagingIdentityStore::class.java.declaredConstructors
-            val ctor = constructors.singleOrNull { c ->
-                c.parameterTypes.size == 2 &&
-                    c.parameterTypes[0] == Context::class.java &&
-                    !c.parameterTypes[1].isPrimitive
-            } ?: constructors.singleOrNull { c ->
-                c.parameterTypes.size == 1 &&
-                    c.parameterTypes[0] == Context::class.java
-            } ?: error("Published identity-store constructor ABI unsupported")
-            @Suppress("UNCHECKED_CAST")
-            (if (ctor.parameterTypes.size == 2) ctor.newInstance(context, null)
-             else ctor.newInstance(context)) as EncryptedMessagingIdentityStore
-        } catch (failure: ReflectiveOperationException) {
-            // No stack trace or private state enters CI logs.
-            throw IllegalStateException("Published identity-store ABI probe failed", failure)
-        }
+        val identityStore = openCompatibleIdentityStore()
         checkpoint("identity-store-created")
         assertNull("Seed only a fresh isolated emulator", identityStore.read())
         checkpoint("identity-store-empty")
@@ -298,12 +378,14 @@ class RoomActualOtaUpgradeTest {
         gate("verify")
         assertEquals("The previous APK's private prefs must survive install -r",
             "prepared", sentinels.getString("probe", null))
-        val identity = EncryptedMessagingIdentityStore(context, null).read()
-        assertNotNull("Keystore-backed account lost after APK install -r", identity)
+        val stored = openCompatibleIdentityStore().read()
+        assertNotNull("Keystore-backed account lost after APK install -r", stored)
+        val expectedDigest = sentinels.getString("identity_digest", null)
+        assertNotNull("OTA account digest sentinel was lost", expectedDigest)
+        val identity = recoverIdentityForProof(stored!!, expectedDigest!!)
         assertTrue("Recovered private key must verify the stored public identity",
-            UserCodes.isConsistentIdentity(identity!!))
-        assertEquals("Keystore account changed or reset",
-            sentinels.getString("identity_digest", null),
+            verifyFixtureKeyPair(identity))
+        assertEquals("Keystore account changed or reset", expectedDigest,
             sha256(identity.privateKey + identity.publicKey + identity.id + identity.code + identity.nonce))
         val db = AppDatabase.getDatabase(context)
         val pin = db.settingsDao().getSettingValue("pin_hash")
@@ -323,9 +405,8 @@ class RoomActualOtaUpgradeTest {
         assertEquals("PENDING", message!!.status)
         assertEquals(conversationId, message.conversationId)
         assertEquals(sentinels.getString("cipher_digest", null), sha256(message.content))
-        assertEquals("OTA encrypted test message", PeerMessageCrypto.decrypt(
-            identity, identity.id, identity.publicKey, messageId, identity.id, message.content
-        ))
+        assertEquals("OTA encrypted test message",
+            decryptLegacyCompatibleCipher(identity, messageId, message.content))
         assertEquals("42", db.calculationHistoryDao().getAllHistory().first()
             .single { it.id == 44001L }.result)
         assertEquals(5, db.callLogDao().getAllCallLogs().first()
