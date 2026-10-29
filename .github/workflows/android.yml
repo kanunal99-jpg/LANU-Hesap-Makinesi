@@ -136,6 +136,12 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_verify_android_privacy.py'
           python3 scripts/verify_android_privacy.py
 
+      - name: Verify no private feature hints on public calculator and release surfaces
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_verify_public_disclosure.py'
+          python3 -m unittest discover -s scripts -p 'test_sanitize_public_release_notes.py'
+          python3 scripts/verify_public_disclosure.py
+
       - name: Validate owner-side stable signing bootstrap syntax
         run: bash -n scripts/bootstrap_stable_signing.sh
 
@@ -646,6 +652,14 @@ jobs:
               "$CURRENT_SIGNER" "$prev_dir/app-debug.apk.signer.txt"
           fi
 
+      # Correct metadata-only disclosures from older signed releases.
+      # Never edit their tags, APK bytes, checksums, signer reports or targets.
+      - name: Neutralize legacy public release descriptions
+        if: steps.publish_guard.outputs.publish == 'true' && steps.publish_guard.outputs.mode == 'stable'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/sanitize_public_release_notes.py
+
       - name: Create GitHub Release from verified artifact
         if: steps.publish_guard.outputs.publish == 'true'
         shell: bash
@@ -660,7 +674,7 @@ jobs:
           if [ "$SIGNING_MODE" = "stable" ]; then
             TAG="v1.2.0-signed.${{ github.run_number }}"
             LEGACY_TAG="v1.1.0-signed.${{ github.run_number }}"
-            NOTES="LANU 1.2.0: isteğe bağlı gizli mesaj bildirimleri ve çağrı/güvenlik düzeltmeleri. Mevcut uygulamayı kaldırmayın; aynı stable imza ve daha yüksek versionCode gerekir. Fiziksel cihaz veri koruması ayrıca doğrulanmalıdır."
+            NOTES="LANU 1.2.0: doğrulanmış bakım ve kararlılık düzeltmeleri. Mevcut uygulamayı kaldırmayın; aynı stable imza ve daha yüksek versionCode gerekir. Fiziksel cihaz veri koruması ayrıca doğrulanmalıdır."
             # Installed 1.1.0 clients accept ONLY v1.1.0-signed.N release tags.
             # Publish these EXACT same verified bytes as a compatibility bridge
             # before the official 1.2.0 tag so old OTA clients see the update.
