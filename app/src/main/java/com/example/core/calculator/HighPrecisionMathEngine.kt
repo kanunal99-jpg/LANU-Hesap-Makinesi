@@ -102,8 +102,14 @@ object HighPrecisionMathEngine {
         return plain
     }
 
+    /** Entry points exposed directly to calculators must not permit unbounded precision. */
+    private fun requireSupportedMathContext(mc: MathContext) {
+        require(mc.precision in 1..100) { "Math precision must be between 1 and 100" }
+    }
+
     // High-precision square root via Newton-Raphson iteration
     fun sqrt(value: BigDecimal, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        requireSupportedMathContext(mc)
         if (value.signum() < 0) throw ArithmeticException("Square root of negative number")
         if (value.signum() == 0) return BigDecimal.ZERO
 
@@ -130,6 +136,7 @@ object HighPrecisionMathEngine {
 
     // High-precision cube root via Newton-Raphson
     fun cbrt(value: BigDecimal, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        requireSupportedMathContext(mc)
         if (value.signum() == 0) return BigDecimal.ZERO
         val isNeg = value.signum() < 0
         val absVal = value.abs()
@@ -213,6 +220,7 @@ object HighPrecisionMathEngine {
 
     // High-precision Natural Logarithm ln(x)
     fun ln(x: BigDecimal, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        requireSupportedMathContext(mc)
         if (x.signum() <= 0) throw ArithmeticException("Logarithm of non-positive number")
         if (x.compareTo(BigDecimal.ONE) == 0) return BigDecimal.ZERO
 
@@ -303,6 +311,7 @@ object HighPrecisionMathEngine {
 
     // High-precision Trigonometric: sin
     fun sin(angle: BigDecimal, isDegrees: Boolean = true, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        requireSupportedMathContext(mc)
         requireSupportedTrigMagnitude(angle)
         val rad = if (isDegrees) {
             // Range reduce to [0, 360)
@@ -346,6 +355,7 @@ object HighPrecisionMathEngine {
 
     // High-precision Trigonometric: cos
     fun cos(angle: BigDecimal, isDegrees: Boolean = true, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        requireSupportedMathContext(mc)
         requireSupportedTrigMagnitude(angle)
         if (isDegrees) {
             val deg = angle.remainder(BigDecimal(360))
@@ -365,6 +375,7 @@ object HighPrecisionMathEngine {
 
     // High-precision Trigonometric: tan
     fun tan(angle: BigDecimal, isDegrees: Boolean = true, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        requireSupportedMathContext(mc)
         requireSupportedTrigMagnitude(angle)
         val cosVal = cos(angle, isDegrees, mc)
         // In radian mode, the PI constant and Taylor evaluation introduce
@@ -381,6 +392,7 @@ object HighPrecisionMathEngine {
 
     // High-precision Inverse Trigonometric: asin
     fun asin(x: BigDecimal, isDegrees: Boolean = true, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        requireSupportedMathContext(mc)
         if (x.abs().compareTo(BigDecimal.ONE) > 0) throw ArithmeticException("Domain error for asin: [-1, 1]")
         if (x.compareTo(BigDecimal.ONE) == 0) return if (isDegrees) BigDecimal(90) else PI.divide(BigDecimal(2), mc)
         if (x.compareTo(BigDecimal("-1")) == 0) return if (isDegrees) BigDecimal(-90) else PI.divide(BigDecimal(2), mc).negate()
@@ -418,6 +430,7 @@ object HighPrecisionMathEngine {
 
     // High-precision Inverse Trigonometric: acos
     fun acos(x: BigDecimal, isDegrees: Boolean = true, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        requireSupportedMathContext(mc)
         // Near +1 the ordinary PI/2 - asin(x) subtraction loses every
         // significant digit of a small acos angle at finite precision.
         // Compute acos(x) = asin(sqrt((1-x)*(1+x))) directly in that region.
@@ -436,6 +449,7 @@ object HighPrecisionMathEngine {
 
     // High-precision Inverse Trigonometric: atan
     fun atan(x: BigDecimal, isDegrees: Boolean = true, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        requireSupportedMathContext(mc)
         // atan(x) = sign(x) * (PI/2 - atan(1/abs(x))) for |x| > 1.
         // Reducing the argument to [-1, 1] avoids converting 1E+400 to
         // Double.POSITIVE_INFINITY and avoids Newton iteration near a tan pole.
