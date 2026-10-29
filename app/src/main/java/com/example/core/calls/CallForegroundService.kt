@@ -9,6 +9,7 @@ import androidx.core.content.ContextCompat
 import com.example.IncomingCallActivity
 import com.example.LanuApplication
 import com.example.R
+import com.example.core.notifications.PublicNotificationText
 import com.example.features.communication.NativeCallPhase
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collect
@@ -41,8 +42,8 @@ class CallForegroundService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             val notification = NotificationCompat.Builder(this, CHANNEL)
                 .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle("LANU görüşmesi")
-                .setContentText("Görüşme bağlantısı")
+                .setContentTitle(PublicNotificationText.TITLE)
+                .setContentText(PublicNotificationText.CHANNEL_DESCRIPTION)
                 .setCategory(NotificationCompat.CATEGORY_CALL)
                 .setVisibility(NotificationCompat.VISIBILITY_SECRET)
                 .setOngoing(true)
@@ -83,7 +84,7 @@ class CallForegroundService : Service() {
         if (Build.VERSION.SDK_INT >= 26) {
             (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
                 .createNotificationChannel(NotificationChannel(
-                    CHANNEL, "LANU etkin görüşme", NotificationManager.IMPORTANCE_LOW))
+                    CHANNEL, PublicNotificationText.CHANNEL_NAME, NotificationManager.IMPORTANCE_LOW))
         }
     }
     override fun onDestroy() {
