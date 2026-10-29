@@ -1,66 +1,26 @@
 # LANU Hesap Makinesi
 
-Android 6.0 (API 23)+ hedefleyen, Jetpack Compose tabanlı hesap makinesi ve kullanıcı seçimiyle açılan özel iletişim alanı. Bu depo gerçek ürün kodu, Android CI testleri, Supabase relay servis kaynağı ve güvenlik geliştirme kayıtlarını içerir.
+LANU, Android 6.0 ve üzerindeki cihazlar için geliştirilen Jetpack Compose tabanlı bir hesap makinesidir. Normal ve bilimsel işlemleri, finansal hesaplamaları, birim dönüştürmeyi, sonuç geçmişini ve kullanıcı kontrollü uygulama güncellemelerini destekler.
 
-## Sürüm 1.2.0 ve güncelleme
+## Güvenli güncelleme
 
-Kaynak kodun güncel Android sürümü **1.2.0** olarak yapılandırılmıştır. Yüklenebilir sürüm yalnız [resmî GitHub Releases](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/releases) altında üç doğrulanmış dosya (`app-debug.apk`, `app-debug.apk.sha256`, `app-debug.apk.signer.txt`) ve sabit signer sürekliliği onaylandığında yayımlanmış sayılır. Başarılı PR derlemesi tek başına yeni indirilebilir APK demek değildir.
+Yüklenebilir Android sürümlerinin resmî dağıtım adresi [GitHub Releases](https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/releases) sayfasıdır. İlgili sürümde `app-debug.apk`, `app-debug.apk.sha256` ve `app-debug.apk.signer.txt` dosyalarının bulunması; APK imzasının ve SHA-256 bütünlüğünün doğrulanması gerekir. Tarihsel APK dosya adı, tek başına paket türünü göstermez.
 
-Kurulu 1.1.0 uygulamaların OTA güncellemeyi görebilmesi için 1.2.0 stable APK'sı **aynı baytlarla** `v1.1.0-signed.N` uyumluluk etiketi ve `v1.2.0-signed.N` ana etiketiyle dağıtılır. Android'de gerçek `versionName` her iki yayında **1.2.0**'dır; her iki yayın aynı `versionCode=N`, sertifika ve SHA-256 içerir. Güncelleme için mevcut uygulamayı **kaldırmayın**; veriler ve PIN önceki kurulumla korunmalıdır. Eski geçici debug sertifikalı kurulumların veri kayıpsız yerinde yükseltmesi garanti edilemez.
+**Telefon üzerinden:** Hesap makinesinde üç nokta → **Güncelleme Kontrol** → APK'yi indir ve doğrula → Android'in yükleme onayını ver. Güncellemeler otomatik kurulmaz. İmza uyuşmazlığı veya paket doğrulama hatasında işlemi durdurun.
 
-**Telefon üzerinden güncelleme:** Normal hesap makinesi ekranında üç nokta → **Güncelleme Kontrol**, resmî 1.2.0 güncellemesi gösterildiğinde indirme ve Android sistem kurulum onayı. Uygulama gizli alanı veya PIN'i otomatik açmaz. Güncelleme ekranında **sertifika uyuşmazlığı** ya da **doğrulanmamış APK** hatası varsa işlemi durdurun; eski LANU'yu kaldırmayın. Bu durum özellikle eskiden geçici debug imzalı sürüm kurulmuş telefonlarda görülebilir.
+**Uygulamayı kaldırmayın; uygulama verilerini temizlemeyin.** Yerinde güncelleme için önceki ve yeni APK'nin paket adı, imza sertifikası ve sürüm sırası uyumlu olmalıdır. Eski geçici test sertifikalı kurulumların yerinde yükseltmesi garanti edilemez.
 
-Ayrıntılı kabul ve cihaz testi: [LANU 1.2.0 Sürüm Notları](docs/RELEASE_1_2_0_20261027_TR.md).
+## Geliştirme ve kalite
 
-## Mevcut işlevler
+Teknoloji: Kotlin, Jetpack Compose, Hilt, Android ViewModel, Coroutines/Flow, Room, R8/ProGuard. Minimum Android API 23; hedef API 36.
 
-- Normal/bilimsel ve finansal hesaplama, geçmiş ve bellek işlemleri.
-- `2011.` gizli giriş yöntemi; **PIN kullanıcı tercihine bağlıdır**. PIN açma, PIN kapatma (var olan PIN ile doğrulama) ve yeniden açma korunur. PIN kapalıyken bu girişi bilen başka biri özel alanı açabilir.
-- Uzun ömürlü kimlik anahtarlarıyla ECDH + AES-GCM uçtan uca şifreli metin mesajları, şifreli taslak/kuyruk, kişi yönetimi.
-- Küçük boyutlu şifreli fotoğraf/PDF/TXT ekleri (**18 KB sınır**); büyük medyanın tam upload/download özelliği **henüz etkin değil**.
-- Kullanıcı kontrollü cihaz içi OTA güncelleme; Github Releases'te APK + SHA-256 + imza raporu, sertifika ve sürüm numarası kontrolü.
-- Kullanıcı seçimiyle tam veri ve kimlik yedeği; otomatik Android uygulama yedeği gizli alan verileri için kapalı.
+Kaynak kod ve testler GitHub Actions üzerinde Android birim testleri, Android Lint, Android 14 emülatör kabulü, imzalı sürüm ve yerinde OTA koruma aşamalarından geçirilir. Başarılı bir PR testi, tek başına yayımlanmış bir APK anlamına gelmez. Gerçek Samsung A55 ve ikinci üretici üzerinde fiziksel kabul, emülatör CI kanıtından ayrı değerlendirilir.
 
-## Teknoloji
-
-Kotlin, Jetpack Compose, Hilt, MVVM/ViewModel + Coroutines/Flow, Room v4, R8/ProGuard release, API 23 minimum/API 36 hedef. Mesaj teslimi **Supabase relay** üzerinden yapılır; sunucuda uçtan uca açık metin mesaj saklanmaz. Bu sistem tamamen sunucusuz veya garantili arka plan push bağlantısı olarak **tanıtılmamalıdır**. Eski `CallScreen.kt` ekranı **demo/simülasyondur**; yeni `NativeCallHost.kt` + `NativeCallEngine.kt` ön planda gerçek WebRTC ses/video yakalama, ICE/DTLS ve RTP kanıtına dayalı bağlantı uygular. **Bunun iki farklı fiziksel telefonda karşılıklı ses/video kabulü henüz doğrulanmamıştır**; tüm ağlarda veya arka planda çağrı garantisi verilmez.
-
-## Güvenlik ve bilinmesi gereken sınırlar
-
-- **Room veritabanı halen standart SQLite'tır; tüm tablo/WAL verileri SQLCipher ile şifrelenmemiştir.** Mesaj gövdeleri ve kimlik anahtarları ayrı şifreleme sistemleri kullanır. Kayıpsız DB migration yalnız plan/preflight aşamasındadır.
-- Şu anki uzun süreli statik ECDH anahtarları Double Ratchet seviyesinde **forward secrecy sağlamaz**.
-- Stable APK imza anahtarının gerçek **cihaz dışı şifreli yedek/geri yükleme kabulü** eksiktir (#83). Anahtar/parola sohbet, issue, repoya eklenmemelidir.
-- Telefonun ekran kilidi, PIN tercihleri ve şifreli tam yedekler kullanıcı tarafından korunmalıdır.
-- Android emülatör ve Robolectric testleri mevcut; tüm Samsung/Xiaomi/Huawei/Honor/Google Pixel sürümlerinde sorunsuz fiziksel sertifika verilemez. APK güncellerken verileri veya uygulamayı silmeyin.
-- Çökme tanılamasında PIN, özel anahtar, mesaj veya ham stacktrace gönderilmez; uzaktan telemetri gizlilik/onay olmadan açılmaz.
-
-## Yapı ve doğrulama
-
-- `app/`: Android uygulaması, Compose ekranları, Room veri katmanı, kripto, mesajlaşma, OTA.
-- `server/`: relay/sunucu protokol testleri ve PostgreSQL güvenlik testleri.
-- `supabase/`: Edge Function ve SQL migration sürümleri.
-- `scripts/`: APK yayın, imza kurtarma ve regresyon doğrulama araçları.
-- `docs/`: gizlilik, veri yedeği, büyük medya, Android uyumluluğu, SQLCipher kayıpsız geçişi.
-- `PROJE_ANAYASASI_VE_DUZELTILECEKLER.md`: **öncelikler, kanıtlar, açıklar ve kullanıcı kararları**.
-
-Kod/test doğrulama (JDK17, Android SDK, Gradle 9.3.1 ve Node 24 kurulu geliştirme ortamında):
+Yerel doğrulama için JDK, Android SDK, Gradle ve Node ortamında:
 
 ```bash
 npm ci --prefix server && npm test --prefix server
 ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleRelease
 ```
 
-GitHub Actions ayrıca Android API 34 emülatöründe debug ve release instrumented testlerini çalıştırır. Ana dalın başarılı CI koşuları, koşuya ait imzalı APK'yı GitHub Releases altında yayımlar ve kamuya açık indirmeyi yeniden doğrular. Dosya adının tarihsel uyumluluk nedeniyle `app-debug.apk` olması tek başına debuggable build anlamına gelmez; imza raporu ve release kontrolleri esastır.
-
-## Geliştirme öncelikleri
-
-1. Veri silmeden PIN tercihi, Room/kimlik ve OTA devamlılığını koru.
-2. İmza anahtarını gerçek cihaz dışı güvenli geri yüklemeyle doğrula.
-3. SQLCipher için önce salt okunur ön denetim ve reversibl migration testleri, ardından kontrollü geçiş.
-4. Android çoklu cihaz kararlılığı; bağımsız kripto ve forward secrecy tasarımı.
-5. Gerçek büyük medya; GMS/HMS bağımsız arka plan teslim stratejisi.
-6. Native WebRTC çağrısının iki farklı fiziksel üreticide ses/video ve yönlendirme kabulünü kanıtla; eski demo ekranını gerçek görüşmeyle karıştırma. Premium arayüz, hesap doğruluğu ve erişilebilirliği regresyon testleriyle geliştir.
-
-Ücretli altyapı kullanıcı onayı olmadan açılmaz. Birim testleri, CI onayı ve **gerçek fiziksel cihaz kabulü farklı kanıt seviyeleridir**.
-
-[Proje Anayasası](PROJE_ANAYASASI_VE_DUZELTILECEKLER.md) · [SQLCipher Kayıpsız Geçiş Planı](docs/ROOM_SQLCIPHER_LOSSLESS_MIGRATION_TR.md) · [Android Genel Uyumluluk](docs/ANDROID_GENERAL_COMPATIBILITY_ACCEPTANCE_TR.md)
+Sürüm doğrulamasında mevcut uygulamayı silmeden, aynı sertifikayla imzalanmış bir APK kullanın. Teknik geliştirme kayıtları ve test raporları, gizli bilgi veya kişisel veri paylaşmadan tutulmalıdır. Ücretli servisler ayrıca onay gerektirir.
