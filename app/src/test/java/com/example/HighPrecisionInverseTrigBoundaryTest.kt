@@ -4,6 +4,8 @@ import com.example.core.calculator.HighPrecisionMathEngine
 import org.junit.Assert.*
 import org.junit.Test
 import java.math.BigDecimal
+import java.math.MathContext
+import java.math.RoundingMode
 
 /** Precision regression: BigDecimal can encode a point arbitrarily close to ±1. */
 class HighPrecisionInverseTrigBoundaryTest {
@@ -32,6 +34,41 @@ class HighPrecisionInverseTrigBoundaryTest {
         assertTrue(degrees < BigDecimal("1E-42"))
         assertEquals(0, HighPrecisionMathEngine.acos(BigDecimal.ONE, false)
             .compareTo(BigDecimal.ZERO))
+    }
+
+    @Test fun inverseTrigonometryKeepsMoreThanDefault34DigitsWithMc100() {
+        val mc = MathContext(100, RoundingMode.HALF_UP)
+        val input = BigDecimal("0.321")
+        val asinRadians = HighPrecisionMathEngine.asin(input, isDegrees = false, mc = mc)
+        val sineRoundTrip = HighPrecisionMathEngine.sin(
+            asinRadians, isDegrees = false, mc = mc
+        )
+        assertTrue(
+            "MathContext(100) asin/sin must not stop at hardcoded 1E-34",
+            sineRoundTrip.subtract(input).abs() < BigDecimal("1E-65")
+        )
+
+        val atanRadians = HighPrecisionMathEngine.atan(input, isDegrees = false, mc = mc)
+        val tangentRoundTrip = HighPrecisionMathEngine.tan(
+            atanRadians, isDegrees = false, mc = mc
+        )
+        assertTrue(
+            "MathContext(100) atan/tan must not stop at hardcoded 1E-34",
+            tangentRoundTrip.subtract(input).abs() < BigDecimal("1E-65")
+        )
+    }
+
+    @Test fun extremeTinyInverseInputsRemainFiniteWithoutDoubleUnderflow() {
+        val mc = MathContext(100, RoundingMode.HALF_UP)
+        val tiny = BigDecimal("1E-400")
+        for (input in listOf(tiny, tiny.negate())) {
+            val actual = HighPrecisionMathEngine.asin(input, isDegrees = false, mc = mc)
+            assertTrue("asin underflow must preserve nonzero sign", actual.signum() == input.signum())
+            assertTrue(
+                HighPrecisionMathEngine.sin(actual, isDegrees = false, mc = mc)
+                    .subtract(input).abs() < BigDecimal("1E-450")
+            )
+        }
     }
 
     @Test fun ordinaryInverseTrigAnglesAndDomainChecksRemainIntact() {
