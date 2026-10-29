@@ -55,9 +55,17 @@ class NativeCallStateTest {
     private var failCallAck=false
     private var outgoingSendFailures=0
     private var outgoingSendHttpStatus=0
-    private var outgoingMissingAckResponses=0
+    // The fake relay runs on IO while the test configures missing ACKs on Main.
+    // Atomic read/decrement avoids a stale or lost response budget across threads.
+    private val outgoingMissingAckResponses=java.util.concurrent.atomic.AtomicInteger(0)
     private var outgoingLoseReplyAfterAccepted=false
-    private val acceptedCallSignalIds=mutableSetOf<String>()
+    // UUID-keyed simulated relay acceptance is accessed by real IO and Main.
+    private val acceptedCallSignalIds=java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    // The relay decrypts/authenticates the first envelope once. Idempotent
+    // retransmissions must keep the exact ciphertext and callId; replaying
+    // expensive crypto for the same already-validated UUID adds an unrelated
+    // IO timing race to the backoff/deadline security assertions.
+    private val acceptedSignalEnvelopes=java.util.concurrent.ConcurrentHashMap<String, Pair<Triple<String,String,String>,CallSignal>>()
     // callSend callbacks may run on Dispatchers.IO while retry assertions
     // run on the coroutine-test Main dispatcher. A plain MutableList has
     // neither safe iteration nor cross-thread visibility guarantees.
@@ -115,21 +123,32 @@ class NativeCallStateTest {
                             throw RelayException(outgoingSendHttpStatus,"simulated transient relay outage")
                         throw java.io.IOException("simulated radio handover / lost HTTP reply")
                     }
-                    val plain=PeerMessageCrypto.decrypt(peer,own.id,own.publicKey,CallSignaling.aadId(id),own.id,data.getString("content"))
-                    val signal=CallSignaling.decode(plain,id,data.getString("callId"),System.currentTimeMillis())
-                    // Model the real relay's UUID-keyed idempotent insert: an
-                    // accepted request can lose its HTTP reply, but a retry
-                    // must not create a second delivered signal.
-                    if(acceptedCallSignalIds.add(id)) sent.value=sent.value+signal
+                    // Match the relay's durable UUID idempotency: decrypt/authenticate
+                    // once, then require byte-for-byte identical retries.
+                    // Do NOT silently accept a changed payload for the same UUID.
+                    val envelope=Triple(id,data.getString("callId"),data.getString("content"))
+                    val cached=acceptedSignalEnvelopes[id]
+                    val signal=if(cached!=null) {
+                        check(cached.first==envelope) { "Changed ciphertext or callId for accepted UUID" }
+                        cached.second
+                    } else {
+                        val plain=PeerMessageCrypto.decrypt(peer,own.id,own.publicKey,
+                            CallSignaling.aadId(id),own.id,data.getString("content"))
+                        val verified=CallSignaling.decode(plain,id,data.getString("callId"),System.currentTimeMillis())
+                        val previous=acceptedSignalEnvelopes.putIfAbsent(id,envelope to verified)
+                        check(previous==null || previous.first==envelope) { "Conflicting accepted UUID" }
+                        if(acceptedCallSignalIds.add(id)) sent.value=sent.value+verified
+                        previous?.second ?: verified
+                    }
                     if(outgoingLoseReplyAfterAccepted) {
                         outgoingLoseReplyAfterAccepted=false
                         throw java.io.IOException("simulated lost reply after committed signal")
                     }
                     if(signal.kind==CallSignalKind.ACCEPT) acceptGate?.await()
-                    if(outgoingMissingAckResponses > 0) {
+                    if(signal.kind==CallSignalKind.OFFER &&
+                        outgoingMissingAckResponses.getAndUpdate { (it - 1).coerceAtLeast(0) } > 0) {
                         // Relay accepted, but a proxy stripped the HTTP ACK.
                         // Retry must retain exactly this signal/ciphertext.
-                        outgoingMissingAckResponses--
                         missingAckRepliesCompleted += id
                         JSONObject()
                     } else JSONObject().put("accepted",true)
@@ -192,40 +211,50 @@ class NativeCallStateTest {
     private fun driveRelayRetries(offerId: String, expected: Int) {
         require(expected in 1..CallSignalRetryPolicy.MAX_ATTEMPTS)
         val transient = RelayException(503, "test missing HTTP ACK")
+        fun attempts() = outgoingSendAttempts.count { it.first == offerId }
+        fun replies() = missingAckRepliesCompleted.count { it == offerId }
         for (attempt in 1..expected) {
             val deadlineNanos = System.nanoTime() + 10_000_000_000L
-            // Wait for the actual relay callback to be recorded before
-            // scheduling the next virtual retry. A bounded real deadline
-            // catches deadlock instead of masking a missing send.
-            while ((outgoingSendAttempts.count { it.first == offerId } < attempt ||
-                    missingAckRepliesCompleted.count { it == offerId } < attempt) &&
+            // Never advance virtual time while the current IO relay request
+            // is still executing: that could expire the foreground call.
+            while ((attempts() < attempt || replies() < attempt) &&
                 System.nanoTime() < deadlineNanos) {
-                // Recording the invocation occurs *before* E2EE decryption
-                // and the missing ACK response. Waiting only for invocation
-                // races the real retry coroutine: a virtual time jump can
-                // happen before the corresponding backoff is even scheduled.
-                mainTestDispatcher.scheduler.runCurrent()
-                Thread.sleep(25L)
-            }
-            assertTrue("Encrypted relay send attempt $attempt was not observed",
-                outgoingSendAttempts.count { it.first == offerId } >= attempt)
-            assertTrue("The missing ACK for relay attempt $attempt was not returned",
-                missingAckRepliesCompleted.count { it == offerId } >= attempt)
-            if (attempt < expected) {
-                // The fake HTTP response has actually completed. Drain the
-                // pending continuation before advancing only the real
-                // retry-policy backoff, keeping the 25s call deadline intact.
                 mainTestDispatcher.scheduler.runCurrent()
                 Thread.sleep(10L)
-                mainTestDispatcher.scheduler.runCurrent()
+            }
+            assertTrue("Encrypted relay send attempt $attempt was not observed", attempts() >= attempt)
+            assertTrue("The missing ACK for relay attempt $attempt was not returned; " +
+                "sent=${attempts()}, lostReplies=${replies()}, remaining=${outgoingMissingAckResponses.get()}, " +
+                "phase=${vm.state.value.phase}, virtualMs=${mainTestDispatcher.scheduler.currentTime}",
+                replies() >= attempt)
+            if (attempt < expected) {
                 val backoff = CallSignalRetryPolicy.delayAfter(transient, attempt)
                     ?: error("Unexpected retry policy termination at attempt $attempt")
-                mainTestDispatcher.scheduler.advanceTimeBy(backoff + 1L)
+                // The fake relay records its ACK loss BEFORE returning from IO.
+                // A single advanceTimeBy(backoff) can race the repository's
+                // subsequent catch/delay scheduling, so its timer may be set
+                // AFTER that jump. Step virtual time until the NEXT actual
+                // send is observed; a bounded 2s allowance handles dispatch
+                // latency without hiding the real 25s call deadline.
+                val next = attempt + 1
+                val nextDeadlineNanos = System.nanoTime() + 10_000_000_000L
+                var virtualAdvanced = 0L
+                val maxVirtualAdvance = backoff + 2_000L
+                while (attempts() < next &&
+                    System.nanoTime() < nextDeadlineNanos &&
+                    virtualAdvanced < maxVirtualAdvance) {
+                    mainTestDispatcher.scheduler.runCurrent()
+                    Thread.sleep(10L)
+                    mainTestDispatcher.scheduler.advanceTimeBy(25L)
+                    virtualAdvanced += 25L
+                }
                 mainTestDispatcher.scheduler.runCurrent()
+                assertTrue("Encrypted relay retry $next did not start within bounded backoff",
+                    attempts() >= next)
             }
         }
         assertEquals("All expected encrypted signal attempts must actually occur",
-            expected, outgoingSendAttempts.count { it.first == offerId })
+            expected, attempts())
         repeat(8) {
             mainTestDispatcher.scheduler.runCurrent()
             Thread.sleep(10L)
@@ -237,6 +266,43 @@ class NativeCallStateTest {
             .put("content",cipher).put("createdAt",System.currentTimeMillis()).put("expiresAt",System.currentTimeMillis()+90_000)
         repo.synchronize()
     }
+    @Test fun visibleIdleHostPollsAndAuthenticatesInviteArrivingAfterFirstSync() = runBlocking {
+        // Do NOT call repo.synchronize(): the idle host itself must fetch
+        // a later invitation rather than relying on the one startup sync.
+        val signal = CallSignaling.create(UUID.randomUUID().toString(), CallSignalKind.INVITE, false)
+        val cipher = PeerMessageCrypto.encrypt(peer, own.id, own.publicKey,
+            CallSignaling.aadId(signal.id), CallSignaling.encode(signal))
+        inbox += JSONObject().put("id", signal.id).put("callId", signal.callId)
+            .put("senderId", peer.id).put("recipientId", own.id)
+            .put("content", cipher).put("createdAt", System.currentTimeMillis())
+            .put("expiresAt", System.currentTimeMillis() + 90_000)
+        vm.attachHost()
+        waitPhase(NativeCallPhase.RINGING)
+        assertEquals(signal.callId, vm.state.value.callId)
+        assertTrue(inbox.isEmpty())
+        vm.detachHost()
+    }
+
+    @Test fun leavingVisibleCallHostLetsBackgroundWakeNotifyAgain() {
+        vm.attachHost()
+        assertTrue("Visible call owner consumes INVITE directly",
+            com.example.core.calls.CallWakePolicy.privateAreaVisible)
+        vm.detachHost()
+        assertFalse("Background caller must not have FCM suppressed",
+            com.example.core.calls.CallWakePolicy.privateAreaVisible)
+    }
+
+    @Test fun activeRingingIsNotClosedByCalculatorToCallScreenHandoff() = runBlocking {
+        val invite = CallSignaling.create(UUID.randomUUID().toString(), CallSignalKind.INVITE, false)
+        inject(invite)
+        waitPhase(NativeCallPhase.RINGING)
+        vm.attachHost()
+        vm.detachHost()
+        assertEquals(NativeCallPhase.RINGING, vm.state.value.phase)
+        vm.deactivate()
+        assertEquals(NativeCallPhase.IDLE, vm.state.value.phase)
+    }
+
     @Test fun nativeVideoRendererIsBoundOnlyAfterRealConnectionEvidence() {
         val base=NativeCallUiState(callId="test-call",video=true)
         assertFalse(canRenderNativeCallVideo(base,true))
@@ -532,7 +598,7 @@ class NativeCallStateTest {
 
     @Test fun missingHttp200AcceptanceCannotSilentlyLoseTheCallSignal() = runBlocking {
         val peerRecord=repo.verifiedCallPeer(peer.id)!!
-        outgoingMissingAckResponses=1
+        outgoingMissingAckResponses.set(1)
         val signal=CallSignaling.create(UUID.randomUUID().toString(),CallSignalKind.OFFER,false,sdp)
         repo.sendCallSignal(peerRecord,signal)
         assertEquals(2,outgoingSendAttempts.size)
@@ -894,7 +960,7 @@ class NativeCallStateTest {
         val invite = awaitSent(CallSignalKind.INVITE)
         // Model a relay that stored the SDP once, allowing the peer to connect,
         // but whose HTTP response is stripped by an intermediary on every try.
-        outgoingMissingAckResponses = CallSignalRetryPolicy.MAX_ATTEMPTS
+        outgoingMissingAckResponses.set(CallSignalRetryPolicy.MAX_ATTEMPTS)
         inject(CallSignaling.create(invite.callId, CallSignalKind.ACCEPT, false))
         val offer = withTimeout(3_000) {
             sent.first { list -> list.any { it.kind == CallSignalKind.OFFER } }
@@ -919,7 +985,7 @@ class NativeCallStateTest {
     @Test fun expiredMediaCallbackCannotMaskRelayAckOutage() = runBlocking<Unit> {
         vm.outgoing(UserCodes.conversationId(own.id, peer.id), false, true)
         val invite = awaitSent(CallSignalKind.INVITE)
-        outgoingMissingAckResponses = CallSignalRetryPolicy.MAX_ATTEMPTS
+        outgoingMissingAckResponses.set(CallSignalRetryPolicy.MAX_ATTEMPTS)
         inject(CallSignaling.create(invite.callId, CallSignalKind.ACCEPT, false))
         val offer = awaitSent(CallSignalKind.OFFER)
         report!!(CallMediaEvidence(true, 7, 9))
@@ -934,7 +1000,7 @@ class NativeCallStateTest {
     @Test fun expiredRtpProofCannotMaskRelayAckOutageWithConnectedIce() = runBlocking<Unit> {
         vm.outgoing(UserCodes.conversationId(own.id, peer.id), false, true)
         val invite = awaitSent(CallSignalKind.INVITE)
-        outgoingMissingAckResponses = CallSignalRetryPolicy.MAX_ATTEMPTS
+        outgoingMissingAckResponses.set(CallSignalRetryPolicy.MAX_ATTEMPTS)
         inject(CallSignaling.create(invite.callId, CallSignalKind.ACCEPT, false))
         val offer = awaitSent(CallSignalKind.OFFER)
         report!!(CallMediaEvidence(true, 7, 9))
@@ -951,7 +1017,7 @@ class NativeCallStateTest {
     @Test fun lostRelayAcksWithoutRealMediaProofStillFailClosed() = runBlocking<Unit> {
         vm.outgoing(UserCodes.conversationId(own.id, peer.id), false, true)
         val invite = awaitSent(CallSignalKind.INVITE)
-        outgoingMissingAckResponses = CallSignalRetryPolicy.MAX_ATTEMPTS
+        outgoingMissingAckResponses.set(CallSignalRetryPolicy.MAX_ATTEMPTS)
         inject(CallSignaling.create(invite.callId, CallSignalKind.ACCEPT, false))
         val offer = withTimeout(3_000) {
             sent.first { list -> list.any { it.kind == CallSignalKind.OFFER } }

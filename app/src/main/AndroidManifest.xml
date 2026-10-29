@@ -7,6 +7,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Normal permission used only by real user-initiated VoIP audio routing. -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
@@ -55,6 +58,14 @@
             tools:node="merge">
             <meta-data android:name="androidx.work.WorkManagerInitializer" tools:node="remove" />
         </provider>
+        <service android:name=".core.calls.CallForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="microphone|camera" />
+        <!-- Call-only secure screen, no access to the hidden chat/navigation. -->
+        <activity android:name=".IncomingCallActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.MyApplication" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

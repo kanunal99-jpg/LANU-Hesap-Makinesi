@@ -24,7 +24,8 @@ enum class NativeCallPhase { IDLE, DIALING, RINGING, CONNECTING, CONNECTED, RECO
 data class NativeCallUiState(
     val callId: String = "", val name: String = "", val video: Boolean = false,
     val phase: NativeCallPhase = NativeCallPhase.IDLE, val muted: Boolean = false,
-    val cameraOn: Boolean = false, val message: String = "", val connectedAt: Long = 0L
+    val cameraOn: Boolean = false, val message: String = "", val connectedAt: Long = 0L,
+    val inviteAtMs: Long = 0L
 )
 
 /** One foreground-only real call. Permission dialog callbacks are bound to call IDs. */
@@ -35,6 +36,7 @@ class NativeCallViewModel(
     private val mediaFactory: ((CallMediaEvidence) -> Unit, (String) -> Unit) -> CallMediaSession =
         { evidence, failure -> NativeCallEngine(context.applicationContext, evidence, failure) }
 ) : ViewModel() {
+    private val appContext = context.applicationContext
     private val _state = MutableStateFlow(NativeCallUiState())
     val state = _state.asStateFlow()
     private val _media = MutableStateFlow<CallMediaSession?>(null)
@@ -59,6 +61,57 @@ class NativeCallViewModel(
     }
     private var session: Session? = null
     private var foreground = false
+    private var attachedHosts = 0
+    private var pendingHostRelease: Job? = null
+    // A short grace transfers ownership between calculator and incoming-call
+    // Activities without deleting a relay-ACKed authenticated invitation.
+    private var visibleIdlePoll: Job? = null
+    fun attachHost() {
+        attachedHosts++
+        pendingHostRelease?.cancel()
+        activate()
+        CallWakePolicy.privateAreaVisible = true
+        if (visibleIdlePoll == null) {
+            // FCM is only a wake hint. A consented calculator foreground must
+            // fetch and decrypt the actual INVITE itself, even if a previous
+            // one-shot sync finished before the caller rang.
+            visibleIdlePoll = viewModelScope.launch {
+                while (isActive && foreground && attachedHosts > 0) {
+                    var delayMs = 3_000L
+                    if (session == null) {
+                        try { repository.pollCallSignals() }
+                        catch (e: CancellationException) { throw e }
+                        catch (e: RelayException) {
+                            if (e.status == 429) delayMs = e.retryAfterMillis.coerceIn(5_000L, 120_000L)
+                        }
+                        catch (_: Exception) { /* No identity/peer or network: fail closed. */ }
+                    }
+                    delay(delayMs)
+                }
+            }
+        }
+    }
+    fun detachHost() {
+        attachedHosts = (attachedHosts - 1).coerceAtLeast(0)
+        if (attachedHosts == 0) {
+            visibleIdlePoll?.cancel()
+            visibleIdlePoll = null
+            // Do not suppress FCM while every UI is backgrounded or locked.
+            CallWakePolicy.privateAreaVisible = false
+            releaseIdleHost()
+        }
+    }
+    fun releaseIdleHost() {
+        if (attachedHosts != 0 || CallForegroundService.isRunning) return
+        pendingHostRelease?.cancel()
+        pendingHostRelease = viewModelScope.launch {
+            delay(if (session != null) 55_000L else 1_000L)
+            if (attachedHosts == 0 && !CallForegroundService.isRunning) deactivate()
+        }
+    }
+    fun reportServiceUnavailable() {
+        _notice.value = "Android görüşmeyi arka planda sürdüremedi. Mikrofon iznini ve pil kısıtlamalarını kontrol edin."
+    }
     private var receiving: Job? = null
     // Foreground preparation can suspend on the relay; cancel it on exit so
     // a late response cannot race later call-queue owners or private-area UI.
@@ -106,6 +159,7 @@ class NativeCallViewModel(
 
     fun deactivate() {
         foreground = false
+        pendingHostRelease?.cancel()
         com.example.core.calls.CallWakePolicy.privateAreaVisible = false
         repository.setCallingForeground(false)
         repository.setCallInProgress(false)
@@ -144,11 +198,15 @@ class NativeCallViewModel(
         val current = session ?: return
         if (!foreground || current.id != callId || _state.value.phase != NativeCallPhase.RINGING) return
         if (!permissionGranted) { _notice.value = "Mikrofon/kamera izni verilmedi."; finish("İzin verilmedi.", CallSignalKind.REJECT); return }
+        CallWakeNotification.cancel(appContext)
         _state.value = _state.value.copy(phase = NativeCallPhase.CONNECTING)
         deadline(current, 35_000, "Bağlantı kurulamadı; farklı bir ağ deneyin.")
         pipeline = guarded(current) { send(current, CallSignalKind.ACCEPT) }
     }
-    fun reject() = finish("Arama reddedildi.", CallSignalKind.REJECT)
+    fun reject() {
+        CallWakeNotification.cancel(appContext)
+        finish("Arama reddedildi.", CallSignalKind.REJECT)
+    }
     fun end() = finish("Görüşme sonlandırıldı.")
     fun dismiss() { if (session == null) _state.value = NativeCallUiState(); _notice.value = null }
     fun clearNotice() { _notice.value = null }
@@ -202,7 +260,8 @@ class NativeCallViewModel(
             val current = Session(s.callId, incoming.peer, s.video, false)
             session = current
             repository.setCallInProgress(true)
-            _state.value = NativeCallUiState(s.callId, incoming.peer.name, s.video, NativeCallPhase.RINGING)
+            _state.value = NativeCallUiState(s.callId, incoming.peer.name, s.video, NativeCallPhase.RINGING,
+                inviteAtMs = s.createdAt)
             startActivePoll(current)
             deadline(current, 45_000, "Arama süresi doldu.")
             return

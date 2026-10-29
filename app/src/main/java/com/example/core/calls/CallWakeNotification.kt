@@ -15,7 +15,7 @@ import com.example.core.notifications.PublicNotificationText
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import com.example.MainActivity
+import com.example.IncomingCallActivity
 import com.example.R
 
 /**
@@ -232,7 +232,14 @@ object CallWakePolicy {
 /** Incoming notifications are wake-up hints, not private deep links or permissions. */
 object CallWakeTapPolicy {
     const val ACTION = "com.aistudio.lanucalc.kxwzqm.action.LANU_CALL_WAKE"
+    const val ANSWER = "com.aistudio.lanucalc.kxwzqm.action.LANU_CALL_ANSWER"
+    const val EXTRA_WAKE_AT = "lanu_wake_at"
     fun requiresFreshEntry(action: String?): Boolean = action == ACTION
+    fun mayOpenCallUi(userConsented: Boolean, liveCall: Boolean): Boolean = userConsented || liveCall
+    fun matchesVerifiedInvite(hintAt: Long, inviteAt: Long, now: Long): Boolean =
+        hintAt > 0L && inviteAt > 0L && inviteAt in (hintAt - 30_000L)..(hintAt + 30_000L) &&
+            CallWakePolicy.eligible(mapOf("type" to CallWakePolicy.TYPE, "at" to hintAt.toString()), now)
+
 }
 
 object CallWakeNotification {
@@ -319,25 +326,34 @@ object CallWakeNotification {
                     manager.getNotificationChannel(CHANNEL_ID)?.importance else null
             )) return@safePlatformDelivery false
 
-        // No call ID/peer ID/hidden-navigation extras: opening the notification
-        // always follows the ordinary calculator -> 2011. -> optional PIN gate.
-        val intent = Intent(context, MainActivity::class.java).apply {
+        // A notification is only a wake hint, NOT a private-area credential.
+        // Answer only after verifying the fresh encrypted peer invitation and
+        // obtaining user microphone/camera permission; reveal no private data.
+        val intent = Intent(context, IncomingCallActivity::class.java).apply {
             action = CallWakeTapPolicy.ACTION
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         val pending = PendingIntent.getActivity(context, 0, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val answerIntent = Intent(context, IncomingCallActivity::class.java).apply {
+            action = CallWakeTapPolicy.ANSWER
+            putExtra(CallWakeTapPolicy.EXTRA_WAKE_AT, data["at"]!!.toLong())
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val answerPending = PendingIntent.getActivity(context, 1, answerIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
+            // Preserve neutral visible notification metadata from current main.
             .setContentTitle(PublicNotificationText.TITLE)
+            .addAction(R.mipmap.ic_launcher, "Yanıtla", answerPending)
             .setContentIntent(pending)
-            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            // On Android 7.x and earlier sound is attached to the notification.
             .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))
             .setVisibility(NotificationCompat.VISIBILITY_SECRET)
             .setTimeoutAfter(75_000L)
-            .setAutoCancel(true)
+            .setAutoCancel(false)
             .build()
         CallWakePolicy.publishWhileConsented(
             at = data["at"]!!.toLong(),
