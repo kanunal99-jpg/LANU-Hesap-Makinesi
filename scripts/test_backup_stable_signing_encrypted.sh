@@ -14,7 +14,7 @@ home="$tmp/home"
 mkdir -p -m 700 "$home/.lanu/signing"
 printf 'DUMMY_KEYSTORE_FIXTURE_NOT_A_VALID_PKCS12_FILE\n' > "$home/.lanu/signing/lanu-stable.jks"
 printf 'dummy-store-password-only\n' > "$home/.lanu/signing/store-password"
-printf 'dummy-store-password-only\n' > "$home/.lanu/signing/key-password"
+printf 'dummy-DIFFERENT-key-password-only\n' > "$home/.lanu/signing/key-password"
 chmod 700 "$home/.lanu" "$home/.lanu/signing"
 chmod 600 "$home/.lanu/signing/"*
 
@@ -54,25 +54,28 @@ done
   echo 'A plaintext archive or extra backup artifact was created.' >&2
   exit 1
 }
-# A byte-for-byte backup with mismatched credentials cannot restore signing.
-# Use generated dummy files only; never read the owner's actual keystore.
-printf 'WRONG_DUMMY_KEY_PASSWORD\n' > "$home/.lanu/signing/key-password"
-before_mismatch="$(find "$home/.lanu/backups" -maxdepth 1 -type f | wc -l)"
+# Different key and store password values are valid and were checked by
+# the successful isolated archive/restore equality assertions above. A
+# separate symlink substitution is never safe, even if file bytes match.
+mv "$home/.lanu/signing/key-password" "$tmp/private-key-password"
+ln -s "$tmp/private-key-password" "$home/.lanu/signing/key-password"
+before_child_symlink="$(find "$home/.lanu/backups" -maxdepth 1 -type f | wc -l)"
 if script -q -e -c "env HOME=$home GNUPGHOME=$home/.gnupg bash $root/scripts/backup_stable_signing_encrypted.sh" \
-    /dev/null > "$tmp/rejected-mismatch.log" 2>&1 </dev/null; then
-  echo 'Mismatched dummy key credentials unexpectedly accepted.' >&2
+    /dev/null > "$tmp/rejected-child-symlink.log" 2>&1 </dev/null; then
+  echo 'Symlinked signing password unexpectedly accepted.' >&2
   exit 1
 fi
-grep -q 'Signing key/store credentials disagree' "$tmp/rejected-mismatch.log" || {
-  echo 'Missing fail-closed invalid signing credential feedback.' >&2
+grep -q 'Signing recovery requires an existing, complete key' "$tmp/rejected-child-symlink.log" || {
+  echo 'Missing fail-closed child symlink feedback.' >&2
   exit 1
 }
-after_mismatch="$(find "$home/.lanu/backups" -maxdepth 1 -type f | wc -l)"
-[[ "$before_mismatch" == "$after_mismatch" ]] || {
-  echo 'Rejected signing credentials created an archive.' >&2
+after_child_symlink="$(find "$home/.lanu/backups" -maxdepth 1 -type f | wc -l)"
+[[ "$before_child_symlink" == "$after_child_symlink" ]] || {
+  echo 'Rejected child symlink created an archive.' >&2
   exit 1
 }
-printf 'dummy-store-password-only\n' > "$home/.lanu/signing/key-password"
+rm -- "$home/.lanu/signing/key-password"
+mv -- "$tmp/private-key-password" "$home/.lanu/signing/key-password"
 # The signing directory itself must never be a symlink, even when its
 # three child files look like ordinary files. This is an offline dummy.
 mv "$home/.lanu/signing" "$tmp/real-signing"
