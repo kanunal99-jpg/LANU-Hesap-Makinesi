@@ -23,4 +23,4 @@ npm ci --prefix server && npm test --prefix server
 ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleRelease
 ```
 
-Sürüm doğrulamasında mevcut uygulamayı silmeden, aynı sertifikayla imzalanmış bir APK kullanın. Teknik geliştirme kayıtları ve test raporları, gizli bilgi veya kişisel veri paylaşmadan tutulmalıdır. Ücretli servisler ayrıca onay gerektirir.
+Sürüm doğrulamasında mevcut uygulamayı silmeden, aynı sertifikayla imzalanmış bir APK kullanın. Teknik geliştirme kayıtları ve test raporları, hassas bilgi veya kişisel veri paylaşmadan tutulmalıdır. Ücretli servisler ayrıca onay gerektirir.
