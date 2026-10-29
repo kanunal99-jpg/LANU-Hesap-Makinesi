@@ -266,6 +266,43 @@ class NativeCallStateTest {
             .put("content",cipher).put("createdAt",System.currentTimeMillis()).put("expiresAt",System.currentTimeMillis()+90_000)
         repo.synchronize()
     }
+    @Test fun visibleIdleHostPollsAndAuthenticatesInviteArrivingAfterFirstSync() = runBlocking {
+        // Do NOT call repo.synchronize(): the idle host itself must fetch
+        // a later invitation rather than relying on the one startup sync.
+        val signal = CallSignaling.create(UUID.randomUUID().toString(), CallSignalKind.INVITE, false)
+        val cipher = PeerMessageCrypto.encrypt(peer, own.id, own.publicKey,
+            CallSignaling.aadId(signal.id), CallSignaling.encode(signal))
+        inbox += JSONObject().put("id", signal.id).put("callId", signal.callId)
+            .put("senderId", peer.id).put("recipientId", own.id)
+            .put("content", cipher).put("createdAt", System.currentTimeMillis())
+            .put("expiresAt", System.currentTimeMillis() + 90_000)
+        vm.attachHost()
+        waitPhase(NativeCallPhase.RINGING)
+        assertEquals(signal.callId, vm.state.value.callId)
+        assertTrue(inbox.isEmpty())
+        vm.detachHost()
+    }
+
+    @Test fun leavingVisibleCallHostLetsBackgroundWakeNotifyAgain() {
+        vm.attachHost()
+        assertTrue("Visible call owner consumes INVITE directly",
+            com.example.core.calls.CallWakePolicy.privateAreaVisible)
+        vm.detachHost()
+        assertFalse("Background caller must not have FCM suppressed",
+            com.example.core.calls.CallWakePolicy.privateAreaVisible)
+    }
+
+    @Test fun activeRingingIsNotClosedByCalculatorToCallScreenHandoff() = runBlocking {
+        val invite = CallSignaling.create(UUID.randomUUID().toString(), CallSignalKind.INVITE, false)
+        inject(invite)
+        waitPhase(NativeCallPhase.RINGING)
+        vm.attachHost()
+        vm.detachHost()
+        assertEquals(NativeCallPhase.RINGING, vm.state.value.phase)
+        vm.deactivate()
+        assertEquals(NativeCallPhase.IDLE, vm.state.value.phase)
+    }
+
     @Test fun nativeVideoRendererIsBoundOnlyAfterRealConnectionEvidence() {
         val base=NativeCallUiState(callId="test-call",video=true)
         assertFalse(canRenderNativeCallVideo(base,true))
