@@ -342,13 +342,17 @@ object HighPrecisionMathEngine {
         var term = x
         val x2 = x.multiply(x, mc)
         var sign = -1
-        for (n in 1..25) {
+        // Fixed 25 terms / 1E-35 used to silently cap a MathContext(100)
+        // request at ~35 digits. Bound work to 100 terms and adapt to the
+        // explicitly supported precision range 1..100.
+        val tolerance = BigDecimal.ONE.scaleByPowerOfTen(-mc.precision - 2)
+        for (n in 1..100) {
             val d1 = 2 * n
             val d2 = 2 * n + 1
             term = term.multiply(x2, mc).divide(BigDecimal(d1 * d2), mc)
             sum = if (sign < 0) sum.subtract(term, mc) else sum.add(term, mc)
             sign = -sign
-            if (term.abs().compareTo(BigDecimal("1E-35")) < 0) break
+            if (term.abs() < tolerance) break
         }
         return sum
     }
@@ -423,7 +427,7 @@ object HighPrecisionMathEngine {
             if (c.compareTo(BigDecimal.ZERO) == 0) break
             val delta = s.subtract(x, mc).divide(c, mc)
             rad = rad.subtract(delta, mc)
-            if (delta.abs().compareTo(BigDecimal("1E-34")) < 0) break
+            if (delta.abs() < BigDecimal.ONE.scaleByPowerOfTen(-mc.precision - 2)) break
         }
         return if (isDegrees) rad.multiply(BigDecimal(180), mc).divide(PI, mc) else rad
     }
@@ -472,7 +476,7 @@ object HighPrecisionMathEngine {
             val sec2 = BigDecimal.ONE.divide(c.multiply(c, mc), mc)
             val delta = t.subtract(x, mc).divide(sec2, mc)
             rad = rad.subtract(delta, mc)
-            if (delta.abs().compareTo(BigDecimal("1E-34")) < 0) break
+            if (delta.abs() < BigDecimal.ONE.scaleByPowerOfTen(-mc.precision - 2)) break
         }
         return if (isDegrees) rad.multiply(BigDecimal(180), mc).divide(PI, mc) else rad
     }
