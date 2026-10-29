@@ -61,6 +61,30 @@ class InlineMediaCodecTest {
         reject { InlineMediaCodec.decode("lanu-media-v1:" + j.toString()) }
     }
 
+    @Test fun malformedAttachmentFieldTypesFailBeforeBase64Decoding() {
+        val prefix = "lanu-media-v1:"
+        val good = InlineMediaCodec.encode("sample.txt", "text/plain", "test".toByteArray())
+        val original = JSONObject(good.removePrefix(prefix))
+        // org.json getString/getInt can coerce unexpected scalar types.
+        // Encrypted envelopes must use one typed, canonical representation.
+        val invalid = listOf(
+            "v" to "1",
+            "v" to 1.0,
+            "size" to "4",
+            "size" to 4.0,
+            "name" to 123,
+            "mime" to false,
+            "sha256" to 42,
+            "data" to 123
+        )
+        for ((field, value) in invalid) {
+            val modified = JSONObject(original.toString()).put(field, value)
+            reject { InlineMediaCodec.decode(prefix + modified.toString()) }
+        }
+        // A producer-generated attachment must remain unchanged.
+        assertArrayEquals("test".toByteArray(), InlineMediaCodec.decode(good).bytes)
+    }
+
     @Test fun invalidUnicodeDocumentFailsBeforeEncryption() {
         reject { InlineMediaCodec.encode("invalid.txt", "text/plain", byteArrayOf(0xc3.toByte(), 0x28)) }
         reject { InlineMediaCodec.encode("nul.txt", "text/plain", byteArrayOf(0x00)) }
