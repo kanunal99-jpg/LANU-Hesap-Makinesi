@@ -77,6 +77,46 @@ class LocalCrashReportTest {
         } finally { LocalCrashReport.clear(context) }
     }
 
+    @Test fun tamperedLocalReportCannotCoerceStringsBooleansOrNumbersIntoTrustedFields() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val now = 1_800_000_000_000L
+        val target = File(context.noBackupFilesDir, "lanu_crash_code_frames_v1.json")
+        try {
+            LocalCrashReport.clear(context)
+            val valid = org.json.JSONObject()
+                .put("version", 1)
+                .put("time", now)
+                .put("type", "RuntimeException")
+                .put("appFrames", org.json.JSONArray(listOf("com.example.Foo.test(File.kt:10)")))
+            target.writeText(valid.toString())
+            assertNotNull(LocalCrashReport.read(context, now))
+            val tampered = listOf(
+                org.json.JSONObject(valid.toString()).put("version", "1"),
+                org.json.JSONObject(valid.toString()).put("time", now.toString()),
+                org.json.JSONObject(valid.toString()).put("type", 101),
+                org.json.JSONObject(valid.toString()).put("type", false),
+                org.json.JSONObject(valid.toString())
+                    .put("appFrames", org.json.JSONArray(listOf(123))),
+                org.json.JSONObject(valid.toString())
+                    .put("appFrames", "com.example.Foo.test(File.kt:10)")
+            )
+            for (bad in tampered) {
+                target.writeText(bad.toString())
+                assertNull("Malformed diagnostic metadata must be ignored", LocalCrashReport.read(context, now))
+            }
+            // JSONObject output may normalize 1.0 to 1; test a literal
+            // fractional wire token rather than the producer's formatter.
+            val raw = valid.toString().replace("\"version\":1", "\"version\":1.0")
+            assertTrue(raw.contains("\"version\":1.0"))
+            target.writeText(raw)
+            assertNull(LocalCrashReport.read(context, now))
+            target.writeText(valid.toString())
+            assertNotNull(LocalCrashReport.read(context, now))
+        } finally {
+            LocalCrashReport.clear(context)
+        }
+    }
+
     @Test fun frameCountAndCorruptMetadataCannotOverflowDiagnostics() {
         val cause = RuntimeException("secret").apply {
             stackTrace = Array(20) { index ->

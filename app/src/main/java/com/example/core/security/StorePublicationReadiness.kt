@@ -14,7 +14,9 @@ object StorePublicationReadiness {
         RETENTION_AND_DELETION, DATA_SAFETY_DECLARATION, PERMISSIONS_REVIEW,
         OPTIONAL_FCM_CALL_ALERTS, AUDIO_VIDEO_MEDIA_DISCLOSURE,
         DATABASE_ENCRYPTION_CLAIMS, RATCHET_CLAIMS,
-        ACCOUNT_DELETION_FLOW, PUBLIC_ACCOUNT_DELETION_REQUEST
+        ACCOUNT_DELETION_FLOW, PUBLIC_ACCOUNT_DELETION_REQUEST,
+        SERVER_ERASURE_AUTHORIZATION, SERVER_RELATION_PURGE,
+        PUBLIC_DELETION_REQUEST_REACHABILITY
     }
     data class Evidence(
         val ownerVerified: Boolean = false,
@@ -28,7 +30,11 @@ object StorePublicationReadiness {
         val databaseEncryptionClaimsReviewed: Boolean = false,
         val ratchetClaimsReviewed: Boolean = false,
         val accountDeletionFlowVerified: Boolean = false,
-        val accountDeletionRequestUrl: String = ""
+        val accountDeletionRequestUrl: String = "",
+        // A local deletion button and HTTPS URL are not remote erasure proof.
+        val serverErasureAuthorizationVerified: Boolean = false,
+        val serverRelationPurgeVerified: Boolean = false,
+        val publicDeletionRequestReachableVerified: Boolean = false
     )
     sealed class Decision {
         data class Blocked(val missing: Set<Requirement>) : Decision()
@@ -101,6 +107,12 @@ object StorePublicationReadiness {
             missing += Requirement.ACCOUNT_DELETION_FLOW
         if (!hasPublicHttpsPolicy(evidence.accountDeletionRequestUrl))
             missing += Requirement.PUBLIC_ACCOUNT_DELETION_REQUEST
+        if (!evidence.serverErasureAuthorizationVerified)
+            missing += Requirement.SERVER_ERASURE_AUTHORIZATION
+        if (!evidence.serverRelationPurgeVerified)
+            missing += Requirement.SERVER_RELATION_PURGE
+        if (!evidence.publicDeletionRequestReachableVerified)
+            missing += Requirement.PUBLIC_DELETION_REQUEST_REACHABILITY
         return if (missing.isEmpty()) Decision.HumanLegalReviewRequired
             else Decision.Blocked(missing)
     }

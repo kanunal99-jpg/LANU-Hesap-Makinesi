@@ -26,6 +26,17 @@ for name in lanu-stable.jks store-password key-password; do
     exit 1
   }
 done
+# PKCS12/JKS signing key and store passwords may legitimately differ.
+# Do NOT compare the two secrets for equality: preserving both original
+# credential files is necessary for an off-device restore. Validate ownership
+# instead, and rely on a separate isolated signing challenge for proof that
+# recovered credentials can actually sign with the expected certificate.
+for name in lanu-stable.jks store-password key-password; do
+  [[ -O "$sign_dir/$name" ]] || {
+    echo 'Signing recovery file is not owned by this user; refusing backup.' >&2
+    exit 1
+  }
+done
 [[ -d "$HOME/.lanu" && ! -L "$HOME/.lanu" ]] || {
   echo 'Expected private ~/.lanu directory.' >&2
   exit 1
