@@ -39,6 +39,43 @@ class CallWakeNotificationTest {
         CallWakePolicy.privateAreaVisible = false
     }
 
+    @Test fun olderAndroidUsesCompatibleCallForegroundServiceOverload() {
+        for (api in 23..29) assertFalse(
+            com.example.core.calls.CallForegroundService.useTypedMediaForegroundService(api))
+        for (api in 30..36) assertTrue(
+            com.example.core.calls.CallForegroundService.useTypedMediaForegroundService(api))
+    }
+
+    @Test fun revokedCallConsentCannotReopenInactiveCallUi() {
+        assertFalse(CallWakeTapPolicy.mayOpenCallUi(false, false))
+        assertTrue(CallWakeTapPolicy.mayOpenCallUi(true, false))
+        assertTrue(CallWakeTapPolicy.mayOpenCallUi(false, true))
+    }
+
+    @Test fun notificationAnswerMatchesOnlyItsFreshInvitation() {
+        val now = 1_710_000_000_000L
+        assertTrue(CallWakeTapPolicy.matchesVerifiedInvite(now - 1000, now - 10_000, now))
+        assertFalse(CallWakeTapPolicy.matchesVerifiedInvite(now, now - 30_001, now))
+        assertFalse(CallWakeTapPolicy.matchesVerifiedInvite(now - 66_000, now - 60_000, now))
+        assertFalse(CallWakeTapPolicy.matchesVerifiedInvite(now, 0, now))
+    }
+
+    @Test fun callOnlyScreenAndForegroundServiceAreNotExported() {
+        val pm = context.packageManager
+        val activity = pm.getActivityInfo(android.content.ComponentName(context,
+            com.example.IncomingCallActivity::class.java), 0)
+        val service = pm.getServiceInfo(android.content.ComponentName(context,
+            com.example.core.calls.CallForegroundService::class.java), 0)
+        assertFalse(activity.exported)
+        assertFalse(service.exported)
+    }
+
+    @Test fun answerIntentIsSeparateFromPrivateEntryAndHasNoCallerIdentity() {
+        assertFalse(CallWakeTapPolicy.requiresFreshEntry(CallWakeTapPolicy.ANSWER))
+        assertTrue(CallWakeTapPolicy.ANSWER.startsWith(context.packageName))
+        assertEquals("lanu_wake_at", CallWakeTapPolicy.EXTRA_WAKE_AT)
+    }
+
     @Test fun notificationTapIsReentryOnlyAndNeverAChatDeepLink() {
         assertTrue(CallWakeTapPolicy.requiresFreshEntry(CallWakeTapPolicy.ACTION))
         assertFalse(CallWakeTapPolicy.requiresFreshEntry(null))
