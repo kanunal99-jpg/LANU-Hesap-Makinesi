@@ -77,6 +77,14 @@ class PeerMessageSizeContractTest {
             )
             fail("An untrusted substitution must not be accepted for decryption")
         } catch (_: IllegalArgumentException) { }
+        try {
+            PeerMessageCrypto.encrypt(sender, receiver.id, "A".repeat(4096), id, "x")
+            fail("Oversized untrusted peer public key must be bounded")
+        } catch (_: IllegalArgumentException) { }
+        try {
+            PeerMessageCrypto.encrypt(sender, "untrusted", receiver.publicKey, id, "x")
+            fail("Malformed peer identifier must fail before key agreement")
+        } catch (_: IllegalArgumentException) { }
         // Neither a failed send nor a failed receive rotates or replaces
         // the existing identity; the original peer still decrypts as before.
         assertEquals("güvenli", PeerMessageCrypto.decrypt(
