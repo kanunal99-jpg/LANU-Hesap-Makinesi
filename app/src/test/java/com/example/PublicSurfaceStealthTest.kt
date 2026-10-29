@@ -8,6 +8,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.core.calls.CallWakeNotification
 import com.example.core.messaging.MessageWakeNotification
 import com.example.core.notifications.PublicNotificationText
+import com.example.core.notifications.PublicNotificationChannelSanitizer
 import com.example.features.update.PublicUpdateText
 import org.junit.Assert.*
 import org.junit.Test
@@ -64,6 +65,35 @@ class PublicSurfaceStealthTest {
             assertGeneric(channel.description)
             assertEquals(Notification.VISIBILITY_SECRET, channel.lockscreenVisibility)
         }
+    }
+
+    @Test fun startupNeutralizesAllExistingOldChannelsWithoutCreatingAnotherOne() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val ids = listOf(
+            "lanu_private_calls_v1",
+            CallWakeNotification.CHANNEL_ID,
+            MessageWakeNotification.CHANNEL_ID
+        )
+        // Simulate an upgrade from a build that exposed private labels.
+        ids.forEachIndexed { index, id ->
+            manager.createNotificationChannel(
+                NotificationChannel(id, "Gizli mesaj ve arama bilgileri",
+                    if (index == 0) NotificationManager.IMPORTANCE_LOW
+                    else NotificationManager.IMPORTANCE_DEFAULT)
+            )
+        }
+        val before = manager.notificationChannels.map { it.id }.toSet()
+        PublicNotificationChannelSanitizer.sanitizeExisting(context)
+        val after = manager.notificationChannels.map { it.id }.toSet()
+        assertEquals("Do not create new notification categories during startup", before, after)
+        for (id in ids) {
+            val channel = manager.getNotificationChannel(id)
+            assertGeneric(channel.name.toString())
+            assertGeneric(channel.description)
+        }
+        assertEquals(NotificationManager.IMPORTANCE_LOW,
+            manager.getNotificationChannel(ids.first()).importance)
     }
 
     @Test fun previouslyVisibleCallChannelNameIsNeutralizedWithoutResettingMute() {
