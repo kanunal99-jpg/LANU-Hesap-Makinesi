@@ -167,6 +167,11 @@ fi
                        "isConsistentIdentity", "getAllHistory", "getAllCallLogs",
                        "getMessage", "getContactByPhone", "getConversationById"):
             self.assertIn(marker, source)
+        self.assertIn("EncryptedMessagingIdentityStore(context, null)", source)
+        self.assertNotIn("EncryptedMessagingIdentityStore(context)", source)
+        for checkpoint in ("prefs-empty", "identity-store-created", "identity-store-empty"):
+            self.assertIn(f'checkpoint("{checkpoint}")', source)
+            self.assertIn(checkpoint, (ROOT / "scripts/ci_ota_upgrade_acceptance.sh").read_text())
         self.assertIn("confirmPhase(\"seed\")", source)
         self.assertIn("confirmPhase(\"verify\")", source)
         self.assertNotIn("deleteDatabase(", source)
