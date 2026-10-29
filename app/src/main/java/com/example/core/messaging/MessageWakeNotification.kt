@@ -11,6 +11,7 @@ import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
+import com.example.core.notifications.PublicNotificationText
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -171,8 +172,8 @@ object MessageWakeNotification {
     fun ensureChannel(manager: NotificationManager) {
         if (Build.VERSION.SDK_INT < 26) return
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "LANU bildirimleri", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "İsteğe bağlı, içeriği gizli LANU bildirimleri"
+            NotificationChannel(CHANNEL_ID, PublicNotificationText.CHANNEL_NAME, NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = PublicNotificationText.CHANNEL_DESCRIPTION
                 lockscreenVisibility = Notification.VISIBILITY_SECRET
                 setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
                     AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION)
@@ -208,7 +209,7 @@ object MessageWakeNotification {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                 val notification = NotificationCompat.Builder(context, CHANNEL_ID)
                     .setSmallIcon(R.drawable.ic_lanu_monochrome)
-                    .setContentTitle("LANU Hesap Makinesi")
+                    .setContentTitle(PublicNotificationText.TITLE)
                     // Deliberately no content text, person, style, count or preview.
                     .setContentIntent(tap)
                     .setVisibility(NotificationCompat.VISIBILITY_SECRET)
