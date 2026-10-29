@@ -52,6 +52,13 @@ class RoomActualOtaUpgradeTest {
         assertEquals("Wrong installed APK; upgrade experiment is invalid", expected, actual)
     }
 
+    // Fixed, non-sensitive progress markers; the shell harness whitelists them.
+    // No PIN, key material, database content or stack trace enters public logs.
+    private fun checkpoint(stage: String) {
+        InstrumentationRegistry.getInstrumentation().sendStatus(0,
+            Bundle().apply { putString("lanu_ota_checkpoint", stage) })
+    }
+
     private fun confirmPhase(phase: String) {
         // An AndroidJUnitRunner assumption/skip can still end in "OK (1 test)".
         // Emit an explicit instrumentation-status marker ONLY after every data
@@ -73,9 +80,11 @@ class RoomActualOtaUpgradeTest {
     @Test
     fun seedPreviouslyInstalledStableRelease() = runBlocking {
         gate("seed")
+        checkpoint("gate")
         assertNull("Never overwrite a previous probe", sentinels.getString("probe", null))
         val identityStore = EncryptedMessagingIdentityStore(context)
         assertNull("Seed only a fresh isolated emulator", identityStore.read())
+        checkpoint("fresh-identity")
         val identity = UserCodes.create()
         identityStore.save(identity)
         val pin = PinCredentialCodec.create("739188")
@@ -83,7 +92,9 @@ class RoomActualOtaUpgradeTest {
             identity, identity.id, identity.publicKey, messageId,
             "OTA encrypted test message"
         )
+        checkpoint("identity-crypto")
         val database = AppDatabase.getDatabase(context)
+        checkpoint("database-open")
         assertNull(database.settingsDao().getSettingValue("pin_hash"))
         database.run {
             settingsDao().insertSetting(SettingsEntity("pin_hash", pin))
@@ -108,6 +119,7 @@ class RoomActualOtaUpgradeTest {
                 isVideo = false, durationSeconds = 5, isOutgoing = true, timestamp = 45L
             ))
         }
+        checkpoint("seven-tables-written")
         val persisted = sentinels.edit()
             .putString("probe", "prepared")
             .putString("identity_digest", sha256(identity.privateKey + identity.publicKey + identity.id + identity.code))
@@ -115,8 +127,10 @@ class RoomActualOtaUpgradeTest {
             .putString("cipher_digest", sha256(cipher))
             .commit()
         assertTrue("The pre-update sentinel must be durably saved", persisted)
+        checkpoint("sentinel-written")
         assertEquals(messageId, database.messageDao().getPendingMessages(
             now = System.currentTimeMillis(), limit = 200).single().id)
+        checkpoint("pending-verified")
         confirmPhase("seed")
     }
 
