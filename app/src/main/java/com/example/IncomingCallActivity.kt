@@ -15,6 +15,7 @@ import com.example.core.calls.CallWakePreferences
 import com.example.core.calls.CallWakeTapPolicy
 import com.example.features.communication.NativeCallPhase
 import com.example.features.communication.NativeCallHost
+import com.example.features.communication.CallReturnPrivacyPolicy
 import com.example.ui.theme.MyApplicationTheme
 
 /**
@@ -34,12 +35,19 @@ class IncomingCallActivity : ComponentActivity() {
         if (!mayOpenCallUi()) { finish(); return }
         readWakeIntent(intent)
         setContent {
+            val state by (application as LanuApplication).callModel.state.collectAsState()
+            LaunchedEffect(state.phase, state.callId) {
+                // A call-only Activity may not navigate or expose a private back stack.
+                // Closing it leaves the calculator/lock owner responsible for entry.
+                if (CallReturnPrivacyPolicy.requiresLockedCalculator(state.phase, state.callId))
+                    finish()
+            }
             MyApplicationTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     Column(Modifier.fillMaxSize().padding(24.dp)) {
                         Text("LANU gelen arama", style = MaterialTheme.typography.headlineMedium)
                         Spacer(Modifier.height(12.dp))
-                        Text("Güvenli arama daveti doğrulanıyor. Gizli alan kapalı kalır.")
+                        Text("Arama daveti doğrulanıyor.")
                         Spacer(Modifier.height(20.dp))
                         OutlinedButton(onClick = { finish() }) { Text("Kapat") }
                     }
