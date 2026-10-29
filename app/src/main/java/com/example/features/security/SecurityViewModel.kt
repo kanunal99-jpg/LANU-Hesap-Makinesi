@@ -155,14 +155,29 @@ class SecurityViewModel(
      * blindly unlock based on a cached UI switch or the entry code itself.
      */
     fun enterFromCalculator(onOpen: () -> Unit, onPinRequired: () -> Unit) {
+        // A lock/screen-off can happen while the Room preference is suspended.
+        // Never let an earlier asynchronous "2011." request reopen a newly
+        // locked private session, even when optional entry PIN is disabled.
+        val entryGeneration = authenticationGeneration
         viewModelScope.launch {
+            if (entryGeneration != authenticationGeneration) return@launch
             if (!_isReady.value) {
                 _errorMessage.value = "Güvenlik ayarları hazırlanıyor. Lütfen yeniden deneyin."
                 return@launch
             }
             try {
-                if (repository.tryEnterWithoutPin()) {
-                    _hasPin.value = repository.hasPin()
+                val entryAllowed = repository.tryEnterWithoutPin()
+                if (entryGeneration != authenticationGeneration) {
+                    repository.lock()
+                    return@launch
+                }
+                if (entryAllowed) {
+                    val hasSavedPin = repository.hasPin()
+                    if (entryGeneration != authenticationGeneration) {
+                        repository.lock()
+                        return@launch
+                    }
+                    _hasPin.value = hasSavedPin
                     _entryPinEnabled.value = false
                     eventTracker.logEvent("PRIVATE_ENTRY_OPTIONAL", "PIN kapalı, özel alana giriş")
                     onOpen()
@@ -173,6 +188,7 @@ class SecurityViewModel(
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 repository.lock()
+                if (entryGeneration != authenticationGeneration) return@launch
                 _entryPinEnabled.value = true
                 _errorMessage.value = "Güvenlik tercihi doğrulanamadı. PIN ile devam edin."
                 onPinRequired()
