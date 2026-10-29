@@ -492,6 +492,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                             callPhase.phase, callPhase.callId)) {
                         pendingCall = null
                         returnToCalculator()
+                        // Do not leave the completed-call Dialog over the decoy
+                        // calculator. Dismissing does not open any private UI.
+                        nativeCallViewModel.dismiss()
                     }
                 }
                 if (inPrivateArea || callOnlyConsent || activeCall) {
