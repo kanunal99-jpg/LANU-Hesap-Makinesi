@@ -30,6 +30,17 @@ def forbidden_public_copy(copy: str, *, include_entry_code: bool = False) -> boo
     return bool((README_HINT if include_entry_code else HINT).search(copy))
 
 
+def update_route_has_safe_system_insets(route: str) -> bool:
+    """Regression gate for #84: status/gesture bars cannot cover the update back action.
+
+    This is source-level proof of using Compose safeDrawing, NOT a physical A55
+    screenshot or a substitute for Android 16/200% font acceptance.
+    """
+    parent = route.find("windowInsetsPadding(WindowInsets.safeDrawing)")
+    back = route.find('Text("← Hesap makinesine dön")')
+    return parent >= 0 and back > parent and "UpdateCheckScreen(" in route[back:]
+
+
 def main() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     if forbidden_public_copy(readme, include_entry_code=True):
@@ -62,6 +73,9 @@ def main() -> None:
     for value in kotlin_visible_strings(public_update_route):
         if forbidden_public_copy(value):
             raise SystemExit("Private feature hint in public navigation route")
+
+    if not update_route_has_safe_system_insets(public_update_route):
+        raise SystemExit("Update navigation must keep its back action inside safeDrawing insets")
 
     workflow = (ROOT / ".github/workflows/android.yml").read_text(
         encoding="utf-8"

@@ -106,6 +106,31 @@ class CallWakeNotificationTest {
         assertFalse(CallWakePreferences.isEnabled(context))
     }
 
+    @Test fun callWakeTimestampsCannotOverflowAtLongBounds() {
+        fun hint(at: Long) = mapOf(
+            "type" to CallWakePolicy.TYPE, "at" to at.toString()
+        )
+        val upper = Long.MAX_VALUE
+        assertTrue(CallWakePolicy.eligible(hint(upper), upper))
+        assertTrue(CallWakePolicy.eligible(hint(upper), upper - 15_000L))
+        assertFalse(CallWakePolicy.eligible(hint(upper), upper - 15_001L))
+        assertTrue(CallWakePolicy.eligible(hint(upper - 65_000L), upper))
+        assertFalse(CallWakePolicy.eligible(hint(upper - 65_001L), upper))
+        assertFalse(CallWakePolicy.eligible(hint(upper), 1L))
+        assertFalse(CallWakePolicy.eligible(hint(1L), upper))
+        assertFalse(CallWakePolicy.eligible(hint(1L), 0L))
+    }
+
+    @Test fun verifiedCallInviteTimestampRemainsBoundedNearLongMaximum() {
+        val at = Long.MAX_VALUE - 1L
+        assertTrue(CallWakeTapPolicy.matchesVerifiedInvite(at, at, at))
+        assertTrue(CallWakeTapPolicy.matchesVerifiedInvite(at, at - 30_000L, at))
+        assertFalse(CallWakeTapPolicy.matchesVerifiedInvite(at, at - 30_001L, at))
+        assertFalse(CallWakeTapPolicy.matchesVerifiedInvite(at, 1L, at))
+        assertFalse(CallWakeTapPolicy.matchesVerifiedInvite(at, at, 1L))
+        assertFalse(CallWakeTapPolicy.matchesVerifiedInvite(0L, at, at))
+    }
+
     @Test fun arbitraryOrExpiredChatAndMediaEventsNeverWake() {
         val now = 1710000000000L
         assertFalse(CallWakePolicy.eligible(mapOf("type" to "chat", "at" to now.toString()), now))

@@ -225,7 +225,12 @@ object CallWakePolicy {
     fun eligible(data: Map<String, String>, now: Long): Boolean {
         if (data.size != 2 || data["type"] != TYPE) return false
         val created = data["at"]?.toLongOrNull() ?: return false
-        return created > 0 && created in (now - 65_000L)..(now + 15_000L)
+        // Both values must be positive. Signed subtraction between two
+        // positive Long timestamps cannot overflow; adding a grace window to
+        // Long.MAX_VALUE could wrap and accidentally reject a fresh wake.
+        return created > 0L && now > 0L &&
+            if (created <= now) now - created <= 65_000L
+            else created - now <= 15_000L
     }
 }
 
@@ -237,7 +242,9 @@ object CallWakeTapPolicy {
     fun requiresFreshEntry(action: String?): Boolean = action == ACTION
     fun mayOpenCallUi(userConsented: Boolean, liveCall: Boolean): Boolean = userConsented || liveCall
     fun matchesVerifiedInvite(hintAt: Long, inviteAt: Long, now: Long): Boolean =
-        hintAt > 0L && inviteAt > 0L && inviteAt in (hintAt - 30_000L)..(hintAt + 30_000L) &&
+        hintAt > 0L && inviteAt > 0L &&
+            (if (inviteAt <= hintAt) hintAt - inviteAt <= 30_000L
+             else inviteAt - hintAt <= 30_000L) &&
             CallWakePolicy.eligible(mapOf("type" to CallWakePolicy.TYPE, "at" to hintAt.toString()), now)
 
 }
