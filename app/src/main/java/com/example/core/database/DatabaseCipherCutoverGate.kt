@@ -50,11 +50,17 @@ object DatabaseCipherCutoverGate {
             snapshot.databaseBytes, snapshot.walBytes,
             snapshot.sharedMemoryBytes, snapshot.rollbackJournalBytes
         )
+        // A copyable Snapshot is not authority. A forged WAL checkpoint flag
+        // must never turn an incomplete Room checkpoint into shadow approval.
+        val hasCompanions = snapshot.walBytes > 0L ||
+            snapshot.sharedMemoryBytes > 0L ||
+            snapshot.rollbackJournalBytes > 0L
         if (snapshot.databaseBytes < 512L ||
             listOf(snapshot.walBytes, snapshot.sharedMemoryBytes,
                 snapshot.rollbackJournalBytes).any { it < 0L } ||
             required == Long.MAX_VALUE ||
-            snapshot.conservativeRequiredBytes != required)
+            snapshot.conservativeRequiredBytes != required ||
+            snapshot.needsWalCheckpoint != hasCompanions)
             return Decision.Blocked(BlockReason.INVALID_SNAPSHOT_METADATA)
         if (!snapshot.sufficientDiskSpace ||
             snapshot.availableBytes < snapshot.conservativeRequiredBytes)
