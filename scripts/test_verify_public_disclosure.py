@@ -37,6 +37,26 @@ class PublicDisclosureTest(unittest.TestCase):
         # Preserve the existing calculator code-based entry mechanism while
         # preventing it from being advertised in the public README.
 
+    def test_update_back_button_requires_safe_system_insets(self):
+        safe = (
+            "Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {"
+            'TextButton(onClick = { navigateBack() }) { Text("← Hesap makinesine dön") }'
+            "UpdateCheckScreen(modifier = Modifier.weight(1f))"
+            "}"
+        )
+        self.assertTrue(gate.update_route_has_safe_system_insets(safe))
+        self.assertFalse(gate.update_route_has_safe_system_insets(
+            safe.replace("windowInsetsPadding(WindowInsets.safeDrawing)", "padding(0.dp)")
+        ))
+        self.assertFalse(gate.update_route_has_safe_system_insets(
+            safe.replace("windowInsetsPadding(WindowInsets.safeDrawing)", "padding(0.dp)") +
+            " // windowInsetsPadding(WindowInsets.safeDrawing)"
+        ))
+        self.assertFalse(gate.update_route_has_safe_system_insets(
+            'Text("← Hesap makinesine dön")' +
+            "Column(Modifier.windowInsetsPadding(WindowInsets.safeDrawing)) { UpdateCheckScreen() }"
+        ))
+
     def test_comments_are_not_treated_as_on_screen_labels(self):
         src = (
             '// This is the "gizli alan" source comment\n'
