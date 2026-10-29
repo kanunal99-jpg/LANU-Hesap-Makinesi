@@ -175,15 +175,16 @@ class RoomActualOtaUpgradeTest {
             settingsDao().insertSetting(SettingsEntity("entry_pin_enabled", "true"))
             settingsDao().insertSetting(SettingsEntity("pin_attempt_state", "2:0"))
             settingsDao().insertSetting(SettingsEntity("lanu_ota_probe_private_marker", "KEEP_MARKER"))
-            userProfileDao().insertProfile(UserProfileEntity(identity.code, "OTA Owner", registeredAt = 41L))
-            contactDao().insertContact(ContactEntity("LANU-OTA-PEER", "OTA Contact", isBlocked = true))
+            userProfileDao().insertProfile(UserProfileEntity(identity.code, "OTA Owner", avatarUrl = null, registeredAt = 41L))
+            contactDao().insertContact(ContactEntity("LANU-OTA-PEER", "OTA Contact", isBlocked = true,
+                avatarUrl = null, statusText = "Karşılıklı kayıt bekleniyor"))
             conversationDao().insertConversation(ConversationEntity(
                 conversationId, "LANU-OTA-PEER", "OTA Contact", unreadCount = 4,
-                lastMessageText = "Şifreli mesaj", lastMessageTime = 42L
+                lastMessageText = "Şifreli mesaj", lastMessageTime = 42L, isGroup = false
             ))
             messageDao().insertMessage(MessageEntity(
                 messageId, conversationId, identity.id, "OTA Owner",
-                cipher, timestamp = 43L, status = "PENDING"
+                cipher, mediaUrl = null, timestamp = 43L, status = "PENDING", reaction = null
             ))
             calculationHistoryDao().insertHistory(CalculationHistoryEntity(
                 id = 44001L, expression = "40+2", result = "42", timestamp = 44L
