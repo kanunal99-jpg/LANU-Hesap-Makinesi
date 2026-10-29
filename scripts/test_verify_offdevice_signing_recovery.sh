@@ -110,7 +110,7 @@ printf '%s' "$TEST_KEY_PASSWORD" > "$tmp/home/signing/key-password"
 jks_fingerprint="$(keytool -exportcert -rfc -alias lanu \
   -keystore "$tmp/home/signing/lanu-stable.jks" -storepass:env TEST_STORE_PASSWORD |
   openssl x509 -noout -fingerprint -sha256 | cut -d= -f2 |
-  tr -d ':\\r\\n' | tr '[:upper:]' '[:lower:]')"
+  tr -d ':\r\n' | tr '[:upper:]' '[:lower:]')"
 [[ "$jks_fingerprint" =~ ^[0-9a-f]{64}$ ]] || { echo 'Invalid distinct-password dummy certificate.' >&2; exit 1; }
 sed -i "s/certificate_sha256=$fingerprint/certificate_sha256=$jks_fingerprint/" "$tmp/trusted.signer.txt"
 tar -C "$tmp/home" -czf - \
