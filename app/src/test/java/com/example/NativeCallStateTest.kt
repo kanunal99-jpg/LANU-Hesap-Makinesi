@@ -193,40 +193,47 @@ class NativeCallStateTest {
     private fun driveRelayRetries(offerId: String, expected: Int) {
         require(expected in 1..CallSignalRetryPolicy.MAX_ATTEMPTS)
         val transient = RelayException(503, "test missing HTTP ACK")
+        fun attempts() = outgoingSendAttempts.count { it.first == offerId }
+        fun replies() = missingAckRepliesCompleted.count { it == offerId }
         for (attempt in 1..expected) {
             val deadlineNanos = System.nanoTime() + 10_000_000_000L
-            // Wait for the actual relay callback to be recorded before
-            // scheduling the next virtual retry. A bounded real deadline
-            // catches deadlock instead of masking a missing send.
-            while ((outgoingSendAttempts.count { it.first == offerId } < attempt ||
-                    missingAckRepliesCompleted.count { it == offerId } < attempt) &&
+            // Never advance virtual time while the current IO relay request
+            // is still executing: that could expire the foreground call.
+            while ((attempts() < attempt || replies() < attempt) &&
                 System.nanoTime() < deadlineNanos) {
-                // Recording the invocation occurs *before* E2EE decryption
-                // and the missing ACK response. Waiting only for invocation
-                // races the real retry coroutine: a virtual time jump can
-                // happen before the corresponding backoff is even scheduled.
-                mainTestDispatcher.scheduler.runCurrent()
-                Thread.sleep(25L)
-            }
-            assertTrue("Encrypted relay send attempt $attempt was not observed",
-                outgoingSendAttempts.count { it.first == offerId } >= attempt)
-            assertTrue("The missing ACK for relay attempt $attempt was not returned",
-                missingAckRepliesCompleted.count { it == offerId } >= attempt)
-            if (attempt < expected) {
-                // The fake HTTP response has actually completed. Drain the
-                // pending continuation before advancing only the real
-                // retry-policy backoff, keeping the 25s call deadline intact.
                 mainTestDispatcher.scheduler.runCurrent()
                 Thread.sleep(10L)
-                mainTestDispatcher.scheduler.runCurrent()
+            }
+            assertTrue("Encrypted relay send attempt $attempt was not observed", attempts() >= attempt)
+            assertTrue("The missing ACK for relay attempt $attempt was not returned", replies() >= attempt)
+            if (attempt < expected) {
                 val backoff = CallSignalRetryPolicy.delayAfter(transient, attempt)
                     ?: error("Unexpected retry policy termination at attempt $attempt")
-                mainTestDispatcher.scheduler.advanceTimeBy(backoff + 1L)
+                // The fake relay records its ACK loss BEFORE returning from IO.
+                // A single advanceTimeBy(backoff) can race the repository's
+                // subsequent catch/delay scheduling, so its timer may be set
+                // AFTER that jump. Step virtual time until the NEXT actual
+                // send is observed; a bounded 2s allowance handles dispatch
+                // latency without hiding the real 25s call deadline.
+                val next = attempt + 1
+                val nextDeadlineNanos = System.nanoTime() + 10_000_000_000L
+                var virtualAdvanced = 0L
+                val maxVirtualAdvance = backoff + 2_000L
+                while (attempts() < next &&
+                    System.nanoTime() < nextDeadlineNanos &&
+                    virtualAdvanced < maxVirtualAdvance) {
+                    mainTestDispatcher.scheduler.runCurrent()
+                    Thread.sleep(10L)
+                    mainTestDispatcher.scheduler.advanceTimeBy(25L)
+                    virtualAdvanced += 25L
+                }
                 mainTestDispatcher.scheduler.runCurrent()
+                assertTrue("Encrypted relay retry $next did not start within bounded backoff",
+                    attempts() >= next)
             }
         }
         assertEquals("All expected encrypted signal attempts must actually occur",
-            expected, outgoingSendAttempts.count { it.first == offerId })
+            expected, attempts())
         repeat(8) {
             mainTestDispatcher.scheduler.runCurrent()
             Thread.sleep(10L)
