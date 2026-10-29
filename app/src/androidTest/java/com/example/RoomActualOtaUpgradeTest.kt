@@ -86,7 +86,26 @@ class RoomActualOtaUpgradeTest {
         // The published v828 target is R8-minified. Separately compiled tests
         // must not link Kotlin's synthetic default-argument constructor, which
         // is not a guaranteed ABI of the previously published APK.
-        val identityStore = EncryptedMessagingIdentityStore(context, null)
+        val identityStore = try {
+            // The published R8 APK may have a different constructor ABI than
+            // the current test compilation. Resolve only a known safe Context
+            // constructor at runtime; never weaken the OTA assertions.
+            val constructors = EncryptedMessagingIdentityStore::class.java.declaredConstructors
+            val ctor = constructors.singleOrNull { c ->
+                c.parameterTypes.size == 2 &&
+                    c.parameterTypes[0] == Context::class.java &&
+                    !c.parameterTypes[1].isPrimitive
+            } ?: constructors.singleOrNull { c ->
+                c.parameterTypes.size == 1 &&
+                    c.parameterTypes[0] == Context::class.java
+            } ?: error("Published identity-store constructor ABI unsupported")
+            @Suppress("UNCHECKED_CAST")
+            (if (ctor.parameterTypes.size == 2) ctor.newInstance(context, null)
+             else ctor.newInstance(context)) as EncryptedMessagingIdentityStore
+        } catch (failure: ReflectiveOperationException) {
+            // No stack trace or private state enters CI logs.
+            throw IllegalStateException("Published identity-store ABI probe failed", failure)
+        }
         checkpoint("identity-store-created")
         assertNull("Seed only a fresh isolated emulator", identityStore.read())
         checkpoint("identity-store-empty")
