@@ -239,6 +239,29 @@ class CallCommunicationDeviceConfirmationPolicyTest {
         ))
     }
 
+    @Test fun oemPermissionAndHotplugMustInvalidatePreviouslyConfirmedBluetooth() {
+        val selected = Route.BLUETOOTH_HEADSET
+        val inventory = mapOf(7 to selected, 8 to Route.SPEAKER)
+        assertTrue(Policy.confirmedPreferredPendingRoute(
+            7, 7, selected, inventory, true, listOf(selected, Route.SPEAKER)
+        ))
+        // The identical callback must stop proving ROUTED immediately when
+        // Android permission is revoked or a wired headset has priority.
+        assertFalse(Policy.confirmedPreferredPendingRoute(
+            7, 7, selected, inventory, false, listOf(selected, Route.SPEAKER)
+        ))
+        assertFalse(Policy.confirmedPreferredPendingRoute(
+            7, 7, selected, inventory, true, listOf(Route.WIRED_HEADSET, selected)
+        ))
+        assertFalse(Policy.confirmedCurrentCallbackRoute(
+            7, 7, null, selected, inventory, true
+        ))
+        assertFalse(Policy.reusableActiveRoute(
+            7, selected, mapOf(7 to Route.SPEAKER), true, emptySet(),
+            listOf(selected, Route.SPEAKER)
+        ))
+    }
+
     @Test fun lateCallbackFromClosedOrEarlierCallIsIgnored() {
         assertTrue(Policy.validCallCallback(true, 4L, 4L))
         assertFalse(Policy.validCallCallback(false, 4L, 4L))
