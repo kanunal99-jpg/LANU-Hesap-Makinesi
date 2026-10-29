@@ -167,7 +167,11 @@ fi
                        "isConsistentIdentity", "getAllHistory", "getAllCallLogs",
                        "getMessage", "getContactByPhone", "getConversationById"):
             self.assertIn(marker, source)
-        self.assertIn("EncryptedMessagingIdentityStore(context, null)", source)
+        self.assertIn("openCompatibleIdentityStore()", source)
+        self.assertIn("recoverIdentityForProof(", source)
+        self.assertIn("verifyFixtureKeyPair(", source)
+        self.assertIn("decryptLegacyCompatibleCipher(", source)
+        self.assertNotIn("EncryptedMessagingIdentityStore(context, null)", source)
         self.assertNotIn("EncryptedMessagingIdentityStore(context)", source)
         # Published v828 R8 inlines UserCodes.create(), so OTA seed must not link it.
         self.assertIn("makeLegacyCompatibleIdentity()", source)
