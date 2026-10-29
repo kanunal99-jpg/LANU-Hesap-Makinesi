@@ -71,7 +71,7 @@ emit_safe_probe_diagnostics() {
       "INSTRUMENTATION_STATUS: lanu_ota_checkpoint="*)
         checkpoint="${line#*=}"
         case "$checkpoint" in
-          gate|prefs-empty|identity-store-created|identity-store-empty|fresh-identity|identity-generated|identity-saved|identity-crypto|database-open|seven-tables-written|sentinel-written|pending-verified)
+          gate|prefs-empty|identity-store-created|identity-store-empty|fresh-identity|identity-generated|identity-saved|pin-generated|cipher-generated|identity-crypto|database-open|seven-tables-written|sentinel-written|pending-verified)
             echo "OTA $phase checkpoint: $checkpoint" ;;
         esac ;;
       "INSTRUMENTATION_STATUS_CODE: -1"|"INSTRUMENTATION_STATUS_CODE: -2"|"INSTRUMENTATION_CODE: 0"|"INSTRUMENTATION_CODE: -1")
