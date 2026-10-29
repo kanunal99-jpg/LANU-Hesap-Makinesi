@@ -44,6 +44,43 @@ verify || { echo 'Valid generated-key recovery must pass.' >&2; exit 1; }
 grep -q '^PASS: encrypted backup restored into an isolated directory' "$tmp/result.log" || {
   echo 'Missing independent cert match confirmation.' >&2; exit 1;
 }
+# Simulate a removable/cloud-synced source archive changing AFTER the
+# recovery tool has privately snapshotted it, but BEFORE its first GPG read.
+# This uses a generated DUMMY signer only. A correct verifier keeps reading
+# the immutable-by-path snapshot, so a late source swap cannot change the
+# three checks or the bytes ultimately extracted.
+mkdir -p "$tmp/gpg-hook"
+cat > "$tmp/gpg-hook/gpg" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ ! -e "$LANU_GPG_HOOK_MARKER" ]]; then
+  : > "$LANU_GPG_HOOK_MARKER"
+  printf 'REPLACED_DUMMY_ARCHIVE_AFTER_SNAPSHOT' > "$LANU_GPG_HOOK_SOURCE"
+fi
+exec "$LANU_REAL_GPG" "$@"
+EOF
+chmod 700 "$tmp/gpg-hook/gpg"
+real_gpg="$(command -v gpg)"
+printf '%s\n' "$dummy_pass" |
+  script -q -e -c "env PATH=$tmp/gpg-hook:$PATH LANU_REAL_GPG=$real_gpg LANU_GPG_HOOK_MARKER=$tmp/gpg-hook/changed LANU_GPG_HOOK_SOURCE=$tmp/signing.tar.gz.gpg GNUPGHOME=$tmp/home/.gnupg bash $root/scripts/verify_offdevice_signing_recovery.sh $tmp/signing.tar.gz.gpg $tmp/trusted.signer.txt" /dev/null > "$tmp/result.log" 2>&1 || {
+    echo 'Source mutation after private snapshot must not change recovered signer.' >&2
+    exit 1
+  }
+[[ -f "$tmp/gpg-hook/changed" ]] || {
+  echo 'The simulated late source mutation was not exercised.' >&2
+  exit 1
+}
+grep -q '^PASS: encrypted backup restored into an isolated directory' "$tmp/result.log" || {
+  echo 'Recovery must use its own verified private archive snapshot.' >&2
+  exit 1
+}
+# Restore the original disposable fixture for the remaining negative tests.
+tar -C "$tmp/home" -czf - \
+  signing/lanu-stable.jks signing/store-password signing/key-password |
+  gpg --homedir "$tmp/home/.gnupg" --quiet --batch --yes --pinentry-mode loopback \
+    --no-tty --symmetric --cipher-algo AES256 --passphrase-fd 3 \
+    --output "$tmp/signing.tar.gz.gpg" 3<<<"$dummy_pass"
+
 # A different trusted release certificate MUST prevent acceptance.
 sed -i "s/certificate_sha256=$fingerprint/certificate_sha256=$(printf 'f%.0s' {1..64})/" "$tmp/trusted.signer.txt"
 if verify; then echo 'Mismatched APK certificate was accepted!' >&2; exit 1; fi
