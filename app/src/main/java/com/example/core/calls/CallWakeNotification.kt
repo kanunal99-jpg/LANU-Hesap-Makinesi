@@ -11,6 +11,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import com.example.core.notifications.PublicNotificationText
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -265,11 +266,21 @@ object CallWakeNotification {
             previous.importance < NotificationManager.IMPORTANCE_DEFAULT ||
                 (Build.VERSION.SDK_INT >= 30 && previous.hasUserSetSound() && previous.sound == null)
             )
+        // Android channel names/descriptions are visible even when every alert
+        // is dismissed. Rename legacy channels without deleting user settings.
+        if (previous != null) {
+            manager.createNotificationChannel(
+                NotificationChannel(OLD_CHANNEL_ID, PublicNotificationText.CHANNEL_NAME, previous.importance).apply {
+                    description = PublicNotificationText.CHANNEL_DESCRIPTION
+                    lockscreenVisibility = Notification.VISIBILITY_SECRET
+                }
+            )
+        }
         val incoming = NotificationChannel(
-            CHANNEL_ID, "LANU gelen sesli/görüntülü aramalar",
+            CHANNEL_ID, PublicNotificationText.CHANNEL_NAME,
             if (userMuted) NotificationManager.IMPORTANCE_LOW else NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = "Yalnız isteğe bağlı gerçek gelen sesli ve görüntülü arama uyarıları"
+            description = PublicNotificationText.CHANNEL_DESCRIPTION
             lockscreenVisibility = Notification.VISIBILITY_SECRET
             if (userMuted) {
                 setSound(null, null)
@@ -313,10 +324,9 @@ object CallWakeNotification {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Gelen arama")
-            .setContentText("LANU uygulamasını açarak kontrol edin")
+            .setContentTitle(PublicNotificationText.TITLE)
             .setContentIntent(pending)
-            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             // On Android 7.x and earlier sound is attached to the notification.
             .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))
