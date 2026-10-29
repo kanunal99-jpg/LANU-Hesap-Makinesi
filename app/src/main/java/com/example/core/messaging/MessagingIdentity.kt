@@ -137,6 +137,10 @@ object PeerMessageCrypto {
         // unrelated trusted peer ID. Peer IDs are SHA-256 of encoded public keys.
         // Keep legacy v1 ciphertext and KDF untouched; this is an admission
         // check only, not Double Ratchet or a protocol migration.
+        require(peerId.length == 64 && peerId.all { it in '0'..'9' || it in 'a'..'f' } &&
+            publicKey.length in 1..1024) {
+            "Mesajlaşma eş kimliği veya anahtar boyutu geçersiz."
+        }
         require(UserCodes.id(publicKey) == peerId) {
             "Mesajlaşma eş kimliği ve açık anahtarı uyuşmuyor."
         }
