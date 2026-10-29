@@ -55,6 +55,7 @@ import com.example.features.communication.CommunicationScreen
 import com.example.features.communication.CommunicationViewModel
 import com.example.features.communication.NativeCallViewModel
 import com.example.features.communication.NativeCallHost
+import com.example.features.communication.CallReturnPrivacyPolicy
 import com.example.core.calls.CallWakeTapPolicy
 import com.example.core.messaging.MessageWakeTapPolicy
 import com.example.features.security.SecurityScreen
@@ -407,7 +408,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         calcViewModel = ViewModelProvider(this, CalculatorViewModel.Factory(container.calculatorRepository))[CalculatorViewModel::class.java]
         securityViewModel = ViewModelProvider(this, SecurityViewModel.Factory(container.securityRepository, container.securityEventTracker))[SecurityViewModel::class.java]
         commViewModel = ViewModelProvider(this, CommunicationViewModel.Factory(container.communicationRepository))[CommunicationViewModel::class.java]
-        nativeCallViewModel = ViewModelProvider(this, NativeCallViewModel.Factory(this, container.communicationRepository))[NativeCallViewModel::class.java]
+        nativeCallViewModel = (application as LanuApplication).callModel
         // Launching via an incoming-call notification is NOT authorization.
         // Lock even a restored private back stack before Compose draws it.
         concealForPrivateWakeNotification(intent)
@@ -473,10 +474,34 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                 val isLocked by securityViewModel.isLocked.collectAsState()
 
                 val currentScreen = navigationBackstack.lastOrNull() ?: Screen.Calculator
-                if (!isLocked && isSecureScreen(currentScreen)) {
-                    NativeCallHost(nativeCallViewModel, pendingCall, onRequestConsumed = { pendingCall = null })
+                // The call host is NOT tied to the hidden-area back stack. A
+                // live authorized call continues when the calculator, PIN or
+                // private screen changes; the locked UI never reveals contacts.
+                val callPhase by nativeCallViewModel.state.collectAsState()
+                val inPrivateArea = !isLocked && isSecureScreen(currentScreen)
+                val activeCall = callPhase.phase !in setOf(
+                    com.example.features.communication.NativeCallPhase.IDLE,
+                    com.example.features.communication.NativeCallPhase.ENDED,
+                    com.example.features.communication.NativeCallPhase.FAILED)
+                val callOnlyConsent = com.example.core.calls.CallWakePreferences.isEnabled(this@MainActivity)
+                // Call authorization must NEVER authorize private-area access.
+                // After hangup/decline/failure, discard the old hidden back stack
+                // and require the normal secret entry + optional PIN again.
+                LaunchedEffect(callPhase.phase, callPhase.callId) {
+                    if (CallReturnPrivacyPolicy.requiresLockedCalculator(
+                            callPhase.phase, callPhase.callId)) {
+                        pendingCall = null
+                        returnToCalculator()
+                    }
+                }
+                if (inPrivateArea || callOnlyConsent || activeCall) {
+                    NativeCallHost(nativeCallViewModel, pendingCall,
+                        onRequestConsumed = { pendingCall = null }, revealPeerName = inPrivateArea)
                 } else {
-                    LaunchedEffect(currentScreen, isLocked) { pendingCall = null; nativeCallViewModel.deactivate() }
+                    LaunchedEffect(currentScreen, isLocked) {
+                        pendingCall = null
+                        nativeCallViewModel.releaseIdleHost()
+                    }
                 }
                 // The decoy calculator and public utilities allow screenshots.
                 // PIN and every private area ALWAYS block screenshots, independently
