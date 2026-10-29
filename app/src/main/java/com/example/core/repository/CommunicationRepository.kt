@@ -636,8 +636,12 @@ class CommunicationRepository(
             val peer = peerForConversation(message.conversationId) ?: continue
             try {
                 val result = relay.request(own, "send", JSONObject().put("messageId", message.id).put("peerId", peer.getString("id")).put("content", message.content))
+                // HTTP 200 alone does not prove durable acceptance. Require the
+                // exact authenticated relay receipt; otherwise retain ciphertext
+                // and message UUID for idempotent retry after a lost/invalid ACK.
+                val acceptedStatus = MessageSendReceiptPolicy.requireAccepted(result.optString("status"))
                 database.withTransaction {
-                    messageDao.updateMessageStatus(message.id, result.optString("status", "SENT"))
+                    messageDao.updateMessageStatus(message.id, acceptedStatus)
                     settingsDao.deleteSetting("lanu_retry_after_${message.id}")
                 }
             } catch (e: CancellationException) {
