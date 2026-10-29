@@ -195,6 +195,12 @@ class RoomActualOtaUpgradeTest {
         assumeTrue("Fixture parity is required on the debug runtime, not R8 release", isDebuggable)
         val identity = makeLegacyCompatibleIdentity()
         assertTrue(UserCodes.isConsistentIdentity(identity.record))
+        val digest = sha256(identity.privateKey + identity.publicKey +
+            identity.id + identity.code + identity.nonce)
+        val recovered = recoverIdentityForProof(identity.record, digest)
+        assertTrue("Real EC key pair must survive reflection-based read", verifyFixtureKeyPair(recovered))
+        assertEquals(identity.code, recovered.code)
+        assertEquals(identity.id, recovered.id)
         val pin = makeLegacyCompatiblePinRecord("739188")
         assertTrue("PIN fixture must match production codec", PinCredentialCodec.verify("739188", pin))
         val ciphertext = makeLegacyCompatibleCipher(identity, messageId, "OTA encrypted test message")
