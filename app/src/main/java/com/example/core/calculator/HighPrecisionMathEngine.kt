@@ -382,8 +382,11 @@ object HighPrecisionMathEngine {
         // argument before the Double seed: asin(x) = sign(x) *
         // (PI/2 - asin(sqrt(1 - x*x))). The recursive argument is < 0.75.
         if (x.abs() > BigDecimal("0.75")) {
-            val distance = BigDecimal.ONE.subtract(x.abs().multiply(x.abs(), mc), mc)
-                .max(BigDecimal.ZERO)
+            // (1 - |x|) * (1 + |x|) avoids catastrophic cancellation:
+            // rounding x*x first can turn 1 - 1E-90 into exactly 1 at
+            // MathContext(34), making a real angular difference disappear.
+            val distance = BigDecimal.ONE.subtract(x.abs())
+                .multiply(BigDecimal.ONE.add(x.abs()), mc)
             val small = asin(sqrt(distance, mc), isDegrees = false, mc = mc)
             val radians = PI.divide(BigDecimal(2), mc).subtract(small, mc)
                 .let { if (x.signum() < 0) it.negate() else it }
@@ -406,6 +409,17 @@ object HighPrecisionMathEngine {
 
     // High-precision Inverse Trigonometric: acos
     fun acos(x: BigDecimal, isDegrees: Boolean = true, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        // Near +1 the ordinary PI/2 - asin(x) subtraction loses every
+        // significant digit of a small acos angle at finite precision.
+        // Compute acos(x) = asin(sqrt((1-x)*(1+x))) directly in that region.
+        if (x > BigDecimal("0.75") && x <= BigDecimal.ONE) {
+            val complement = BigDecimal.ONE.subtract(x)
+                .multiply(BigDecimal.ONE.add(x), mc)
+            val smallRadians = asin(sqrt(complement, mc), isDegrees = false, mc = mc)
+            return if (isDegrees)
+                smallRadians.multiply(BigDecimal(180), mc).divide(PI, mc)
+            else smallRadians
+        }
         val asinVal = asin(x, isDegrees, mc)
         val half = if (isDegrees) BigDecimal(90) else PI.divide(BigDecimal(2), mc)
         return half.subtract(asinVal, mc)
