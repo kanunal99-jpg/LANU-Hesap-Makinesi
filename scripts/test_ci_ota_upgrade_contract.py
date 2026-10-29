@@ -173,7 +173,7 @@ fi
         self.assertIn("makeLegacyCompatibleIdentity()", source)
         self.assertNotIn("val identity = UserCodes.create()", source)
         for checkpoint in ("prefs-empty", "identity-store-created", "identity-store-empty",
-                           "identity-generated", "identity-saved"):
+                           "identity-generated", "identity-saved", "pin-generated", "cipher-generated"):
             self.assertIn(f'checkpoint("{checkpoint}")', source)
             self.assertIn(checkpoint, (ROOT / "scripts/ci_ota_upgrade_acceptance.sh").read_text())
         self.assertIn("confirmPhase(\"seed\")", source)
