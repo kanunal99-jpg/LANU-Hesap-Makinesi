@@ -47,9 +47,10 @@ key or legal data is included.
   ciphertext wire format. This does NOT implement Double Ratchet.
 - #100: private local crash-report reader rejects JSON scalar-type coercion
   and remains offline/local only.
-- #83: offline signing backup creation rejects mismatched key/store password
-  files, and generated fake-key negative tests prove no new archive is made.
-  The owner's actual off-device backup and challenge remain UNVERIFIED.
+- #83: offline signing backup verifies ownership and does NOT falsely reject
+  legitimate distinct store/key passwords. Dummy-only isolated restores prove
+  exact encrypted bytes are recovered, and symlink substitution is rejected.
+  The owner's actual off-device signing challenge remains UNVERIFIED.
 - #177: this evidence matrix clearly identifies the 11 categories and the
   missing real-world proof instead of inventing new 80+ scores.
 
