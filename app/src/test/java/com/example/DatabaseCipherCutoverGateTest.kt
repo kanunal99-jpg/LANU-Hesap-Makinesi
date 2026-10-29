@@ -91,9 +91,10 @@ class DatabaseCipherCutoverGateTest {
                 conservativeRequiredBytes = DatabaseEncryptionPreflight.conservativeRequiredBytes(
                     8192, 0, 0, 4096))
         )) {
+            // Contradictory metadata fails before considering checkpoint evidence.
             blocked(ready().copy(snapshot = companion,
                 checkpointAndWalVerified = false),
-                DatabaseCipherCutoverGate.BlockReason.WAL_CHECKPOINT_NOT_VERIFIED)
+                DatabaseCipherCutoverGate.BlockReason.INVALID_SNAPSHOT_METADATA)
         }
     }
 
