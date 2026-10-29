@@ -450,6 +450,9 @@ object HighPrecisionMathEngine {
     // High-precision Inverse Trigonometric: atan
     fun atan(x: BigDecimal, isDegrees: Boolean = true, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
         requireSupportedMathContext(mc)
+        // The computed degree conversion of 0 may retain a noncanonical
+        // BigDecimal scale; the mathematical result is exactly zero.
+        if (x.signum() == 0) return BigDecimal.ZERO
         // atan(x) = sign(x) * (PI/2 - atan(1/abs(x))) for |x| > 1.
         // Reducing the argument to [-1, 1] avoids converting 1E+400 to
         // Double.POSITIVE_INFINITY and avoids Newton iteration near a tan pole.
