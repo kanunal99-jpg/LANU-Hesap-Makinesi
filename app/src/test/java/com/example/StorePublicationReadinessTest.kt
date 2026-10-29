@@ -107,6 +107,34 @@ class StorePublicationReadinessTest {
         }
     }
 
+    @Test fun localDeletionNeverProvesRemoteErasureOrPublicRequestReachability() {
+        val localOnly = complete().copy(
+            serverErasureAuthorizationVerified = false,
+            serverRelationPurgeVerified = false,
+            publicDeletionRequestReachableVerified = false
+        )
+        val blocked = StorePublicationReadiness.assess(localOnly)
+        assertTrue(blocked is Decision.Blocked)
+        val missing = (blocked as Decision.Blocked).missing
+        assertEquals(setOf(
+            Requirement.SERVER_ERASURE_AUTHORIZATION,
+            Requirement.SERVER_RELATION_PURGE,
+            Requirement.PUBLIC_DELETION_REQUEST_REACHABILITY
+        ), missing)
+        for (variant in listOf(
+            complete().copy(serverErasureAuthorizationVerified = false)
+                to Requirement.SERVER_ERASURE_AUTHORIZATION,
+            complete().copy(serverRelationPurgeVerified = false)
+                to Requirement.SERVER_RELATION_PURGE,
+            complete().copy(publicDeletionRequestReachableVerified = false)
+                to Requirement.PUBLIC_DELETION_REQUEST_REACHABILITY
+        )) {
+            val decision = StorePublicationReadiness.assess(variant.first)
+            assertTrue(decision is Decision.Blocked)
+            assertTrue(variant.second in (decision as Decision.Blocked).missing)
+        }
+    }
+
     @Test fun syntheticCompleteEvidenceStillRequiresHumanLegalReview() {
         assertEquals(Decision.HumanLegalReviewRequired,
             StorePublicationReadiness.assess(complete()))
@@ -120,5 +148,8 @@ class StorePublicationReadinessTest {
         audioVideoMediaDisclosureReviewed = true,
         databaseEncryptionClaimsReviewed = true, ratchetClaimsReviewed = true,
         accountDeletionFlowVerified = true,
-        accountDeletionRequestUrl = "https://privacy.lanu-policy.com/delete-account")
+        accountDeletionRequestUrl = "https://privacy.lanu-policy.com/delete-account",
+        serverErasureAuthorizationVerified = true,
+        serverRelationPurgeVerified = true,
+        publicDeletionRequestReachableVerified = true)
 }
