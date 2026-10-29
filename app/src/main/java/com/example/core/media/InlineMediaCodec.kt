@@ -62,7 +62,14 @@ object InlineMediaCodec {
         val actual = mutableSetOf<String>()
         val names = json.keys()
         while (names.hasNext()) actual.add(names.next())
-        require(actual == expected && json.optInt("v", -1) == 1) { "Ek dosya biçimi geçersiz." }
+        // org.json coercion can silently turn a string size/version or a
+        // numeric filename into plausible values. Only the canonical schema
+        // produced by encode() is accepted, before allocating or decoding.
+        require(actual == expected &&
+            json.opt("v") is Int && json.optInt("v", -1) == 1 &&
+            json.opt("name") is String && json.opt("mime") is String &&
+            json.opt("size") is Int && json.opt("sha256") is String &&
+            json.opt("data") is String) { "Ek dosya biçimi geçersiz." }
         val name = json.getString("name")
         val mime = json.getString("mime")
         val size = json.getInt("size")
