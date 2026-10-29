@@ -22,6 +22,15 @@ import java.security.MessageDigest
 import java.security.KeyPairGenerator
 import java.security.SecureRandom
 import java.security.spec.ECGenParameterSpec
+import java.security.KeyFactory
+import java.security.spec.PKCS8EncodedKeySpec
+import java.security.spec.X509EncodedKeySpec
+import javax.crypto.Cipher
+import javax.crypto.KeyAgreement
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.PBEKeySpec
+import javax.crypto.spec.SecretKeySpec
 
 /**
  * CI-only TWO-PHASE REAL APK OTA contract, not the user's phone.
@@ -112,10 +121,67 @@ class RoomActualOtaUpgradeTest {
         return MessagingIdentity(sha256(publicKey), code, nonce, publicKey, privateKey)
     }
 
+    private fun fixtureBase64(bytes: ByteArray): String = Base64.encodeToString(
+        bytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
+    )
+
+    /**
+     * Independent JCA fixture for the exact production PIN record format.
+     * Published v828 R8 does not guarantee the Kotlin singleton ABI.
+     * The regular API34 Android test checks parity with the real PIN codec.
+     */
+    private fun makeLegacyCompatiblePinRecord(pin: String): String {
+        val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
+        val spec = PBEKeySpec(pin.toCharArray(), salt, 210_000, 256)
+        val hash = try {
+            SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+                .generateSecret(spec).encoded
+        } finally {
+            spec.clearPassword()
+        }
+        return "pbkdf2-sha256:210000:" + fixtureBase64(salt) + ":" + fixtureBase64(hash)
+    }
+
+    /**
+     * Independent ECDH + AES/GCM fixture in LANU v2 ciphertext format.
+     * The ordinary Android test verifies decryptability through production
+     * PeerMessageCrypto; actual stored bytes remain asserted after OTA.
+     */
+    private fun makeLegacyCompatibleCipher(
+        identity: MessagingIdentity, messageId: String, plaintext: String
+    ): String {
+        fun decode(input: String): ByteArray =
+            Base64.decode(input, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+        val keys = KeyFactory.getInstance("EC")
+        val privateKey = keys.generatePrivate(PKCS8EncodedKeySpec(decode(identity.privateKey)))
+        val publicKey = keys.generatePublic(X509EncodedKeySpec(decode(identity.publicKey)))
+        val shared = KeyAgreement.getInstance("ECDH").run {
+            init(privateKey)
+            doPhase(publicKey, true)
+            generateSecret()
+        }
+        val conversationHash = sha256(identity.id + ":" + identity.id)
+        val digest = MessageDigest.getInstance("SHA-256")
+        digest.update(shared)
+        digest.update(("LANU-v1:" + conversationHash).toByteArray(Charsets.UTF_8))
+        val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
+        val aes = Cipher.getInstance("AES/GCM/NoPadding")
+        aes.init(Cipher.ENCRYPT_MODE, SecretKeySpec(digest.digest(), "AES"), GCMParameterSpec(128, iv))
+        aes.updateAAD((messageId + ":" + identity.id + ":" + identity.id).toByteArray(Charsets.UTF_8))
+        return "lanu2:" + fixtureBase64(iv + aes.doFinal(plaintext.toByteArray(Charsets.UTF_8)))
+    }
+
     @Test
     fun syntheticIdentityFixtureMatchesProductionKeyPairVerifier() {
         // Runs on the ordinary API34 debug runtime, not only the signed OTA job.
-        assertTrue(UserCodes.isConsistentIdentity(makeLegacyCompatibleIdentity()))
+        val identity = makeLegacyCompatibleIdentity()
+        assertTrue(UserCodes.isConsistentIdentity(identity))
+        val pin = makeLegacyCompatiblePinRecord("739188")
+        assertTrue("PIN fixture must match production codec", PinCredentialCodec.verify("739188", pin))
+        val ciphertext = makeLegacyCompatibleCipher(identity, messageId, "OTA encrypted test message")
+        assertEquals("OTA encrypted test message", PeerMessageCrypto.decrypt(
+            identity, identity.id, identity.publicKey, messageId, identity.id, ciphertext
+        ))
     }
 
     private val sentinels: android.content.SharedPreferences
@@ -161,11 +227,10 @@ class RoomActualOtaUpgradeTest {
         checkpoint("identity-generated")
         identityStore.save(identity)
         checkpoint("identity-saved")
-        val pin = PinCredentialCodec.create("739188")
-        val cipher = PeerMessageCrypto.encrypt(
-            identity, identity.id, identity.publicKey, messageId,
-            "OTA encrypted test message"
-        )
+        val pin = makeLegacyCompatiblePinRecord("739188")
+        checkpoint("pin-generated")
+        val cipher = makeLegacyCompatibleCipher(identity, messageId, "OTA encrypted test message")
+        checkpoint("cipher-generated")
         checkpoint("identity-crypto")
         val database = AppDatabase.getDatabase(context)
         checkpoint("database-open")
