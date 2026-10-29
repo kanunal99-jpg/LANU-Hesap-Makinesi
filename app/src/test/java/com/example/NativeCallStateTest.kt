@@ -59,7 +59,13 @@ class NativeCallStateTest {
     // Atomic read/decrement avoids a stale or lost response budget across threads.
     private val outgoingMissingAckResponses=java.util.concurrent.atomic.AtomicInteger(0)
     private var outgoingLoseReplyAfterAccepted=false
-    private val acceptedCallSignalIds=mutableSetOf<String>()
+    // UUID-keyed simulated relay acceptance is accessed by real IO and Main.
+    private val acceptedCallSignalIds=java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    // The relay decrypts/authenticates the first envelope once. Idempotent
+    // retransmissions must keep the exact ciphertext and callId; replaying
+    // expensive crypto for the same already-validated UUID adds an unrelated
+    // IO timing race to the backoff/deadline security assertions.
+    private val acceptedSignalEnvelopes=java.util.concurrent.ConcurrentHashMap<String, Pair<Triple<String,String,String>,CallSignal>>()
     // callSend callbacks may run on Dispatchers.IO while retry assertions
     // run on the coroutine-test Main dispatcher. A plain MutableList has
     // neither safe iteration nor cross-thread visibility guarantees.
@@ -117,18 +123,30 @@ class NativeCallStateTest {
                             throw RelayException(outgoingSendHttpStatus,"simulated transient relay outage")
                         throw java.io.IOException("simulated radio handover / lost HTTP reply")
                     }
-                    val plain=PeerMessageCrypto.decrypt(peer,own.id,own.publicKey,CallSignaling.aadId(id),own.id,data.getString("content"))
-                    val signal=CallSignaling.decode(plain,id,data.getString("callId"),System.currentTimeMillis())
-                    // Model the real relay's UUID-keyed idempotent insert: an
-                    // accepted request can lose its HTTP reply, but a retry
-                    // must not create a second delivered signal.
-                    if(acceptedCallSignalIds.add(id)) sent.value=sent.value+signal
+                    // Match the relay's durable UUID idempotency: decrypt/authenticate
+                    // once, then require byte-for-byte identical retries.
+                    // Do NOT silently accept a changed payload for the same UUID.
+                    val envelope=Triple(id,data.getString("callId"),data.getString("content"))
+                    val cached=acceptedSignalEnvelopes[id]
+                    val signal=if(cached!=null) {
+                        check(cached.first==envelope) { "Changed ciphertext or callId for accepted UUID" }
+                        cached.second
+                    } else {
+                        val plain=PeerMessageCrypto.decrypt(peer,own.id,own.publicKey,
+                            CallSignaling.aadId(id),own.id,data.getString("content"))
+                        val verified=CallSignaling.decode(plain,id,data.getString("callId"),System.currentTimeMillis())
+                        val previous=acceptedSignalEnvelopes.putIfAbsent(id,envelope to verified)
+                        check(previous==null || previous.first==envelope) { "Conflicting accepted UUID" }
+                        if(acceptedCallSignalIds.add(id)) sent.value=sent.value+verified
+                        previous?.second ?: verified
+                    }
                     if(outgoingLoseReplyAfterAccepted) {
                         outgoingLoseReplyAfterAccepted=false
                         throw java.io.IOException("simulated lost reply after committed signal")
                     }
                     if(signal.kind==CallSignalKind.ACCEPT) acceptGate?.await()
-                    if(outgoingMissingAckResponses.getAndUpdate { (it - 1).coerceAtLeast(0) } > 0) {
+                    if(signal.kind==CallSignalKind.OFFER &&
+                        outgoingMissingAckResponses.getAndUpdate { (it - 1).coerceAtLeast(0) } > 0) {
                         // Relay accepted, but a proxy stripped the HTTP ACK.
                         // Retry must retain exactly this signal/ciphertext.
                         missingAckRepliesCompleted += id
@@ -205,7 +223,10 @@ class NativeCallStateTest {
                 Thread.sleep(10L)
             }
             assertTrue("Encrypted relay send attempt $attempt was not observed", attempts() >= attempt)
-            assertTrue("The missing ACK for relay attempt $attempt was not returned", replies() >= attempt)
+            assertTrue("The missing ACK for relay attempt $attempt was not returned; " +
+                "sent=${attempts()}, lostReplies=${replies()}, remaining=${outgoingMissingAckResponses.get()}, " +
+                "phase=${vm.state.value.phase}, virtualMs=${mainTestDispatcher.scheduler.currentTime}",
+                replies() >= attempt)
             if (attempt < expected) {
                 val backoff = CallSignalRetryPolicy.delayAfter(transient, attempt)
                     ?: error("Unexpected retry policy termination at attempt $attempt")
