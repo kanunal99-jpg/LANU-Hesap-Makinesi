@@ -6,6 +6,12 @@
 
 **Tek aktif geliştirme ürünü:** Hesap makinesinin ardındaki **gizli alan**; gizli giriş/oturum, E2EE kimlik/mesajlaşma, ağ/bağlantı toparlama, arka plan bildirim, gerçek sesli ve görüntülü arama, ses kalitesi, güvenli medya, çevrimdışı veri/SQLCipher, KVKK ve premium kullanıcı deneyimi. Her yeni talep/PR/issue bu odağa göre sınıflandırılır. Daha önce hesap makinesi geliştirmesine ayrılan iş gücü ve öncelik gizli alana devredilir. Görünür hesap makinesi dışındaki gizli alan entegrasyonlarında, hesap makinesi yüzüne hassas içerik/kimlik ifşası veya hesap makinesi davranışı değişikliği yapılmaz.
 
+### 29.10.2026 — Çağrı yanıtı ayrı yetki, görüşme sonrası gizli erişim yeniden kilitli
+
+- Kullanıcı onaylı, güncel ve bağımsız kimliği doğrulanmış gelen sesli/görüntülü arama; hesap makinesinde, özel çağrı ekranında veya bildirimden **özel alana giriş yapılmadan** yanıtlanabilir. Bu yalnızca çağrı yetkisidir; sohbet/rehber/kişisel veri/gizli gezinti açılmaz. FCM tek başına çağrı doğrulaması olamaz.
+- Çağrı sona erince, reddedilince veya hata verince varsa açık özel ekran yığını temizlenir, güvenli erişim tekrar kilitlenir ve normal hesap makinesi görünür. Sonraki özel alan girişinde mevcut gizli erişim yöntemi ve kullanıcı etkinleştirdiyse isteğe bağlı ek PIN yeniden uygulanır; hiçbir arama yanıtı bu kontrolü atlayamaz.
+- Önce güncel ana dal ve çağrı güvenlik testi düzeltmeleriyle çakışmasız entegrasyon; ardından tam CI/API34/R8, imzalı OTA/data-preservation, gerçek Samsung A55 ve ikinci cihaz kilit ekranı/FCM/ara çağrı/çağrı bitişi kabulü. Yalnız taslak PR veya yeşil PR CI, yayımlandı demek değildir.
+
 ### Kategori → alt kategori → kabul kanıtı haritası (gizli alanın tek geliştirme iş kırılımı)
 
 | ID / öncelik | Kategori | Zorunlu alt kategoriler ve uygulanabilir işler | Kabul/kanıt |
