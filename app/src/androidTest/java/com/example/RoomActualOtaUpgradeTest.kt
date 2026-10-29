@@ -82,8 +82,14 @@ class RoomActualOtaUpgradeTest {
         gate("seed")
         checkpoint("gate")
         assertNull("Never overwrite a previous probe", sentinels.getString("probe", null))
-        val identityStore = EncryptedMessagingIdentityStore(context)
+        checkpoint("prefs-empty")
+        // The published v828 target is R8-minified. Separately compiled tests
+        // must not link Kotlin's synthetic default-argument constructor, which
+        // is not a guaranteed ABI of the previously published APK.
+        val identityStore = EncryptedMessagingIdentityStore(context, null)
+        checkpoint("identity-store-created")
         assertNull("Seed only a fresh isolated emulator", identityStore.read())
+        checkpoint("identity-store-empty")
         checkpoint("fresh-identity")
         val identity = UserCodes.create()
         identityStore.save(identity)
@@ -139,7 +145,7 @@ class RoomActualOtaUpgradeTest {
         gate("verify")
         assertEquals("The previous APK's private prefs must survive install -r",
             "prepared", sentinels.getString("probe", null))
-        val identity = EncryptedMessagingIdentityStore(context).read()
+        val identity = EncryptedMessagingIdentityStore(context, null).read()
         assertNotNull("Keystore-backed account lost after APK install -r", identity)
         assertTrue("Recovered private key must verify the stored public identity",
             UserCodes.isConsistentIdentity(identity!!))

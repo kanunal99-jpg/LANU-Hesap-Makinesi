@@ -71,7 +71,7 @@ emit_safe_probe_diagnostics() {
       "INSTRUMENTATION_STATUS: lanu_ota_checkpoint="*)
         checkpoint="${line#*=}"
         case "$checkpoint" in
-          gate|fresh-identity|identity-crypto|database-open|seven-tables-written|sentinel-written|pending-verified)
+          gate|prefs-empty|identity-store-created|identity-store-empty|fresh-identity|identity-crypto|database-open|seven-tables-written|sentinel-written|pending-verified)
             echo "OTA $phase checkpoint: $checkpoint" ;;
         esac ;;
       "INSTRUMENTATION_STATUS_CODE: -1"|"INSTRUMENTATION_STATUS_CODE: -2"|"INSTRUMENTATION_CODE: 0"|"INSTRUMENTATION_CODE: -1")
@@ -83,6 +83,17 @@ emit_safe_probe_diagnostics() {
     while IFS= read -r line; do
       echo "OTA $phase exception type: $line"
     done <<< "$exception_class"
+  fi
+  # Classify known source-code ABI symbols only. NEVER print the exception
+  # message/stack: it can contain account identifiers or private data.
+  if grep -Fq 'java.lang.NoSuchMethodError' <<< "$output"; then
+    case "$output" in
+      *EncryptedMessagingIdentityStore*) echo "OTA $phase ABI hint: identity-store method" ;;
+      *UserCodes*) echo "OTA $phase ABI hint: identity-generator method" ;;
+      *PinCredentialCodec*) echo "OTA $phase ABI hint: PIN-codec method" ;;
+      *PeerMessageCrypto*) echo "OTA $phase ABI hint: E2EE method" ;;
+      *SettingsEntity*) echo "OTA $phase ABI hint: Room settings entity method" ;;
+    esac
   fi
 }
 
