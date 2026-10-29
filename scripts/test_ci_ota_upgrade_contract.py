@@ -169,7 +169,11 @@ fi
             self.assertIn(marker, source)
         self.assertIn("EncryptedMessagingIdentityStore(context, null)", source)
         self.assertNotIn("EncryptedMessagingIdentityStore(context)", source)
-        for checkpoint in ("prefs-empty", "identity-store-created", "identity-store-empty"):
+        # Published v828 R8 inlines UserCodes.create(), so OTA seed must not link it.
+        self.assertIn("makeLegacyCompatibleIdentity()", source)
+        self.assertNotIn("val identity = UserCodes.create()", source)
+        for checkpoint in ("prefs-empty", "identity-store-created", "identity-store-empty",
+                           "identity-generated", "identity-saved"):
             self.assertIn(f'checkpoint("{checkpoint}")', source)
             self.assertIn(checkpoint, (ROOT / "scripts/ci_ota_upgrade_acceptance.sh").read_text())
         self.assertIn("confirmPhase(\"seed\")", source)
