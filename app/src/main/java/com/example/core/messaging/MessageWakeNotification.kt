@@ -99,7 +99,13 @@ object MessageWakePolicy {
     fun eligible(data: Map<String, String>, now: Long): Boolean {
         if (data.size != 2 || data["type"] != TYPE) return false
         val at = data["at"]?.toLongOrNull() ?: return false
-        return at > 0 && at in (now - 120_000L)..(now + 15_000L)
+        // Both values are positive epoch milliseconds. Subtract the smaller
+        // from the larger, rather than computing (now +/- window): a fake or
+        // corrupted clock at Long.MIN/MAX must never wrap into an accepted
+        // private notification hint. No sender/message metadata is involved.
+        if (at <= 0L || now <= 0L) return false
+        return if (at <= now) now - at <= 120_000L
+        else at - now <= 15_000L
     }
 
     @Synchronized

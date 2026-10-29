@@ -71,6 +71,30 @@ class MessageWakeNotificationTest {
             "at" to (now+16000).toString()), now))
     }
 
+    @Test fun wakeTimestampWindowIsBoundedWithoutLongOverflow() {
+        fun eligible(at: Long, clock: Long): Boolean =
+            MessageWakePolicy.eligible(
+                mapOf("type" to MessageWakePolicy.TYPE, "at" to at.toString()), clock
+            )
+        // Time windows are inclusive; no clock perturbation should turn
+        // an out-of-range hint into a visible calculator notification.
+        assertTrue(eligible(now - 120_000L, now))
+        assertTrue(eligible(now + 15_000L, now))
+        assertFalse(eligible(now - 120_001L, now))
+        assertFalse(eligible(now + 15_001L, now))
+        assertFalse(eligible(Long.MAX_VALUE, now))
+        assertFalse(eligible(Long.MIN_VALUE, now))
+        assertFalse(eligible(now, Long.MIN_VALUE))
+        assertFalse(eligible(now, 0L))
+        // Old (now + 15_000L) wrapped here and incorrectly excluded genuine
+        // recent hints. The corrected subtraction stays valid near Long.MAX.
+        assertTrue(eligible(Long.MAX_VALUE, Long.MAX_VALUE))
+        assertTrue(eligible(Long.MAX_VALUE, Long.MAX_VALUE - 15_000L))
+        assertFalse(eligible(Long.MAX_VALUE, Long.MAX_VALUE - 15_001L))
+        assertTrue(eligible(Long.MAX_VALUE - 120_000L, Long.MAX_VALUE))
+        assertFalse(eligible(Long.MAX_VALUE - 120_001L, Long.MAX_VALUE))
+    }
+
     @Test fun tapAlwaysUsesCalculatorGateNotPrivateDeepLink() {
         assertTrue(MessageWakeTapPolicy.requiresFreshEntry(MessageWakeTapPolicy.ACTION))
         assertFalse(MessageWakeTapPolicy.requiresFreshEntry(null))
