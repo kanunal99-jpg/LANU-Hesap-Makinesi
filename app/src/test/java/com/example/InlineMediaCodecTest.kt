@@ -69,9 +69,7 @@ class InlineMediaCodecTest {
         // Encrypted envelopes must use one typed, canonical representation.
         val invalid = listOf(
             "v" to "1",
-            "v" to 1.0,
             "size" to "4",
-            "size" to 4.0,
             "name" to 123,
             "mime" to false,
             "sha256" to 42,
@@ -80,6 +78,16 @@ class InlineMediaCodecTest {
         for ((field, value) in invalid) {
             val modified = JSONObject(original.toString()).put(field, value)
             reject { InlineMediaCodec.decode(prefix + modified.toString()) }
+        }
+        // JSONObject.toString() canonicalizes 1.0 / 4.0 as 1 / 4.
+        // Construct wire JSON with literal fractional tokens so this tests
+        // the decoder rather than JSONObject's producer normalization.
+        for ((field, number) in listOf("v" to "1", "size" to "4")) {
+            val canonical = original.toString()
+            val token = "\"$field\":$number"
+            assertTrue("Canonical field should exist: $field", canonical.contains(token))
+            val fractional = canonical.replace(token, "\"$field\":$number.0")
+            reject { InlineMediaCodec.decode(prefix + fractional) }
         }
         // A producer-generated attachment must remain unchanged.
         assertArrayEquals("test".toByteArray(), InlineMediaCodec.decode(good).bytes)
