@@ -2,6 +2,7 @@ package com.example
 
 import android.content.Context
 import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewModelScope
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.core.database.AppDatabase
@@ -11,7 +12,7 @@ import com.example.core.security.SecurityEventTracker
 import com.example.features.security.SecurityViewModel
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -60,17 +61,18 @@ class PrivateEntryLockRaceTest {
             pauseEntry = true
             model.enterFromCalculator({ opened = true }, { pinPrompted = true })
             withTimeout(5000) { entered.await() }
+            // Await the actual suspended entry Job, not just a best-effort
+            // delay; otherwise the test can pass before stale work resumes.
+            val entryJob = model.viewModelScope.coroutineContext[Job]
+                ?.children?.firstOrNull { it.isActive }
+                ?: error("Suspended entry coroutine was not found")
             model.lock()
             release.complete(Unit)
-            withTimeout(5000) {
-                while (repo.isLockedState.value.not()) delay(10)
-            }
-            // Let any remaining coroutine dispatch complete before testing state.
-            delay(50)
+            withTimeout(5000) { entryJob.join() }
             assertFalse(opened)
             assertFalse(pinPrompted)
             assertTrue(repo.isLockedState.value)
-            assertFalse(model.isLocked.value.not())
+            assertTrue(model.isLocked.value)
         } finally {
             release.complete(Unit)
             owner.clear()
