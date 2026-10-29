@@ -3,10 +3,12 @@ package com.example
 import android.content.Context
 import android.os.Bundle
 import android.os.Build
+import android.util.Base64
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.core.database.*
 import com.example.core.messaging.EncryptedMessagingIdentityStore
+import com.example.core.messaging.MessagingIdentity
 import com.example.core.messaging.PeerMessageCrypto
 import com.example.core.messaging.UserCodes
 import com.example.core.security.PinCredentialCodec
@@ -17,6 +19,9 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.security.MessageDigest
+import java.security.KeyPairGenerator
+import java.security.SecureRandom
+import java.security.spec.ECGenParameterSpec
 
 /**
  * CI-only TWO-PHASE REAL APK OTA contract, not the user's phone.
@@ -71,6 +76,48 @@ class RoomActualOtaUpgradeTest {
         .digest(value.toByteArray(Charsets.UTF_8))
         .joinToString("") { "%02x".format(it) }
 
+    /**
+     * Test-only v828 fixture generator. The published R8 APK inlines and removes
+     * UserCodes.create() from its ABI; separately compiled instrumentation must
+     * not call that missing method. Match the app's P-256 / URL-safe Base64 /
+     * LANU-code algorithm exactly, then let the REAL encrypted identity store
+     * validate and persist it using the installed version's Keystore.
+     */
+    private fun makeLegacyCompatibleIdentity(): MessagingIdentity {
+        val keyPair = KeyPairGenerator.getInstance("EC").apply {
+            initialize(ECGenParameterSpec("secp256r1"))
+        }.generateKeyPair()
+        fun encode(bytes: ByteArray): String = Base64.encodeToString(
+            bytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
+        )
+        val publicKey = encode(keyPair.public.encoded)
+        val privateKey = encode(keyPair.private.encoded)
+        val nonce = encode(ByteArray(16).also { SecureRandom().nextBytes(it) })
+        val alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest("$publicKey:$nonce".toByteArray(Charsets.UTF_8))
+        var buffer = 0
+        var bits = 0
+        val chars = StringBuilder()
+        for (byte in digest) {
+            buffer = (buffer shl 8) or (byte.toInt() and 255)
+            bits += 8
+            while (bits >= 5 && chars.length < 20) {
+                bits -= 5
+                chars.append(alphabet[(buffer ushr bits) and 31])
+            }
+            if (chars.length == 20) break
+        }
+        val code = "LANU-" + chars.toString().chunked(4).joinToString("-")
+        return MessagingIdentity(sha256(publicKey), code, nonce, publicKey, privateKey)
+    }
+
+    @Test
+    fun syntheticIdentityFixtureMatchesProductionKeyPairVerifier() {
+        // Runs on the ordinary API34 debug runtime, not only the signed OTA job.
+        assertTrue(UserCodes.isConsistentIdentity(makeLegacyCompatibleIdentity()))
+    }
+
     private val sentinels: android.content.SharedPreferences
         get() = context.getSharedPreferences("lanu_ci_ota_preservation_probe", Context.MODE_PRIVATE)
 
@@ -110,8 +157,10 @@ class RoomActualOtaUpgradeTest {
         assertNull("Seed only a fresh isolated emulator", identityStore.read())
         checkpoint("identity-store-empty")
         checkpoint("fresh-identity")
-        val identity = UserCodes.create()
+        val identity = makeLegacyCompatibleIdentity()
+        checkpoint("identity-generated")
         identityStore.save(identity)
+        checkpoint("identity-saved")
         val pin = PinCredentialCodec.create("739188")
         val cipher = PeerMessageCrypto.encrypt(
             identity, identity.id, identity.publicKey, messageId,
