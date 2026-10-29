@@ -24,6 +24,8 @@ import java.security.KeyPairGenerator
 import java.security.SecureRandom
 import java.security.spec.ECGenParameterSpec
 import java.security.KeyFactory
+import java.security.Signature
+import java.lang.reflect.Modifier
 import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.X509EncodedKeySpec
 import javax.crypto.Cipher
@@ -93,7 +95,16 @@ class RoomActualOtaUpgradeTest {
      * LANU-code algorithm exactly, then let the REAL encrypted identity store
      * validate and persist it using the installed version's Keystore.
      */
-    private fun makeLegacyCompatibleIdentity(): MessagingIdentity {
+    private data class SeedIdentity(
+        val record: MessagingIdentity,
+        val id: String,
+        val code: String,
+        val nonce: String,
+        val publicKey: String,
+        val privateKey: String
+    )
+
+    private fun makeLegacyCompatibleIdentity(): SeedIdentity {
         val keyPair = KeyPairGenerator.getInstance("EC").apply {
             initialize(ECGenParameterSpec("secp256r1"))
         }.generateKeyPair()
@@ -119,7 +130,9 @@ class RoomActualOtaUpgradeTest {
             if (chars.length == 20) break
         }
         val code = "LANU-" + chars.toString().chunked(4).joinToString("-")
-        return MessagingIdentity(sha256(publicKey), code, nonce, publicKey, privateKey)
+        val id = sha256(publicKey)
+        return SeedIdentity(MessagingIdentity(id, code, nonce, publicKey, privateKey),
+            id, code, nonce, publicKey, privateKey)
     }
 
     private fun fixtureBase64(bytes: ByteArray): String = Base64.encodeToString(
@@ -149,7 +162,7 @@ class RoomActualOtaUpgradeTest {
      * PeerMessageCrypto; actual stored bytes remain asserted after OTA.
      */
     private fun makeLegacyCompatibleCipher(
-        identity: MessagingIdentity, messageId: String, plaintext: String
+        identity: SeedIdentity, messageId: String, plaintext: String
     ): String {
         fun decode(input: String): ByteArray =
             Base64.decode(input, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
@@ -181,12 +194,12 @@ class RoomActualOtaUpgradeTest {
         val isDebuggable = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         assumeTrue("Fixture parity is required on the debug runtime, not R8 release", isDebuggable)
         val identity = makeLegacyCompatibleIdentity()
-        assertTrue(UserCodes.isConsistentIdentity(identity))
+        assertTrue(UserCodes.isConsistentIdentity(identity.record))
         val pin = makeLegacyCompatiblePinRecord("739188")
         assertTrue("PIN fixture must match production codec", PinCredentialCodec.verify("739188", pin))
         val ciphertext = makeLegacyCompatibleCipher(identity, messageId, "OTA encrypted test message")
         assertEquals("OTA encrypted test message", PeerMessageCrypto.decrypt(
-            identity, identity.id, identity.publicKey, messageId, identity.id, ciphertext
+            identity.record, identity.id, identity.publicKey, messageId, identity.id, ciphertext
         ))
     }
 
@@ -231,7 +244,7 @@ class RoomActualOtaUpgradeTest {
         checkpoint("fresh-identity")
         val identity = makeLegacyCompatibleIdentity()
         checkpoint("identity-generated")
-        identityStore.save(identity)
+        identityStore.save(identity.record)
         checkpoint("identity-saved")
         val pin = makeLegacyCompatiblePinRecord("739188")
         checkpoint("pin-generated")
@@ -268,7 +281,7 @@ class RoomActualOtaUpgradeTest {
         checkpoint("seven-tables-written")
         val persisted = sentinels.edit()
             .putString("probe", "prepared")
-            .putString("identity_digest", sha256(identity.privateKey + identity.publicKey + identity.id + identity.code))
+            .putString("identity_digest", sha256(identity.privateKey + identity.publicKey + identity.id + identity.code + identity.nonce))
             .putString("pin_digest", sha256(pin))
             .putString("cipher_digest", sha256(cipher))
             .commit()
@@ -291,7 +304,7 @@ class RoomActualOtaUpgradeTest {
             UserCodes.isConsistentIdentity(identity!!))
         assertEquals("Keystore account changed or reset",
             sentinels.getString("identity_digest", null),
-            sha256(identity.privateKey + identity.publicKey + identity.id + identity.code))
+            sha256(identity.privateKey + identity.publicKey + identity.id + identity.code + identity.nonce))
         val db = AppDatabase.getDatabase(context)
         val pin = db.settingsDao().getSettingValue("pin_hash")
         assertNotNull("PIN verifier was deleted", pin)
