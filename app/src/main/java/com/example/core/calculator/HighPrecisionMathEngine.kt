@@ -27,6 +27,7 @@ object HighPrecisionMathEngine {
         isDegrees: Boolean = true,
         mathContext: MathContext = DEFAULT_MATH_CONTEXT
     ): BigDecimal {
+        require(mathContext.precision in 1..100) { "Math precision must be between 1 and 100" }
         require(expression.length <= 8192) { "Expression exceeds supported length (8192 characters)" }
         val sanitized = sanitize(expression)
         if (sanitized.isBlank()) return BigDecimal.ZERO
@@ -66,7 +67,9 @@ object HighPrecisionMathEngine {
         precision: Int = 16,
         scientificNotation: Boolean = false
     ): String {
-        require(precision >= 0) { "Precision cannot be negative" }
+        // All supported UI modes use at most 100 decimal places. An arbitrary
+        // precision here may allocate gigabytes of zeros in setScale/format.
+        require(precision in 0..100) { "Precision must be between 0 and 100" }
         if (value.compareTo(BigDecimal.ZERO) == 0) return "0"
 
         val stripped = value.stripTrailingZeros()
@@ -175,6 +178,9 @@ object HighPrecisionMathEngine {
 
     // High-precision Exponential e^x
     fun exp(x: BigDecimal, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        // MathContext.UNLIMITED makes repeated E multiplication allocate
+        // unbounded coefficients, even for a compact input such as exp(10000).
+        require(mc.precision in 1..100) { "Math precision must be between 1 and 100" }
         if (x.compareTo(BigDecimal.ZERO) == 0) return BigDecimal.ONE
 
         // Reject extreme inputs before narrowing BigDecimal to Int. Otherwise
@@ -249,6 +255,9 @@ object HighPrecisionMathEngine {
 
     // High-precision Power x^y
     fun pow(base: BigDecimal, exponent: BigDecimal, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        // Unlimited precision with an allowed 10000 exponent could expand a
+        // compact decimal base into hundreds of thousands of digits.
+        require(mc.precision in 1..100) { "Math precision must be between 1 and 100" }
         if (exponent.compareTo(BigDecimal.ZERO) == 0) return BigDecimal.ONE
         if (base.compareTo(BigDecimal.ZERO) == 0) {
             if (exponent.signum() < 0) throw ArithmeticException("Division by zero in 0^negative")
