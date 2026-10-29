@@ -92,7 +92,6 @@ class LocalCrashReportTest {
             assertNotNull(LocalCrashReport.read(context, now))
             val tampered = listOf(
                 org.json.JSONObject(valid.toString()).put("version", "1"),
-                org.json.JSONObject(valid.toString()).put("version", 1.0),
                 org.json.JSONObject(valid.toString()).put("time", now.toString()),
                 org.json.JSONObject(valid.toString()).put("type", 101),
                 org.json.JSONObject(valid.toString()).put("type", false),
@@ -105,6 +104,12 @@ class LocalCrashReportTest {
                 target.writeText(bad.toString())
                 assertNull("Malformed diagnostic metadata must be ignored", LocalCrashReport.read(context, now))
             }
+            // JSONObject output may normalize 1.0 to 1; test a literal
+            // fractional wire token rather than the producer's formatter.
+            val raw = valid.toString().replace("\"version\":1", "\"version\":1.0")
+            assertTrue(raw.contains("\"version\":1.0"))
+            target.writeText(raw)
+            assertNull(LocalCrashReport.read(context, now))
             target.writeText(valid.toString())
             assertNotNull(LocalCrashReport.read(context, now))
         } finally {
