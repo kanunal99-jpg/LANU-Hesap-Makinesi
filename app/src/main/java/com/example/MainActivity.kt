@@ -55,6 +55,7 @@ import com.example.features.communication.CommunicationScreen
 import com.example.features.communication.CommunicationViewModel
 import com.example.features.communication.NativeCallViewModel
 import com.example.features.communication.NativeCallHost
+import com.example.features.communication.CallReturnPrivacyPolicy
 import com.example.core.calls.CallWakeTapPolicy
 import com.example.core.messaging.MessageWakeTapPolicy
 import com.example.features.security.SecurityScreen
@@ -483,6 +484,16 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                     com.example.features.communication.NativeCallPhase.ENDED,
                     com.example.features.communication.NativeCallPhase.FAILED)
                 val callOnlyConsent = com.example.core.calls.CallWakePreferences.isEnabled(this@MainActivity)
+                // Call authorization must NEVER authorize private-area access.
+                // After hangup/decline/failure, discard the old hidden back stack
+                // and require the normal secret entry + optional PIN again.
+                LaunchedEffect(callPhase.phase, callPhase.callId) {
+                    if (CallReturnPrivacyPolicy.requiresLockedCalculator(
+                            callPhase.phase, callPhase.callId)) {
+                        pendingCall = null
+                        returnToCalculator()
+                    }
+                }
                 if (inPrivateArea || callOnlyConsent || activeCall) {
                     NativeCallHost(nativeCallViewModel, pendingCall,
                         onRequestConsumed = { pendingCall = null }, revealPeerName = inPrivateArea)
