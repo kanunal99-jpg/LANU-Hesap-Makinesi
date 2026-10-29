@@ -269,12 +269,17 @@ object CallWakeNotification {
         // Android channel names/descriptions are visible even when every alert
         // is dismissed. Rename legacy channels without deleting user settings.
         if (previous != null) {
-            manager.createNotificationChannel(
-                NotificationChannel(OLD_CHANNEL_ID, PublicNotificationText.CHANNEL_NAME, previous.importance).apply {
-                    description = PublicNotificationText.CHANNEL_DESCRIPTION
-                    lockscreenVisibility = Notification.VISIBILITY_SECRET
-                }
-            )
+            try {
+                manager.createNotificationChannel(
+                    NotificationChannel(OLD_CHANNEL_ID, PublicNotificationText.CHANNEL_NAME, previous.importance).apply {
+                        description = PublicNotificationText.CHANNEL_DESCRIPTION
+                        lockscreenVisibility = Notification.VISIBILITY_SECRET
+                    }
+                )
+            } catch (_: Exception) {
+                // An OEM channel-repair failure must not suppress a separately
+                // opted-in alert. Startup repair will retry next app launch.
+            }
         }
         val incoming = NotificationChannel(
             CHANNEL_ID, PublicNotificationText.CHANNEL_NAME,
