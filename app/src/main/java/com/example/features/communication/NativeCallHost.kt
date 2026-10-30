@@ -51,6 +51,9 @@ fun NativeCallHost(
     val engine = media as? NativeCallEngine
     val notice by model.notice.collectAsState()
     val context = LocalContext.current
+    // Always inspect the latest private-area gate when delayed system
+    // permission callbacks return, not the stale composition that launched it.
+    val privateAreaVisible by rememberUpdatedState(revealPeerName)
     LifecycleStartEffect(state.callId, state.phase, context) {
         val ringtone = if (state.phase == NativeCallPhase.RINGING) runCatching {
             RingtoneManager.getRingtone(context, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))?.apply {
@@ -74,6 +77,7 @@ fun NativeCallHost(
     LaunchedEffect(request, revealPeerName) {
         if (!revealPeerName) {
             confirm = null
+            if (permissionTarget?.third == false) permissionTarget = null
             if (request != null) onRequestConsumed()
         } else if (request != null) {
             confirm = request
@@ -86,7 +90,8 @@ fun NativeCallHost(
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         val target = permissionTarget
         permissionTarget = null
-        if (target != null) {
+        if (target != null && PrivateCallHostDisclosurePolicy.mayCompletePermissionRequest(
+                privateAreaVisible, target.third)) {
             val microphone = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
             val camera = !target.second || ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
             if (microphone && camera && CallForegroundService.start(context, target.second)) {
@@ -98,6 +103,8 @@ fun NativeCallHost(
         }
     }
     fun authorize(id: String, video: Boolean, incoming: Boolean) {
+        if (!PrivateCallHostDisclosurePolicy.mayCompletePermissionRequest(
+                privateAreaVisible, incoming)) return
         val needed = listOfNotNull(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA.takeIf { video })
             .filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
         if (needed.isEmpty()) {
