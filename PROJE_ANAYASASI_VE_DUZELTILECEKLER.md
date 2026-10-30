@@ -1,5 +1,16 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 30.10.2026 — KESİN KULLANICI KARARI: GOOGLE PLAY YAYINI İPTAL / MAĞAZASIZ DAĞITIM
+
+**ÜSTÜN VE BAĞLAYICI YAYIN KURALI — KULLANICI KARARI:** LANU Hesap Makinesi ve gizli iletişim işlevleri **Google Play Store'da yayımlanmayacaktır.** Google Play hazırlığı, Play Console hesabı/yüklemesi, AAB paketini mağazaya gönderme, mağaza listelemesi, mağaza incelemesi, mağaza reklamı ve Play Store yayını için ayrı hedefler **iptal edilmiştir**. Bunlar eksik özellik, yayın ön koşulu veya 1/4–4/4 teslim tablosunda açık iş olarak gösterilmez. Eski plan, issue, görev veya anayasadaki Google Play/mağaza yayın hedefiyle çatışma olduğunda bu karar geçerlidir.
+
+**TEK YAYIN KANALI:** Kullanıcıya dağıtım GitHub Releases üzerindeki mevcut imza kimliğini koruyan, Android cihazda doğrudan indirilebilir **imzalı APK** aracılığıyla yapılır. Uygulama içindeki **OTA/güncelleme** akışı aynı GitHub Releases APK'sına güvenli yerinde güncelleme sağlar. Her gerçek sürümde APK, SHA-256, imza sertifikası, sürüm kodu, eski verileri koruyan güncelleme ve indirme doğrulaması aranır. Sadece PR/CI/ana dal birleşmesi "kullanıcıya açıldı" sayılmaz; gerçek cihazda kullanıcı kabulü gerekir.
+
+**KAPSAM:** Uygulama mağazası yayımlanmayacak diye gizlilik, Android izinleri, veri güvenliği, ilgili yasal yükümlülükler veya kullanıcıya ait verinin korunması iptal edilmiş sayılmaz. Google Play'e çıkmak için ayrı mağaza evrakı ve hazırlık işleri yeniden açılmayacaktır. Bu karar ancak kullanıcının **yeni ve açık** talimatıyla değiştirilebilir.
+
+---
+
+
 ## MADDE 1 — LANU GİZLİ İLETİŞİMİN DEĞİŞMEZ ANA AMACI (İKİ KİŞİ, MAKSİMUM GİZLİLİK + HIZ + KALİTE)
 
 > **ÜSTÜN, BAĞLAYICI VE BİRİNCİ ÖNCELİK.** Kullanıcı LANU'yu **yalnızca iki kişinin** kendi arasında güvenli, hızlı, akıcı ve kaliteli mesajlaşması, sesli görüşmesi ve görüntülü görüşmesi için kullanacaktır. Uygulama **mağazada yayımlanmayacaktır**; dağıtım, imza kimliği ve veri koruması doğrulanmış özel APK/OTA ile olacaktır. Hesap makinesinin mevcut görünümü ve işlevleri kullanıcı tarafından yeterli bulunmuştur; hesap makinesine veya mağaza/KVKK teslim süreçlerine yeni geliştirme/puanlama kaynağı ayrılmayacak. Güvenlik, izin ve uygulanabilir hukuk yükümlülükleri yine geçerlidir.
