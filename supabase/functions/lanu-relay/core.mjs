@@ -375,8 +375,13 @@ export function createRelay(store, clock = Date.now, options = {}) {
         // no background service, same authenticated response and ack semantics.
         // Call controls remain part of the existing foreground chat sync only.
         const includeCalls = options.calls === true && data.callVersion === 1;
+        // Older clients must NEVER receive a media-key envelope they cannot
+        // safely render. Honor both this exact client's advertised protocol
+        // and the server-stored capability for its signed identity.
+        const mediaAware = data.mediaVersion === 1 &&
+          await store.mediaVersion(owner) === 1;
         const [contacts, events, calls] = await Promise.all([
-          store.contacts(owner), store.events(owner),
+          store.contacts(owner), store.events(owner, mediaAware ? 1 : 0),
           includeCalls ? store.callPoll(owner) : Promise.resolve(null)
         ]);
         const result = { contacts, events };
@@ -511,7 +516,13 @@ export class RestStore {
     await this.query('lanu_messages?on_conflict=id', 'POST', { id: value.id, sender_id: value.senderId, recipient_id: value.recipientId, content: value.content }, 'resolution=ignore-duplicates');
     return this.message(value.id);
   }
-  async events(owner) { return (await this.query('lanu_events?owner_id=eq.' + owner + '&acked=eq.false&order=created_at.asc,id.asc&limit=200')).map(row => ({ id: row.id, message: row.snapshot })); }
+  async events(owner, mediaVersion = 0) {
+    // The deployed SQL RPC filters private_media for legacy clients BEFORE
+    // generating event snapshots. Do not fetch all events and filter client-side.
+    const rows = await this.query('rpc/lanu_media_aware_events', 'POST',
+      { p_owner: owner, p_media_version: mediaVersion === 1 ? 1 : 0 });
+    return rows.map(row => ({ id: row.id, message: row.snapshot }));
+  }
   async ack(owner, eventIds, readIds) { await this.query('rpc/lanu_ack', 'POST', { p_owner: owner, p_event_ids: eventIds, p_read_ids: readIds }); }
   async updateMessage(id, changes) { await this.query('lanu_messages?id=eq.' + id, 'PATCH', changes); }
   async callPoll(owner) {
