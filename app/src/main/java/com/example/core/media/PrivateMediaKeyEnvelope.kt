@@ -88,9 +88,21 @@ object PrivateMediaKeyEnvelope {
         val keys = mutableSetOf<String>()
         val it = json.keys()
         while (it.hasNext()) keys += it.next()
+        // org.json getters silently coerce numeric strings and decimal
+        // values (e.g. 1.5 -> 1). An authenticated but malformed media manifest
+        // must never be normalized into another valid metadata identity.
+        // JSONObject parses small integral JSON numbers as Int and larger
+        // integral JSON numbers as Long; only the byte count permits both.
         require(keys == mandatoryFields &&
-            json.getString("type") == INNER_TYPE &&
-            json.getInt("version") == VERSION) {
+            json.opt("type") is String && json.optString("type") == INNER_TYPE &&
+            json.opt("version") is Int && json.optInt("version") == VERSION &&
+            json.opt("fileId") is String &&
+            json.opt("mime") is String &&
+            (json.opt("plainBytes") is Int || json.opt("plainBytes") is Long) &&
+            json.opt("chunks") is Int &&
+            json.opt("noncePrefix") is String &&
+            json.opt("cipherSha256") is String &&
+            json.opt("key") is String) {
             "Medya anahtar zarfı protokolü geçersiz."
         }
         val m = PrivateMediaCrypto.Manifest(
@@ -106,8 +118,9 @@ object PrivateMediaKeyEnvelope {
         val encoded = json.getString("key")
         require(encoded.matches(base64url43)) { "Medya anahtarı kodu geçersiz." }
         val secret = UserCodes.decode(encoded)
-        require(secret.size == SECRET_SIZE && UserCodes.encode(secret) == encoded) {
-            "Medya anahtarı doğrulanamadı."
+        if (secret.size != SECRET_SIZE || UserCodes.encode(secret) != encoded) {
+            secret.fill(0)
+            throw IllegalArgumentException("Medya anahtarı doğrulanamadı.")
         }
         return OpenedMediaKey(m, secret)
     }
