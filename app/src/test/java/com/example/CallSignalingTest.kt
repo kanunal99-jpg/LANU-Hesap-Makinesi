@@ -26,6 +26,44 @@ class CallSignalingTest {
         assertThrows(IllegalArgumentException::class.java) { CallSignaling.decode(encoded,source.id,call,now+91_000) }
         assertThrows(IllegalArgumentException::class.java) { CallSignaling.decode(encoded,source.id,call,now-31_000) }
     }
+    @Test fun callSignalWindowRejectsClockOverflowAndKeepsInclusiveBoundaries() {
+        val id = UUID.randomUUID().toString()
+        fun validate(at: Long, clock: Long) {
+            CallSignaling.validate(CallSignal(id, call, CallSignalKind.INVITE,
+                false, at), clock)
+        }
+        validate(now - CallSignaling.TTL_MILLIS, now)
+        validate(now + 30_000L, now)
+        assertThrows(IllegalArgumentException::class.java) {
+            validate(now - CallSignaling.TTL_MILLIS - 1L, now)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            validate(now + 30_001L, now)
+        }
+        // Long.MAX_VALUE used to overflow 'now + 30_000L'.
+        validate(Long.MAX_VALUE, Long.MAX_VALUE)
+        validate(Long.MAX_VALUE, Long.MAX_VALUE - 30_000L)
+        assertThrows(IllegalArgumentException::class.java) {
+            validate(Long.MAX_VALUE, Long.MAX_VALUE - 30_001L)
+        }
+        validate(Long.MAX_VALUE - CallSignaling.TTL_MILLIS, Long.MAX_VALUE)
+        assertThrows(IllegalArgumentException::class.java) {
+            validate(Long.MAX_VALUE - CallSignaling.TTL_MILLIS - 1L, Long.MAX_VALUE)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            validate(now, Long.MIN_VALUE)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            validate(Long.MIN_VALUE, now)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            validate(0L, now)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            validate(now, 0L)
+        }
+    }
+
     @Test fun malformedOversizedAndDowngradedSignalsAreRejected() {
         val source=CallSignaling.create(call,CallSignalKind.OFFER,false,sdp,now)
         val encoded=CallSignaling.encode(source)
@@ -36,6 +74,29 @@ class CallSignalingTest {
         assertThrows(IllegalArgumentException::class.java) { CallSignaling.create(call,CallSignalKind.END,false,sdp,now) }
         assertThrows(IllegalArgumentException::class.java) { CallSignaling.decode("x".repeat(24001),source.id,call,now) }
     }
+    @Test fun callDecoderRejectsCoercibleFieldsEvenInsideAuthenticatedFrames() {
+        val signed = CallSignaling.create(call, CallSignalKind.INVITE, true, now = now)
+        val canonical = org.json.JSONObject(CallSignaling.encode(signed))
+        val corrupted = listOf(
+            canonical.toString().let { org.json.JSONObject(it).put("id", 1234) },
+            canonical.toString().let { org.json.JSONObject(it).put("call", true) },
+            canonical.toString().let { org.json.JSONObject(it).put("kind", 1) },
+            canonical.toString().let { org.json.JSONObject(it).put("sdp", 0) },
+            canonical.toString().let { org.json.JSONObject(it).put("video", "true") },
+            canonical.toString().let { org.json.JSONObject(it).put("at", now.toString()) },
+            canonical.toString().let { org.json.JSONObject(it).put("at", now + 0.5) },
+            canonical.toString().let { org.json.JSONObject(it).put("v", "1") },
+            canonical.toString().let { org.json.JSONObject(it).put("v", true) }
+        )
+        for (payload in corrupted) {
+            assertThrows(IllegalArgumentException::class.java) {
+                CallSignaling.decode(payload.toString(), signed.id, call, now)
+            }
+        }
+        assertEquals(CallSignalKind.INVITE,
+            CallSignaling.decode(canonical.toString(), signed.id, call, now).kind)
+    }
+
     @Test fun callCiphertextCannotBeReplayedAsChatOrForAnotherPeerOrSignal() {
         val a=UserCodes.create();val b=UserCodes.create();val id=UUID.randomUUID().toString()
         val cipher=PeerMessageCrypto.encrypt(a,b.id,b.publicKey,CallSignaling.aadId(id),"signal")
