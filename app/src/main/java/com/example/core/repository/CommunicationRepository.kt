@@ -1,5 +1,7 @@
 package com.example.core.repository
 
+import com.example.BuildConfig
+
 import androidx.room.withTransaction
 import com.example.core.crypto.CryptoUtils
 import com.example.core.media.InlineMediaCodec
@@ -511,6 +513,9 @@ class CommunicationRepository(
         privateDirectory: File
     ): String {
         try {
+            check(BuildConfig.LANU_PRIVATE_MEDIA_UI_ENABLED) {
+                "Güvenli büyük medya aktarımı henüz bu sürümde etkin değil."
+            }
             val own = loadIdentity(allowCreate = false)
             val peer = peerForConversation(conversationId)
                 ?: error("Önce kişinin güvenlik kimliğini doğrulayın.")
@@ -607,6 +612,9 @@ class CommunicationRepository(
     suspend fun downloadLargeAttachment(
         conversationId: String, messageId: String, privateDirectory: File
     ): DownloadedPrivateMedia {
+        check(BuildConfig.LANU_PRIVATE_MEDIA_UI_ENABLED) {
+            "Güvenli büyük medya indirme bu sürümde etkin değil."
+        }
         val own = loadIdentity(allowCreate = false)
         val message = messageDao.getMessage(messageId)
             ?: error("Dosya mesajı bulunamadı.")
@@ -709,7 +717,8 @@ class CommunicationRepository(
         // Automatic, explicitly versioned capability upgrade only for THIS
         // new client; older APKs never advertise mediaVersion=1.
         // Legacy relay 400/503 responses cannot break ordinary message sync.
-        if (!privateMediaCapable && clock() >= nextPrivateMediaCapabilityCheckAt) {
+        if (BuildConfig.LANU_PRIVATE_MEDIA_UI_ENABLED &&
+            !privateMediaCapable && clock() >= nextPrivateMediaCapabilityCheckAt) {
             nextPrivateMediaCapabilityCheckAt = clock() + 300_000L
             try {
                 privateMediaCapable = relay.request(own, "enablePrivateMedia",
