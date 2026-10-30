@@ -7,6 +7,11 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Response
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resumeWithException
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -33,6 +38,31 @@ internal object PrivateMediaTransferHttp {
         .readTimeout(45, TimeUnit.SECONDS)
         .callTimeout(5, TimeUnit.MINUTES)
         .build()
+
+    /**
+     * Synchronous OkHttp execute() ignores coroutine cancellation while a
+     * 40 MiB encrypted stream is blocked on a slow mobile network. The active
+     * call MUST be cancelled when the activity scope exits or a caller aborts.
+     * Late HTTP responses are closed even if cancellation won the race.
+     * Neither the URL nor private ciphertext bytes are logged.
+     */
+    internal suspend fun awaitResponse(request: Request): Response =
+        suspendCancellableCoroutine { continuation ->
+            val call = http.newCall(request)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, error: IOException) {
+                    if (continuation.isActive) continuation.resumeWithException(error)
+                }
+                override fun onResponse(call: Call, response: Response) {
+                    if (continuation.isActive) {
+                        continuation.resume(response, onCancellation = { _, value, _ -> value.close() })
+                    } else {
+                        response.close()
+                    }
+                }
+            })
+        }
 
     internal fun verifyGrantUrl(signedUrl: String, id: String, upload: Boolean): String {
         require(id.matches(fileId)) { "Dosya kimliği geçersiz." }
@@ -104,7 +134,7 @@ internal object PrivateMediaTransferHttp {
             }
         }
         val request = Request.Builder().url(address).put(requestBody).build()
-        http.newCall(request).execute().use { response ->
+        awaitResponse(request).use { response ->
             if (response.code !in 200..299)
                 throw IOException("Şifreli dosya yüklenemedi. Tekrar deneyin.")
         }
@@ -122,7 +152,7 @@ internal object PrivateMediaTransferHttp {
         val destination = File.createTempFile("lanu-media-v1-", ".cipher", privateDirectory)
         try {
             val request = Request.Builder().url(address).get().build()
-            http.newCall(request).execute().use { response ->
+            awaitResponse(request).use { response ->
                 require(response.code == 200 && !response.isRedirect) {
                     "Güvenli medya indirilemedi."
                 }
