@@ -438,6 +438,22 @@ export class RestStore {
       p_message: messageId, p_bytes: cipherBytes, p_sha: cipherSha256
     });
   }
+  async mediaReservation(fileId) {
+    const rows = await this.query('lanu_media_objects?file_id=eq.' + fileId +
+      '&select=file_id,message_id,sender_id,recipient_id,cipher_bytes,cipher_sha256,state,expires_at&limit=1');
+    return rows[0] ?? null;
+  }
+  async markMediaReady({ owner, fileId, cipherBytes, cipherSha256 }) {
+    // PostgREST WHERE predicates are an atomic compare-and-set. A lost
+    // response/retry can never mark a different object or expired grant ready.
+    const expiry = encodeURIComponent(new Date().toISOString());
+    const rows = await this.query('lanu_media_objects?file_id=eq.' + fileId +
+      '&sender_id=eq.' + owner + '&state=eq.pending' +
+      '&cipher_bytes=eq.' + cipherBytes + '&cipher_sha256=eq.' + cipherSha256 +
+      '&expires_at=gt.' + expiry,
+      'PATCH', { state: 'ready' }, 'return=representation');
+    return Array.isArray(rows) && rows.length === 1 ? rows[0] : null;
+  }
   async contacts(owner) {
     const edges = await this.query('lanu_contacts?owner_id=eq.' + owner);
     return Promise.all(edges.map(async edge => ({ ...await this.identity(edge.peer_id), codeAtAdd: edge.code_at_add, mutual: await this.mutual(owner, edge.peer_id) })));
