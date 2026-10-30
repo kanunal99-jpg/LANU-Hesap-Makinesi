@@ -117,12 +117,8 @@ fun CalculatorScreen(
         }
     }
 
-    LaunchedEffect(result) {
-        if (result == "2011.") {
-            viewModel.onKeyPress("AC")
-            onNavigateToLock()
-        }
-    }
+    // A computed value/history result is not an intentional private-entry
+    // gesture. Only the user's direct calculator input may request entry.
 
     // User-requested silent operation: calculator and navigation never vibrate.
     // Keep call sites as a no-op to preserve all existing navigation and math logic.
