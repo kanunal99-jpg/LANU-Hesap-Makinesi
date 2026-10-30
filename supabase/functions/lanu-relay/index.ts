@@ -1,5 +1,6 @@
 import { createRelay, RestStore, RelayError, readBoundedRequest } from './core.mjs';
 import { createFcmWakeSender } from './call-wake-fcm.mjs';
+import { createPrivateMediaStorage } from './media-storage.mjs';
 
 const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 // Warm Edge instances reuse OAuth access tokens; no secret is exposed to clients.
@@ -39,10 +40,17 @@ Deno.serve(async (request: Request) => {
     try { envelope = JSON.parse(raw); } catch { return new Response(JSON.stringify({ error: 'Geçersiz JSON.' }), { status: 400, headers }); }
     // Feature gate: no secret -> no registration and no wakeups. No extra
     // network service, billing, or background polling is started by default.
+    // Enabling large file transfers requires a separately reviewed, explicit
+    // deployment flag. Existing LANU users and their Room/E2EE keys are not
+    // automatically migrated. A signed URL is NEVER stored in the chat.
+    const privateMediaEnabled = Deno.env.get('LANU_PRIVATE_MEDIA_ENABLED') === 'true';
     const result = await createRelay(new RestStore(url, key), Date.now,
       { calls: true, callWakeEnabled: Boolean(sendCallWake), sendCallWake,
         messageWakeEnabled: Boolean(sendMessageWake), sendMessageWake,
-        scheduleMessageWake: (task: Promise<unknown>) => EdgeRuntime.waitUntil(task) })(envelope);
+        scheduleMessageWake: (task: Promise<unknown>) => EdgeRuntime.waitUntil(task),
+        privateMediaReservation: privateMediaEnabled,
+        privateMediaTransfers: privateMediaEnabled,
+        mediaStorage: privateMediaEnabled ? createPrivateMediaStorage(url, key) : null })(envelope);
     return new Response(JSON.stringify(result), { status: 200, headers });
   } catch (error) {
     const known = error instanceof RelayError;
