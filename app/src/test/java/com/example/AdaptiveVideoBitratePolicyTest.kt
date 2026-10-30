@@ -38,4 +38,22 @@ class AdaptiveVideoBitratePolicyTest {
         for (i in 0..3) assertNull(policy.recommend(0.0, 80.0, 24000L + i))
         assertEquals(1_100_000, policy.recommend(0.0, 80.0, 24004L))
     }
+    @Test fun severePacketLossProtectsVoiceWithOneBoundedVideoDownshift() {
+        val policy = AdaptiveVideoBitratePolicy()
+        // No change from a single extreme sample; two observations required.
+        assertNull(policy.recommend(0.37, 1450.0, 1000L))
+        assertEquals(350_000, policy.recommend(0.35, 1300.0, 2000L))
+        // A failed WebRTC/OEM setParameters is never treated as applied.
+        policy.attemptFinished(350_000, 2000L, applied = false)
+        assertNull(policy.recommend(0.30, 1400.0, 12_000L))
+        assertEquals(350_000, policy.recommend(0.29, 1400.0, 13_000L))
+        policy.attemptFinished(350_000, 13_000L, applied = true)
+        // Stay at minimum video bitrate under continued congestion.
+        assertNull(policy.recommend(0.32, 1500.0, 24_000L))
+        assertNull(policy.recommend(0.35, 1600.0, 25_000L))
+        // Recover only after five good samples and another successful native set.
+        for (i in 0..3) assertNull(policy.recommend(0.0, 100.0, 36_000L + i))
+        assertEquals(650_000, policy.recommend(0.0, 100.0, 36_004L))
+    }
+
 }
