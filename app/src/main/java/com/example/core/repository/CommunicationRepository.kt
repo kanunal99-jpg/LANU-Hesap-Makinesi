@@ -46,6 +46,8 @@ class CommunicationRepository(
     private val draftMutex = Mutex()
     private var nextSyncAt = 0L
     private var nextSendAt = 0L
+    private var privateMediaCapable = false
+    private var nextPrivateMediaCapabilityCheckAt = 0L
     private val _identity = MutableStateFlow<MessagingIdentity?>(null)
     val identity: StateFlow<MessagingIdentity?> = _identity.asStateFlow()
     val relayConfigured get() = relay.configured
@@ -704,10 +706,22 @@ class CommunicationRepository(
     suspend fun synchronize(activeConversationId: String? = null, requireExistingIdentity: Boolean = false) = syncMutex.withLock {
         if (clock() < nextSyncAt) throw RelayException(429, "Bağlantı kısa süre bekletiliyor. Mesajlarınız korunuyor.", nextSyncAt - clock())
         val own = registerRemote(requireExistingIdentity = requireExistingIdentity)
+        // Automatic, explicitly versioned capability upgrade only for THIS
+        // new client; older APKs never advertise mediaVersion=1.
+        // Legacy relay 400/503 responses cannot break ordinary message sync.
+        if (!privateMediaCapable && clock() >= nextPrivateMediaCapabilityCheckAt) {
+            nextPrivateMediaCapabilityCheckAt = clock() + 300_000L
+            try {
+                privateMediaCapable = relay.request(own, "enablePrivateMedia",
+                    JSONObject().put("version", 1)).optInt("privateMediaVersion") == 1
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* Old or disabled server: safe legacy sync. */ }
+        }
         // Receive and acknowledge BEFORE sending: one blocked/invalid outgoing
         // message must never prevent unrelated incoming conversations arriving.
         val response = relay.request(own, "sync", JSONObject().apply {
             if (callingForeground) put("callVersion", CallSignaling.VERSION)
+            if (privateMediaCapable) put("mediaVersion", 1)
         })
         val peers = response.getJSONArray("contacts")
         for (i in 0 until peers.length()) savePeer(peers.getJSONObject(i), peers.getJSONObject(i).optString("codeAtAdd"))
