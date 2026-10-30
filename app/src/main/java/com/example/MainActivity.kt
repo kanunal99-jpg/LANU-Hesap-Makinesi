@@ -269,23 +269,45 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         val chatId = takePendingPickerChat()
-        if (chatId != null && uri != null) prepareAndSendLargeDocument(chatId, uri)
+        if (chatId != null && uri != null) confirmLargeSend(chatId) {
+            PrivateMediaDocumentPreparer.encryptDocument(this@MainActivity, uri)
+        }
+    }
+    private val largePhotoPicker = registerForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        val chatId = takePendingPickerChat()
+        if (chatId != null && uri != null) confirmLargeSend(chatId) {
+            com.example.core.media.PrivatePhotoStaging.stage(this@MainActivity, uri)
+        }
     }
 
-    private fun prepareAndSendLargeDocument(chatId: String, uri: Uri) {
+    private fun confirmLargeSend(chatId: String, prepare: suspend () -> PrivateMediaCrypto.EncryptedFile) {
         if (!::securityViewModel.isInitialized || securityViewModel.isLocked.value || largeMediaBusy) return
+        // Selecting a file is not equivalent to consent to upload it.
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Güvenli dosya gönder")
+            .setMessage("Seçtiğiniz dosya şifrelenip yalnız doğrulanmış kişiye gönderilecek. Belge en fazla 40 MB olabilir. Gönderilsin mi?")
+            .setNegativeButton("Vazgeç", null)
+            .setPositiveButton("Şifreli gönder") { _, _ ->
+                if (!securityViewModel.isLocked.value && !largeMediaBusy)
+                    sendPreparedLargeMedia(chatId, prepare)
+            }
+            .show()
+    }
+
+    private fun sendPreparedLargeMedia(chatId: String, prepare: suspend () -> PrivateMediaCrypto.EncryptedFile) {
         largeMediaBusy = true
         lifecycleScope.launch {
             var prepared: PrivateMediaCrypto.EncryptedFile? = null
             try {
-                prepared = PrivateMediaDocumentPreparer.encryptDocument(this@MainActivity, uri)
-                // A delayed SAF/cloud provider must never reopen the private
-                // area or begin a new upload after the user locked the app.
+                prepared = prepare()
+                // Delayed SAF/cloud access cannot reopen an already-locked chat.
                 if (securityViewModel.isLocked.value) return@launch
                 val repo = (application as LanuApplication).container.communicationRepository
                 repo.sendLargeAttachment(chatId, prepared,
                     PrivateMediaDocumentPreparer.privateDirectory(this@MainActivity))
-                prepared = null // repository destroyed the one-time key and temp
+                prepared = null // repository destroys the one-use key/temp
                 commViewModel.refresh()
                 if (!securityViewModel.isLocked.value)
                     Toast.makeText(this@MainActivity, "Şifreli dosya gönderime alındı.", Toast.LENGTH_SHORT).show()
@@ -411,6 +433,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     "application/vnd.openxmlformats-officedocument.presentationml.presentation"
                 ))
+                "largePhoto" -> largePhotoPicker.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
                 else -> {
                     pendingPickerConversationId = null
                     externalPickerStartedAtMs = null
@@ -785,6 +810,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                     onTakePhoto = { launchMediaPicker(screen.conversationId, "camera") },
                                     onChooseDocument = { launchMediaPicker(screen.conversationId, "document") },
                                     onChooseLargeDocument = { launchMediaPicker(screen.conversationId, "largeDocument") },
+                                    onChooseLargePhoto = { launchMediaPicker(screen.conversationId, "largePhoto") },
                                     onSaveLargeAttachment = { id -> downloadLargeDocument(screen.conversationId, id) },
                                     onSaveAttachment = { attachment -> saveAttachmentWithPicker(attachment) },
                                 )
