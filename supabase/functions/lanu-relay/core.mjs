@@ -307,6 +307,30 @@ export function createRelay(store, clock = Date.now, options = {}) {
         return { fileId: data.fileId, state: reserved.state,
           cipherBytes: data.cipherBytes, expiresAt: reserved.expires_at };
       }
+      case 'privateMediaUploadGrant':
+      case 'privateMediaFinalize':
+      case 'privateMediaDownloadGrant': {
+        insist(options.privateMediaReservation === true &&
+            options.mediaTransfer && typeof options.mediaTransfer === 'object',
+          503, 'Güvenli dosya gönderme/alma henüz etkin değil.');
+        insist(Object.keys(data).sort().join(',') === 'fileId' &&
+            mediaFileId.test(data.fileId ?? ''),
+          400, 'Geçersiz özel dosya isteği.');
+        const method = action === 'privateMediaUploadGrant' ? 'uploadGrant'
+          : action === 'privateMediaFinalize' ? 'finalize' : 'downloadGrant';
+        insist(typeof options.mediaTransfer[method] === 'function',
+          503, 'Güvenli dosya işlemi kullanılamıyor.');
+        try {
+          return await options.mediaTransfer[method](owner, data.fileId);
+        } catch (error) {
+          // Keep service errors generic. Do not disclose private paths,
+          // Storage tokens, user identities, headers or implementation detail.
+          if (Number.isSafeInteger(error?.status) &&
+              [400,403,404,409,429,503].includes(error.status))
+            throw new RelayError(error.status, 'Güvenli dosya işlemi onaylanamadı.');
+          throw new RelayError(503, 'Güvenli dosya servisi kullanılamıyor.');
+        }
+      }
       case 'sync': {
         // Parallel independent private read operations. No extra mobile poll,
         // no background service, same authenticated response and ack semantics.
@@ -413,6 +437,22 @@ export class RestStore {
       p_owner: owner, p_peer: peer, p_file: fileId,
       p_message: messageId, p_bytes: cipherBytes, p_sha: cipherSha256
     });
+  }
+  async mediaReservation(fileId) {
+    const rows = await this.query('lanu_media_objects?file_id=eq.' + fileId +
+      '&select=file_id,message_id,sender_id,recipient_id,cipher_bytes,cipher_sha256,state,expires_at&limit=1');
+    return rows[0] ?? null;
+  }
+  async markMediaReady({ owner, fileId, cipherBytes, cipherSha256 }) {
+    // PostgREST WHERE predicates are an atomic compare-and-set. A lost
+    // response/retry can never mark a different object or expired grant ready.
+    const expiry = encodeURIComponent(new Date().toISOString());
+    const rows = await this.query('lanu_media_objects?file_id=eq.' + fileId +
+      '&sender_id=eq.' + owner + '&state=eq.pending' +
+      '&cipher_bytes=eq.' + cipherBytes + '&cipher_sha256=eq.' + cipherSha256 +
+      '&expires_at=gt.' + expiry,
+      'PATCH', { state: 'ready' }, 'return=representation');
+    return Array.isArray(rows) && rows.length === 1 ? rows[0] : null;
   }
   async contacts(owner) {
     const edges = await this.query('lanu_contacts?owner_id=eq.' + owner);

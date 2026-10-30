@@ -1,0 +1,236 @@
+package com.example.core.media
+
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.MediaType.Companion.toMediaType
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.io.IOException
+import java.io.RandomAccessFile
+import java.net.URI
+import java.security.MessageDigest
+import java.util.concurrent.TimeUnit
+
+/**
+ * Opaque ciphertext transport. ONLY server-signed grants from the user's
+ * existing authenticated ECDSA relay are accepted. No Storage API key, bearer
+ * credential, filename, user ID or AES secret is ever transmitted here.
+ *
+ * This is a transport primitive, not a user-facing feature: it must be bound
+ * to the verified E2EE envelope and private document UI before activation.
+ */
+internal class PrivateMediaStorageClient(
+    private val relayEndpoint: String,
+    private val client: OkHttpClient = OkHttpClient.Builder()
+        .followRedirects(false).followSslRedirects(false)
+        .connectTimeout(12, TimeUnit.SECONDS)
+        .readTimeout(40, TimeUnit.SECONDS)
+        .callTimeout(55, TimeUnit.SECONDS).build()
+) {
+    companion object {
+        const val TUS_CHUNK_BYTES = 6 * 1024 * 1024
+        private const val MAX_RETRIES = 4
+        private val HEX_ID = Regex("[a-f0-9]{32}")
+        private val HEX_SHA = Regex("[a-f0-9]{64}")
+
+        /** Prevent a forged grant URL from exfiltrating private ciphertext. */
+        internal fun safeSignedUrl(endpoint: String, url: String, fileId: String, upload: Boolean): Boolean {
+            if (!HEX_ID.matches(fileId)) return false
+            val base = runCatching { URI(endpoint) }.getOrNull() ?: return false
+            val target = runCatching { URI(url) }.getOrNull() ?: return false
+            if (base.scheme != "https" || target.scheme != "https" ||
+                base.userInfo != null || target.userInfo != null ||
+                target.fragment != null || target.port != -1 || base.port != -1 ||
+                base.host == null || target.host == null ||
+                !base.host.matches(Regex("[a-z0-9-]+\\.supabase\\.co"))) return false
+            if (target.host != base.host &&
+                target.host != base.host.replace(".supabase.co", ".storage.supabase.co")) return false
+            val path = "/storage/v1/object/" +
+                (if (upload) "upload/sign/" else "sign/") +
+                "lanu-private-media-v1/v1/$fileId.cipher"
+            return target.rawPath == path && target.rawQuery?.isNotBlank() == true
+        }
+    }
+
+    private fun authorizedBase(signedUrl: String, fileId: String, upload: Boolean): URI {
+        require(safeSignedUrl(relayEndpoint, signedUrl, fileId, upload)) {
+            "Özel dosya sunucusu doğrulanamadı."
+        }
+        return URI(signedUrl)
+    }
+
+    private fun locationForTus(base: URI, location: String): String {
+        val candidate = base.resolve(location)
+        val origin = URI(relayEndpoint)
+        val expectedHosts = setOf(origin.host,
+            origin.host.replace(".supabase.co", ".storage.supabase.co"))
+        require(candidate.scheme == "https" && candidate.userInfo == null &&
+            candidate.fragment == null && candidate.port == -1 &&
+            candidate.host in expectedHosts &&
+            candidate.path.startsWith("/storage/v1/upload/resumable/")) {
+            "Şifreli dosya aktarım bağlantısı güvenli değil."
+        }
+        return candidate.toString()
+    }
+
+    private fun validatedToken(signedUrl: String, token: String): String {
+        require(token.length in 8..4096 && token.none { it.isWhitespace() }) {
+            "Dosya gönderim izni geçersiz."
+        }
+        require(signedUrl.contains("token=")) { "Dosya gönderim bağlantısı geçersiz." }
+        return token
+    }
+
+    private fun metadata(bucket: String, path: String): String {
+        fun b64(value: String) = android.util.Base64.encodeToString(
+            value.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
+        return listOf(
+            "bucketName " + b64(bucket),
+            "objectName " + b64(path),
+            "contentType " + b64("application/octet-stream")
+        ).joinToString(",")
+    }
+
+    /**
+     * 6 MiB TUS PATCHes with server HEAD recovery. Never replay an uncertain
+     * write without querying its committed offset first. Existing object paths
+     * cannot be overwritten (no x-upsert header).
+     */
+    suspend fun upload(
+        encrypted: File, fileId: String, expectedBytes: Long,
+        signedUrl: String, signedToken: String
+    ) = withContext(Dispatchers.IO) {
+        val base = authorizedBase(signedUrl, fileId, upload = true)
+        val token = validatedToken(signedUrl, signedToken)
+        require(expectedBytes in 17..PrivateMediaTransferBudget.MAX_RESERVED_CIPHER_BYTES &&
+            encrypted.isFile && encrypted.length() == expectedBytes) {
+            "Şifreli dosya boyutu beklenen değere uymuyor."
+        }
+        val origin = base.host.replace(".supabase.co", ".storage.supabase.co")
+        val createUrl = "https://$origin/storage/v1/upload/resumable"
+        val path = "v1/$fileId.cipher"
+        val create = Request.Builder().url(createUrl)
+            .header("Tus-Resumable", "1.0.0")
+            .header("Upload-Length", expectedBytes.toString())
+            .header("Upload-Metadata", metadata("lanu-private-media-v1", path))
+            .header("x-signature", token)
+            .post(ByteArray(0).toRequestBody()).build()
+        val location = client.newCall(create).execute().use { response ->
+            if (response.code != 201) throw IOException("Güvenli dosya yüklemesi başlatılamadı.")
+            response.header("Location") ?: throw IOException("Dosya yükleme adresi bulunamadı.")
+        }
+        val tusUrl = locationForTus(base, location)
+        RandomAccessFile(encrypted, "r").use { file ->
+            var offset = 0L
+            var failures = 0
+            while (offset < expectedBytes) {
+                currentCoroutineContext().ensureActive()
+                val amount = minOf(TUS_CHUNK_BYTES.toLong(), expectedBytes - offset).toInt()
+                file.seek(offset)
+                val part = ByteArray(amount)
+                file.readFully(part)
+                try {
+                    val request = Request.Builder().url(tusUrl)
+                        .header("Tus-Resumable", "1.0.0")
+                        .header("Upload-Offset", offset.toString())
+                        .header("x-signature", token)
+                        .header("Content-Type", "application/offset+octet-stream")
+                        .method("PATCH", part.toRequestBody(
+                            "application/offset+octet-stream".toMediaType())).build()
+                    try {
+                        client.newCall(request).execute().use { response ->
+                            if (response.code !in listOf(200, 204))
+                                throw IOException("Dosya parçası aktarılamadı.")
+                            val next = response.header("Upload-Offset")?.toLongOrNull()
+                                ?: throw IOException("Yükleme ilerlemesi doğrulanamadı.")
+                            require(next == offset + amount) { "Yükleme sırası geçersiz." }
+                            offset = next
+                            failures = 0
+                        }
+                    } catch (error: IOException) {
+                        if (++failures > MAX_RETRIES) throw error
+                        delay(300L * failures)
+                        val probe = Request.Builder().url(tusUrl)
+                            .header("Tus-Resumable", "1.0.0")
+                            .header("x-signature", token).head().build()
+                        client.newCall(probe).execute().use { response ->
+                            if (response.code != 200 && response.code != 204)
+                                throw IOException("Yükleme kaldığı yerden doğrulanamadı.")
+                            val serverOffset = response.header("Upload-Offset")?.toLongOrNull()
+                                ?: throw IOException("Yükleme konumu bilinmiyor.")
+                            if (serverOffset !in 0..expectedBytes)
+                                throw IOException("Yükleme konumu güvenli sınırı aştı.")
+                            offset = serverOffset
+                        }
+                    }
+                } finally { part.fill(0) }
+            }
+            require(offset == expectedBytes && file.length() == expectedBytes) {
+                "Şifreli dosya eksik gönderildi."
+            }
+        }
+    }
+
+    /** Download ciphertext into app-private storage, hash before AES-GCM. */
+    suspend fun downloadVerified(
+        fileId: String, signedUrl: String,
+        manifest: PrivateMediaCrypto.Manifest, key: ByteArray,
+        privateDirectory: File
+    ): File = withContext(Dispatchers.IO) {
+        require(fileId == manifest.fileId && key.size == 32 &&
+            HEX_SHA.matches(manifest.cipherSha256) &&
+            privateDirectory.isDirectory && privateDirectory.absoluteFile == privateDirectory.canonicalFile)
+        val target = authorizedBase(signedUrl, fileId, upload = false)
+        val expected = PrivateMediaTransferBudget.encryptedBytes(manifest.plainBytes)
+        val cipher = File.createTempFile("lanu-media-v1-", ".cipher", privateDirectory)
+        try {
+            val request = Request.Builder().url(target.toString())
+                .header("Accept-Encoding", "identity").get().build()
+            val result = MessageDigest.getInstance("SHA-256")
+            client.newCall(request).execute().use { response ->
+                if (response.code != 200 || !response.isSuccessful)
+                    throw IOException("Dosya indirme yetkisi doğrulanamadı.")
+                val declared = response.body?.contentLength() ?: -1
+                if (declared > expected) throw IOException("Şifreli dosya beklenen boyutu aştı.")
+                val input = response.body?.byteStream()
+                    ?: throw IOException("Dosya içeriği alınamadı.")
+                FileOutputStream(cipher).use { sink ->
+                    val buffer = ByteArray(64 * 1024)
+                    var readTotal = 0L
+                    var stalls = 0
+                    while (true) {
+                        currentCoroutineContext().ensureActive()
+                        val n = input.read(buffer)
+                        if (n < 0) break
+                        if (n == 0) {
+                            if (++stalls >= 3) throw IOException("Dosya aktarımı durdu.")
+                            continue
+                        }
+                        stalls = 0
+                        readTotal += n
+                        if (readTotal > expected) throw IOException("Şifreli dosya sınırı aşıldı.")
+                        result.update(buffer, 0, n)
+                        sink.write(buffer, 0, n)
+                    }
+                    sink.fd.sync()
+                    require(readTotal == expected) { "Şifreli dosya eksik alındı." }
+                }
+            }
+            val expectedDigest = manifest.cipherSha256.chunked(2)
+                .map { it.toInt(16).toByte() }.toByteArray()
+            require(MessageDigest.isEqual(result.digest(), expectedDigest)) {
+                "Şifreli dosya doğrulanamadı."
+            }
+            return@withContext PrivateMediaCrypto.decryptToVerifiedPrivateFile(
+                cipher, manifest, key, privateDirectory
+            )
+        } finally { cipher.delete() }
+    }
+}
