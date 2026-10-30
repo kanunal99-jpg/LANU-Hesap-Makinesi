@@ -70,6 +70,11 @@ fun ChatDetailScreen(
         it.conversationId == conversationId && it.expiresAtMillis > System.currentTimeMillis()
     }?.envelope
 
+    val retryableFailedIds = remember(messages, activeConversation?.id, conversationId, userPhone) {
+        ChatFailedRetryPolicy.select(
+            messages, activeConversation?.id, conversationId, userPhone
+        )
+    }
     val textInput by viewModel.draftText.collectAsState()
     var isSelfDestructEnabled by remember(conversationId) { mutableStateOf(false) }
     var showClearConfirmation by remember(conversationId) { mutableStateOf(false) }
@@ -206,6 +211,23 @@ fun ChatDetailScreen(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false }
                     ) {
+                        if (retryableFailedIds.isNotEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text("Gönderilemeyenleri yeniden dene (${retryableFailedIds.size})") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Refresh, contentDescription = null,
+                                        modifier = Modifier.size(18.dp))
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    // The active thread can change while a menu is open.
+                                    if (activeConversation?.id == conversationId) {
+                                        viewModel.retryFailedMessages(retryableFailedIds, conversationId)
+                                    }
+                                },
+                                modifier = Modifier.testTag("private_retry_failed_messages")
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text(if (isSelfDestructEnabled) "10 saniyede gizlemeyi kapat" else "Bu telefonda 10 saniyede gizle") },
                             leadingIcon = { Icon(Icons.Default.Timer, contentDescription = null, modifier = Modifier.size(18.dp)) },
