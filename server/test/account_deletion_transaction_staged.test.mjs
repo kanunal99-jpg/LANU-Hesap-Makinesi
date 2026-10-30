@@ -390,3 +390,23 @@ test('all ten erased parent tables are covered by the schema drift guard', async
       'Missing schema drift guard for '+name);
   }
 });
+
+test('new cascading call-signal child requires review and preserves peer rows', async () => {
+  const {db} = await createFixture();
+  try {
+    await db.exec(`create table public.lanu_future_receipts(
+      signal_id uuid references public.lanu_call_signals(id) on delete cascade,
+      receipt text not null)`);
+    const signal = await db.query(
+      'select id from public.lanu_call_signals where sender_id=$1', [alice]);
+    await db.query('insert into public.lanu_future_receipts values($1,$2)',
+      [signal.rows[0].id,'synthetic-receipt']);
+    const before = await fingerprint(db);
+    await assert.rejects(
+      db.query('select public.lanu_delete_account_v1($1,$2)',[alice,code('A')]),
+      /Account schema review required/i);
+    assert.deepEqual(await fingerprint(db),before);
+    assert.equal(await count(db,'lanu_future_receipts'),1);
+    assert.equal(await count(db,'lanu_identities','id=$1',[bob]),1);
+  } finally { await db.close(); }
+});
