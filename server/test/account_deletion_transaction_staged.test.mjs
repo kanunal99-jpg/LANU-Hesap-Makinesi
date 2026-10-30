@@ -361,3 +361,21 @@ test('verified purged synthetic media permits atomic metadata cleanup without af
     assert.equal(await count(db,'lanu_message_wake_devices','owner_id=$1',[bob]),1);
   } finally { await db.close(); }
 });
+
+
+test('Storage metadata is row-locked BEFORE cleanup verification and deletion', async () => {
+  // This is a structural concurrency regression: PGlite uses one local
+  // connection and cannot prove a two-connection PostgreSQL race. Real
+  // multi-session/Storage worker acceptance remains mandatory before rollout.
+  const sql = await readFile(
+    new URL('../staged/lanu_account_erasure_v1.sql', import.meta.url), 'utf8'
+  );
+  const lock = sql.indexOf('perform 1 from public.lanu_media_objects');
+  const stateCheck = sql.indexOf("and state is distinct from 'purged'");
+  const metadataDelete = sql.indexOf('delete from public.lanu_media_objects');
+  assert.ok(lock >= 0 && stateCheck > lock && metadataDelete > stateCheck,
+    'All owner media rows must be locked before checking or deleting cleanup metadata');
+  assert.match(sql.slice(lock, stateCheck),
+    /where sender_id = p_owner or recipient_id = p_owner\s+for update\s*;/i,
+    'Lock must cover every existing sender/recipient row, including purged rows');
+});
