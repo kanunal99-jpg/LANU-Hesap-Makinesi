@@ -755,9 +755,14 @@ class NativeCallStateTest {
         mainTestDispatcher.scheduler.advanceTimeBy(ICE_RESTART_GRACE_MS + 1L)
         mainTestDispatcher.scheduler.runCurrent()
         delay(50)
-        assertEquals("Old outage must not send into newer generation",1,
+        // The first native callback belonged to the OLD generation; only
+        // the second verified outage may produce its own new OFFER.
+        withTimeout(3_000) {
+            sent.first { rows -> rows.count { it.kind==CallSignalKind.OFFER } == 2 }
+        }
+        assertEquals("Only the newer generation may publish a restart offer",2,
             sent.value.count { it.kind==CallSignalKind.OFFER })
-        assertEquals(1,iceRestarts)
+        assertEquals(2,iceRestarts)
         assertEquals(NativeCallPhase.RECONNECTING,vm.state.value.phase)
         vm.end();waitPhase(NativeCallPhase.ENDED)
     }
