@@ -57,16 +57,18 @@ fun InlineMediaComposer(
                 leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null) },
                 onClick = { menu = false; onDocument() }
             )
-            DropdownMenuItem(
-                text = { Text("Şifreli büyük belge (en fazla 40 MB)") },
-                leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null) },
-                onClick = { menu = false; onLargeDocument() }
-            )
-            DropdownMenuItem(
-                text = { Text("Yüksek kaliteli fotoğraf (EXIF temizlenir)") },
-                leadingIcon = { Icon(Icons.Default.ImageIcon, contentDescription = null) },
-                onClick = { menu = false; onLargePhoto() }
-            )
+            if (BuildConfig.LANU_PRIVATE_MEDIA_UI_ENABLED) {
+                DropdownMenuItem(
+                    text = { Text("Şifreli büyük belge (en fazla 40 MB)") },
+                    leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null) },
+                    onClick = { menu = false; onLargeDocument() }
+                )
+                DropdownMenuItem(
+                    text = { Text("Yüksek kaliteli fotoğraf (EXIF temizlenir)") },
+                    leadingIcon = { Icon(Icons.Default.ImageIcon, contentDescription = null) },
+                    onClick = { menu = false; onLargePhoto() }
+                )
+            }
         }
     }
 
