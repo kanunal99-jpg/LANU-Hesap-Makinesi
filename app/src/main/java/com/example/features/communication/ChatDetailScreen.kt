@@ -222,7 +222,7 @@ fun ChatDetailScreen(
                                     showMenu = false
                                     // The active thread can change while a menu is open.
                                     if (activeConversation?.id == conversationId) {
-                                        viewModel.retryFailedMessages(retryableFailedIds)
+                                        viewModel.retryFailedMessages(retryableFailedIds, conversationId)
                                     }
                                 },
                                 modifier = Modifier.testTag("private_retry_failed_messages")
