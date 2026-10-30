@@ -58,6 +58,76 @@ class CommunicationRepository(
 
     suspend fun prepareCalling() { synchronize(requireExistingIdentity = true) }
 
+    /**
+     * #224: Owner-signed, read-only STAGING readiness check. Never creates an
+     * identity, changes Room, or calls deleteAccount. A true result reports
+     * media METADATA only; it is not proof of physical Storage erasure.
+     */
+    data class AccountDeletionReadiness(val storageReady: Boolean, val deletionEnabled: Boolean)
+
+    suspend fun checkAccountDeletionPreflight(): AccountDeletionReadiness {
+        check(relay.configured) { "Sunucu hesap silme ön kontrolü kullanılamıyor." }
+        check(settingsDao.getSettingValue("lanu_server_erasure_state") == null) {
+            "Önceki silme isteğinin sonucu belirsiz veya tamamlandı; otomatik tekrar yapılmaz."
+        }
+        val own = identityMutex.withLock {
+            _identity.value ?: withContext(Dispatchers.IO) { identityStore.read() }
+                ?: error("Mevcut LANU kimliği bulunamadı; hiçbir veri değiştirilmedi.")
+        }
+        check(settingsDao.getSettingValue("lanu_full_restore_identity")?.let { it == own.id } != false) {
+            "Kimlik yedeği eşleşmiyor; hiçbir veri değiştirilmedi."
+        }
+        val result = relay.request(own, "checkAccountDeletion",
+            JSONObject().put("expectedCode", own.code))
+        check(result.length() == 2 &&
+            result.opt("storageReady") is Boolean &&
+            result.opt("deletionEnabled") is Boolean) {
+            "Sunucu ön kontrol yanıtı doğrulanamadı; hiçbir veri değiştirilmedi."
+        }
+        return AccountDeletionReadiness(
+            storageReady = result.getBoolean("storageReady"),
+            deletionEnabled = result.getBoolean("deletionEnabled")
+        )
+    }
+
+    /**
+     * #224 STAGED: a second owner-signed request after fresh preflight, the
+     * user's exact current code and explicit irreversible-action consent.
+     * Never run when the live relay does not advertise deletion capability.
+     *
+     * Persist a pending tombstone BEFORE sending. If the HTTP response is
+     * lost after a successful remote deletion, normal sync must not silently
+     * re-register the supposedly erased account. Neither a timeout nor an
+     * arbitrary JSON value is a deletion receipt. Local Room/keys stay intact
+     * pending a separately authorized final local cleanup.
+     */
+    suspend fun requestSignedAccountErasure(
+        expectedCode: String, confirmed: Boolean
+    ): Boolean = syncMutex.withLock {
+        check(confirmed && expectedCode.isNotBlank()) { "Hesap silme onayı eksik." }
+        check(settingsDao.getSettingValue("lanu_server_erasure_state") == null) {
+            "Önceki sunucu silme işlemi yeniden başlatılamaz."
+        }
+        val readiness = checkAccountDeletionPreflight()
+        check(readiness.storageReady && readiness.deletionEnabled) {
+            "Sunucu silme işlemi henüz güvenli şekilde etkin değil."
+        }
+        val own = identityMutex.withLock {
+            _identity.value ?: withContext(Dispatchers.IO) { identityStore.read() }
+                ?: error("Mevcut kimlik bulunamadı; hiçbir veri değiştirilmedi.")
+        }
+        check(own.code == expectedCode) { "Hesap kodu değişti; silme işlemi durduruldu." }
+        settingsDao.insertSetting(SettingsEntity("lanu_server_erasure_state", "pending"))
+        val result = relay.request(own, "deleteAccount", JSONObject()
+            .put("confirmation", "DELETE_ACCOUNT").put("expectedCode", own.code))
+        check(result.length() == 1 && result.opt("deleted") is Boolean &&
+            result.getBoolean("deleted")) {
+            "Sunucu silme sonucu doğrulanamadı. Tekrar denenmeyecek."
+        }
+        settingsDao.insertSetting(SettingsEntity("lanu_server_erasure_state", "complete"))
+        true
+    }
+
     suspend fun callPeerForConversation(id: String): CallPeer {
         val peer = peerForConversation(id) ?: error("Önce karşılıklı kişi kaydını tamamlayın.")
         return verifiedCallPeer(peer.getString("id")) ?: error("Arama için karşılıklı kişi kaydı gerekir.")
@@ -247,6 +317,11 @@ class CommunicationRepository(
     suspend fun logout() { /* Identity intentionally survives leaving the private space. */ }
 
     private suspend fun registerRemote(requireExistingIdentity: Boolean = false): MessagingIdentity {
+        // Server deletion may have committed even if the HTTP response vanished.
+        // Never resurrect that identity through sync/register on next cold start.
+        check(settingsDao.getSettingValue("lanu_server_erasure_state") == null) {
+            "Hesap silme isteği bekliyor veya tamamlandı. Sunucu kaydı otomatik açılmaz."
+        }
         val own = loadIdentity(allowCreate = !requireExistingIdentity)
         val response = relay.request(own, "register", JSONObject().put("code", own.code).put("nonce", own.nonce).put("publicKey", own.publicKey))
         val code = response.getString("code")
