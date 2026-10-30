@@ -179,9 +179,14 @@ object PrivateMediaCrypto {
         validate(manifest)
         require(keyMaterial.size == KEY_BYTES) { "Dosya anahtarı geçersiz." }
         require(privateDirectory.isDirectory) { "Özel dosya alanı bulunamadı." }
-        require(encrypted.isFile && encrypted.length() ==
+        // Remote downloads must be staged in the owner's app-private cache.
+        // Reject outside paths and symlinks, even with a valid hash, rather
+        // than reading attacker-controlled world-readable or shared files.
+        require(encrypted.isFile &&
+            encrypted.canonicalFile.parentFile == privateDirectory.canonicalFile &&
+            encrypted.length() ==
             manifest.plainBytes + manifest.chunks * GCM_TAG_BYTES.toLong()) {
-            "Şifreli dosya boyutu geçersiz."
+            "Şifreli dosya özel alanda değil veya boyutu geçersiz."
         }
         // Verify the complete encrypted object BEFORE writing even a temporary
         // plaintext byte. This prevents a wrong SHA manifest or truncated
@@ -191,10 +196,15 @@ object PrivateMediaCrypto {
         FileInputStream(encrypted).use { source ->
             val buffer = ByteArray(CHUNK_BYTES)
             var total = 0L
+            var stalledReads = 0
             while (true) {
                 val count = source.read(buffer)
                 if (count < 0) break
-                if (count == 0) continue
+                if (count == 0) {
+                    if (++stalledReads >= 3) throw IOException("Şifreli dosya okumada ilerleme yok.")
+                    continue
+                }
+                stalledReads = 0
                 total += count
                 require(total <= manifest.plainBytes +
                     manifest.chunks * GCM_TAG_BYTES.toLong()) {
