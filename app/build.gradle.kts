@@ -8,6 +8,7 @@ plugins {
   alias(libs.plugins.roborazzi)
   alias(libs.plugins.secrets)
   alias(libs.plugins.google.services)
+  alias(libs.plugins.firebase.crashlytics)
 }
 
 // Preserve the current Room schema as compiler-generated evidence. Historical
@@ -132,6 +133,8 @@ dependencies {
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
+  // Fatal and ANR reporting must remain disabled until explicit private opt-in.
+  implementation(libs.firebase.crashlytics)
   // Explicit, separately consented call and opaque message alerts; no marketing push.
   implementation("com.google.firebase:firebase-messaging")
   // Uncomment to use Firestore:
