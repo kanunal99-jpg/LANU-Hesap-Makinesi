@@ -255,6 +255,49 @@ test('future FK schema drift rejects erasure and preserves every existing row', 
   } finally { await db.close(); }
 });
 
+test('unreviewed CASCADE foreign keys cannot silently erase future peer data', async () => {
+  // A new CASCADE child would NOT cause the final parent DELETE to fail.
+  // The staged RPC must reject changed FK inventories before touching rows.
+  for (const parent of ['identity', 'message']) {
+    const {db,shared} = await createFixture();
+    try {
+      if (parent === 'identity') {
+        await db.exec(`
+          create table public.lanu_future_peer_data(
+            owner_id text not null references public.lanu_identities(id)
+              on delete cascade, payload text not null
+          )
+        `);
+        await db.query(
+          'insert into public.lanu_future_peer_data(owner_id,payload) values($1,$2)',
+          [alice,'synthetic-peer-owned-record']
+        );
+      } else {
+        await db.exec(`
+          create table public.lanu_future_peer_data(
+            message_id uuid not null references public.lanu_messages(id)
+              on delete cascade, payload text not null
+          )
+        `);
+        await db.query(
+          'insert into public.lanu_future_peer_data(message_id,payload) values($1,$2)',
+          [shared,'synthetic-peer-inbox-record']
+        );
+      }
+      const before = await fingerprint(db);
+      await assert.rejects(
+        db.query('select public.lanu_delete_account_v1($1,$2)',[alice,code('A')]),
+        /Account schema review required/i,
+        'A newly cascading ' + parent + ' FK must require independent review'
+      );
+      assert.deepEqual(await fingerprint(db),before);
+      assert.equal(await count(db,'lanu_future_peer_data'),1);
+      assert.equal(await count(db,'lanu_identities','id=$1',[alice]),1);
+      assert.equal(await count(db,'lanu_identities','id=$1',[bob]),1);
+    } finally { await db.close(); }
+  }
+});
+
 test('another pair\'s unpurged media does not authorize or block unrelated account deletion', async () => {
   const {db} = await createFixture();
   try {
