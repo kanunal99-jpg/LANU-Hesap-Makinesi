@@ -307,6 +307,30 @@ export function createRelay(store, clock = Date.now, options = {}) {
         return { fileId: data.fileId, state: reserved.state,
           cipherBytes: data.cipherBytes, expiresAt: reserved.expires_at };
       }
+      case 'privateMediaUploadGrant':
+      case 'privateMediaFinalize':
+      case 'privateMediaDownloadGrant': {
+        insist(options.privateMediaReservation === true &&
+            options.mediaTransfer && typeof options.mediaTransfer === 'object',
+          503, 'Güvenli dosya gönderme/alma henüz etkin değil.');
+        insist(Object.keys(data).sort().join(',') === 'fileId' &&
+            mediaFileId.test(data.fileId ?? ''),
+          400, 'Geçersiz özel dosya isteği.');
+        const method = action === 'privateMediaUploadGrant' ? 'uploadGrant'
+          : action === 'privateMediaFinalize' ? 'finalize' : 'downloadGrant';
+        insist(typeof options.mediaTransfer[method] === 'function',
+          503, 'Güvenli dosya işlemi kullanılamıyor.');
+        try {
+          return await options.mediaTransfer[method](owner, data.fileId);
+        } catch (error) {
+          // Keep service errors generic. Do not disclose private paths,
+          // Storage tokens, user identities, headers or implementation detail.
+          if (Number.isSafeInteger(error?.status) &&
+              [400,403,404,409,429,503].includes(error.status))
+            throw new RelayError(error.status, 'Güvenli dosya işlemi onaylanamadı.');
+          throw new RelayError(503, 'Güvenli dosya servisi kullanılamıyor.');
+        }
+      }
       case 'sync': {
         // Parallel independent private read operations. No extra mobile poll,
         // no background service, same authenticated response and ack semantics.
