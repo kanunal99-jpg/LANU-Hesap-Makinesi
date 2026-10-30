@@ -15,6 +15,8 @@ function setup(opts = {}) {
     state
   });
   const store = {
+    mutual: async (sender, recipient) => sender === alice && recipient === bob && !opts.revoked,
+    mediaVersion: async () => opts.oldPeer ? 0 : 1,
     mediaReservation: async (fileId) => fileId === id ? row() : null,
     markMediaReady: async ({owner,fileId,cipherBytes,cipherSha256}) => {
       writes++;
@@ -57,6 +59,14 @@ test('authenticated owner gets signed upload with opaque keyless metadata', asyn
   assert.ok(!JSON.stringify(grant).includes(alice));
   assert.ok(!JSON.stringify(grant).includes(digest));
   assert.equal(f.uploadCalls,1);
+});
+test('revoked contact or incompatible media version rejects all new grants', async () => {
+  for (const f of [setup({revoked:true}), setup({oldPeer:true})]) {
+    await assert.rejects(f.media.uploadGrant(alice,id));
+    await assert.rejects(f.media.finalize(alice,id));
+    assert.equal(f.uploadCalls,0);
+    assert.equal(f.reads,0);
+  }
 });
 test('receiver, outsider, malformed file or expired pending grant fail before Storage', async () => {
   const f=setup();
@@ -108,7 +118,7 @@ test('receiver cannot finalize other party object; replay finalization cannot re
 test('signed grant adapter failure, malformed URL or token fail closed', async () => {
   const row=()=>({file_id:id,sender_id:alice,recipient_id:bob,cipher_bytes:bytes.length,
     cipher_sha256:digest,expires_at:expires(),state:'pending'});
-  const base={mediaReservation:async()=>row(),markMediaReady:async()=>null};
+  const base={mutual:async()=>true,mediaVersion:async()=>1,mediaReservation:async()=>row(),markMediaReady:async()=>null};
   const fixture=(returnValue)=>createPrivateMediaTransfer({
     store:base,storage:{
       signUpload:async()=>returnValue,
