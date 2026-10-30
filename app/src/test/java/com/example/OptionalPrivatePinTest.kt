@@ -15,7 +15,10 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** Mandatory owner authentication, including upgrades from optional-PIN installs. */
+/**
+ * First hidden-area entry is always via the calculator secret gesture.
+ * These tests exercise the repository's independent optional PIN gate.
+ */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class OptionalPrivatePinTest {
@@ -38,87 +41,95 @@ class OptionalPrivatePinTest {
 
     @After fun stop() { db.close() }
 
-    @Test fun noPinRequiresSetupAndNeverUnlocksFromGesture() = runBlocking {
+    @Test fun noPinIsNotForcedOnFirstHiddenEntry() = runBlocking {
         assertFalse(repo.hasPin())
-        assertTrue(repo.isEntryPinEnabled())
+        assertFalse(repo.isEntryPinEnabled())
         assertTrue(repo.isLockedState.value)
-        assertFalse(repo.tryEnterWithoutPin())
-        assertTrue(repo.isLockedState.value)
-        assertFalse(newRepo().tryEnterWithoutPin())
-        assertTrue(newRepo().isLockedState.value)
-        assertTrue(repo.setupPin("4826"))
+        assertTrue(repo.tryEnterWithoutPin())
+        assertFalse(repo.isLockedState.value)
         repo.lock()
-        assertFalse(repo.tryEnterWithoutPin())
-        assertTrue(repo.verifyPin("4826"))
+        assertTrue(repo.isLockedState.value)
+        assertTrue(newRepo().tryEnterWithoutPin())
     }
 
-    @Test fun legacyOptOutRetainsExistingCredentialButCannotBypassIt() = runBlocking {
+    @Test fun existingPinContinuesToBlockPasswordlessEntryByDefault() = runBlocking {
         assertTrue(repo.setupPin("5639"))
-        val savedHash = db.settingsDao().getSettingValue("pin_hash")
-        db.settingsDao().insertSetting(SettingsEntity("entry_pin_enabled", "false"))
         repo.lock()
         assertTrue(repo.isEntryPinEnabled())
         assertFalse(repo.tryEnterWithoutPin())
         assertTrue(repo.isLockedState.value)
         val restarted = newRepo()
+        assertTrue(restarted.isEntryPinEnabled())
         assertFalse(restarted.tryEnterWithoutPin())
         assertTrue(restarted.isLockedState.value)
-        assertEquals(savedHash, db.settingsDao().getSettingValue("pin_hash"))
-        assertEquals("false", db.settingsDao().getSettingValue("entry_pin_enabled"))
+    }
+
+    @Test fun disableRequiresRealPinAndPreservesCredentialAcrossRestart() = runBlocking {
+        assertTrue(repo.setupPin("5639"))
+        repo.lock()
+        assertFalse(repo.setEntryPinEnabled(false))
+        assertFalse(repo.setEntryPinEnabled(false, "2011"))
+        assertTrue(repo.isEntryPinEnabled())
+        assertTrue(repo.setEntryPinEnabled(false, "5639"))
+        assertFalse(repo.isEntryPinEnabled())
+        assertTrue(repo.hasPin())
+        val restarted = newRepo()
+        assertTrue(restarted.tryEnterWithoutPin())
+        restarted.lock()
         assertTrue(restarted.verifyPin("5639"))
     }
 
-    @Test fun disablingMandatoryEntryNeverErasesOrChangesThePin() = runBlocking {
-        assertTrue(repo.setupPin("5639"))
-        val hash = db.settingsDao().getSettingValue("pin_hash")
-        repo.lock()
-        assertFalse(repo.setEntryPinEnabled(false))
-        assertFalse(repo.setEntryPinEnabled(false, "5639"))
-        assertTrue(repo.isLockedState.value)
-        assertEquals(hash, db.settingsDao().getSettingValue("pin_hash"))
-        assertTrue(repo.verifyPin("5639"))
-    }
-
-    @Test fun reenableLegacyPreferenceWithoutCredentialReset() = runBlocking {
+    @Test fun reenablingPinUsesExistingCredentialWithoutResettingIt() = runBlocking {
         assertTrue(repo.setupPin("7777"))
-        db.settingsDao().insertSetting(SettingsEntity("entry_pin_enabled", "false"))
+        assertTrue(repo.setEntryPinEnabled(false, "7777"))
         assertTrue(repo.changePin("7777", "987654"))
+        assertFalse(repo.isEntryPinEnabled())
         assertTrue(repo.setEntryPinEnabled(true))
-        assertEquals("true", db.settingsDao().getSettingValue("entry_pin_enabled"))
         repo.lock()
         assertFalse(newRepo().tryEnterWithoutPin())
         assertFalse(repo.verifyPin("7777"))
         assertTrue(repo.verifyPin("987654"))
     }
 
-    @Test fun corruptLegacyPreferenceAndRestoreStayFailClosed() = runBlocking {
+    @Test fun deliberatePinCreationInSettingsEnablesGate() = runBlocking {
+        assertFalse(repo.isEntryPinEnabled())
+        assertFalse(repo.setEntryPinEnabled(true))
+        assertFalse(repo.hasPin())
+        assertTrue(repo.setupPin("4826"))
+        assertTrue(repo.isEntryPinEnabled())
+        repo.lock()
+        assertFalse(repo.tryEnterWithoutPin())
+        assertTrue(repo.verifyPin("4826"))
+    }
+
+    @Test fun fiveInvalidDisableAttemptsCannotBypassExistingBruteForceLockout() = runBlocking {
+        assertTrue(repo.setupPin("4826"))
+        repo.lock()
+        repeat(5) { assertFalse(repo.setEntryPinEnabled(false, "1111")) }
+        assertFalse(repo.setEntryPinEnabled(false, "4826"))
+        assertTrue(repo.isEntryPinEnabled())
+        assertFalse(repo.tryEnterWithoutPin())
+        timeMs += 30_000
+        assertTrue(repo.setEntryPinEnabled(false, "4826"))
+        assertTrue(newRepo().tryEnterWithoutPin())
+    }
+
+    @Test fun corruptPreferenceRequiresPinRatherThanSilentlyDisablingIt() = runBlocking {
         assertTrue(repo.setupPin("4826"))
         db.settingsDao().insertSetting(SettingsEntity("entry_pin_enabled", "invalid"))
         repo.lock()
         assertTrue(repo.isEntryPinEnabled())
         assertFalse(repo.tryEnterWithoutPin())
-        assertFalse(newRepo().tryEnterWithoutPin())
-        assertTrue(newRepo().verifyPin("4826"))
+        assertTrue(repo.verifyPin("4826"))
     }
 
-    @Test fun lockoutCannotBeBypassedByLegacyOptOutOrRestart() = runBlocking {
-        assertTrue(repo.setupPin("4826"))
-        db.settingsDao().insertSetting(SettingsEntity("entry_pin_enabled", "false"))
+    @Test fun pinlessUnlockedSessionStillLocksOnScreenOffOrBackground() = runBlocking {
+        assertTrue(repo.tryEnterWithoutPin())
         repo.lock()
-        repeat(5) { assertFalse(repo.verifyPin("1111")) }
-        assertFalse(newRepo().tryEnterWithoutPin())
-        assertFalse(newRepo().verifyPin("4826"))
-        assertTrue(newRepo().isLockedState.value)
-        timeMs += 30_000L
-        assertTrue(newRepo().verifyPin("4826"))
-    }
-
-    @Test fun pinlessBackgroundAndNewProcessRemainLocked() = runBlocking {
-        assertFalse(repo.tryEnterWithoutPin())
+        assertTrue(repo.isLockedState.value)
+        assertTrue(repo.tryEnterWithoutPin())
         repo.setLockTimeout(0)
         repo.handleAppBackgrounded()
         assertTrue(repo.isLockedState.value)
-        assertTrue(newRepo().isLockedState.value)
-        assertFalse(newRepo().tryEnterWithoutPin())
     }
 }
