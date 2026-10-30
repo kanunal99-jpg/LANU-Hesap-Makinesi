@@ -23,7 +23,7 @@ object PrivatePhotoStaging {
             val source = context.contentResolver.openInputStream(uri)?.use {
                 InlineMediaPreparer.readBoundedInput(it, MAX_SOURCE)
             } ?: throw IllegalArgumentException("Fotoğraf açılamadı.")
-            try { stageSelectedBytes(source, context.cacheDir) }
+            try { stageSelectedBytes(source, PrivateMediaDocumentPreparer.privateDirectory(context)) }
             finally { source.fill(0) }
         }
 
