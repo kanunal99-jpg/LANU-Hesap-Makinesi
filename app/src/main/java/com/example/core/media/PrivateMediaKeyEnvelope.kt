@@ -26,6 +26,15 @@ object PrivateMediaKeyEnvelope {
     )
     private val base64url43 = Regex("[A-Za-z0-9_-]{43}")
 
+    /** The content must already have passed authenticated E2EE decryption. */
+    internal fun isAuthenticatedMediaPayload(plain: String): Boolean {
+        if (plain.length !in 1..MAX_JSON_CHARS || !plain.startsWith("{")) return false
+        return runCatching {
+            val json = JSONObject(plain)
+            json.opt("type") is String && json.optString("type") == INNER_TYPE
+        }.getOrDefault(false)
+    }
+
     /** Sensitive key returned after authenticating and decrypting the peer frame. */
     class OpenedMediaKey(
         val manifest: PrivateMediaCrypto.Manifest,
@@ -83,6 +92,15 @@ object PrivateMediaKeyEnvelope {
             recipient, verifiedSenderId, verifiedSenderPublicKey,
             messageId, senderIdInFrame, encryptedFrame
         )
+        return openAuthenticatedPayload(plain)
+    }
+
+    /**
+     * Only call after authenticated PeerMessageCrypto.decrypt using a
+     * conversation-bound, verified peer key and original message UUID.
+     * This returns a secret-bearing object: destroy its key in finally.
+     */
+    internal fun openAuthenticatedPayload(plain: String): OpenedMediaKey {
         require(plain.length in 1..MAX_JSON_CHARS) { "Medya anahtar zarfı çok büyük." }
         val json = JSONObject(plain)
         val keys = mutableSetOf<String>()
