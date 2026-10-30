@@ -324,18 +324,25 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
      * only the first item immediately and leaving the others until next poll.
      * The repository validates identity/FAILED state under its sync mutex.
      */
-    fun retryFailedMessages(messageIds: List<String>) = operation {
+    fun retryFailedMessages(messageIds: List<String>, expectedConversationId: String) = operation {
+        // A menu callback can queue a coroutine just before the user switches chats.
+        // Do not retry messages from a stale screen, even if they belong to this user.
+        if (expectedConversationId.isBlank() ||
+            _activeConversation.value?.id != expectedConversationId) return@operation
         var requeued = 0
         for (id in messageIds.distinct().take(ChatFailedRetryPolicy.MAX_BATCH)) {
+            if (_activeConversation.value?.id != expectedConversationId) break
             try {
-                repository.retryMessage(id)
+                // Repository rechecks sender, FAILED status and conversation while
+                // holding the sync mutex; stale IDs cannot cross chat boundaries.
+                repository.retryMessage(id, expectedConversationId)
                 requeued++
             } catch (_: IllegalArgumentException) {
                 // Status may have changed to SENT/PENDING after menu opened.
                 // Never requeue already accepted or someone else's message.
             }
         }
-        if (requeued > 0) synchronize()
+        if (requeued > 0 && _activeConversation.value?.id == expectedConversationId) synchronize()
     }
     fun editMessage(messageId: String, text: String) {
         val conversation = _activeConversation.value ?: return
