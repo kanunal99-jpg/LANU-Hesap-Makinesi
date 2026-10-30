@@ -366,6 +366,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                     PrivateMediaDocumentPreparer.privateDirectory(this@MainActivity))
                 if (securityViewModel.isLocked.value) return@launch
                 val extension = when (downloaded.mime) {
+                    "image/jpeg" -> "jpg"
+                    "image/png" -> "png"
+                    "video/mp4" -> "mp4"
                     "application/pdf" -> "pdf"
                     "text/plain" -> "txt"
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> "docx"
@@ -376,7 +379,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                 val pickerIntent = Intent(Intent.ACTION_CREATE_DOCUMENT)
                     .addCategory(Intent.CATEGORY_OPENABLE)
                     .setType(downloaded.mime)
-                    .putExtra(Intent.EXTRA_TITLE, "LANU-belge.$extension")
+                    .putExtra(Intent.EXTRA_TITLE, "dosya.$extension")
                 pendingLargeExport = downloaded
                 downloaded = null
                 beginExternalPicker()
