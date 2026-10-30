@@ -16,7 +16,7 @@ import java.util.UUID
 // sample gives a brief self-healing radio handover time to earn fresh RTP
 // evidence before spending a bounded authenticated ICE restart. The separate 25s
 // call deadline still bounds genuine outages.
-internal const val ICE_RESTART_GRACE_MS = 2_250L
+internal const val ICE_RESTART_GRACE_MS = CallWeakNetworkRecoveryPolicy.TRANSIENT_GRACE_MS
 // RTP stats are sampled once per second. An old CONNECTED UI phase alone
 // cannot prove a live call if the native stats callback stops arriving.
 internal const val CALL_MEDIA_PROOF_CALLBACK_MAX_AGE_MS = 3_000L
