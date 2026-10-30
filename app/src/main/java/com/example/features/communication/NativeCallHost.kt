@@ -149,7 +149,7 @@ fun NativeCallHost(
                         NativeCallPhase.CONNECTING -> "Güvenli bağlantı kuruluyor…"
                         NativeCallPhase.CONNECTED -> "Bağlandı"
                         NativeCallPhase.RECONNECTING -> "Ağ bağlantısı yenileniyor…"
-                        else -> state.message.ifBlank { "Arama kapandı." }
+                        else -> PrivateCallUiTextPolicy.terminal(state.phase, revealPeerName, state.message)
                     }, style = MaterialTheme.typography.bodyLarge)
                     if (state.connectedAt > 0 && !ended) {
                         var elapsed by remember { mutableLongStateOf(0) }
@@ -205,7 +205,7 @@ fun NativeCallHost(
     if (PrivateCallHostDisclosurePolicy.mayShowIdleNotice(revealPeerName, state.phase) &&
         notice != null) {
         AlertDialog(onDismissRequest = model::clearNotice, title = { Text("Arama bilgisi") },
-            text = { Text(notice!!) }, confirmButton = { TextButton(onClick = model::clearNotice) { Text("Tamam") } })
+            text = { Text(PrivateCallUiTextPolicy.notice(revealPeerName, notice) ?: "Arama bilgisi kullanılamıyor.") }, confirmButton = { TextButton(onClick = model::clearNotice) { Text("Tamam") } })
     }
 }
 
