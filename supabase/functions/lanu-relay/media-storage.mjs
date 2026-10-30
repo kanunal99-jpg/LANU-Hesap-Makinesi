@@ -51,7 +51,7 @@ export function createPrivateMediaStorage(projectUrl, serviceKey, fetcher = fetc
   if (origin.protocol !== 'https:' || origin.username || origin.password ||
       origin.pathname !== '/' && origin.pathname !== '' ||
       origin.search || origin.hash ||
-      !/^[a-z0-9-]+\\.supabase\\.co$/.test(origin.hostname) ||
+      !/^[a-z0-9-]+\.supabase\.co$/.test(origin.hostname) ||
       typeof serviceKey !== 'string' || serviceKey.length < 20) throw fail();
 
   const base = origin.origin + '/storage/v1/';
@@ -89,7 +89,7 @@ export function createPrivateMediaStorage(projectUrl, serviceKey, fetcher = fetc
     const r = await request('object/upload/sign/' + path, 'POST', { upsert: false });
     const data = await smallJson(r);
     if (typeof data.token !== 'string' || data.token.length < 16 ||
-        data.token.length > 4096 || !/^[A-Za-z0-9._~\\-]+$/.test(data.token)) throw fail();
+        data.token.length > 4096 || !/^[A-Za-z0-9._~-]+$/.test(data.token)) throw fail();
     // Never trust Storage JSON's "url" as an arbitrary redirect destination.
     // Construct only the immutable private object route from verified fileId.
     return Object.freeze({
