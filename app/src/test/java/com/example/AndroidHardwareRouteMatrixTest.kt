@@ -56,6 +56,18 @@ class AndroidHardwareRouteMatrixTest {
         // An unavailable stale manual route must never prevent fallback.
         assertEquals(Route.EARPIECE,
             CallAudioRoutePolicy.priorities(builtInOnly, false, Route.BLUETOOTH_HEADSET).first())
+
+        // Automatic re-selection must keep a physically correct device alive.
+        // A deliberate manual retry of the SAME route may reset a stuck OEM.
+        assertFalse(CallAudioRoutePolicy.needsExplicitRouteReset(
+            false, Route.WIRED_HEADSET, Route.WIRED_HEADSET))
+        assertTrue(CallAudioRoutePolicy.needsExplicitRouteReset(
+            true, Route.WIRED_HEADSET, Route.WIRED_HEADSET))
+        assertFalse(CallAudioRoutePolicy.needsExplicitRouteReset(
+            true, Route.BLUETOOTH_HEADSET, Route.EARPIECE))
+        assertTrue(CallAudioRoutePolicy.keepActiveCommunicationDevice(
+            Route.WIRED_HEADSET, true,
+            CallAudioRoutePolicy.priorities(outputs, false, null)))
     }
 
     @Test fun headsetDisconnectFallsBackToEarOrSpeakerWithoutStaleRoute() {
