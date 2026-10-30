@@ -525,8 +525,12 @@ class NativeCallStateTest {
         inject(CallSignaling.create(call,CallSignalKind.OFFER,false,restartSdp))
         withTimeout(3000) { sent.first { list -> list.count { it.kind==CallSignalKind.ANSWER } == 2 } }
         inject(CallSignaling.create(call,CallSignalKind.OFFER,false,restartSdp))
-        inject(CallSignaling.create(call,CallSignalKind.OFFER,false,restartSdp+"a=ice-pwd:third\\r\\n"))
-        assertEquals("Exactly one initial offer and one new restart are allowed",2,
+        val secondRestart = restartSdp+"a=ice-pwd:third\\r\\n"
+        inject(CallSignaling.create(call,CallSignalKind.OFFER,false,secondRestart))
+        withTimeout(3000) { sent.first { list -> list.count { it.kind==CallSignalKind.ANSWER } == 3 } }
+        inject(CallSignaling.create(call,CallSignalKind.OFFER,false,secondRestart))
+        inject(CallSignaling.create(call,CallSignalKind.OFFER,false,secondRestart+"a=ice-ufrag:fourth\\r\\n"))
+        assertEquals("At most two changed restarts plus the initial offer",3,
             sent.value.count { it.kind==CallSignalKind.ANSWER })
         assertEquals(1,starts)
         assertEquals(NativeCallPhase.CONNECTED,vm.state.value.phase)
