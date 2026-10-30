@@ -1,5 +1,25 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 30.10.2026 — DEĞİŞMEZ SABİT PROMPT: ÖNCE TAM ÖZELLİK, APK YAYINI VE KULLANICI KABULÜ
+
+# ÖNCE ÖZELLİK TAM EKLENECEK, YAYINLANACAK, KULLANICI GERÇEKTEN KULLANACAK — SONRA DİĞER GELİŞTİRME!
+
+**ÜSTÜN VE BAĞLAYICI KULLANICI EMRİ.** Kullanıcı açıkça “şunu yandan geliştir” veya paralel geliştirme talimatı vermediği sürece bütün çalışmalar bu sırayı izleyecek. Önceki paralel faz, küçük bağımsız PR veya sadece koda bakarak tamamlandı raporları bu emre aykırıysa geçersizdir.
+
+**ZORUNLU SIRA:** İstenen işin bütün alt özellikleri ve gerçek kullanıcı akışı → testli ana servis/alternatif/fallback/hata yönetimi/güvenli varsayılan/mahrem izleme/smoke test → son HEAD Android/Room/R8 ve güvenlik kabulü → main merge → main CI → aynı imzayla veri kayıpsız OTA → GitHub Releases üzerinde gerçekten indirilebilir APK, SHA256 ve signer raporu → gerçek cihaz ve gerekli backend kabulü → kullanıcının APK'yı kurup işlevi kullanabilmesi → ancak sonra diğer istek.
+
+**5 / 10 / N ÖZELLİK KURALI:** Kullanıcı 5 madde istediyse 5'i, 10 madde istediyse 10'u tamamlanıp çalışır ve yayınlanır. O liste tamamlanmadan isteğe bağlı yeni özellik, farklı modül veya yan refaktör açılmaz. Listenin içinde bir maddeyi bütün alt işlevleriyle bitirip yayımlayarak sıradakine geç; kullanıcı tek toplu sürüm isterse bütün maddeleri birlikte kabul ettirmeden “tamamlandı” demek yasaktır. Kullanıcı yeni öncelik veya açık paralel izin verirse listeyi o karara göre güncelle.
+
+**“APK YAYINLANDI” YANILGISI YASAK:** PR açılması, test geçmesi, main'e birleştirme, Actions artifact veya Release'de bakım APK'sı bulunması bir özelliğin bitip kullanıcı tarafından kullanılabildiği anlamına gelmez. Kullanıcı APK yayınını özelliklerin eklenmiş ve kullanılabilir olması olarak anlıyor. Her yayın raporu sürüm etiketi, main commit, APK+SHA256+signer, yeniden indirme, veri korumalı OTA, sürüme gerçekten girmiş işlevler ve doğrulanmamış fiziksel kabulü açıkça ayırır. **Yarım işlevli APK'ya “tam özellikli/kullanılabilir” denemez.** Gerçek cihaz veya hukuk kabulü eksikse “yayınlandı” ile “tam işlevsel kabul” ayrı yazılır; uydurma kanıt yoktur. Kamusal notlarda gizli alana dair hiçbir ipucu verilmez.
+
+**DİŞE DOKUNUR SINIF ATLAMALI GELİŞTİRME:** Birkaç satırlık yama, test, plan, commit, PR ya da yükselen sürüm numarası asıl teslim değildir. Kullanıcıya gerçekten yeni kapasite kazandıran uçtan uca özellik, ekran/servis/veri/yedek/bağlantı/güvenlik/cihaz ve kullanım senaryolarının tümüyle tamamlanacaktır. Aynı puanda döngü veya açık işi küçük parçalara bölüp sürekli yeni PR açmak yasaktır. Sorun varsa kök nedeni gider, ürünü çıkar, gerçek kabulü doğrula.
+
+**GÜVENLİK SINIRI:** PIN/E2EE kimliği/Room/geçmiş/kurulu APK/signer korunur; izinsiz ücret, veri silme, canlı SQLCipher/Double Ratchet geçişi veya hesap silme yoktur. Gerekli fiziksel cihaz, ayrı hukuk veya veri sahibi onayı araçlarla sağlanamıyorsa dürüstçe açık kalan kapı olarak raporlanır; sahte tamamlanma sayılmaz. İki otomatik görev birbiriyle çakışan PR/merge/yayın yapmaz.
+
+**Bu bölüm, yeni bir APK veya özellik kanıtı değil; bütün mevcut ve gelecek geliştirme turlarının değişmez bağlayıcı teslim standardıdır.**
+
+---
+
 ## 29.10.2026 — YENİ VE ÜSTÜN ÖNCELİKLİ KULLANICI KARARI: HESAP MAKİNESİNİ DONDUR, TÜM GELİŞTİRMEYİ GİZLİ ALANA ODAKLA
 
 **Kapsam ve öncelik (bağlayıcı):** Bu karar, önceki genel hesap makinesi özellik/iyileştirme taleplerinin geliştirme önceliğini değiştirir. LANU Hesap Makinesi'nin görünen hesap makinesi yüzüne **yeni özellik, tasarım değişikliği, refaktör, yeni matematik yeteneği veya performans çalışması yapılmayacak**. 29.10.2026'da tamamlanan ve `main`'e alınan hesaplama güvenlik düzeltmesi PR #302 / commit `057b2d2cbc70ed852fc5421b5eb3a74a92ceeacb` **korunur**; bunun dışında hesaplama için yeni çalışma açılmaz. Bu dondurma, kullanıcı açıkça yeni bir izin verene kadar sürer. Yayını engelleyen, kullanıcı verisini etkileyen kritik güvenlik/uyumluluk açığı bulunursa değişiklik ancak önce gerekçesiyle kullanıcıya sunulup **açık onayla**, ayrı minimal PR olarak ele alınır. Diğer yüzü etkilemeyen mevcut sürüm koruması, imzalı OTA ve CI güvenlik kapıları yürürlükte kalır.
