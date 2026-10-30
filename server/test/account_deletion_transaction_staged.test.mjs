@@ -246,7 +246,7 @@ test('future FK schema drift rejects erasure and preserves every existing row', 
     const before = await fingerprint(db);
     await assert.rejects(
       db.query('select public.lanu_delete_account_v1($1,$2)',[alice,code('A')]),
-      /foreign key|violates|lanu_future_account_data/i
+      /Account schema review required before deletion/i
     );
     assert.deepEqual(await fingerprint(db),before,
       'new account-linked FK must abort every part of the deletion transaction');
