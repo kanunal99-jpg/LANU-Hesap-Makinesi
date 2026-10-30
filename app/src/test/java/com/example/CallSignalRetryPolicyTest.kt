@@ -6,6 +6,7 @@ import java.io.IOException
 import java.io.InterruptedIOException
 import java.net.ProtocolException
 import java.net.SocketTimeoutException
+import java.util.concurrent.CancellationException
 import javax.net.ssl.SSLHandshakeException
 import javax.net.ssl.SSLPeerUnverifiedException
 import javax.net.ssl.SSLProtocolException
@@ -54,6 +55,25 @@ class CallSignalRetryPolicyTest {
         }
         assertNull("A wrapped authentication rejection is still permanent",
             CallSignalRetryPolicy.delayAfter(IOException("wrapped", RelayException(401, "auth")), 1))
+    }
+
+    @Test fun cancelledOrInterruptedCallSignalNeverRetriesEvenWhenWrapped() {
+        val permanent = listOf<Throwable>(
+            CancellationException("synthetic cancelled call"),
+            InterruptedException("synthetic cancelled worker")
+        )
+        for (reason in permanent) {
+            val wrapped = IOException("transport interrupted", reason)
+            for (attempt in 1 until CallSignalRetryPolicy.MAX_ATTEMPTS) {
+                assertNull("A closed call must not schedule an old signal",
+                    CallSignalRetryPolicy.delayAfter(wrapped, attempt))
+            }
+            assertNull(CallSignalRetryPolicy.delayAfter(
+                IOException("outer", wrapped), 1))
+        }
+        // Real socket timeouts are transient, not thread cancellation.
+        assertEquals(350L, CallSignalRetryPolicy.delayAfter(
+            SocketTimeoutException("temporary radio handover"), 1))
     }
 
     @Test fun realSocketTimeoutAndWrappedTransientRelayErrorsStillRetry() {
