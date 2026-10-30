@@ -150,11 +150,14 @@ class SecurityViewModel(
     }
 
     /**
-     * A calculator gesture only requests the owner-authentication screen.
-     * Never open the private area from a saved optional-PIN preference.
-     * Existing credentials remain usable; users without one enter safe setup.
+     * "2011." opens the hidden area. PIN verification is performed only when
+     * the durable, user-managed entry protection is enabled. No caller may
+     * blindly unlock based on a cached UI switch or the entry code itself.
      */
     fun enterFromCalculator(onOpen: () -> Unit, onPinRequired: () -> Unit) {
+        // A lock/screen-off can happen while the Room preference is suspended.
+        // Never let an earlier asynchronous "2011." request reopen a newly
+        // locked private session, even when optional entry PIN is disabled.
         val entryGeneration = authenticationGeneration
         viewModelScope.launch {
             if (entryGeneration != authenticationGeneration) return@launch
@@ -163,37 +166,47 @@ class SecurityViewModel(
                 return@launch
             }
             try {
-                val hasSavedPin = repository.hasPin()
+                val entryAllowed = repository.tryEnterWithoutPin()
                 if (entryGeneration != authenticationGeneration) {
                     repository.lock()
                     return@launch
                 }
-                repository.lock()
-                _hasPin.value = hasSavedPin
-                _entryPinEnabled.value = true
-                onPinRequired()
+                if (entryAllowed) {
+                    val hasSavedPin = repository.hasPin()
+                    if (entryGeneration != authenticationGeneration) {
+                        repository.lock()
+                        return@launch
+                    }
+                    _hasPin.value = hasSavedPin
+                    _entryPinEnabled.value = false
+                    eventTracker.logEvent("PRIVATE_ENTRY_OPTIONAL", "PIN kapalı, özel alana giriş")
+                    onOpen()
+                } else {
+                    _entryPinEnabled.value = true
+                    onPinRequired()
+                }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 repository.lock()
                 if (entryGeneration != authenticationGeneration) return@launch
                 _entryPinEnabled.value = true
-                _errorMessage.value = "Kimlik doğrulama hazırlanamadı. Lütfen yeniden deneyin."
+                _errorMessage.value = "Güvenlik tercihi doğrulanamadı. PIN ile devam edin."
+                onPinRequired()
             }
         }
     }
 
-    /** The historical optional-entry switch cannot disable authentication. */
+    /** Disabling with an existing PIN requires password re-verification. */
     suspend fun changeEntryPinRequirement(enabled: Boolean, currentPin: String? = null): Boolean {
-        if (!enabled) {
-            _entryPinEnabled.value = true
-            _errorMessage.value = "Güvenli alana girişte kimlik doğrulaması zorunludur."
-            return false
-        }
         if (_isAuthenticating.value) return false
         _isAuthenticating.value = true
         return try {
-            val success = repository.setEntryPinEnabled(true, currentPin)
-            if (success) _entryPinEnabled.value = true
+            val success = repository.setEntryPinEnabled(enabled, currentPin)
+            refreshAttemptStatus()
+            if (success) {
+                _entryPinEnabled.value = enabled
+                eventTracker.logEvent("PIN_ENTRY_PREFERENCE", if (enabled) "PIN koruması açıldı" else "PIN koruması kapatıldı")
+            }
             success
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
@@ -204,7 +217,7 @@ class SecurityViewModel(
         }
     }
 
-    /** For users without a PIN: create one without touching private records. */
+    /** For users without a PIN: create one only upon their explicit choice. */
     suspend fun createEntryPin(pin: String): Boolean {
         if (_isAuthenticating.value || !PinPolicy.isValid(pin)) return false
         _isAuthenticating.value = true
