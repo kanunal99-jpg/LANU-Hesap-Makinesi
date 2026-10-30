@@ -655,6 +655,57 @@ class NativeCallStateTest {
         assertTrue(sent.value.isEmpty())
     }
 
+    @Test fun confirmedNativeIceFailureFastTracksOneAuthorizedRestart() = runBlocking<Unit> {
+        vm.outgoing(UserCodes.conversationId(own.id, peer.id), false, true)
+        val invite = awaitSent(CallSignalKind.INVITE)
+        inject(CallSignaling.create(invite.callId, CallSignalKind.ACCEPT, false))
+        awaitSent(CallSignalKind.OFFER)
+        report!!(CallMediaEvidence(true, 5, 5))
+        waitPhase(NativeCallPhase.CONNECTED)
+        report!!(CallMediaEvidence(false, 5, 5, iceFailed = true))
+        waitPhase(NativeCallPhase.RECONNECTING)
+        mainTestDispatcher.scheduler.advanceTimeBy(
+            CallWeakNetworkRecoveryPolicy.FAILED_GRACE_MS + 1L)
+        mainTestDispatcher.scheduler.runCurrent()
+        withTimeout(5_000) {
+            sent.first { signals -> signals.count { it.kind == CallSignalKind.OFFER } == 2 }
+        }
+        assertEquals("Native FAILED must not wait for the full radio-handover grace", 1, iceRestarts)
+        assertEquals(NativeCallPhase.RECONNECTING, vm.state.value.phase)
+        vm.end(); waitPhase(NativeCallPhase.ENDED)
+    }
+
+    @Test fun disconnectionThenNativeFailureReschedulesOnlyThePendingTimer() = runBlocking<Unit> {
+        vm.outgoing(UserCodes.conversationId(own.id, peer.id), false, true)
+        val invite = awaitSent(CallSignalKind.INVITE)
+        inject(CallSignaling.create(invite.callId, CallSignalKind.ACCEPT, false))
+        awaitSent(CallSignalKind.OFFER)
+        report!!(CallMediaEvidence(true, 5, 5))
+        waitPhase(NativeCallPhase.CONNECTED)
+        report!!(CallMediaEvidence(false, 5, 5))
+        waitPhase(NativeCallPhase.RECONNECTING)
+        mainTestDispatcher.scheduler.advanceTimeBy(250L)
+        mainTestDispatcher.scheduler.runCurrent()
+        assertEquals(0, iceRestarts)
+        report!!(CallMediaEvidence(iceFailed = true))
+        mainTestDispatcher.scheduler.runCurrent()
+        mainTestDispatcher.scheduler.advanceTimeBy(
+            CallWeakNetworkRecoveryPolicy.FAILED_GRACE_MS + 1L)
+        mainTestDispatcher.scheduler.runCurrent()
+        withTimeout(5_000) {
+            sent.first { signals -> signals.count { it.kind == CallSignalKind.OFFER } == 2 }
+        }
+        assertEquals(1, iceRestarts)
+        // Late FAILED callback cannot spend a second claim for the same outage.
+        report!!(CallMediaEvidence(iceFailed = true))
+        mainTestDispatcher.scheduler.advanceTimeBy(ICE_RESTART_GRACE_MS + 100L)
+        mainTestDispatcher.scheduler.runCurrent()
+        assertEquals("A single real outage must not double restart", 1, iceRestarts)
+        report!!(CallMediaEvidence(true, 6, 6))
+        waitPhase(NativeCallPhase.CONNECTED)
+        vm.end(); waitPhase(NativeCallPhase.ENDED)
+    }
+
     @Test fun briefRadioGapRecoversWithoutSpendingTheOnlyIceRestart() = runBlocking<Unit> {
         vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
         val invite=awaitSent(CallSignalKind.INVITE)
