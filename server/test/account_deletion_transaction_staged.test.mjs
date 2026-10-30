@@ -229,6 +229,32 @@ test('malformed or ambiguous owner identifiers and codes fail closed without mut
   } finally { await db.close(); }
 });
 
+test('same-count FK column replacement cannot bypass reviewed erasure schema', async () => {
+  const {db} = await createFixture();
+  try {
+    // Old per-table FK counting would miss this change: the same child,
+    // parent and NO ACTION mode still have exactly two constraints, but
+    // one now references a DIFFERENT identity column.
+    await db.exec(`
+      alter table public.lanu_contacts
+        drop constraint lanu_contacts_peer_id_fkey;
+      alter table public.lanu_contacts
+        add constraint lanu_contacts_code_at_add_fkey
+        foreign key (code_at_add) references public.lanu_identities(code);
+    `);
+    const before = await fingerprint(db);
+    await assert.rejects(
+      db.query('select public.lanu_delete_account_v1($1,$2)', [alice,code('A')]),
+      /Account schema review required before deletion/i
+    );
+    assert.deepEqual(await fingerprint(db),before,
+      'swapping FK columns must not delete identity, contacts or peer rows');
+    assert.equal(await count(db,'lanu_identities','id=$1',[alice]),1);
+    assert.equal(await count(db,'lanu_identities','id=$1',[bob]),1);
+    assert.equal(await count(db,'lanu_contacts'),4);
+  } finally { await db.close(); }
+});
+
 test('future FK schema drift rejects erasure and preserves every existing row', async () => {
   const {db} = await createFixture();
   try {
