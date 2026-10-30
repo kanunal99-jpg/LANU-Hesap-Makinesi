@@ -27,6 +27,37 @@ class AndroidHardwareRouteMatrixTest {
         assertEquals(160, scenarios)
     }
 
+    @Test fun clearingManualPreferenceRestoresAutoRoutingForVoiceAndVideo() {
+        val outputs = setOf(Route.WIRED_HEADSET, Route.BLUETOOTH_HEADSET,
+            Route.EARPIECE, Route.SPEAKER)
+        // A real user's selection should win while it is connected.
+        assertEquals(Route.SPEAKER,
+            CallAudioRoutePolicy.priorities(outputs, false, Route.SPEAKER).first())
+        assertEquals(Route.EARPIECE,
+            CallAudioRoutePolicy.priorities(outputs, true, Route.EARPIECE).first())
+
+        // The UI's new "Otomatik ses çıkışı" route sends a null userChoice
+        // through NativeCallEngine -> AndroidCallAudioRouter.choose(null).
+        assertEquals(Route.WIRED_HEADSET,
+            CallAudioRoutePolicy.priorities(outputs, false, null).first())
+        assertEquals(Route.WIRED_HEADSET,
+            CallAudioRoutePolicy.priorities(outputs, true, null).first())
+
+        val noWired = outputs - Route.WIRED_HEADSET
+        assertEquals(Route.BLUETOOTH_HEADSET,
+            CallAudioRoutePolicy.priorities(noWired, false, null).first())
+
+        val builtInOnly = noWired - Route.BLUETOOTH_HEADSET
+        assertEquals(Route.EARPIECE,
+            CallAudioRoutePolicy.priorities(builtInOnly, false, null).first())
+        assertEquals(Route.SPEAKER,
+            CallAudioRoutePolicy.priorities(builtInOnly, true, null).first())
+
+        // An unavailable stale manual route must never prevent fallback.
+        assertEquals(Route.EARPIECE,
+            CallAudioRoutePolicy.priorities(builtInOnly, false, Route.BLUETOOTH_HEADSET).first())
+    }
+
     @Test fun headsetDisconnectFallsBackToEarOrSpeakerWithoutStaleRoute() {
         val all = Route.values().toSet()
         assertEquals(Route.WIRED_HEADSET,
