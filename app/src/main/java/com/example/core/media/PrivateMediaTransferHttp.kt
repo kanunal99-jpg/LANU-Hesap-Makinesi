@@ -50,9 +50,11 @@ internal object PrivateMediaTransferHttp {
      * Late responses are closed; sensitive URLs and payloads are never logged.
      */
     internal suspend fun <T> withCancellableResponse(
-        request: Request, process: (Response) -> T
+        request: Request,
+        process: (Response) -> T,
+        client: OkHttpClient = http
     ): T = coroutineScope {
-        val call = http.newCall(request)
+        val call = client.newCall(request)
         // A sibling child can react to cancellation while process() is in a
         // non-suspending InputStream read or BufferedSink write on this thread.
         val cancelWatcher = launch(start = CoroutineStart.UNDISPATCHED) {
