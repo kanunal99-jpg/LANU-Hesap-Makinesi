@@ -155,6 +155,31 @@ test('incomplete private-media Storage cleanup blocks ALL account deletion and r
   } finally { await db.close(); }
 });
 
+test('unknown private-media cleanup state fails closed even under future nullable schema drift', async () => {
+  const {db} = await createFixture();
+  try {
+    // Current schema has NOT NULL. Simulate a later migration or import that
+    // unexpectedly allows SQL NULL. SQL three-valued logic must not treat
+    // UNKNOWN as verified Storage deletion.
+    await db.exec('alter table public.lanu_media_objects alter column state drop not null');
+    const fileId = 'a'.repeat(32);
+    await db.query(`
+      insert into public.lanu_media_objects(
+        file_id,message_id,sender_id,recipient_id,cipher_bytes,cipher_sha256,state
+      ) values($1,$2,$3,$4,$5,$6,$7)
+    `, [fileId,randomUUID(),alice,bob,512,'e'.repeat(64),null]);
+    const before = await fingerprint(db);
+    await assert.rejects(
+      db.query('select public.lanu_delete_account_v1($1,$2)',[alice,code('A')]),
+      /media cleanup not verified/i
+    );
+    assert.deepEqual(await fingerprint(db),before);
+    assert.equal(await count(db,'lanu_media_objects','file_id=$1',[fileId]),1);
+    assert.equal(await count(db,'lanu_identities','id=$1',[alice]),1);
+    assert.equal(await count(db,'lanu_identities','id=$1',[bob]),1);
+  } finally { await db.close(); }
+});
+
 test('account erasure RPC is denied to anonymous or authenticated mobile clients', async () => {
   const {db} = await createFixture();
   try {
