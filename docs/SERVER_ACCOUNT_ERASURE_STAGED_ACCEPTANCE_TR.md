@@ -35,6 +35,12 @@ Bu PR'ın iki bileşeni:
       açık yetkisi; ağ/503 durumunda hiçbir yerel veri silinmez.
 - [ ] Supabase: staging ortamında EXPLAIN/PG danışmanları, FOREIGN KEY ve
       RLS, yeni tablo/FK eklenince kör/eksik silme olmadığının kabulü.
+      **İki bağımsız PostgreSQL oturumu** ile eşzamanlı medya durum
+      değişimi, yeni FK-bağlı medya ekleme, lock timeout/deadlock ve
+      silme işlemi yarışları ayrıca denenmeli. SQL mevcut tüm
+      gönderici/alıcı medya satırlarını `FOR UPDATE` ile kilitleyerek
+      kontrol ve silme arasındaki durum değişimini engellemeyi hedefler;
+      tek bağlantılı PGlite yapısal testi canlı eşzamanlılık kanıtı değildir.
       Üretimde gerçek hesap/mesaj silme **testi yapılmaz**.
 - [ ] İki farklı üreticide sürüm yükseltme, önceki PIN, konuşma ve rehber
       kaybı/karşı kullanıcının verisinin korunması, bağımsız UAT.
