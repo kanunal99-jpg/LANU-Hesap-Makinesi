@@ -379,3 +379,14 @@ test('Storage metadata is row-locked BEFORE cleanup verification and deletion', 
     /where sender_id = p_owner or recipient_id = p_owner\s+for update\s*;/i,
     'Lock must cover every existing sender/recipient row, including purged rows');
 });
+
+test('all ten erased parent tables are covered by the schema drift guard', async () => {
+  const sql = await readFile(
+    new URL('../staged/lanu_account_erasure_v1.sql', import.meta.url), 'utf8'
+  );
+  const inventory = sql.slice(sql.indexOf('where c.contype ='), sql.indexOf('group by c.confrelid'));
+  for (const name of relations) {
+    assert.ok(inventory.includes("'public."+name+"'::regclass"),
+      'Missing schema drift guard for '+name);
+  }
+});
