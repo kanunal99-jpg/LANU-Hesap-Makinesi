@@ -139,5 +139,41 @@ export function createPrivateMediaStorage(projectUrl, serviceKey, fetcher = fetc
     }, clock);
   }
 
-  return Object.freeze({ signedUpload, signedDownload, verifyUploaded });
+  async function removeExpiredCiphertext(bucket, path) {
+    if (bucket !== BUCKET || typeof path !== 'string' ||
+        !/^v1\/[a-f0-9]{32}\.cipher$/.test(path)) throw fail();
+    // Supabase Storage REST remove() uses DELETE /object/{bucket} with
+    // { prefixes: [path] }; delete via Storage, never storage.objects SQL.
+    // The response is bounded and must explicitly identify this sole key.
+    const response = await request('object/' + BUCKET, 'DELETE',
+      { prefixes: [path] }, 15_000);
+    if (!response.ok) return false;
+    const reader = response.body?.getReader();
+    if (!reader) return false;
+    let size = 0;
+    const chunks = [];
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!(value instanceof Uint8Array) || (size += value.byteLength) > 8192)
+          return false;
+        chunks.push(value);
+      }
+    } finally { reader.releaseLock(); }
+    let deleted;
+    try {
+      const joined = new Uint8Array(size);
+      let offset = 0;
+      for (const part of chunks) { joined.set(part, offset); offset += part.length; }
+      deleted = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(joined));
+    } catch { return false; }
+    // If Storage reports nothing deleted, keep metadata quota reserved until
+    // an independently verified absence check exists. No optimistic purge.
+    return Array.isArray(deleted) && deleted.length === 1 &&
+      (deleted[0]?.name === path || deleted[0]?.path === path);
+  }
+
+  return Object.freeze({ signedUpload, signedDownload, verifyUploaded,
+    removeExpiredCiphertext });
 }
