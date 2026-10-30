@@ -690,10 +690,14 @@ class CommunicationRepository(
         }
     }
 
-    suspend fun retryMessage(messageId: String) = syncMutex.withLock {
+    suspend fun retryMessage(messageId: String, expectedConversationId: String? = null) = syncMutex.withLock {
         val own = ensureIdentity()
         val message = messageDao.getMessage(messageId) ?: return@withLock
-        require(message.senderPhone == own.id && message.status == "FAILED") { "Mesaj yeniden gönderilemez." }
+        require(
+            message.senderPhone == own.id && message.status == "FAILED" &&
+                (expectedConversationId == null ||
+                    (expectedConversationId.isNotBlank() && message.conversationId == expectedConversationId))
+        ) { "Mesaj yeniden gönderilemez." }
         database.withTransaction {
             messageDao.updateMessageStatus(messageId, "PENDING")
             settingsDao.deleteSetting("lanu_retry_after_$messageId")
