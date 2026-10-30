@@ -222,7 +222,13 @@ export function createRelay(store, clock = Date.now, options = {}) {
         const result = await store.accountDeletionPreflight(owner, identity.code);
         insist(typeof result?.storageReady === 'boolean', 503,
           'Hesap silme ön kontrolü doğrulanamadı.');
-        return { storageReady: result.storageReady };
+        // Do not offer an irreversible confirmation UI based on media metadata
+        // alone: a separate explicit backend gate must also be active.
+        return {
+          storageReady: result.storageReady,
+          deletionEnabled: options.accountDeletionEnabled === true &&
+            typeof store.accountDelete === 'function'
+        };
       }
       case 'deleteAccount': {
         // This is a STAGED feature. Live Edge does NOT enable the flag,
