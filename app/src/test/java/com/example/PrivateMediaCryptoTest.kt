@@ -216,6 +216,28 @@ class PrivateMediaCryptoTest {
         } finally { encrypted.destroyKey() }
     }
 
+    @Test fun decryptionRejectsCiphertextOutsideAppPrivateDirectory() {
+        val trusted = work.newFolder("trusted-download")
+        val shared = work.newFolder("untrusted-shared")
+        val payload = makeSource(1024)
+        val encrypted = PrivateMediaCrypto.encryptToPrivateFile(
+            ByteArrayInputStream(payload), payload.size.toLong(), "image/jpeg", shared
+        )
+        try {
+            assertRejected {
+                PrivateMediaCrypto.decryptToVerifiedPrivateFile(
+                    encrypted.ciphertextFile, encrypted.manifest, encrypted.keyMaterial, trusted
+                )
+            }
+            assertEquals(0, trusted.listFiles()!!.size)
+            val verified = PrivateMediaCrypto.decryptToVerifiedPrivateFile(
+                encrypted.ciphertextFile, encrypted.manifest, encrypted.keyMaterial, shared
+            )
+            try { assertArrayEquals(payload, verified.readBytes()) }
+            finally { assertTrue(verified.delete()) }
+        } finally { encrypted.destroyKey() }
+    }
+
     @Test fun separateFilesHaveIndependentKeysNoncesAndIds() {
         val dir = work.newFolder("unique")
         val source = makeSource(18000)
