@@ -213,7 +213,7 @@ export function createRelay(store, clock = Date.now, options = {}) {
         // Read-only STAGING preflight. This only reports whether owner-linked
         // media metadata is marked purged; it is NOT authorization to erase
         // the account, and cannot certify physical Storage cleanup.
-        insist(options.accountDeletionEnabled === true &&
+        insist(options.accountDeletionPreflightEnabled === true &&
           typeof store.accountDeletionPreflight === 'function', 503,
           'Hesap silme ön kontrolü henüz kullanılamıyor.');
         insist(Object.keys(data).join(',') === 'expectedCode' &&
