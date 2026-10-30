@@ -11,4 +11,10 @@ internal object PrivateCallHostDisclosurePolicy {
 
     fun mayShowIdleNotice(privateAreaVisible: Boolean, phase: NativeCallPhase): Boolean =
         privateAreaVisible && phase == NativeCallPhase.IDLE
+
+    /** Incoming calls have separate user-granted call consent. An outgoing
+     * request never survives private-area lock, even if Android delivers an
+     * earlier microphone/camera permission result after that lock. */
+    fun mayCompletePermissionRequest(privateAreaVisible: Boolean, incoming: Boolean): Boolean =
+        incoming || privateAreaVisible
 }
