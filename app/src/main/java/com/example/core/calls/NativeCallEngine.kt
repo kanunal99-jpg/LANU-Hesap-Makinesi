@@ -376,7 +376,8 @@ class NativeCallEngine(
             }
         }
     }
-    fun chooseRoute(route: CallAudioRoutePolicy.Route) { scope.launch { router.choose(route) } }
+    /** Null clears a manual preference and restores Android call-route priorities. */
+    fun chooseRoute(route: CallAudioRoutePolicy.Route?) { scope.launch { router.choose(route) } }
     fun refreshRoutes() { scope.launch { router.refresh() } }
 
     fun bind(renderer: SurfaceViewRenderer, remote: Boolean) {

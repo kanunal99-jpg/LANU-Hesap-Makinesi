@@ -245,6 +245,11 @@ private fun CallAudioRouteControls(engine: NativeCallEngine, enabled: Boolean) {
             Text(routeAnnouncement)
         }
         DropdownMenu(expanded = menu && enabled, onDismissRequest = { menu = false }) {
+            DropdownMenuItem(
+                text = { Text("Otomatik ses çıkışı") },
+                modifier = Modifier.testTag("call_audio_route_auto"),
+                onClick = { menu = false; engine.chooseRoute(null) }
+            )
             for (item in route.available.sortedBy { it.ordinal })
                 DropdownMenuItem(
                     text = { Text(CallAudioRouteLabelPolicy.routeName(item)) },
