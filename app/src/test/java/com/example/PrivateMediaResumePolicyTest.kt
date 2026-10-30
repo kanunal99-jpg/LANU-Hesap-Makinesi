@@ -37,8 +37,8 @@ class PrivateMediaResumePolicyTest {
         val m = manifest(12_000)
         val p = PrivateMediaResumePolicy.plan(m, 2_000, 0)
         assertTrue(p.restartFromZero)
-        assertEquals(0, p.verifiedCipherOffset)
-        assertEquals(12_016, p.expectedCipherBytes)
+        assertEquals(0L, p.verifiedCipherOffset)
+        assertEquals(12_016L, p.expectedCipherBytes)
     }
 
     @Test fun forgedChunkProofAndOverflowAreRejected() {
