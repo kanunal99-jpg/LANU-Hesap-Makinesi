@@ -121,6 +121,35 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
         }
     }
     fun clearError() { _errorMessage.value = null }
+
+    /** #224 private-area, non-destructive staging readiness flow. */
+    enum class AccountDeletionPreflight { IDLE, CHECKING, METADATA_READY, STORAGE_PENDING, UNAVAILABLE }
+    private val _accountDeletionPreflight = MutableStateFlow(AccountDeletionPreflight.IDLE)
+    val accountDeletionPreflight = _accountDeletionPreflight.asStateFlow()
+    private var accountDeletionPreflightJob: Job? = null
+
+    fun checkAccountDeletionPreflight() {
+        if (accountDeletionPreflightJob?.isActive == true) return
+        _accountDeletionPreflight.value = AccountDeletionPreflight.CHECKING
+        accountDeletionPreflightJob = viewModelScope.launch {
+            try {
+                _accountDeletionPreflight.value = if (repository.checkAccountDeletionPreflight()) {
+                    AccountDeletionPreflight.METADATA_READY
+                } else AccountDeletionPreflight.STORAGE_PENDING
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Do not display backend payloads, identity codes or network URLs.
+                _accountDeletionPreflight.value = AccountDeletionPreflight.UNAVAILABLE
+            }
+        }
+    }
+
+    fun clearAccountDeletionPreflight() {
+        accountDeletionPreflightJob?.cancel()
+        accountDeletionPreflightJob = null
+        _accountDeletionPreflight.value = AccountDeletionPreflight.IDLE
+    }
     fun checkRegistration() = operation {
         val own = repository.ensureIdentity()
         _userPhone.value = own.code
