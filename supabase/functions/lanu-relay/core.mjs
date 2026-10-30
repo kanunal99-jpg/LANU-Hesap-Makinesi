@@ -1,4 +1,5 @@
 import { FcmUnregisteredTokenError } from './call-wake-fcm.mjs';
+import { authorizePrivateMediaGrant } from './media-grants.mjs';
 // Shared by the deployed edge function and the local protocol/security tests.
 const alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 const encoder = new TextEncoder();
@@ -307,6 +308,57 @@ export function createRelay(store, clock = Date.now, options = {}) {
         return { fileId: data.fileId, state: reserved.state,
           cipherBytes: data.cipherBytes, expiresAt: reserved.expires_at };
       }
+      case 'enablePrivateMedia': {
+        // Explicit per-device upgrade; an old recipient cannot be sent a
+        // storage-only attachment that its app cannot decode. No downgrade.
+        insist(options.privateMediaTransfers === true, 503, 'Güvenli dosya aktarımı henüz etkin değil.');
+        insist(Object.keys(data).sort().join(',') === 'version' &&
+          data.version === 1, 400, 'Medya sürümü geçersiz.');
+        insist(await store.enableMedia(owner), 503, 'Medya sürümü kaydedilemedi.');
+        return { privateMediaVersion: 1 };
+      }
+      case 'mediaUploadGrant': case 'mediaDownloadGrant': case 'mediaComplete': {
+        insist(options.privateMediaTransfers === true &&
+          options.mediaStorage &&
+          typeof options.mediaStorage.signedUpload === 'function' &&
+          typeof options.mediaStorage.signedDownload === 'function' &&
+          typeof options.mediaStorage.verifyUploaded === 'function',
+          503, 'Güvenli dosya aktarımı henüz etkin değil.');
+        insist(Object.keys(data).sort().join(',') === 'fileId' &&
+          mediaFileId.test(data.fileId ?? ''), 400, 'Dosya kimliği geçersiz.');
+        const row = await store.mediaByFile(data.fileId);
+        insist(row && row.file_id === data.fileId &&
+          typeof row.sender_id === 'string' && typeof row.recipient_id === 'string',
+          404, 'Dosya kaydı bulunamadı.');
+        const mode = action === 'mediaDownloadGrant' ? 'download' : 'upload';
+        let plan;
+        try { plan = authorizePrivateMediaGrant(owner, mode, row, clock()); }
+        catch { throw new RelayError(403, 'Dosya erişimi doğrulanamadı.'); }
+        // Revoked mutual contact must stop NEW grants; an old issued bearer
+        // token expires independently, so no grant URL is stored in messages.
+        insist(await store.mutual(row.sender_id, row.recipient_id), 403,
+          'Dosya paylaşım izni bulunamadı.');
+        const verifiedPlan = Object.freeze({ ...plan, fileId: row.file_id });
+        if (action === 'mediaComplete') {
+          // Never mark ready from upload HTTP 200 alone. The trusted Edge
+          // reads full ciphertext from the private bucket and verifies SHA256.
+          await options.mediaStorage.verifyUploaded(verifiedPlan, clock);
+          const updated = await store.markMediaReady(row, clock());
+          insist(updated, 409, 'Dosya doğrulanamadı veya süresi doldu.');
+          return { fileId: row.file_id, state: 'ready' };
+        }
+        const grant = action === 'mediaUploadGrant'
+          ? await options.mediaStorage.signedUpload(verifiedPlan)
+          : await options.mediaStorage.signedDownload(verifiedPlan);
+        insist(grant && typeof grant.url === 'string' &&
+          grant.url.startsWith('https://') &&
+          Number.isSafeInteger(grant.expiresInSeconds) &&
+          grant.expiresInSeconds >= 1 && grant.expiresInSeconds <= 7200,
+          503, 'Güvenli dosya bağlantısı oluşturulamadı.');
+        return { fileId: row.file_id, url: grant.url,
+          expiresInSeconds: grant.expiresInSeconds,
+          cipherBytes: plan.cipherBytes, cipherSha256: plan.cipherSha256 };
+      }
       case 'sync': {
         // Parallel independent private read operations. No extra mobile poll,
         // no background service, same authenticated response and ack semantics.
@@ -407,6 +459,30 @@ export class RestStore {
   async mediaVersion(owner) {
     const rows = await this.query('lanu_identities?id=eq.' + owner + '&select=private_media_version&limit=1');
     return rows.length === 1 ? rows[0].private_media_version : 0;
+  }
+  async enableMedia(owner) {
+    const rows = await this.query('lanu_identities?id=eq.' + owner +
+      '&private_media_version=eq.0', 'PATCH', { private_media_version: 1 },
+      'return=representation');
+    return rows.length === 1 || await this.mediaVersion(owner) === 1;
+  }
+  async mediaByFile(fileId) {
+    const rows = await this.query('lanu_media_objects?file_id=eq.' + fileId +
+      '&select=file_id,message_id,sender_id,recipient_id,cipher_bytes,cipher_sha256,state,expires_at&limit=1');
+    return rows.length === 1 ? rows[0] : null;
+  }
+  async markMediaReady(record, nowMs) {
+    // A single conditional UPDATE is atomic: pending, sender, recipient,
+    // expected SHA/length and unexpired TTL must still match AFTER verification.
+    const rows = await this.query('lanu_media_objects?file_id=eq.' + record.file_id +
+      '&sender_id=eq.' + record.sender_id +
+      '&recipient_id=eq.' + record.recipient_id +
+      '&state=eq.pending&cipher_sha256=eq.' + record.cipher_sha256 +
+      '&cipher_bytes=eq.' + record.cipher_bytes +
+      '&expires_at=gt.' + encodeURIComponent(new Date(nowMs).toISOString()),
+      'PATCH', { state: 'ready' }, 'return=representation');
+    return rows.length === 1 && rows[0].state === 'ready' &&
+      rows[0].file_id === record.file_id;
   }
   async reserveMedia({ owner, peer, fileId, messageId, cipherBytes, cipherSha256 }) {
     return this.query('rpc/lanu_reserve_private_media', 'POST', {
