@@ -209,6 +209,21 @@ export function createRelay(store, clock = Date.now, options = {}) {
         await store.callAck(owner, data.ids); return { acknowledged: true };
       }
       case 'register': return { code: identity.code, nonce: identity.nonce };
+      case 'checkAccountDeletion': {
+        // Read-only STAGING preflight. This only reports whether owner-linked
+        // media metadata is marked purged; it is NOT authorization to erase
+        // the account, and cannot certify physical Storage cleanup.
+        insist(options.accountDeletionEnabled === true &&
+          typeof store.accountDeletionPreflight === 'function', 503,
+          'Hesap silme ön kontrolü henüz kullanılamıyor.');
+        insist(Object.keys(data).join(',') === 'expectedCode' &&
+          data.expectedCode === identity.code, 409,
+          'Hesap silme ön kontrolü için güncel kod doğrulanamadı.');
+        const result = await store.accountDeletionPreflight(owner, identity.code);
+        insist(typeof result?.storageReady === 'boolean', 503,
+          'Hesap silme ön kontrolü doğrulanamadı.');
+        return { storageReady: result.storageReady };
+      }
       case 'deleteAccount': {
         // This is a STAGED feature. Live Edge does NOT enable the flag,
         // and the SQL transaction is outside deployed migration paths.
@@ -478,6 +493,12 @@ export class RestStore {
   async callWakeInvalidate(owner, token) {
     return this.query('rpc/lanu_call_wake_invalidate', 'POST',
       { p_owner: owner, p_token: token });
+  }
+  async accountDeletionPreflight(owner, expectedCode) {
+    // Service-role-only read-only RPC. No arbitrary target identity or
+    // client-side account selector is accepted.
+    return this.query('rpc/lanu_account_erasure_preflight_v1', 'POST',
+      { p_owner: owner, p_expected_code: expectedCode });
   }
   async accountDelete(owner, expectedCode) {
     // A single database transaction. Never implement as successive REST
