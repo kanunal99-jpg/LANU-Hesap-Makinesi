@@ -106,7 +106,15 @@ export function createPrivateMediaStorage(projectUrl, serviceKey, fetcher = fetc
     const signed = data.signedURL;
     if (typeof signed !== 'string' || signed.length > 6000) throw fail();
     let url;
-    try { url = new URL(signed, base); } catch { throw fail(); }
+    try {
+      // Storage may return either /object/sign/... (relative to /storage/v1)
+      // or the fully qualified /storage/v1/object/sign/... route.
+      const canonical = signed.startsWith('/object/sign/')
+        ? base.slice(0, -1) + signed
+        : signed.startsWith('/storage/v1/object/sign/')
+          ? origin.origin + signed : signed;
+      url = new URL(canonical, base);
+    } catch { throw fail(); }
     const required = '/storage/v1/object/sign/' + path;
     // A signed link must stay on THIS project's private Storage hostname and
     // exact validated path. No client-selected URLs, offsite redirects or fragments.
