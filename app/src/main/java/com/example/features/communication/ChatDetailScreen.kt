@@ -60,8 +60,7 @@ fun ChatDetailScreen(
     onChooseDocument: () -> Unit = {},
     onChooseLargeDocument: () -> Unit = {},
     onSaveLargeAttachment: (String) -> Unit = {},
-    onSaveAttachment: (InlineMediaCodec.Attachment) -> Unit = {},
-    onSaveLargeAttachment: (String) -> Unit = {}
+    onSaveAttachment: (InlineMediaCodec.Attachment) -> Unit = {}
 ) {
     val context = LocalContext.current
     val activeConversation by viewModel.activeConversation.collectAsState()
@@ -488,7 +487,8 @@ fun MessageBubble(
     onDelete: () -> Unit = {},
     onRetry: () -> Unit = {},
     onEdit: (String) -> Unit = {},
-    onSaveAttachment: (InlineMediaCodec.Attachment) -> Unit = {}
+    onSaveAttachment: (InlineMediaCodec.Attachment) -> Unit = {},
+    onSaveLargeAttachment: (String) -> Unit = {}
 ) {
     val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
     val timeStr = sdf.format(Date(timestamp))
