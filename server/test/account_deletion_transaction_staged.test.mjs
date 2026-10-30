@@ -433,3 +433,68 @@ test('new cascading media receipt cannot be silently removed', async () => {
     assert.equal(await count(db,'lanu_identities','id=$1',[bob]),1);
   } finally { await db.close(); }
 });
+
+test('staged read-only media preflight returns advisory owner-only state without deleting rows', async () => {
+  const {db} = await createFixture();
+  try {
+    const before = await fingerprint(db);
+    const query = (owner,expected) => db.query(
+      'select public.lanu_account_erasure_preflight_v1($1,$2) as result',
+      [owner,expected]);
+    assert.deepEqual((await query(alice,code('A'))).rows[0].result,
+      {storageReady:true}, 'no owner media is pending in the disposable fixture');
+    assert.deepEqual((await query(alice,code('B'))).rows[0].result,
+      {storageReady:false}, 'wrong code cannot inspect another account');
+    await db.query(`
+      insert into public.lanu_media_objects(
+        file_id,message_id,sender_id,recipient_id,cipher_bytes,cipher_sha256,state
+      ) values($1,$2,$3,$4,$5,$6,$7)
+    `,['d'.repeat(32),randomUUID(),alice,bob,512,'e'.repeat(64),'ready']);
+    assert.deepEqual((await query(alice,code('A'))).rows[0].result,
+      {storageReady:false});
+    assert.deepEqual((await query(carol,code('C'))).rows[0].result,
+      {storageReady:true}, 'other accounts are not blocked by unrelated media');
+    await db.query("update public.lanu_media_objects set state='purged' where file_id=$1",
+      ['d'.repeat(32)]);
+    assert.deepEqual((await query(alice,code('A'))).rows[0].result,
+      {storageReady:true}, 'metadata readiness does not certify Storage API cleanup');
+    assert.equal(await count(db,'lanu_media_objects'),1,
+      'preflight must not delete even purged media metadata');
+    for (const name of relations) {
+      assert.equal(await count(db,name), before[name] + (name==='lanu_media_objects'?1:0),
+        'preflight must not mutate '+name);
+    }
+  } finally { await db.close(); }
+});
+
+test('staged preflight rejects nullable unknown media state and unprivileged callers', async () => {
+  const {db} = await createFixture();
+  try {
+    await db.exec('alter table public.lanu_media_objects alter column state drop not null');
+    await db.query(`
+      insert into public.lanu_media_objects(
+        file_id,message_id,sender_id,recipient_id,cipher_bytes,cipher_sha256,state
+      ) values($1,$2,$3,$4,$5,$6,$7)
+    `,['e'.repeat(32),randomUUID(),alice,bob,512,'e'.repeat(64),null]);
+    const r = await db.query(
+      'select public.lanu_account_erasure_preflight_v1($1,$2) as result',
+      [alice,code('A')]);
+    assert.deepEqual(r.rows[0].result,{storageReady:false});
+    for (const role of ['anon','authenticated']) {
+      const grant = await db.query(
+        "select has_function_privilege($1,'public.lanu_account_erasure_preflight_v1(text,text)','EXECUTE') as allowed",
+        [role]);
+      assert.equal(grant.rows[0].allowed,false);
+      await db.exec('set role '+role);
+      try {
+        await assert.rejects(db.query(
+          'select public.lanu_account_erasure_preflight_v1($1,$2)',
+          [alice,code('A')]));
+      } finally { await db.exec('reset role'); }
+    }
+    await assert.rejects(db.query(
+      'select public.lanu_account_erasure_preflight_v1($1,$2)',
+      [alice.toUpperCase(),code('A')]),/Invalid account deletion preflight request/i);
+    assert.equal(await count(db,'lanu_identities'),3);
+  } finally { await db.close(); }
+});
