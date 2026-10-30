@@ -35,7 +35,9 @@ begin
   if exists (
     select 1 from public.lanu_media_objects
     where (sender_id = p_owner or recipient_id = p_owner)
-      and state <> 'purged'
+      -- SQL NULL is UNKNOWN: fail closed even if a future migration
+      -- relaxes the current NOT NULL constraint or imports legacy rows.
+      and state is distinct from 'purged'
   ) then
     raise exception 'Account media cleanup not verified';
   end if;
