@@ -59,6 +59,7 @@ fun ChatDetailScreen(
     onTakePhoto: () -> Unit = {},
     onChooseDocument: () -> Unit = {},
     onChooseLargeDocument: () -> Unit = {},
+    onChooseLargePhoto: () -> Unit = {},
     onSaveLargeAttachment: (String) -> Unit = {},
     onSaveAttachment: (InlineMediaCodec.Attachment) -> Unit = {}
 ) {
@@ -370,6 +371,7 @@ fun ChatDetailScreen(
                         onCamera = onTakePhoto,
                         onDocument = onChooseDocument,
                         onLargeDocument = onChooseLargeDocument,
+                        onLargePhoto = onChooseLargePhoto,
                         onCancel = { viewModel.clearPreparedMedia() },
                         onSend = { envelope, onQueued ->
                             viewModel.sendInlineAttachment(
