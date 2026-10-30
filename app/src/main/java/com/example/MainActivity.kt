@@ -745,12 +745,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         // Conceal the private area on a locked foreground return.
         val isLocked = if (::securityViewModel.isInitialized) securityViewModel.isLocked.value else true
 
-        if (isLocked) {
-            val currentScreen = navigationBackstack.lastOrNull()
-            if (currentScreen != null && isSecureScreen(currentScreen)) {
-                navigationBackstack.clear()
-                navigationBackstack.add(Screen.Calculator)
-            }
+        if (mustConcealLockedPrivateScreen(isLocked, navigationBackstack.lastOrNull())) {
+            navigationBackstack.clear()
+            navigationBackstack.add(Screen.Calculator)
         }
     }
 
@@ -831,6 +828,14 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     }
 
     companion object {
+        /**
+         * Locked private screens are never restored by Android foregrounding.
+         * Optional second-PIN settings cannot authorize a previously locked
+         * navigation stack; only a fresh deliberate calculator entry can.
+         */
+        fun mustConcealLockedPrivateScreen(isLocked: Boolean, screen: Screen?): Boolean =
+            isLocked && (screen is Screen.Communication || screen is Screen.ChatDetail)
+
         /** Disable automatic host feedback without changing system/keyboard preferences. */
         fun configureSilentUi(view: View) {
             view.isSoundEffectsEnabled = false
