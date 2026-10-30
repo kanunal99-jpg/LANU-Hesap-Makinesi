@@ -609,6 +609,8 @@ fun SettingsTab(
     val busy by viewModel.busy.collectAsState()
     var showRotate by remember { mutableStateOf(false) }
     var showName by remember { mutableStateOf(false) }
+    var showDeletionPreflight by remember { mutableStateOf(false) }
+    val deletionPreflight by viewModel.accountDeletionPreflight.collectAsState()
     var backupAction by remember { mutableStateOf<String?>(null) }
     var filePassword by remember { mutableStateOf("") }
     val context = LocalContext.current
@@ -646,6 +648,13 @@ fun SettingsTab(
         Text("Uygulamayı silmeden veya cihaz değiştirmeden önce kimliğini yedekle. Parolalı yedeği geri yükleyerek aynı kodu kullanabilirsin.", fontSize = 12.sp)
         OutlinedButton(onClick = { backupAction = "export" }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Kimliğimi yedekle") }
         OutlinedButton(onClick = { backupAction = "restore" }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Kimlik yedeğini geri yükle") }
+        // #224: visible only inside authenticated private communication settings.
+        // This read-only check never triggers remote or local account erasure.
+        OutlinedButton(
+            onClick = { showDeletionPreflight = true },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth().testTag("private_account_deletion_preflight")
+        ) { Text("Sunucu hesabı silme ön kontrolü") }
         com.example.features.security.FullBackupPanel(backupBusy, pendingFullRestore, backupMessage,
             onExportFullBackup, onChooseFullBackup, onRestoreFullBackup, onCancelFullRestore)
         callPushRepository?.let {
@@ -653,6 +662,47 @@ fun SettingsTab(
             MessageWakeSettings(it)
         }
         com.example.features.security.SettingsScreen(securityViewModel, triggerVibration)
+    }
+    if (showDeletionPreflight) {
+        val dismiss: () -> Unit = {
+            viewModel.clearAccountDeletionPreflight()
+            showDeletionPreflight = false
+        }
+        AlertDialog(
+            onDismissRequest = dismiss,
+            title = { Text("Sunucu hesap silme ön kontrolü") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Bu kontrol yalnızca kimliğinizle imzalı bir sunucu sorgusudur. " +
+                        "Hesabınızı, sohbetleri, PIN'i veya cihaz verilerini silmez.")
+                    when (deletionPreflight) {
+                        CommunicationViewModel.AccountDeletionPreflight.IDLE ->
+                            Text("İşlemi başlatmak için ön kontrol düğmesine dokunun.")
+                        CommunicationViewModel.AccountDeletionPreflight.CHECKING -> {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            Text("Sunucu doğrulaması bekleniyor…")
+                        }
+                        CommunicationViewModel.AccountDeletionPreflight.METADATA_READY ->
+                            Text("Medya kayıtları ön kontrole göre hazır. Fiziksel Storage temizliği " +
+                                "ve hesap silme henüz doğrulanmadı.")
+                        CommunicationViewModel.AccountDeletionPreflight.STORAGE_PENDING ->
+                            Text("Sunucu medya kayıtları silme için henüz hazır değil. Hesap korunuyor.")
+                        CommunicationViewModel.AccountDeletionPreflight.UNAVAILABLE ->
+                            Text("Güvenli ön kontrol kullanılamıyor. Hesap ve veriler korunuyor.")
+                    }
+                    Text("Silme yapılmadı; silme makbuzu üretilmedi. " +
+                        "Canlı silme, bağımsız doğrulama ve hukuki onaydan önce kapalıdır.")
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.checkAccountDeletionPreflight() },
+                    enabled = deletionPreflight != CommunicationViewModel.AccountDeletionPreflight.CHECKING,
+                    modifier = Modifier.testTag("run_account_deletion_preflight")
+                ) { Text("Yalnızca ön kontrol") }
+            },
+            dismissButton = { TextButton(onClick = dismiss) { Text("Kapat") } }
+        )
     }
     if (showRotate) AlertDialog(onDismissRequest = { showRotate = false }, title = { Text("Yeni kullanıcı kodu oluşturulsun mu?") },
         text = { Text("Yeni kişiler sizi yeni kodunuzla ekleyecek. Kimliğiniz, kayıtlı kişileriniz ve mesaj geçmişiniz korunur. Bu işlem yalnızca sizin isteğinizle yapılır.") },
