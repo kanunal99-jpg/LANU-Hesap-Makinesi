@@ -5,11 +5,19 @@ Kullanıcı uygulamadaki hesap silme işlevini çalışır olarak teyit etti. An
 Supabase'de tam ilişkili hesap silme RPC'si mevcut değildi (28.10.2026 salt-okunur
 kontrolü). Yerel sohbeti silmek, sunucu E2EE metadata/FCM kaydını silmek değildir.
 
-Bu PR'ın iki bileşeni:
+Bu PR'ın aşamalı bileşenleri:
 1. `server/staged/lanu_account_erasure_v1.sql` — **bilinçli olarak**
    `supabase/migrations/` dışında tutulur; canlı veritabanına uygulanmaz.
    Tüm ilişkili tablolarda transaction ve yalnız `service_role` EXECUTE.
-2. `createRelay` içinde `deleteAccount` — yalnız
+2. İmzalı `checkAccountDeletion` salt-okunur ön kontrolü: yalnız
+   `{accountDeletionPreflightEnabled:true}` ile staging'de çalışır.
+   `lanu_account_erasure_preflight_v1` RPC'si sadece hesabın mevcut
+   **medya metadata** kayıtlarının `purged` olup olmadığını döndürür.
+   `storageReady:true` fiziksel Storage temizliği, makbuz, hukuki onay
+   veya silme yetkisi değildir. Preflight bayrağı **silme bayrağını açmaz**.
+   İstemci mevcut ECDSA kimliğiyle kendi güncel kodunu imzalar; başka
+   kullanıcı hesabı seçemez. Canlı Edge wrapper iki bayrağı da açmaz.
+3. `createRelay` içinde `deleteAccount` — yalnız
    `{accountDeletionEnabled: true}` sağlanırsa açılır. Dağıtılan Edge wrapper
    bu bayrağı vermez. `DELETE_ACCOUNT` teyidi + değişmemiş hesap kodu
    + mevcut ECDSA/nonce anti-replay gerekir. İstemci başka ID seçemez.
