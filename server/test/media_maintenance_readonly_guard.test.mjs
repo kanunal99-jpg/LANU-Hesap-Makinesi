@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { runPrivateMediaMaintenance } from '../scripts/private_media_maintenance.mjs';
 
 const id='a'.repeat(32), now=Date.now();
-const date=new Date(now-1_000).toISOString();
+const date=new Date(now-8_000_000).toISOString();
 function fixture() {
   const count={read:0,storage:0,db:0};
   const store={
@@ -22,6 +22,20 @@ test('default mode is read-only and prints no ID, path or secrets',async()=>{
   assert.ok(!JSON.stringify(response).includes(id));
 });
 
+test('preview filters objects younger than the two-hour signed-grant grace',async()=>{
+ const f=fixture();
+ let cutoff;
+ f.store.expiredMedia=async at=>{
+   cutoff=at;
+   return [];
+ };
+ const result=await runPrivateMediaMaintenance({
+   store:f.store,mode:'preview',nowMs:now
+ });
+ assert.deepEqual(result,{mode:'preview',eligible:0,deleted:0});
+ assert.equal(cutoff,now-7_500_000);
+ assert.deepEqual(f.count,{read:0,storage:0,db:0});
+});
 test('apply mode fails closed without explicit separate authorization',async()=>{
  const f=fixture();
  await assert.rejects(runPrivateMediaMaintenance({
