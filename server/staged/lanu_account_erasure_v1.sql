@@ -59,9 +59,24 @@ begin
         on child_att.attrelid = c.conrelid and child_att.attnum = c.conkey[1]
       join pg_catalog.pg_attribute parent_att
         on parent_att.attrelid = c.confrelid and parent_att.attnum = c.confkey[1]
+      -- Every table deleted by this RPC is a possible CASCADE parent.
+      -- Limiting inventory to identities/messages misses new FK children of
+      -- media, signals, contacts, claims or event tables and can silently
+      -- erase peer-owned data. None of these additional parents has a
+      -- reviewed child FK in the current six-migration schema.
       where c.contype = 'f'
-        and c.confrelid in ('public.lanu_identities'::regclass,
-                            'public.lanu_messages'::regclass)
+        and c.confrelid in (
+          'public.lanu_identities'::regclass,
+          'public.lanu_contacts'::regclass,
+          'public.lanu_messages'::regclass,
+          'public.lanu_events'::regclass,
+          'public.lanu_nonces'::regclass,
+          'public.lanu_media_objects'::regclass,
+          'public.lanu_call_signals'::regclass,
+          'public.lanu_call_wake_devices'::regclass,
+          'public.lanu_message_wake_devices'::regclass,
+          'public.lanu_message_wake_claims'::regclass
+        )
       group by c.confrelid, c.conrelid, child_att.attname, parent_att.attname,
                c.confdeltype, c.conkey, c.confkey
     )
