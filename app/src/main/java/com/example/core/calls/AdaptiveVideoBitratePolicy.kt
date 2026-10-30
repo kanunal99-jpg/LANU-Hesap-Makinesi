@@ -25,6 +25,12 @@ internal class AdaptiveVideoBitratePolicy {
 
         val poor = (lossFraction != null && lossFraction >= 0.08) ||
             (rttMs != null && rttMs >= 400.0)
+        // Sustained extreme congestion should protect two-way Opus audio
+        // immediately rather than spending another 10s at medium video
+        // bitrate. Still require two independent remote RTP observations;
+        // do not react to one outlier or local packet-count estimates.
+        val critical = (lossFraction != null && lossFraction >= 0.25) ||
+            (rttMs != null && rttMs >= 1_200.0)
         val good = lossFraction != null && rttMs != null &&
             lossFraction <= 0.02 && rttMs <= 180.0
         if (poor) {
@@ -38,6 +44,7 @@ internal class AdaptiveVideoBitratePolicy {
             goodSamples = 0
         }
         return when {
+            poorSamples >= 2 && level == Level.HIGH && critical -> Level.LOW.bps
             poorSamples >= 2 && level == Level.HIGH -> Level.MEDIUM.bps
             poorSamples >= 2 && level == Level.MEDIUM -> Level.LOW.bps
             goodSamples >= 5 && level == Level.LOW -> Level.MEDIUM.bps
