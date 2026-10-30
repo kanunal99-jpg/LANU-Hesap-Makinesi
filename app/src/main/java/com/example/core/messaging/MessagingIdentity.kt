@@ -148,10 +148,17 @@ object PeerMessageCrypto {
         val privateKey = factory.generatePrivate(PKCS8EncodedKeySpec(UserCodes.decode(identity.privateKey)))
         val peer = factory.generatePublic(X509EncodedKeySpec(UserCodes.decode(publicKey)))
         val shared = KeyAgreement.getInstance("ECDH").run { init(privateKey); doPhase(peer, true); generateSecret() }
-        val digest = MessageDigest.getInstance("SHA-256")
-        digest.update(shared)
-        digest.update(("LANU-v1:" + UserCodes.conversationId(identity.id, peerId)).toByteArray(Charsets.UTF_8))
-        return SecretKeySpec(digest.digest(), "AES")
+        val material = try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            digest.update(shared)
+            digest.update(("LANU-v1:" + UserCodes.conversationId(identity.id, peerId)).toByteArray(Charsets.UTF_8))
+            digest.digest()
+        } finally {
+            // Preserve the established E2EE key derivation and ciphertext format,
+            // while removing extra mutable raw ECDH material from this process.
+            shared.fill(0)
+        }
+        return try { SecretKeySpec(material, "AES") } finally { material.fill(0) }
     }
     private fun aad(messageId: String, senderId: String, recipientId: String) = "$messageId:$senderId:$recipientId".toByteArray(Charsets.UTF_8)
     fun encrypt(identity: MessagingIdentity, peerId: String, peerKey: String, messageId: String, text: String): String {
