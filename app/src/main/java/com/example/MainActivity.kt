@@ -407,7 +407,10 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         // Instantiate ViewModels securely with factories
         calcViewModel = ViewModelProvider(this, CalculatorViewModel.Factory(container.calculatorRepository))[CalculatorViewModel::class.java]
         securityViewModel = ViewModelProvider(this, SecurityViewModel.Factory(container.securityRepository, container.securityEventTracker))[SecurityViewModel::class.java]
-        commViewModel = ViewModelProvider(this, CommunicationViewModel.Factory(container.communicationRepository))[CommunicationViewModel::class.java]
+        commViewModel = ViewModelProvider(this, CommunicationViewModel.Factory(
+            container.communicationRepository,
+            com.example.core.delivery.DeliveryCoordinator(applicationContext)
+        ))[CommunicationViewModel::class.java]
         nativeCallViewModel = (application as LanuApplication).callModel
         // Launching via an incoming-call notification is NOT authorization.
         // Lock even a restored private back stack before Compose draws it.

@@ -50,11 +50,16 @@ class DeliveryCoordinator(context: Context) {
         if (!snapshot.options.enabled) {
             work.cancelUniqueWork(PERIODIC).result.get(10, TimeUnit.SECONDS)
             work.cancelUniqueWork(MANUAL).result.get(10, TimeUnit.SECONDS)
+            work.cancelUniqueWork(OUTBOX).result.get(10, TimeUnit.SECONDS)
             return
         }
         // UPDATE would let a running metered job outlive a stricter Wi-Fi choice.
         // Cancel/re-enqueue only on an explicit option change; normal launches KEEP.
-        if (replace) work.cancelUniqueWork(MANUAL).result.get(10, TimeUnit.SECONDS)
+        if (replace) {
+            work.cancelUniqueWork(MANUAL).result.get(10, TimeUnit.SECONDS)
+            // A stricter Wi-Fi preference must invalidate the old job constraints.
+            work.cancelUniqueWork(OUTBOX).result.get(10, TimeUnit.SECONDS)
+        }
         val request = periodicRequest(snapshot.options)
         work.enqueueUniquePeriodicWork(PERIODIC,
             if (replace) ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE else ExistingPeriodicWorkPolicy.KEEP, request)
@@ -75,6 +80,28 @@ class DeliveryCoordinator(context: Context) {
         }
     }
 
+    /**
+     * A message is already encrypted and committed to Room before this is called.
+     * With explicit background-delivery consent, request a network-constrained
+     * immediate drain of the EXISTING durable outbox. WorkManager receives no
+     * message, peer, token, identity or conversation identifiers.
+     *
+     * KEEP coalesces rapid sends; the existing periodic job covers the race
+     * where another message arrives while an earlier drain is finishing.
+     */
+    suspend fun enqueuePendingOutbox() = withContext(Dispatchers.IO) {
+        scheduling.withLock {
+            val snapshot = store.read()
+            if (!DeliveryImmediatePolicy.allowed(snapshot)) return@withLock
+            val request = OneTimeWorkRequestBuilder<BackgroundDeliveryWorker>()
+                .setConstraints(constraints(snapshot.options))
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 60, TimeUnit.SECONDS)
+                .addTag(TAG).build()
+            manager().enqueueUniqueWork(OUTBOX, ExistingWorkPolicy.KEEP, request)
+                .result.get(10, TimeUnit.SECONDS)
+        }
+    }
+
     fun workStates(): Flow<List<WorkInfo>> = flow {
         emitAll(manager().getWorkInfosByTagFlow(TAG))
     }.flowOn(Dispatchers.IO).catch { emit(emptyList()) }
@@ -82,6 +109,7 @@ class DeliveryCoordinator(context: Context) {
     companion object {
         const val PERIODIC = "lanu-private-delivery-periodic-v1"
         const val MANUAL = "lanu-private-delivery-manual-v1"
+        const val OUTBOX = "lanu-private-delivery-outbox-v1"
         const val TAG = "lanu-private-delivery-v1"
         private val scheduling = Mutex()
 
@@ -94,4 +122,10 @@ class DeliveryCoordinator(context: Context) {
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 60, TimeUnit.SECONDS)
             .addTag(TAG).build()
     }
+}
+
+/** Fail closed if the owner's opt-in preferences are missing or corrupted. */
+internal object DeliveryImmediatePolicy {
+    fun allowed(snapshot: DeliverySnapshot): Boolean =
+        snapshot.available && snapshot.options.enabled
 }
