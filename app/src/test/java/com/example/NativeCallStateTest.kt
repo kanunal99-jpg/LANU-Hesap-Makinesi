@@ -681,6 +681,36 @@ class NativeCallStateTest {
         vm.end();waitPhase(NativeCallPhase.ENDED)
     }
 
+    @Test fun twoDistinctVerifiedOutagesMayRestartButThirdCannotLoop() = runBlocking<Unit> {
+        vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
+        val invite=awaitSent(CallSignalKind.INVITE)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,false))
+        awaitSent(CallSignalKind.OFFER)
+        repeat(2) { index ->
+            val fresh=5L+index
+            report!!(CallMediaEvidence(true,fresh,fresh))
+            waitPhase(NativeCallPhase.CONNECTED)
+            report!!(CallMediaEvidence(false,fresh,fresh))
+            waitPhase(NativeCallPhase.RECONNECTING)
+            mainTestDispatcher.scheduler.advanceTimeBy(ICE_RESTART_GRACE_MS + 1L)
+            mainTestDispatcher.scheduler.runCurrent()
+            withTimeout(5_000) {
+                sent.first { rows -> rows.count { it.kind==CallSignalKind.OFFER } == index+2 }
+            }
+            assertEquals(index+1,iceRestarts)
+        }
+        report!!(CallMediaEvidence(true,9,9))
+        waitPhase(NativeCallPhase.CONNECTED)
+        report!!(CallMediaEvidence(false,9,9))
+        waitPhase(NativeCallPhase.RECONNECTING)
+        mainTestDispatcher.scheduler.advanceTimeBy(ICE_RESTART_GRACE_MS + 1L)
+        mainTestDispatcher.scheduler.runCurrent()
+        assertEquals("Third outage must not create an unlimited restart loop",2,iceRestarts)
+        assertEquals(3,sent.value.count { it.kind==CallSignalKind.OFFER })
+        vm.end()
+        waitPhase(NativeCallPhase.ENDED)
+    }
+
     @Test fun recoveredRtpWhileNativeRestartOfferIsPendingMustNotSendStaleSdp() = runBlocking<Unit> {
         restartOfferGate=CompletableDeferred()
         restartOfferEntered=CompletableDeferred()
