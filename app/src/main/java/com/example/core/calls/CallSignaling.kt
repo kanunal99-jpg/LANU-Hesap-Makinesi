@@ -50,7 +50,16 @@ object CallSignaling {
 
     fun validate(s: CallSignal, now: Long) {
         require(validId(s.id) && validId(s.callId))
-        require(s.createdAt >= 0 && s.createdAt <= now + 30_000 && now - s.createdAt <= TTL_MILLIS)
+        // Both fields are positive epoch milliseconds. Adding to 'now' or
+        // subtracting signed values from arbitrary clocks can wrap at Long
+        // boundaries and accidentally accept a stale/replayed call invite.
+        // Compare nonnegative deltas only after establishing their order.
+        require(s.createdAt > 0L && now > 0L)
+        if (s.createdAt <= now) {
+            require(now - s.createdAt <= TTL_MILLIS)
+        } else {
+            require(s.createdAt - now <= 30_000L)
+        }
         if (s.kind == CallSignalKind.OFFER || s.kind == CallSignalKind.ANSWER) {
             require(s.sdp.length in 1..MAX_SDP && s.sdp.toByteArray(Charsets.UTF_8).size <= MAX_SDP)
             require(!s.sdp.contains('\u0000') && s.sdp.startsWith("v=0") &&
