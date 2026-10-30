@@ -410,3 +410,26 @@ test('new cascading call-signal child requires review and preserves peer rows', 
     assert.equal(await count(db,'lanu_identities','id=$1',[bob]),1);
   } finally { await db.close(); }
 });
+
+test('new cascading media receipt cannot be silently removed', async () => {
+  const {db} = await createFixture();
+  try {
+    const fileId = 'd'.repeat(32);
+    await db.query(`insert into public.lanu_media_objects(
+      file_id,message_id,sender_id,recipient_id,cipher_bytes,cipher_sha256,state)
+      values($1,$2,$3,$4,$5,$6,$7)`,
+      [fileId,randomUUID(),alice,bob,512,'e'.repeat(64),'purged']);
+    await db.exec(`create table public.lanu_future_media_receipts(
+      file_id text references public.lanu_media_objects(file_id) on delete cascade,
+      receipt text not null)`);
+    await db.query('insert into public.lanu_future_media_receipts values($1,$2)',
+      [fileId,'synthetic-peer-receipt']);
+    const before = await fingerprint(db);
+    await assert.rejects(
+      db.query('select public.lanu_delete_account_v1($1,$2)',[alice,code('A')]),
+      /Account schema review required/i);
+    assert.deepEqual(await fingerprint(db),before);
+    assert.equal(await count(db,'lanu_future_media_receipts'),1);
+    assert.equal(await count(db,'lanu_identities','id=$1',[bob]),1);
+  } finally { await db.close(); }
+});
