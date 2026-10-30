@@ -41,6 +41,18 @@ class DirectEntrySequenceTest {
         }
     }
 
+    @Test fun clearingCalculatorStartsFreshDirectSequenceImmediately() {
+        val guard = DirectEntrySequence("4321.")
+        assertFalse(guard.observe("4", "", "4"))
+        // A reset dialog clears expression without passing through the
+        // direct keypad handler; a fresh first key must still work.
+        assertFalse(guard.observe("4", "", "4"))
+        assertFalse(guard.observe("3", "4", "43"))
+        assertFalse(guard.observe("2", "43", "432"))
+        assertFalse(guard.observe("1", "432", "4321"))
+        assertTrue(guard.observe(".", "4321", "4321."))
+    }
+
     @Test fun partialHistoryMatchesCannotResumeSecretSequence() {
         val guard = DirectEntrySequence("4321.")
         assertFalse(guard.observe("4", "", "4"))
