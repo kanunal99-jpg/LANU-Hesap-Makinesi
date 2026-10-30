@@ -521,16 +521,16 @@ test('signed owner preflight reaches the actual staged PGlite RPC without enabli
       {accountDeletionPreflightEnabled:true});
     const signed = () => envelope(f.alice,'checkAccountDeletion',
       {expectedCode:f.alice.code});
-    assert.deepEqual(await relay(signed()),{storageReady:true});
+    assert.deepEqual(await relay(signed()),{storageReady:true,deletionEnabled:false});
     await db.query(`
       insert into public.lanu_media_objects(
         file_id,message_id,sender_id,recipient_id,cipher_bytes,cipher_sha256,state
       ) values($1,$2,$3,$4,$5,$6,$7)
     `,['f'.repeat(32),randomUUID(),f.alice.id,f.bob.id,512,'e'.repeat(64),'ready']);
-    assert.deepEqual(await relay(signed()),{storageReady:false});
+    assert.deepEqual(await relay(signed()),{storageReady:false,deletionEnabled:false});
     await db.query("update public.lanu_media_objects set state='purged' where file_id=$1",
       ['f'.repeat(32)]);
-    assert.deepEqual(await relay(signed()),{storageReady:true});
+    assert.deepEqual(await relay(signed()),{storageReady:true,deletionEnabled:false});
     assert.equal(await count(db,'lanu_identities','id=$1',[f.alice.id]),1);
     assert.equal(await count(db,'lanu_media_objects','sender_id=$1',[f.alice.id]),1);
     // Preflight activation alone must not allow the destructive operation.
