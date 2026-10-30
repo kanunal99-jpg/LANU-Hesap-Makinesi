@@ -68,6 +68,11 @@ internal object PrivateMediaTransferHttp {
         val address = verifyGrantUrl(signedUrl, id, upload = true)
         // Do not buffer even one full 40 MiB file in Java heap.
         val requestBody = object : RequestBody() {
+            // 40 MiB uploads use a consumable ciphertext stream. A transport
+            // failure must not make OkHttp automatically replay the signed PUT:
+            // the relay alone verifies whether the immutable object committed.
+            // A new upload grant, if necessary, is obtained explicitly.
+            override fun isOneShot(): Boolean = true
             override fun contentType() = "application/octet-stream".toMediaType()
             override fun contentLength(): Long = checked.cipherBytes
             override fun writeTo(sink: okio.BufferedSink) {
