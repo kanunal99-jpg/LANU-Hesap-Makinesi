@@ -137,7 +137,7 @@ fun MessageWakeSettings(repository: CommunicationRepository) {
                 check(MessageWakePreferences.finishEnrollment(context))
                 pending = false
                 enabled = true
-                status = "Yalnız LANU Hesap Makinesi başlıklı, sesli bildirimler açık."
+                status = "Yalnız genel başlıklı bildirim ve arka planda şifreli mesaj eşitleme açık."
             } catch (e: CancellationException) {
                 // The persisted opt-out marker survives Compose cancellation.
                 MessageWakePreferences.disableAndQueueRemoteRevoke(context)
@@ -196,8 +196,8 @@ fun MessageWakeSettings(repository: CommunicationRepository) {
         Row(verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Mesaj bildirimleri", style = MaterialTheme.typography.titleMedium)
-                Text("İsteğe bağlı • varsayılan kapalı • sesli bildirim",
+                Text("Mesaj bildirimi ve anlık eşitleme", style = MaterialTheme.typography.titleMedium)
+                Text("İsteğe bağlı • varsayılan kapalı • şifreli arka plan eşitleme",
                     style = MaterialTheme.typography.bodySmall)
             }
             Switch(
@@ -216,7 +216,7 @@ fun MessageWakeSettings(repository: CommunicationRepository) {
                 modifier = Modifier.testTag("private_message_wake_toggle")
             )
         }
-        Text("Bildirimde yalnız 'LANU Hesap Makinesi' görünür. Mesaj, gönderen, sohbet, kişi ve önizleme gösterilmez. Ses Android'in sessiz mod ve bildirim kanalı ayarlarına bağlıdır.",
+        Text("Bu tercihi açınca yalnız genel bir bildirim gösterilir ve geçerli anonim uyarı geldiğinde mevcut kimliğinizle şifreli mesajlar arka planda eşitlenir. Mesaj, gönderen, sohbet, kişi ve önizleme bildirimde gösterilmez; yeni kimlik oluşturulmaz. Tercihi kapatınca bu anlık eşitleme de iptal edilir.",
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 8.dp))
         Text("Bildirime dokununca hesap makinesi açılır; gizli alan yalnız mevcut giriş yöntemi ve isteğe bağlı PIN ile açılır. İnternet, Android pil yönetimi ve Google servisleri nedeniyle bildirimin ulaşması garanti değildir.",
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 8.dp))
