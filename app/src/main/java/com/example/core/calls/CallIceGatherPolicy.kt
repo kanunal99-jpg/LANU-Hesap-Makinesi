@@ -54,9 +54,18 @@ internal object CallIceGatherPolicy {
         if (fields.size < 8 || fields[0].isBlank() ||
             (fields[1].toIntOrNull() ?: 0) !in 1..256 ||
             fields[2].lowercase() !in setOf("udp", "tcp") ||
-            (fields[3].toLongOrNull() ?: -1L) < 0L || fields[4].isBlank() ||
+            (fields[3].toLongOrNull() ?: -1L) <= 0L || fields[4].isBlank() ||
             (fields[5].toIntOrNull() ?: 0) !in 1..65535 ||
             fields[6] != "typ") return null
+        // RFC 6544 TCP candidates need an explicit active/passive/so
+        // tcptype. Without it a non-trickle offer can be sent early even
+        // though the peer cannot establish the advertised TCP route.
+        if (fields[2].equals("tcp", ignoreCase = true)) {
+            val typeMarker = fields.indices.firstOrNull { it >= 8 && fields[it] == "tcptype" }
+                ?: return null
+            if (fields.getOrNull(typeMarker + 1) !in setOf("active", "passive", "so"))
+                return null
+        }
         return fields[7].takeIf { it in setOf("host", "srflx", "prflx", "relay") }
     }
 }

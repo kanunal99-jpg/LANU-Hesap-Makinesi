@@ -1,4 +1,5 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension
 
 plugins {
   alias(libs.plugins.hilt)
@@ -8,6 +9,7 @@ plugins {
   alias(libs.plugins.roborazzi)
   alias(libs.plugins.secrets)
   alias(libs.plugins.google.services)
+  alias(libs.plugins.firebase.crashlytics)
 }
 
 // Preserve the current Room schema as compiler-generated evidence. Historical
@@ -61,6 +63,14 @@ android {
 
   buildTypes {
     release {
+      // Never upload mappings from local builds or untrusted PRs that do
+      // not have the real Firebase app config. GitHub trusted main uses the
+      // verified protected config installed before Gradle is invoked.
+      configure<CrashlyticsExtension> {
+        mappingFileUploadEnabled =
+          System.getenv("GITHUB_EVENT_NAME") in setOf("push", "workflow_dispatch") &&
+          System.getenv("GITHUB_REF") in setOf("refs/heads/main", "refs/heads/master")
+      }
       isCrunchPngs = false
       isMinifyEnabled = true
       isShrinkResources = true
@@ -68,7 +78,10 @@ android {
       // Stable owner key on trusted main, isolated key for PR/device test fixtures.
       signingConfig = signingConfigs.getByName("debugConfig")
     }
-    debug { signingConfig = signingConfigs.getByName("debugConfig") }
+    debug {
+      configure<CrashlyticsExtension> { mappingFileUploadEnabled = false }
+      signingConfig = signingConfigs.getByName("debugConfig")
+    }
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11
@@ -137,6 +150,8 @@ dependencies {
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
+  // Fatal and ANR reporting must remain disabled until explicit private opt-in.
+  implementation(libs.firebase.crashlytics)
   // Explicit, separately consented call and opaque message alerts; no marketing push.
   implementation("com.google.firebase:firebase-messaging")
   // Uncomment to use Firestore:

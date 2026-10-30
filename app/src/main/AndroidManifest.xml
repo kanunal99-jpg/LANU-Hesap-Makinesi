@@ -42,6 +42,8 @@
         <!-- No Firebase registration / telemetry until private-area opt-in. -->
         <meta-data android:name="firebase_messaging_auto_init_enabled" android:value="false" />
         <meta-data android:name="firebase_analytics_collection_enabled" android:value="false" />
+        <!-- Privacy gate: no Crashlytics uploads without a deliberate private setting. -->
+        <meta-data android:name="firebase_crashlytics_collection_enabled" android:value="false" />
         <!-- Only separately opted-in call/message wake hints; never open private data. -->
         <service android:name=".core.calls.CallWakeMessagingService"
             android:exported="false">

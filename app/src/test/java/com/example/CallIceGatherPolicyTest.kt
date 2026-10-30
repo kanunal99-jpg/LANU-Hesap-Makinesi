@@ -62,4 +62,16 @@ class CallIceGatherPolicyTest {
             ready(reflexive, PeerConnection.IceGatheringState.GATHERING, 1_400L, 650L))
     }
 
+    @Test fun invalidTcpCandidateNeverCausesFalseIceConnectionReadiness() {
+        val missingType = "v=0\r\na=candidate:abc 1 tcp 12345 192.0.2.4 9 typ srflx\r\n"
+        val invalidType = missingType.replace("typ srflx", "typ srflx tcptype ignored")
+        val zeroPriority = missingType.replace("tcp 12345", "udp 0")
+        val properTcp = missingType.replace("typ srflx", "typ srflx tcptype passive")
+        for (candidate in listOf(missingType, invalidType, zeroPriority)) {
+            assertFalse(CallIceGatherPolicy.hasUsableCandidate(candidate))
+            assertFalse(ready(candidate, PeerConnection.IceGatheringState.COMPLETE, 8000, 500))
+        }
+        assertTrue(CallIceGatherPolicy.hasUsableCandidate(properTcp))
+    }
+
 }

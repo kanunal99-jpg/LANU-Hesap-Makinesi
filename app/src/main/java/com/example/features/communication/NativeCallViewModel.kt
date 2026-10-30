@@ -16,7 +16,7 @@ import java.util.UUID
 // sample gives a brief self-healing radio handover time to earn fresh RTP
 // evidence before spending a bounded authenticated ICE restart. The separate 25s
 // call deadline still bounds genuine outages.
-internal const val ICE_RESTART_GRACE_MS = 2_250L
+internal const val ICE_RESTART_GRACE_MS = CallWeakNetworkRecoveryPolicy.TRANSIENT_GRACE_MS
 // RTP stats are sampled once per second. An old CONNECTED UI phase alone
 // cannot prove a live call if the native stats callback stops arriving.
 internal const val CALL_MEDIA_PROOF_CALLBACK_MAX_AGE_MS = 3_000L
@@ -50,6 +50,11 @@ class NativeCallViewModel(
         // Increment on each real recovery or disconnect; stale delayed ICE
         // restarts must never spend an attempt on a later outage.
         var reconnectGeneration = 0L
+        // Grace timer may be shortened ONCE if native ICE becomes FAILED
+        // during a transient handover. Never double-spend the session budget.
+        var recoveryJob: Job? = null
+        var reconnectOfferStarted = false
+        var fastTrackUsed = false
         // Updated only by fresh, bidirectional RTP evidence; never by ICE
         // transport alone or the UI's last CONNECTED label.
         var lastConfirmedMediaAtMs: Long? = null
@@ -342,43 +347,61 @@ class NativeCallViewModel(
             if (value.connected) {
                 current.lastConfirmedMediaAtMs = mediaClockMs().takeIf { it >= 0L }
                 current.reconnectGeneration++ // invalidate any short-disconnect grace timer
+                current.recoveryJob?.cancel() // do not restart a recovered call
+                current.recoveryJob = null
                 timeout?.cancel()
                 _state.value = _state.value.copy(phase = NativeCallPhase.CONNECTED,
                     connectedAt = _state.value.connectedAt.takeIf { it > 0 } ?: android.os.SystemClock.elapsedRealtime())
             } else {
-                // A silent/stalled stream can retain a CONNECTED UI phase
-                // while the RTP tracker has expired its last two-way proof.
+                // An RTP stall with still-connected transport can be natural
+                // Opus DTX/silence: never tear down or restart it blindly.
                 current.lastConfirmedMediaAtMs = null
                 if (_state.value.phase == NativeCallPhase.CONNECTED && !value.transportConnected) {
                     _state.value = _state.value.copy(phase = NativeCallPhase.RECONNECTING)
                     val generation = ++current.reconnectGeneration
+                    current.reconnectOfferStarted = false
+                    current.fastTrackUsed = value.iceFailed
                     deadline(current, 25_000, "Ağ bağlantısı kesildi.")
-                    if (current.outgoing) {
-                        pipeline = guarded(current) {
-                            // Mobile radio/Wi-Fi handovers often recover on their
-                            // own. Give the existing ICE transport a brief grace
-                            // period before spending a bounded restart attempt.
-                            delay(ICE_RESTART_GRACE_MS)
-                            if (session !== current || !foreground ||
-                                current.reconnectGeneration != generation ||
-                                _state.value.phase != NativeCallPhase.RECONNECTING) return@guarded
-                            val engine = _media.value ?: return@guarded
-                            if (!current.reconnectBudget.claim()) return@guarded
-                            val offerSdp = engine.offer(restart = true)
-                            // Native SDP generation may complete after RTP recovered,
-                            // even if the suspended operation ignored cancellation.
-                            // Never send a stale restart offer into a healthy call
-                            // or a newer disconnect generation.
-                            if (session !== current || !foreground ||
-                                current.reconnectGeneration != generation ||
-                                _state.value.phase != NativeCallPhase.RECONNECTING) return@guarded
-                            current.awaitingAnswer = true
-                            send(current, CallSignalKind.OFFER, offerSdp)
-                        }
-                    }
+                    if (current.outgoing) scheduleIceRecovery(current, generation, value.iceFailed)
+                } else if (!value.transportConnected &&
+                    CallWeakNetworkRecoveryPolicy.mayFastTrack(
+                        outgoing = current.outgoing,
+                        reconnecting = _state.value.phase == NativeCallPhase.RECONNECTING,
+                        iceFailed = value.iceFailed,
+                        restartAlreadyStarted = current.reconnectOfferStarted,
+                        fastTrackAlreadyUsed = current.fastTrackUsed
+                    )
+                ) {
+                    // DISCONNECTED -> FAILED before the original grace elapsed:
+                    // cancel only the pending timer, never an active ICE offer.
+                    current.fastTrackUsed = true
+                    current.recoveryJob?.cancel()
+                    scheduleIceRecovery(current, current.reconnectGeneration, true)
                 }
             }
         } }, { message -> viewModelScope.launch { if (session === current) fail(message) } })
+
+    private fun scheduleIceRecovery(current: Session, generation: Long, iceFailed: Boolean) {
+        val job = guarded(current) {
+            delay(CallWeakNetworkRecoveryPolicy.graceMs(iceFailed))
+            if (session !== current || !foreground ||
+                current.reconnectGeneration != generation ||
+                _state.value.phase != NativeCallPhase.RECONNECTING) return@guarded
+            val engine = _media.value ?: return@guarded
+            if (!current.reconnectBudget.claim()) return@guarded
+            current.reconnectOfferStarted = true
+            val offerSdp = engine.offer(restart = true)
+            // SDP creation may finish after natural RTP recovery, cancellation
+            // or a subsequent disconnect. Never signal a stale restart.
+            if (session !== current || !foreground ||
+                current.reconnectGeneration != generation ||
+                _state.value.phase != NativeCallPhase.RECONNECTING) return@guarded
+            current.awaitingAnswer = true
+            send(current, CallSignalKind.OFFER, offerSdp)
+        }
+        current.recoveryJob = job
+        pipeline = job
+    }
 
     private fun guarded(current: Session, block: suspend () -> Unit): Job {
         val job = viewModelScope.launch {
