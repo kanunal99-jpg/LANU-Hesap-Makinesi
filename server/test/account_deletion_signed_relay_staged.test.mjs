@@ -82,7 +82,7 @@ test('staged read-only account deletion preflight is owner signed and disabled i
   await assert.rejects(f.relay(envelope(f.alice,'checkAccountDeletion',payload)),{status:503});
   assert.equal(calls.length,0, 'default Edge must not call the staging RPC');
 
-  const relay = createRelay(f.store, Date.now, {accountDeletionEnabled:true});
+  const relay = createRelay(f.store, Date.now, {accountDeletionPreflightEnabled:true});
   for (const data of [
     {}, {expectedCode:f.bob.code}, {...payload,accountId:f.bob.id},
     {...payload,peerId:f.bob.id}, {...payload,force:true}
@@ -94,6 +94,11 @@ test('staged read-only account deletion preflight is owner signed and disabled i
     {identityId:f.alice.id})),{status:401});
   assert.equal(calls.length,0);
 
+  // Enabling the read-only preflight must NOT enable the destructive RPC.
+  f.store.accountDelete = async () => { throw new Error('destructive RPC reached'); };
+  await assert.rejects(relay(envelope(f.alice,'deleteAccount',{
+    confirmation:'DELETE_ACCOUNT',expectedCode:f.alice.code
+  })),{status:503});
   const valid = envelope(f.alice,'checkAccountDeletion',payload);
   assert.deepEqual(await relay(valid),{storageReady:false});
   assert.deepEqual(calls,[{owner:f.alice.id,expectedCode:f.alice.code}]);
@@ -104,7 +109,7 @@ test('staged read-only account deletion preflight is owner signed and disabled i
 
 test('preflight refuses malformed RPC results and never equates metadata with deletion', async () => {
   const f = await fixture();
-  const relay = createRelay(f.store, Date.now, {accountDeletionEnabled:true});
+  const relay = createRelay(f.store, Date.now, {accountDeletionPreflightEnabled:true});
   const request = () => envelope(f.alice,'checkAccountDeletion',{expectedCode:f.alice.code});
   for (const result of [null, {}, {storageReady:'true'}, {storageReady:1}]) {
     f.store.accountDeletionPreflight = async () => result;
