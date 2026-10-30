@@ -90,13 +90,21 @@ internal object PrivateMediaTransferHttp {
         val route = if (upload) "upload/sign" else "sign"
         val pathname = "/storage/v1/object/$route/$BUCKET/v1/$id.cipher"
         // An arbitrary HTTPS URL is never an authorized media grant.
-        require(expected.scheme == "https" &&
-            expected.host == source.host && source.host.endsWith(".supabase.co") &&
+        // Require the exact unescaped private path and the canonical bearer
+        // token alphabet returned by our trusted Storage adapter. Encoded
+        // path aliases, extra query keys and percent-encoded token values are
+        // never accepted as alternate signed capabilities.
+        require(source.scheme == "https" && source.port == -1 &&
+            source.host?.endsWith(".supabase.co") == true &&
+            expected.scheme == "https" && expected.host == source.host &&
             expected.port == -1 && expected.rawUserInfo == null &&
-            expected.path == pathname && expected.fragment == null &&
+            expected.rawPath == pathname && expected.rawFragment == null &&
             expected.rawQuery?.let { q ->
-                q.length in 23..5000 && q.startsWith("token=") &&
-                    q.substringAfter("token=").matches(Regex("[A-Za-z0-9._~%-]+"))
+                q.startsWith("token=") &&
+                    q.removePrefix("token=").let { token ->
+                        token.length in 16..4096 &&
+                            token.matches(Regex("[A-Za-z0-9._~-]+"))
+                    }
             } == true) { "Güvenli dosya bağlantısı doğrulanamadı." }
         return signedUrl
     }
