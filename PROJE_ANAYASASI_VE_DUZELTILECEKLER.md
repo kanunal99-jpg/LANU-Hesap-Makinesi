@@ -1,5 +1,17 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 30.10.2026 — EN SON KULLANICI KARARI: İKİ KİŞİLİK ÖZEL APK, MAĞAZA YAYINI YOK
+
+**ÜSTÜN GÜNCEL KAPSAM:** LANU Hesap Makinesi yalnızca iki kişinin kullanacağı özel Android APK olarak geliştirilecek. Google Play / App Store veya başka uygulama mağazasında yayın planlanmıyor. Dağıtım yolu GitHub Releases üzerinden mevcut sertifikayı koruyan imzalı APK ve güvenli yerinde güncellemedir. İki kişiden fazlasına yönelik ölçek/mağaza/marketing işlerine öncelik verilmeyecek.
+
+**HESAP SİLME ÖNCELİĞİ DEĞİŞTİ:** #224 mağaza/KVKK kaynaklı tam sunucu hesabı silme işi artık **öncelikli/aktif özellik DEĞİL; ERTELENDİ**. Mevcut taslak PR #266 ve testler saklanır; kullanıcı açıkça yeniden istemeden gerçek hesap silme, production DB migrasyonu veya silme endpointi etkinleştirilmez. Bunun yerine gerçek kullanıcı verisi/PIN/E2EE kimliği, imza ve yedek güvenliği korunur. 'Mağazaya çıkmayacak' kararı gizlilik, izin, veri güvenliği ve geçerli yasal yükümlülükleri kaldırmaz; mağaza başvuru belgeleri artık teslim koşulu değildir.
+
+**AKTİF TEK TAM ÖZELLİK:** İki kişi arasında gerçek, güvenli, uçtan uca **sesli/görüntülü arama** (#3 ve #133; varsa taslak #287 tamamlayıcı) — karşılıklı kimlik doğrulama, ses/video RTP, kilit ekranı ve arka plan FCM, uygulama dışından Yanıtla, kullanıcı izinleri, bağlantı kurtarma, ses rotası, çağrı gizliliği, hata/fallback, iki gerçek cihaz kabulü. Önce mevcut kodu incele ve eksik entegre bileşenleri **tek uçtan uca teslimde** bitir, son HEAD CI ve aynı imzalı veri korumalı OTA testini geçir, public GitHub APK/SHA/signer çıkart, kullanıcı telefonunda kullanılabilirliğini doğrula. İzinler ve E2EE kimlik verileri saklı kalır. Ardından kullanıcıya gerçek E2EE fotoğraf/belge/video/sesli medya (#85), ileri gizlilik (#114), SQLCipher (#113) ve diğer kritik işler, aynı tam ürün teslim disiplininde tek tek yapılır. **Küçük PR/yalnız test/plan yazılıp başka özelliğe geçilmez.**
+
+**İKİ AKTİF GÖREV:** Birisi tek aktif özelliğin kod/entegrasyon sorumlusu, diğeri son HEAD, gerçek test ve APK/OTA/iki telefon kabulünü denetler. İkisi birden ayrı rakip PR veya yayın başlatmaz. Bu karar, önceki #224 'aktif' kilitli promptları ve mağaza önceliğiyle çelişen tüm talimatların üzerindedir.
+
+---
+
 ## 30.10.2026 — DEĞİŞMEZ SABİT PROMPT: ÖNCE TAM ÖZELLİK, APK YAYINI VE KULLANICI KABULÜ
 
 # ÖNCE ÖZELLİK TAM EKLENECEK, YAYINLANACAK, KULLANICI GERÇEKTEN KULLANACAK — SONRA DİĞER GELİŞTİRME!
