@@ -37,6 +37,13 @@ class IncomingCallActivity : ComponentActivity() {
         setContent {
             val state by (application as LanuApplication).callModel.state.collectAsState()
             var observedLiveCall by remember { mutableStateOf(false) }
+            // A recent FCM hint is not proof that a call exists. Leave the
+            // neutral verification screen if no signed invitation arrives.
+            LaunchedEffect(Unit) {
+                kotlinx.coroutines.delay(30_000L)
+                if (!observedLiveCall &&
+                    (application as LanuApplication).callModel.state.value.phase == NativeCallPhase.IDLE) finish()
+            }
             LaunchedEffect(state.phase, state.callId) {
                 // MainActivity can dismiss a completed call concurrently,
                 // resetting the shared state to IDLE. Close this call-only
@@ -51,9 +58,15 @@ class IncomingCallActivity : ComponentActivity() {
             MyApplicationTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     Column(Modifier.fillMaxSize().padding(24.dp)) {
-                        Text("LANU gelen arama", style = MaterialTheme.typography.headlineMedium)
+                        Text(
+                            if (observedLiveCall) "Görüşme" else "Bildirim doğrulanıyor",
+                            style = MaterialTheme.typography.headlineMedium
+                        )
                         Spacer(Modifier.height(12.dp))
-                        Text("Arama daveti doğrulanıyor.")
+                        Text(
+                            if (observedLiveCall) "Bağlantı güvenle yönetiliyor."
+                            else "Lütfen kontrol tamamlanana kadar bekleyin."
+                        )
                         Spacer(Modifier.height(20.dp))
                         OutlinedButton(onClick = { finish() }) { Text("Kapat") }
                     }
@@ -75,11 +88,18 @@ class IncomingCallActivity : ComponentActivity() {
         if (!mayOpenCallUi()) { finish(); return }
         readWakeIntent(intent)
     }
+    private fun incomingWakeAt(incoming: Intent?): Long =
+        incoming?.getLongExtra(CallWakeTapPolicy.EXTRA_WAKE_AT, 0L) ?: 0L
+
     private fun mayOpenCallUi(): Boolean {
         val phase = (application as LanuApplication).callModel.state.value.phase
         val live = phase in setOf(NativeCallPhase.RINGING, NativeCallPhase.DIALING,
             NativeCallPhase.CONNECTING, NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING)
-        return CallWakeTapPolicy.mayOpenCallUi(CallWakePreferences.isEnabled(this), live)
+        val at = incomingWakeAt(intent)
+        return CallWakeTapPolicy.mayOpenCallUi(
+            CallWakePreferences.isEnabled(this), live,
+            CallWakeTapPolicy.freshWakeIntent(intent?.action, at, System.currentTimeMillis())
+        )
     }
     private fun readWakeIntent(incoming: Intent?) {
         answerAt = 0L
@@ -88,7 +108,6 @@ class IncomingCallActivity : ComponentActivity() {
         val at = incoming.getLongExtra(CallWakeTapPolicy.EXTRA_WAKE_AT, 0L)
         // This merely records a recent user gesture; it does NOT authorize
         // any peer or microphone permission until a signed invite matches.
-        if (CallWakePolicy.eligible(mapOf("type" to CallWakePolicy.TYPE, "at" to at.toString()),
-                System.currentTimeMillis())) answerAt = at
+        if (CallWakeTapPolicy.freshWakeIntent(incoming.action, at, System.currentTimeMillis())) answerAt = at
     }
 }

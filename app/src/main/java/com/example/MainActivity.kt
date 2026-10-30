@@ -407,7 +407,10 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         // Instantiate ViewModels securely with factories
         calcViewModel = ViewModelProvider(this, CalculatorViewModel.Factory(container.calculatorRepository))[CalculatorViewModel::class.java]
         securityViewModel = ViewModelProvider(this, SecurityViewModel.Factory(container.securityRepository, container.securityEventTracker))[SecurityViewModel::class.java]
-        commViewModel = ViewModelProvider(this, CommunicationViewModel.Factory(container.communicationRepository))[CommunicationViewModel::class.java]
+        commViewModel = ViewModelProvider(this, CommunicationViewModel.Factory(
+            container.communicationRepository,
+            com.example.core.delivery.DeliveryCoordinator(applicationContext)
+        ))[CommunicationViewModel::class.java]
         nativeCallViewModel = (application as LanuApplication).callModel
         // Launching via an incoming-call notification is NOT authorization.
         // Lock even a restored private back stack before Compose draws it.
@@ -743,15 +746,11 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         backgroundTimestamp = 0L
 
         // Conceal the private area on a locked foreground return.
-        val hasPin = if (::securityViewModel.isInitialized) securityViewModel.hasPin.value else false
         val isLocked = if (::securityViewModel.isInitialized) securityViewModel.isLocked.value else true
 
-        if (isLocked && hasPin) {
-            val currentScreen = navigationBackstack.lastOrNull()
-            if (currentScreen != null && isSecureScreen(currentScreen)) {
-                navigationBackstack.clear()
-                navigationBackstack.add(Screen.Calculator)
-            }
+        if (mustConcealLockedPrivateScreen(isLocked, navigationBackstack.lastOrNull())) {
+            navigationBackstack.clear()
+            navigationBackstack.add(Screen.Calculator)
         }
     }
 
@@ -832,6 +831,14 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     }
 
     companion object {
+        /**
+         * Locked private screens are never restored by Android foregrounding.
+         * Optional second-PIN settings cannot authorize a previously locked
+         * navigation stack; only a fresh deliberate calculator entry can.
+         */
+        fun mustConcealLockedPrivateScreen(isLocked: Boolean, screen: Screen?): Boolean =
+            isLocked && (screen is Screen.Communication || screen is Screen.ChatDetail)
+
         /** Disable automatic host feedback without changing system/keyboard preferences. */
         fun configureSilentUi(view: View) {
             view.isSoundEffectsEnabled = false

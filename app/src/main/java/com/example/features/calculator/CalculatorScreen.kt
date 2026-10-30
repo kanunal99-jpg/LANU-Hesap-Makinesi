@@ -86,6 +86,15 @@ fun CalculatorScreen(
     var toolsMenuExpanded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val directEntry = remember { DirectEntrySequence("2011.") }
+    fun pressCalculatorKey(key: String) {
+        val before = viewModel.expression.value
+        viewModel.onKeyPress(key)
+        if (directEntry.observe(key, before, viewModel.expression.value)) {
+            viewModel.onKeyPress("AC")
+            onNavigateToLock()
+        }
+    }
 
     val focusRequester = remember { FocusRequester() }
 
@@ -109,20 +118,8 @@ fun CalculatorScreen(
         }
     }
 
-    // Auto-navigate to security screen when "2011." is entered
-    LaunchedEffect(expression) {
-        if (expression == "2011.") {
-            viewModel.onKeyPress("AC")
-            onNavigateToLock()
-        }
-    }
-
-    LaunchedEffect(result) {
-        if (result == "2011.") {
-            viewModel.onKeyPress("AC")
-            onNavigateToLock()
-        }
-    }
+    // Calculation results and restored/history expressions are never private
+    // entry gestures. Only a direct contiguous user key sequence can enter.
 
     // User-requested silent operation: calculator and navigation never vibrate.
     // Keep call sites as a no-op to preserve all existing navigation and math logic.
@@ -294,12 +291,12 @@ fun CalculatorScreen(
                         when (key) {
                             Key.Backspace -> {
                                 triggerVibration()
-                                viewModel.onKeyPress("Backspace")
+                                pressCalculatorKey("Backspace")
                                 true
                             }
                             Key.Enter, Key.NumPadEnter -> {
                                 triggerVibration()
-                                viewModel.onKeyPress("=")
+                                pressCalculatorKey("=")
                                 true
                             }
                             Key.Escape, Key.Delete -> {
@@ -331,7 +328,7 @@ fun CalculatorScreen(
                                     
                                     if (flatKeys.contains(mappedKey)) {
                                         triggerVibration()
-                                        viewModel.onKeyPress(mappedKey)
+                                        pressCalculatorKey(mappedKey)
                                         true
                                     } else {
                                         false
@@ -535,6 +532,7 @@ fun CalculatorScreen(
                                 onClick = {
                                     triggerVibration()
                                     if (key == "AC") {
+                                        directEntry.reset()
                                         val hasActiveCalculation = expression.isNotBlank() || (result.isNotBlank() && result != "0" && result != "Error")
                                         if (hasActiveCalculation) {
                                             showResetCalculationDialog = true
@@ -542,7 +540,7 @@ fun CalculatorScreen(
                                             viewModel.onKeyPress("AC")
                                         }
                                     } else {
-                                        viewModel.onKeyPress(key)
+                                        pressCalculatorKey(key)
                                     }
                                 }
                             )
@@ -636,6 +634,7 @@ fun CalculatorScreen(
                                         .fillMaxWidth()
                                         .clickable {
                                             triggerVibration()
+                                            directEntry.reset()
                                             viewModel.loadHistoryItem(item.expression)
                                             showHistorySheet = false
                                         }
@@ -652,6 +651,7 @@ fun CalculatorScreen(
                                         .fillMaxWidth()
                                         .clickable {
                                             triggerVibration()
+                                            directEntry.reset()
                                             viewModel.appendExpression(item.result)
                                             showHistorySheet = false
                                         }

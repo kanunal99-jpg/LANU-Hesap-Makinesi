@@ -80,11 +80,17 @@ object MessageWakePreferences {
             .putBoolean(ENROLLING, false).commit()
     } catch (_: Exception) { false }
 
-    fun disableAndQueueRemoteRevoke(context: Context): Boolean = try {
-        context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE).edit()
-             .putBoolean(ENABLED, false).putBoolean(PENDING, true)
-            .putBoolean(ENROLLING, false).commit()
-    } catch (_: Exception) { false }
+    fun disableAndQueueRemoteRevoke(context: Context): Boolean {
+        // Durable opt-out precedes cancellation. An in-flight worker receives
+        // cancellation; any late worker start checks consent again before IO.
+        val saved = try {
+            context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE).edit()
+                .putBoolean(ENABLED, false).putBoolean(PENDING, true)
+                .putBoolean(ENROLLING, false).commit()
+        } catch (_: Exception) { false }
+        if (saved) MessageWakeSyncWorker.cancel(context)
+        return saved
+    }
 
     fun acknowledgeRemoteRevoke(context: Context): Boolean = try {
         context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE).edit()

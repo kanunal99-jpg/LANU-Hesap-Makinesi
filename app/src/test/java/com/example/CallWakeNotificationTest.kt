@@ -46,10 +46,21 @@ class CallWakeNotificationTest {
             com.example.core.calls.CallForegroundService.useTypedMediaForegroundService(api))
     }
 
-    @Test fun revokedCallConsentCannotReopenInactiveCallUi() {
-        assertFalse(CallWakeTapPolicy.mayOpenCallUi(false, false))
-        assertTrue(CallWakeTapPolicy.mayOpenCallUi(true, false))
-        assertTrue(CallWakeTapPolicy.mayOpenCallUi(false, true))
+    @Test fun staleOrForgedNotificationCannotExposeCallOnlyScreen() {
+        val now = 1_710_000_000_000L
+        // Opt-in alone never authorizes the call-only Activity.
+        assertFalse(CallWakeTapPolicy.mayOpenCallUi(true, false, false))
+        assertFalse(CallWakeTapPolicy.mayOpenCallUi(false, false, true))
+        assertTrue(CallWakeTapPolicy.mayOpenCallUi(true, false, true))
+        // A real, independently verified active call stays reachable.
+        assertTrue(CallWakeTapPolicy.mayOpenCallUi(false, true, false))
+        assertFalse(CallWakeTapPolicy.freshWakeIntent(null, now, now))
+        assertFalse(CallWakeTapPolicy.freshWakeIntent("untrusted", now, now))
+        assertFalse(CallWakeTapPolicy.freshWakeIntent(CallWakeTapPolicy.ACTION, 0L, now))
+        assertFalse(CallWakeTapPolicy.freshWakeIntent(CallWakeTapPolicy.ACTION, now - 66_000L, now))
+        assertFalse(CallWakeTapPolicy.freshWakeIntent(CallWakeTapPolicy.ANSWER, now + 16_000L, now))
+        assertTrue(CallWakeTapPolicy.freshWakeIntent(CallWakeTapPolicy.ACTION, now - 1_000L, now))
+        assertTrue(CallWakeTapPolicy.freshWakeIntent(CallWakeTapPolicy.ANSWER, now - 1_000L, now))
     }
 
     @Test fun notificationAnswerMatchesOnlyItsFreshInvitation() {

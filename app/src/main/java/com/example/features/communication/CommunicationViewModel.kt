@@ -3,18 +3,23 @@ package com.example.features.communication
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.core.delivery.DeliveryCoordinator
 import com.example.core.media.InlineMediaCodec
 import com.example.core.database.ConversationEntity
 import com.example.core.database.MessageEntity
 import com.example.core.repository.CommunicationRepository
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-class CommunicationViewModel(private val repository: CommunicationRepository) : ViewModel() {
+class CommunicationViewModel(
+    private val repository: CommunicationRepository,
+    private val deliveryCoordinator: DeliveryCoordinator? = null
+) : ViewModel() {
     val contacts = repository.contacts
     val conversations = repository.conversations
     val callLogs = repository.callLogs
@@ -120,6 +125,20 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
             }
         }
     }
+    /**
+     * Best-effort background handoff after the encrypted Room transaction.
+     * No background network is requested without the owner's stored consent.
+     * The foreground sync and 15-minute periodic retry remain independent.
+     */
+    private fun requestOutboxDrain() {
+        val coordinator = deliveryCoordinator ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try { coordinator.enqueuePendingOutbox() }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* Foreground/periodic sync remains available. */ }
+        }
+    }
+
     fun clearError() { _errorMessage.value = null }
     fun checkRegistration() = operation {
         val own = repository.ensureIdentity()
@@ -264,6 +283,7 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
                 // Clear the composer only after encrypted content is safely queued in Room.
                 val messageId = repository.sendMessage(conversation.id, text)
                 onQueued()
+                requestOutboxDrain()
                 // The timer is *only* a local hide, never remote deletion.
                 if (isSelfDestruct) viewModelScope.launch {
                     try {
@@ -305,6 +325,7 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
                 repository.sendInlineAttachment(conversation.id, envelope)
                 if (_preparedInlineMedia.value?.envelope == envelope) clearPreparedMedia()
                 onQueued()
+                requestOutboxDrain()
                 refresh()
             } finally {
                 _isSending.value = false
@@ -317,7 +338,11 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
     fun insertSystemMessage(partnerName: String, text: String) { /* Call UI demos never create a delivered remote message. */ }
     fun addReaction(messageId: String, emoji: String) = operation { repository.addReaction(messageId, emoji); synchronize() }
     fun deleteMessage(messageId: String) = operation { repository.deleteMessage(messageId); synchronize() }
-    fun retryMessage(messageId: String) = operation { repository.retryMessage(messageId); refresh() }
+    fun retryMessage(messageId: String) = operation {
+        repository.retryMessage(messageId)
+        requestOutboxDrain()
+        refresh()
+    }
     /**
      * Requeue one bounded batch before starting network synchronization.
      * Individual retries can otherwise race their own refresh jobs, sending
@@ -342,7 +367,10 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
                 // Never requeue already accepted or someone else's message.
             }
         }
-        if (requeued > 0 && _activeConversation.value?.id == expectedConversationId) synchronize()
+        if (requeued > 0 && _activeConversation.value?.id == expectedConversationId) {
+            requestOutboxDrain()
+            synchronize()
+        }
     }
     fun editMessage(messageId: String, text: String) {
         val conversation = _activeConversation.value ?: return
@@ -353,8 +381,12 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
     fun addCallLog(name: String, code: String, video: Boolean, duration: Int, outgoing: Boolean) = operation { repository.addCallLog(name, code, video, duration, outgoing) }
     fun deleteCallLog(id: Long) = operation { repository.deleteCallLog(id) }
     fun clearAllCallLogs() = operation { repository.clearAllCallLogs() }
-    class Factory(private val repository: CommunicationRepository) : ViewModelProvider.Factory {
+    class Factory(
+        private val repository: CommunicationRepository,
+        private val deliveryCoordinator: DeliveryCoordinator? = null
+    ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = CommunicationViewModel(repository) as T
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            CommunicationViewModel(repository, deliveryCoordinator) as T
     }
 }
