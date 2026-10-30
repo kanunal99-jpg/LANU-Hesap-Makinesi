@@ -26,6 +26,44 @@ class CallSignalingTest {
         assertThrows(IllegalArgumentException::class.java) { CallSignaling.decode(encoded,source.id,call,now+91_000) }
         assertThrows(IllegalArgumentException::class.java) { CallSignaling.decode(encoded,source.id,call,now-31_000) }
     }
+    @Test fun callSignalWindowRejectsClockOverflowAndKeepsInclusiveBoundaries() {
+        val id = UUID.randomUUID().toString()
+        fun validate(at: Long, clock: Long) {
+            CallSignaling.validate(CallSignal(id, call, CallSignalKind.INVITE,
+                false, at), clock)
+        }
+        validate(now - CallSignaling.TTL_MILLIS, now)
+        validate(now + 30_000L, now)
+        assertThrows(IllegalArgumentException::class.java) {
+            validate(now - CallSignaling.TTL_MILLIS - 1L, now)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            validate(now + 30_001L, now)
+        }
+        // Long.MAX_VALUE used to overflow 'now + 30_000L'.
+        validate(Long.MAX_VALUE, Long.MAX_VALUE)
+        validate(Long.MAX_VALUE, Long.MAX_VALUE - 30_000L)
+        assertThrows(IllegalArgumentException::class.java) {
+            validate(Long.MAX_VALUE, Long.MAX_VALUE - 30_001L)
+        }
+        validate(Long.MAX_VALUE - CallSignaling.TTL_MILLIS, Long.MAX_VALUE)
+        assertThrows(IllegalArgumentException::class.java) {
+            validate(Long.MAX_VALUE - CallSignaling.TTL_MILLIS - 1L, Long.MAX_VALUE)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            validate(now, Long.MIN_VALUE)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            validate(Long.MIN_VALUE, now)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            validate(0L, now)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            validate(now, 0L)
+        }
+    }
+
     @Test fun malformedOversizedAndDowngradedSignalsAreRejected() {
         val source=CallSignaling.create(call,CallSignalKind.OFFER,false,sdp,now)
         val encoded=CallSignaling.encode(source)
