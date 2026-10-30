@@ -240,7 +240,17 @@ object CallWakeTapPolicy {
     const val ANSWER = "com.aistudio.lanucalc.kxwzqm.action.LANU_CALL_ANSWER"
     const val EXTRA_WAKE_AT = "lanu_wake_at"
     fun requiresFreshEntry(action: String?): Boolean = action == ACTION
-    fun mayOpenCallUi(userConsented: Boolean, liveCall: Boolean): Boolean = userConsented || liveCall
+    /**
+     * User opt-in permits only a RECENT notification wake, never arbitrary
+     * reopening of this call-only screen from an expired PendingIntent.
+     * An already verified, active E2EE call is independently authorized.
+     */
+    fun mayOpenCallUi(userConsented: Boolean, liveCall: Boolean, freshWake: Boolean): Boolean =
+        liveCall || (userConsented && freshWake)
+    fun freshWakeIntent(action: String?, at: Long, now: Long): Boolean =
+        (action == ACTION || action == ANSWER) &&
+            CallWakePolicy.eligible(mapOf("type" to CallWakePolicy.TYPE, "at" to at.toString()), now)
+
     fun matchesVerifiedInvite(hintAt: Long, inviteAt: Long, now: Long): Boolean =
         hintAt > 0L && inviteAt > 0L &&
             (if (inviteAt <= hintAt) hintAt - inviteAt <= 30_000L
@@ -338,6 +348,7 @@ object CallWakeNotification {
         // obtaining user microphone/camera permission; reveal no private data.
         val intent = Intent(context, IncomingCallActivity::class.java).apply {
             action = CallWakeTapPolicy.ACTION
+            putExtra(CallWakeTapPolicy.EXTRA_WAKE_AT, data["at"]!!.toLong())
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         val pending = PendingIntent.getActivity(context, 0, intent,
