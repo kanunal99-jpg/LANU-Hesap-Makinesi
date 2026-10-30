@@ -29,6 +29,11 @@ android {
     // signed OTA updates still require the pinned stable certificate.
     versionCode = providers.environmentVariable("LANU_VERSION_CODE").orNull?.toIntOrNull() ?: 693
     versionName = "1.2.0"
+    // Never surface a large-media option unless a separately approved,
+    // production-verified server rollout explicitly enables this APK build.
+    // Missing, malformed, or untrusted values always mean feature OFF.
+    buildConfigField("boolean", "LANU_PRIVATE_MEDIA_UI_ENABLED",
+      if (providers.environmentVariable("LANU_PRIVATE_MEDIA_UI_ENABLED").orNull == "true") "true" else "false")
     buildConfigField("String", "LANU_RELAY_URL", "\"${providers.environmentVariable("LANU_RELAY_URL").orNull ?: "https://talhknjcjaijqiqwdyhf.supabase.co/functions/v1/lanu-relay"}\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
