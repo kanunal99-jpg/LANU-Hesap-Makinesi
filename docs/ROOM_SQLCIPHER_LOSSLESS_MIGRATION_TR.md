@@ -1,5 +1,14 @@
 # LANU — SQLCipher / Room kayıpsız geçiş tasarımı
 
+## 28.10.2026 — Canlı Room v4 bozulma halinde veri koruma katmanı
+
+- Kök neden: AndroidX `SupportSQLiteOpenHelper.Callback.onCorruption` varsayılan davranışında veritabanı ve yan dosyalar otomatik silinebilir. Sadece `fallbackToDestructiveMigration` kullanmamak buna karşı yeterli değildir.
+- `AppDatabase.getDatabase()` artık `PreserveCorruptRoomFactory` ile Room'un otomatik bozulma-silme callback'ini engeller. Room'un oluşturma/açma/şema doğrulama/yükseltme callback'leri **aynen** yönlendirilir; bozulmuş bağlantı kapatılmaya çalışılır, dosya veya WAL/SHM/journal silinmez.
+- Factory, `allowDataLossOnRecovery=false` değerini zorunlu kılar; hiçbir DB migration, şema sürümü, anahtar, PIN, 2011. gizli giriş, mesaj, kişi, medya veya imza değiştirilmez. Corruption, başarılı veri kurtarma anlamına gelmez: mevcut veriler korunduğu sürece uygulama veritabanını kullanamayabilir. Önce bağımsız şifreli yedek ve kontrollü kurtarma kabulü gerekir.
+- İzole SQLite fixture testleri bozulma callback'i, normal callback delegasyonu, veri kalıcılığı ve otomatik data-loss recovery engelini kontrol eder. Android 14 çalışma zamanı, Robolectric, lint, R8, önce PR CI ardından main CI / APK doğrulaması ayrı kapılardır. Fiziksel telefonda bozulma/kurtarma onayı verilmeden güvenilirlik puanı yükseltilmez.
+- **Önemli sınır:** SQLCipher hâlâ üretimde etkin değil. Bu değişiklik disk üzerinde tüm kayıtları şifrelemez veya fiziksel veri kurtarmayı kendi başına tamamlamaz.
+
+
 **25.10.2026 durum:** yalnızca salt okunur veri incelemesi ve birim testleri uygulandı. Mevcut SQLite/Room hala **şifrelenmiş değildir**. Hiçbir APK'da otomatik DB geçişi, silme veya SQLCipher yüklemesi açılmadı.
 
 ## Mevcut gerçek durum ve neden önce preflight var?

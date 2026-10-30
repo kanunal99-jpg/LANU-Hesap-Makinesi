@@ -11,6 +11,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import com.example.core.notifications.PublicNotificationText
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -224,7 +225,12 @@ object CallWakePolicy {
     fun eligible(data: Map<String, String>, now: Long): Boolean {
         if (data.size != 2 || data["type"] != TYPE) return false
         val created = data["at"]?.toLongOrNull() ?: return false
-        return created > 0 && created in (now - 65_000L)..(now + 15_000L)
+        // Both values must be positive. Signed subtraction between two
+        // positive Long timestamps cannot overflow; adding a grace window to
+        // Long.MAX_VALUE could wrap and accidentally reject a fresh wake.
+        return created > 0L && now > 0L &&
+            if (created <= now) now - created <= 65_000L
+            else created - now <= 15_000L
     }
 }
 
@@ -236,7 +242,9 @@ object CallWakeTapPolicy {
     fun requiresFreshEntry(action: String?): Boolean = action == ACTION
     fun mayOpenCallUi(userConsented: Boolean, liveCall: Boolean): Boolean = userConsented || liveCall
     fun matchesVerifiedInvite(hintAt: Long, inviteAt: Long, now: Long): Boolean =
-        hintAt > 0L && inviteAt > 0L && inviteAt in (hintAt - 30_000L)..(hintAt + 30_000L) &&
+        hintAt > 0L && inviteAt > 0L &&
+            (if (inviteAt <= hintAt) hintAt - inviteAt <= 30_000L
+             else inviteAt - hintAt <= 30_000L) &&
             CallWakePolicy.eligible(mapOf("type" to CallWakePolicy.TYPE, "at" to hintAt.toString()), now)
 
 }
@@ -272,11 +280,26 @@ object CallWakeNotification {
             previous.importance < NotificationManager.IMPORTANCE_DEFAULT ||
                 (Build.VERSION.SDK_INT >= 30 && previous.hasUserSetSound() && previous.sound == null)
             )
+        // Android channel names/descriptions are visible even when every alert
+        // is dismissed. Rename legacy channels without deleting user settings.
+        if (previous != null) {
+            try {
+                manager.createNotificationChannel(
+                    NotificationChannel(OLD_CHANNEL_ID, PublicNotificationText.CHANNEL_NAME, previous.importance).apply {
+                        description = PublicNotificationText.CHANNEL_DESCRIPTION
+                        lockscreenVisibility = Notification.VISIBILITY_SECRET
+                    }
+                )
+            } catch (_: Exception) {
+                // An OEM channel-repair failure must not suppress a separately
+                // opted-in alert. Startup repair will retry next app launch.
+            }
+        }
         val incoming = NotificationChannel(
-            CHANNEL_ID, "LANU gelen sesli/görüntülü aramalar",
+            CHANNEL_ID, PublicNotificationText.CHANNEL_NAME,
             if (userMuted) NotificationManager.IMPORTANCE_LOW else NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = "Yalnız isteğe bağlı gerçek gelen sesli ve görüntülü arama uyarıları"
+            description = PublicNotificationText.CHANNEL_DESCRIPTION
             lockscreenVisibility = Notification.VISIBILITY_SECRET
             if (userMuted) {
                 setSound(null, null)
@@ -310,9 +333,9 @@ object CallWakeNotification {
                     manager.getNotificationChannel(CHANNEL_ID)?.importance else null
             )) return@safePlatformDelivery false
 
-        // No call ID, peer ID, ciphertext, hidden screen or PIN in intents.
-        // Only a timestamp binds the explicit answer tap to a subsequently
-        // authenticated INVITE, with a strict fresh-window check in the UI.
+        // A notification is only a wake hint, NOT a private-area credential.
+        // Answer only after verifying the fresh encrypted peer invitation and
+        // obtaining user microphone/camera permission; reveal no private data.
         val intent = Intent(context, IncomingCallActivity::class.java).apply {
             action = CallWakeTapPolicy.ACTION
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -328,13 +351,12 @@ object CallWakeNotification {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Gelen arama")
-            .setContentText("Görüşmeyi açın veya doğrudan yanıtlayın")
+            // Preserve neutral visible notification metadata from current main.
+            .setContentTitle(PublicNotificationText.TITLE)
             .addAction(R.mipmap.ic_launcher, "Yanıtla", answerPending)
             .setContentIntent(pending)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            // On Android 7.x and earlier sound is attached to the notification.
             .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))
             .setVisibility(NotificationCompat.VISIBILITY_SECRET)
             .setTimeoutAfter(75_000L)

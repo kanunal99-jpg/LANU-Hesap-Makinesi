@@ -27,6 +27,7 @@ object HighPrecisionMathEngine {
         isDegrees: Boolean = true,
         mathContext: MathContext = DEFAULT_MATH_CONTEXT
     ): BigDecimal {
+        require(mathContext.precision in 1..100) { "Math precision must be between 1 and 100" }
         require(expression.length <= 8192) { "Expression exceeds supported length (8192 characters)" }
         val sanitized = sanitize(expression)
         if (sanitized.isBlank()) return BigDecimal.ZERO
@@ -66,7 +67,9 @@ object HighPrecisionMathEngine {
         precision: Int = 16,
         scientificNotation: Boolean = false
     ): String {
-        require(precision >= 0) { "Precision cannot be negative" }
+        // All supported UI modes use at most 100 decimal places. An arbitrary
+        // precision here may allocate gigabytes of zeros in setScale/format.
+        require(precision in 0..100) { "Precision must be between 0 and 100" }
         if (value.compareTo(BigDecimal.ZERO) == 0) return "0"
 
         val stripped = value.stripTrailingZeros()
@@ -99,8 +102,14 @@ object HighPrecisionMathEngine {
         return plain
     }
 
+    /** Entry points exposed directly to calculators must not permit unbounded precision. */
+    private fun requireSupportedMathContext(mc: MathContext) {
+        require(mc.precision in 1..100) { "Math precision must be between 1 and 100" }
+    }
+
     // High-precision square root via Newton-Raphson iteration
     fun sqrt(value: BigDecimal, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        requireSupportedMathContext(mc)
         if (value.signum() < 0) throw ArithmeticException("Square root of negative number")
         if (value.signum() == 0) return BigDecimal.ZERO
 
@@ -127,6 +136,7 @@ object HighPrecisionMathEngine {
 
     // High-precision cube root via Newton-Raphson
     fun cbrt(value: BigDecimal, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        requireSupportedMathContext(mc)
         if (value.signum() == 0) return BigDecimal.ZERO
         val isNeg = value.signum() < 0
         val absVal = value.abs()
@@ -175,6 +185,9 @@ object HighPrecisionMathEngine {
 
     // High-precision Exponential e^x
     fun exp(x: BigDecimal, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        // MathContext.UNLIMITED makes repeated E multiplication allocate
+        // unbounded coefficients, even for a compact input such as exp(10000).
+        require(mc.precision in 1..100) { "Math precision must be between 1 and 100" }
         if (x.compareTo(BigDecimal.ZERO) == 0) return BigDecimal.ONE
 
         // Reject extreme inputs before narrowing BigDecimal to Int. Otherwise
@@ -207,6 +220,7 @@ object HighPrecisionMathEngine {
 
     // High-precision Natural Logarithm ln(x)
     fun ln(x: BigDecimal, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        requireSupportedMathContext(mc)
         if (x.signum() <= 0) throw ArithmeticException("Logarithm of non-positive number")
         if (x.compareTo(BigDecimal.ONE) == 0) return BigDecimal.ZERO
 
@@ -249,6 +263,9 @@ object HighPrecisionMathEngine {
 
     // High-precision Power x^y
     fun pow(base: BigDecimal, exponent: BigDecimal, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        // Unlimited precision with an allowed 10000 exponent could expand a
+        // compact decimal base into hundreds of thousands of digits.
+        require(mc.precision in 1..100) { "Math precision must be between 1 and 100" }
         if (exponent.compareTo(BigDecimal.ZERO) == 0) return BigDecimal.ONE
         if (base.compareTo(BigDecimal.ZERO) == 0) {
             if (exponent.signum() < 0) throw ArithmeticException("Division by zero in 0^negative")
@@ -294,6 +311,7 @@ object HighPrecisionMathEngine {
 
     // High-precision Trigonometric: sin
     fun sin(angle: BigDecimal, isDegrees: Boolean = true, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        requireSupportedMathContext(mc)
         requireSupportedTrigMagnitude(angle)
         val rad = if (isDegrees) {
             // Range reduce to [0, 360)
@@ -337,6 +355,7 @@ object HighPrecisionMathEngine {
 
     // High-precision Trigonometric: cos
     fun cos(angle: BigDecimal, isDegrees: Boolean = true, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        requireSupportedMathContext(mc)
         requireSupportedTrigMagnitude(angle)
         if (isDegrees) {
             val deg = angle.remainder(BigDecimal(360))
@@ -356,6 +375,7 @@ object HighPrecisionMathEngine {
 
     // High-precision Trigonometric: tan
     fun tan(angle: BigDecimal, isDegrees: Boolean = true, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        requireSupportedMathContext(mc)
         requireSupportedTrigMagnitude(angle)
         val cosVal = cos(angle, isDegrees, mc)
         // In radian mode, the PI constant and Taylor evaluation introduce
@@ -372,6 +392,7 @@ object HighPrecisionMathEngine {
 
     // High-precision Inverse Trigonometric: asin
     fun asin(x: BigDecimal, isDegrees: Boolean = true, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        requireSupportedMathContext(mc)
         if (x.abs().compareTo(BigDecimal.ONE) > 0) throw ArithmeticException("Domain error for asin: [-1, 1]")
         if (x.compareTo(BigDecimal.ONE) == 0) return if (isDegrees) BigDecimal(90) else PI.divide(BigDecimal(2), mc)
         if (x.compareTo(BigDecimal("-1")) == 0) return if (isDegrees) BigDecimal(-90) else PI.divide(BigDecimal(2), mc).negate()
@@ -382,8 +403,11 @@ object HighPrecisionMathEngine {
         // argument before the Double seed: asin(x) = sign(x) *
         // (PI/2 - asin(sqrt(1 - x*x))). The recursive argument is < 0.75.
         if (x.abs() > BigDecimal("0.75")) {
-            val distance = BigDecimal.ONE.subtract(x.abs().multiply(x.abs(), mc), mc)
-                .max(BigDecimal.ZERO)
+            // (1 - |x|) * (1 + |x|) avoids catastrophic cancellation:
+            // rounding x*x first can turn 1 - 1E-90 into exactly 1 at
+            // MathContext(34), making a real angular difference disappear.
+            val distance = BigDecimal.ONE.subtract(x.abs())
+                .multiply(BigDecimal.ONE.add(x.abs()), mc)
             val small = asin(sqrt(distance, mc), isDegrees = false, mc = mc)
             val radians = PI.divide(BigDecimal(2), mc).subtract(small, mc)
                 .let { if (x.signum() < 0) it.negate() else it }
@@ -406,6 +430,18 @@ object HighPrecisionMathEngine {
 
     // High-precision Inverse Trigonometric: acos
     fun acos(x: BigDecimal, isDegrees: Boolean = true, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        requireSupportedMathContext(mc)
+        // Near +1 the ordinary PI/2 - asin(x) subtraction loses every
+        // significant digit of a small acos angle at finite precision.
+        // Compute acos(x) = asin(sqrt((1-x)*(1+x))) directly in that region.
+        if (x > BigDecimal("0.75") && x <= BigDecimal.ONE) {
+            val complement = BigDecimal.ONE.subtract(x)
+                .multiply(BigDecimal.ONE.add(x), mc)
+            val smallRadians = asin(sqrt(complement, mc), isDegrees = false, mc = mc)
+            return if (isDegrees)
+                smallRadians.multiply(BigDecimal(180), mc).divide(PI, mc)
+            else smallRadians
+        }
         val asinVal = asin(x, isDegrees, mc)
         val half = if (isDegrees) BigDecimal(90) else PI.divide(BigDecimal(2), mc)
         return half.subtract(asinVal, mc)
@@ -413,6 +449,10 @@ object HighPrecisionMathEngine {
 
     // High-precision Inverse Trigonometric: atan
     fun atan(x: BigDecimal, isDegrees: Boolean = true, mc: MathContext = DEFAULT_MATH_CONTEXT): BigDecimal {
+        requireSupportedMathContext(mc)
+        // The computed degree conversion of 0 may retain a noncanonical
+        // BigDecimal scale; the mathematical result is exactly zero.
+        if (x.signum() == 0) return BigDecimal.ZERO
         // atan(x) = sign(x) * (PI/2 - atan(1/abs(x))) for |x| > 1.
         // Reducing the argument to [-1, 1] avoids converting 1E+400 to
         // Double.POSITIVE_INFINITY and avoids Newton iteration near a tan pole.

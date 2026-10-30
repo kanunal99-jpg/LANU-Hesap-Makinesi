@@ -13,6 +13,15 @@ class RoomNondestructiveRegressionTest(unittest.TestCase):
     def test_current_room_v4_policy_passes(self):
         self.check()
 
+    def test_corruption_retention_factory_cannot_be_removed(self):
+        with self.assertRaisesRegex(ValueError, "corruption retention"):
+            self.check(source=SOURCE.replace(
+                ".openHelperFactory(PreserveCorruptRoomFactory())", ""))
+
+    def test_framework_data_loss_recovery_must_stay_disabled(self):
+        with self.assertRaisesRegex(ValueError, "Unsafe destructive"):
+            self.check(other={"Other.kt": "helper.allowDataLossOnRecovery(true)"})
+
     def test_destructive_upgrade_fallback_must_fail(self):
         with self.assertRaisesRegex(ValueError, "Unsafe destructive"):
             self.check(other={"Other.kt": "database.fallbackToDestructiveMigration()"})

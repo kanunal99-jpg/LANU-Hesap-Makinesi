@@ -11,6 +11,7 @@ import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
+import com.example.core.notifications.PublicNotificationText
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -98,7 +99,13 @@ object MessageWakePolicy {
     fun eligible(data: Map<String, String>, now: Long): Boolean {
         if (data.size != 2 || data["type"] != TYPE) return false
         val at = data["at"]?.toLongOrNull() ?: return false
-        return at > 0 && at in (now - 120_000L)..(now + 15_000L)
+        // Both values are positive epoch milliseconds. Subtract the smaller
+        // from the larger, rather than computing (now +/- window): a fake or
+        // corrupted clock at Long.MIN/MAX must never wrap into an accepted
+        // private notification hint. No sender/message metadata is involved.
+        if (at <= 0L || now <= 0L) return false
+        return if (at <= now) now - at <= 120_000L
+        else at - now <= 15_000L
     }
 
     @Synchronized
@@ -110,6 +117,30 @@ object MessageWakePolicy {
 
     @Synchronized
     fun releaseFailed(at: Long) { recent.remove(at) }
+
+    /**
+     * A vendor notification implementation may throw before posting an alert,
+     * including LinkageError from missing OEM framework methods. Never burn a
+     * timestamp claim for an alert that was not delivered. Do not swallow
+     * fatal VM errors (e.g. OutOfMemoryError).
+     */
+    fun publishOnce(at: Long, notify: () -> Boolean): Boolean {
+        if (!claim(at)) return false
+        return try {
+            val delivered = notify()
+            if (!delivered) releaseFailed(at)
+            delivered
+        } catch (_: SecurityException) {
+            releaseFailed(at)
+            false
+        } catch (_: RuntimeException) {
+            releaseFailed(at)
+            false
+        } catch (_: LinkageError) {
+            releaseFailed(at)
+            false
+        }
+    }
 
     /**
      * The user can opt out from the private settings while FCM is still
@@ -143,6 +174,7 @@ object MessageWakePolicy {
     fun safeShow(block: () -> Boolean): Boolean =
         try { block() } catch (_: SecurityException) { false }
         catch (_: RuntimeException) { false }
+        catch (_: LinkageError) { false }
 }
 
 /** No private deep link. The normal calculator gate is mandatory on every tap. */
@@ -171,8 +203,8 @@ object MessageWakeNotification {
     fun ensureChannel(manager: NotificationManager) {
         if (Build.VERSION.SDK_INT < 26) return
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "LANU bildirimleri", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "İsteğe bağlı, içeriği gizli LANU bildirimleri"
+            NotificationChannel(CHANNEL_ID, PublicNotificationText.CHANNEL_NAME, NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = PublicNotificationText.CHANNEL_DESCRIPTION
                 lockscreenVisibility = Notification.VISIBILITY_SECRET
                 setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
                     AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION)
@@ -197,8 +229,7 @@ object MessageWakeNotification {
                     NotificationManager.IMPORTANCE_DEFAULT) return@safeShow false
 
             val at = data["at"]?.toLongOrNull() ?: return@safeShow false
-            if (!MessageWakePolicy.claim(at)) return@safeShow false
-            try {
+            MessageWakePolicy.publishOnce(at) {
                 val launch = Intent(context, MainActivity::class.java).apply {
                     action = MessageWakeTapPolicy.ACTION
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or
@@ -208,7 +239,7 @@ object MessageWakeNotification {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                 val notification = NotificationCompat.Builder(context, CHANNEL_ID)
                     .setSmallIcon(R.drawable.ic_lanu_monochrome)
-                    .setContentTitle("LANU Hesap Makinesi")
+                    .setContentTitle(PublicNotificationText.TITLE)
                     // Deliberately no content text, person, style, count or preview.
                     .setContentIntent(tap)
                     .setVisibility(NotificationCompat.VISIBILITY_SECRET)
@@ -216,21 +247,13 @@ object MessageWakeNotification {
                     .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
                     .setAutoCancel(true)
                     .build()
-                val delivered = MessageWakePolicy.postIfStillEnabled(
+                MessageWakePolicy.postIfStillEnabled(
                     isEnabled = {
                         !CallWakePolicy.privateAreaVisible && MessageWakePreferences.isEnabled(context)
                     },
                     post = { manager.notify(ID, notification) },
                     cancel = { manager.cancel(ID) }
                 )
-                if (!delivered) MessageWakePolicy.releaseFailed(at)
-                delivered
-            } catch (e: SecurityException) {
-                MessageWakePolicy.releaseFailed(at)
-                false
-            } catch (e: RuntimeException) {
-                MessageWakePolicy.releaseFailed(at)
-                false
             }
         }
 }

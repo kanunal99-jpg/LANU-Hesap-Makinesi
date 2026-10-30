@@ -133,6 +133,151 @@ class FullDataBackupTest {
         } finally { source.close(); target.close() }
     }
 
+    @Test fun `restore rejects different identity when only unsent drafts or peer proof settings remain`() = runBlocking {
+        val source = db()
+        try {
+            val original = Store()
+            populate(source, original)
+            val backup = repo(source, original).exportFullBackup(password)
+            for (marker in listOf(
+                "lanu_remote_registered",
+                "lanu_full_restore_identity",
+                "lanu_peer_conv_fixture",
+                "lanu_peer_id_fixture",
+                "lanu_draft_fixture",
+                "lanu_retry_after_fixture",
+                "lanu_message_revision_fixture",
+                "lanu_hidden_conv_fixture"
+            )) {
+                val target = db()
+                try {
+                    val store = Store()
+                    val destination = repo(target, store)
+                    val before = destination.ensureIdentity()
+                    target.settingsDao().insertSetting(SettingsEntity(marker, "PRIVATE_DO_NOT_REBIND"))
+                    target.settingsDao().insertSetting(SettingsEntity("pin_hash", "OLD_PIN"))
+                    try {
+                        destination.restoreFullBackup(backup, password)
+                        fail("Existing account data must not attach to a new owner: $marker")
+                    } catch (_: IllegalArgumentException) { }
+                    assertEquals(before, store.identity)
+                    assertEquals(before.code, target.userProfileDao().getUserProfile()?.phoneNumber)
+                    assertEquals("OLD_PIN", target.settingsDao().getSettingValue("pin_hash"))
+                    assertEquals("PRIVATE_DO_NOT_REBIND",
+                        target.settingsDao().getSettingValue(marker))
+                    assertEquals(0, target.messageDao().countMessages())
+                } finally { target.close() }
+            }
+        } finally { source.close() }
+    }
+
+    @Test fun `silent SQLite ignore or tampered import rolls back entire backup restore`() = runBlocking {
+        val source = db()
+        try {
+            val original = Store()
+            populate(source, original)
+            val backup = repo(source, original).exportFullBackup(password)
+            // RAISE(IGNORE) does not throw. Old code could report successful
+            // restore with a missing encrypted message or call-log record.
+            for ((name, sql) in listOf(
+                "drop_message" to
+                    "CREATE TRIGGER drop_message BEFORE INSERT ON messages BEGIN SELECT RAISE(IGNORE); END",
+                "mutate_message" to
+                    "CREATE TRIGGER mutate_message AFTER INSERT ON messages BEGIN UPDATE messages SET content = 'wrong-ciphertext' WHERE id = NEW.id; END",
+                "drop_call_log" to
+                    "CREATE TRIGGER drop_call_log BEFORE INSERT ON call_logs BEGIN SELECT RAISE(IGNORE); END",
+                "drop_contact" to
+                    "CREATE TRIGGER drop_contact BEFORE INSERT ON contacts BEGIN SELECT RAISE(IGNORE); END"
+            )) {
+                val target = db()
+                try {
+                    val store = Store()
+                    val destination = repo(target, store)
+                    val before = destination.ensureIdentity()
+                    target.settingsDao().insertSetting(SettingsEntity("pin_hash", "KEEP_ORIGINAL_PIN"))
+                    target.openHelper.writableDatabase.execSQL(sql)
+                    try {
+                        destination.restoreFullBackup(backup, password)
+                        fail("Silent data loss must roll back: $name")
+                    } catch (_: IllegalArgumentException) {
+                        // A full transaction rejection is expected.
+                    }
+                    assertEquals(before, store.identity)
+                    assertEquals(before.code, target.userProfileDao().getUserProfile()?.phoneNumber)
+                    assertEquals("KEEP_ORIGINAL_PIN", target.settingsDao().getSettingValue("pin_hash"))
+                    assertNull(target.settingsDao().getSettingValue("lanu_full_restore_identity"))
+                    assertEquals(0, target.messageDao().countMessages())
+                    assertEquals(0, target.callLogDao().countCallLogs())
+                    assertTrue(target.contactDao().getAllContacts().first().isEmpty())
+                    assertTrue(target.conversationDao().getAllConversations().first().isEmpty())
+                    assertTrue(target.calculationHistoryDao().getAllHistory().first().isEmpty())
+                } finally { target.close() }
+            }
+        } finally { source.close() }
+    }
+
+
+    @Test fun `restore refuses conflicting encrypted peer setting and retains all device rows`() = runBlocking {
+        val source = db()
+        val target = db()
+        try {
+            val original = Store()
+            val (conversation, _) = populate(source, original)
+            val backup = repo(source, original).exportFullBackup(password)
+            // Same real identity: conflict detection must not short-circuit on
+            // account mismatch. App settings were previously INSERT OR IGNORE.
+            val owner = Store(original.identity)
+            val destination = repo(target, owner)
+            destination.ensureIdentity()
+            val boundKey = "lanu_peer_conv_$conversation"
+            target.settingsDao().insertSetting(
+                SettingsEntity(boundKey, "EXISTING_DIFFERENT_PEER_PROOF")
+            )
+            val originalPin = PinCredentialCodec.create("654321")
+            target.settingsDao().insertSetting(SettingsEntity("pin_hash", originalPin))
+            try {
+                destination.restoreFullBackup(backup, password)
+                fail("A conflicting peer proof must not be ignored by SQLite")
+            } catch (_: IllegalArgumentException) {
+                // Entire Room transaction must roll back including imports.
+            }
+            assertEquals("EXISTING_DIFFERENT_PEER_PROOF",
+                target.settingsDao().getSettingValue(boundKey))
+            assertEquals(originalPin, target.settingsDao().getSettingValue("pin_hash"))
+            assertEquals(0, target.messageDao().countMessages())
+            assertEquals(0, target.callLogDao().countCallLogs())
+            assertEquals(original.identity, owner.identity)
+            assertNull(target.settingsDao().getSettingValue("lanu_full_restore_identity"))
+        } finally { source.close(); target.close() }
+    }
+
+    @Test fun `restore rejects silently rewritten encrypted settings in same transaction`() = runBlocking {
+        val source = db()
+        val target = db()
+        try {
+            val original = Store()
+            populate(source, original)
+            val backup = repo(source, original).exportFullBackup(password)
+            val owner = Store(original.identity)
+            val destination = repo(target, owner)
+            destination.ensureIdentity()
+            target.openHelper.writableDatabase.execSQL("""
+                CREATE TRIGGER corrupt_peer_backup AFTER INSERT ON app_settings
+                WHEN NEW.`key` GLOB 'lanu_peer_conv_*'
+                BEGIN UPDATE app_settings SET value = 'REPLACED_PEER_PROOF'
+                  WHERE `key` = NEW.`key`; END
+            """.trimIndent())
+            try {
+                destination.restoreFullBackup(backup, password)
+                fail("SQLite trigger-mangled settings must not be reported as restored")
+            } catch (_: IllegalArgumentException) { }
+            assertEquals(0, target.messageDao().countMessages())
+            assertEquals(0, target.callLogDao().countCallLogs())
+            assertTrue(target.contactDao().getAllContacts().first().isEmpty())
+            assertEquals(original.identity, owner.identity)
+            assertNull(target.settingsDao().getSettingValue("lanu_full_restore_identity"))
+        } finally { source.close(); target.close() }
+    }
     @Test fun `read failure and broken encrypted identity store cannot create partial restore`() = runBlocking {
         val source = db(); val target = db()
         try {

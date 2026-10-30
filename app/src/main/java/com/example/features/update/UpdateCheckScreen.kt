@@ -14,7 +14,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.core.diagnostics.CrashDiagnostics
 import com.example.core.update.VerifiedUpdate
 import com.example.core.update.SecureOtaUpdater
 import com.example.core.update.UpdateStatus
@@ -29,7 +28,6 @@ import kotlinx.coroutines.CancellationException
 @Composable
 fun UpdateCheckScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val recentAbnormalExit = remember(context) { CrashDiagnostics.mostRecentAbnormalExit(context) }
     val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf<UpdateStatus?>(null) }
     var ready by remember { mutableStateOf<VerifiedUpdate?>(null) }
@@ -52,7 +50,7 @@ fun UpdateCheckScreen(modifier: Modifier = Modifier) {
             try {
                 status = SecureOtaUpdater.check(context)
             } catch (e: Exception) {
-                notice = e.message ?: "Güncelleme denetimi yapılamadı."
+                notice = PublicUpdateText.CHECK_FAILED
             } finally {
                 busy = false
             }
@@ -81,23 +79,6 @@ fun UpdateCheckScreen(modifier: Modifier = Modifier) {
                 Text("Android sürüm kodu: ${SecureOtaUpdater.installedVersion(context)}")
                 Text("Yükleme öncesi APK imzası, SHA-256 özeti, paket adı ve sürüm numarası doğrulanır.",
                     style = MaterialTheme.typography.bodySmall)
-            }
-        }
-
-        recentAbnormalExit?.let { exit ->
-            OutlinedCard(Modifier.fillMaxWidth().testTag("recent_android_crash")) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Android kapanma tanılaması", fontWeight = FontWeight.SemiBold)
-                    Text(exit.label)
-                    Text(
-                        java.text.DateFormat.getDateTimeInstance().format(java.util.Date(exit.timestamp)),
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Text(
-                        "Bu kayıt yalnız kapanma türünü gösterir; kesin neden için cihaz hata kaydı gerekir. Mesajlar veya PIN gönderilmez.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
             }
         }
 
@@ -130,7 +111,7 @@ fun UpdateCheckScreen(modifier: Modifier = Modifier) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                         Text("Güncelleme güvenlik nedeniyle engellendi", fontWeight = FontWeight.Bold)
                         Text("Bulunan sürüm: ${current.tag}")
-                        Text(current.reason, modifier = Modifier.testTag("ota_signature_blocked"))
+                        Text(PublicUpdateText.INCOMPATIBLE, modifier = Modifier.testTag("ota_signature_blocked"))
                         if (current.reason.contains("APK imzası")) {
                             Text(
                                 "Bu hata Android'in imza denetimidir; aynı sertifikayla imzalanmamış " +
@@ -138,10 +119,7 @@ fun UpdateCheckScreen(modifier: Modifier = Modifier) {
                                 style = MaterialTheme.typography.bodySmall
                             )
                             Text(
-                                "Kurulu LANU uygulamasını kaldırmayın. İmza uyuşmazlığı varsa " +
-                                    "bu sürümü verileri koruyarak Android üzerinden güncellemek güvenli değildir. " +
-                                    "PIN, mesaj, fotoğraf ve ayarlarınızı koruyun; uyumlu imzalı " +
-                                    "bir sürüm hazır olduğunda buradaki güncelleme denetimini yeniden çalıştırın.",
+                                PublicUpdateText.SIGNER_WARNING,
                                 style = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier.testTag("ota_keep_installation_guidance")
                             )
@@ -175,7 +153,7 @@ fun UpdateCheckScreen(modifier: Modifier = Modifier) {
                                             }
                                         } catch (e: Exception) {
                                             ready = null
-                                            notice = e.message ?: "Kurulum öncesi doğrulama başarısız."
+                                            notice = PublicUpdateText.INSTALL_FAILED
                                         } finally {
                                             busy = false
                                         }
@@ -212,7 +190,7 @@ fun UpdateCheckScreen(modifier: Modifier = Modifier) {
                                             notice = "İndirme iptal edildi; eksik APK temizlendi."
                                         } catch (e: Exception) {
                                             ready = null
-                                            notice = e.message ?: "Güncelleme indirilemedi."
+                                            notice = PublicUpdateText.DOWNLOAD_FAILED
                                         } finally {
                                             busy = false
                                             downloadJob = null
@@ -240,10 +218,7 @@ fun UpdateCheckScreen(modifier: Modifier = Modifier) {
 
         HorizontalDivider()
         Text(
-            "LANU, mevcut uygulamayı silmez ve sessiz kurulum yapmaz. " +
-                "İmza farklıysa veri kaybı riski nedeniyle kurulum engellenir. " +
-                "Android 8+ sürümlerinde ilk kurulumda sistem izin onayı gerekebilir. " +
-                "Gizli alandaki PIN, kimlik ve sohbetler için otomatik veri silme yapılmaz.",
+            PublicUpdateText.FOOTER,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

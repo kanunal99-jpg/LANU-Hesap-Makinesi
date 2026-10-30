@@ -223,9 +223,10 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
         if (route == Route.BLUETOOTH_HEADSET) scoFailed = false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
             rejectedCommunicationIds.clear() // intentional OEM recovery retry
-        // An explicit route tap must still reapply the device, allowing a user
-        // to recover a stuck OEM path even if the route label is unchanged.
-        return selectRoute(forceReapply = true)
+        // An explicit device retry must reapply a stuck OEM route. Returning
+        // to AUTO (null) must NOT clear a still-correct route or interrupt
+        // active RTP just to discard the previous manual preference.
+        return selectRoute(forceReapply = route != null)
     }
 
     @Synchronized

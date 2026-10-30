@@ -150,47 +150,50 @@ class SecurityViewModel(
     }
 
     /**
-     * "2011." opens the hidden area. PIN verification is performed only when
-     * the durable, user-managed entry protection is enabled. No caller may
-     * blindly unlock based on a cached UI switch or the entry code itself.
+     * A calculator gesture only requests the owner-authentication screen.
+     * Never open the private area from a saved optional-PIN preference.
+     * Existing credentials remain usable; users without one enter safe setup.
      */
     fun enterFromCalculator(onOpen: () -> Unit, onPinRequired: () -> Unit) {
+        val entryGeneration = authenticationGeneration
         viewModelScope.launch {
+            if (entryGeneration != authenticationGeneration) return@launch
             if (!_isReady.value) {
                 _errorMessage.value = "Güvenlik ayarları hazırlanıyor. Lütfen yeniden deneyin."
                 return@launch
             }
             try {
-                if (repository.tryEnterWithoutPin()) {
-                    _hasPin.value = repository.hasPin()
-                    _entryPinEnabled.value = false
-                    eventTracker.logEvent("PRIVATE_ENTRY_OPTIONAL", "PIN kapalı, özel alana giriş")
-                    onOpen()
-                } else {
-                    _entryPinEnabled.value = true
-                    onPinRequired()
+                val hasSavedPin = repository.hasPin()
+                if (entryGeneration != authenticationGeneration) {
+                    repository.lock()
+                    return@launch
                 }
+                repository.lock()
+                _hasPin.value = hasSavedPin
+                _entryPinEnabled.value = true
+                onPinRequired()
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 repository.lock()
+                if (entryGeneration != authenticationGeneration) return@launch
                 _entryPinEnabled.value = true
-                _errorMessage.value = "Güvenlik tercihi doğrulanamadı. PIN ile devam edin."
-                onPinRequired()
+                _errorMessage.value = "Kimlik doğrulama hazırlanamadı. Lütfen yeniden deneyin."
             }
         }
     }
 
-    /** Disabling with an existing PIN requires password re-verification. */
+    /** The historical optional-entry switch cannot disable authentication. */
     suspend fun changeEntryPinRequirement(enabled: Boolean, currentPin: String? = null): Boolean {
+        if (!enabled) {
+            _entryPinEnabled.value = true
+            _errorMessage.value = "Güvenli alana girişte kimlik doğrulaması zorunludur."
+            return false
+        }
         if (_isAuthenticating.value) return false
         _isAuthenticating.value = true
         return try {
-            val success = repository.setEntryPinEnabled(enabled, currentPin)
-            refreshAttemptStatus()
-            if (success) {
-                _entryPinEnabled.value = enabled
-                eventTracker.logEvent("PIN_ENTRY_PREFERENCE", if (enabled) "PIN koruması açıldı" else "PIN koruması kapatıldı")
-            }
+            val success = repository.setEntryPinEnabled(true, currentPin)
+            if (success) _entryPinEnabled.value = true
             success
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
@@ -201,7 +204,7 @@ class SecurityViewModel(
         }
     }
 
-    /** For users without a PIN: create one only upon their explicit choice. */
+    /** For users without a PIN: create one without touching private records. */
     suspend fun createEntryPin(pin: String): Boolean {
         if (_isAuthenticating.value || !PinPolicy.isValid(pin)) return false
         _isAuthenticating.value = true

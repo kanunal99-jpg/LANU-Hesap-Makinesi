@@ -108,7 +108,20 @@ class PrivateMediaKeyEnvelopeTest {
             JSONObject(plain).put("mime", "application/x-executable"),
             JSONObject(plain).put("version", 999),
             JSONObject(plain).put("cipherSha256", "0".repeat(63)),
-            JSONObject(plain).put("plainBytes", 0)
+            JSONObject(plain).put("plainBytes", 0),
+            // Numeric and scalar coercion must not make invalid signed media
+            // metadata acceptable (JSONObject.getInt/getLong/getString do).
+            JSONObject(plain).put("version", "1"),
+            JSONObject(plain).put("version", true),
+            JSONObject(plain).put("chunks", "1"),
+            JSONObject(plain).put("chunks", 1.5),
+            JSONObject(plain).put("plainBytes", "1200"),
+            JSONObject(plain).put("plainBytes", 1200.75),
+            JSONObject(plain).put("plainBytes", true),
+            JSONObject(plain).put("fileId", 123456),
+            JSONObject(plain).put("mime", true),
+            JSONObject(plain).put("noncePrefix", false),
+            JSONObject(plain).put("key", 101)
         )
         for (payload in formats) {
             val id = UUID.randomUUID().toString()

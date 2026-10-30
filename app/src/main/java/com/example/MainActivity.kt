@@ -492,6 +492,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                             callPhase.phase, callPhase.callId)) {
                         pendingCall = null
                         returnToCalculator()
+                        // Do not leave the completed-call Dialog over the decoy
+                        // calculator. Dismissing does not open any private UI.
+                        nativeCallViewModel.dismiss()
                     }
                 }
                 if (inPrivateArea || callOnlyConsent || activeCall) {
@@ -740,10 +743,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         backgroundTimestamp = 0L
 
         // Conceal the private area on a locked foreground return.
-        val hasPin = if (::securityViewModel.isInitialized) securityViewModel.hasPin.value else false
         val isLocked = if (::securityViewModel.isInitialized) securityViewModel.isLocked.value else true
 
-        if (isLocked && hasPin) {
+        if (isLocked) {
             val currentScreen = navigationBackstack.lastOrNull()
             if (currentScreen != null && isSecureScreen(currentScreen)) {
                 navigationBackstack.clear()

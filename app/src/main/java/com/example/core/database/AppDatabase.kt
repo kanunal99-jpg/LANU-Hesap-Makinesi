@@ -38,6 +38,10 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "lanu_calculator_db"
                 )
+                // The AndroidX default corruption callback can DELETE a database.
+                // Never discard PIN, encrypted messages or identity-linked settings:
+                // preserve all database/WAL files for an explicitly verified recovery.
+                .openHelperFactory(PreserveCorruptRoomFactory())
                 // Fail closed on unknown schema versions: silently deleting chat history
                 // and identity-related settings is unacceptable for a secure messenger.
                 // Add explicit Room migrations for future schema upgrades.

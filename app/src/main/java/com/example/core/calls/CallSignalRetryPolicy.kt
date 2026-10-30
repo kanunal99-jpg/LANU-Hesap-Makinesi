@@ -6,6 +6,7 @@ import java.io.InterruptedIOException
 import java.net.ProtocolException
 import java.net.SocketTimeoutException
 import javax.net.ssl.SSLException
+import java.util.concurrent.CancellationException
 
 /**
  * Short, bounded reconnect grace for an authenticated call signal. A retry
@@ -28,7 +29,8 @@ internal object CallSignalRetryPolicy {
             val cause = current ?: return false
             if (cause is RelayException &&
                 cause.status !in setOf(408, 500, 502, 503, 504)) return true
-            if (cause is SSLException || cause is ProtocolException) return true
+            if (cause is SSLException || cause is ProtocolException ||
+                cause is CancellationException || cause is InterruptedException) return true
             if (cause is InterruptedIOException && cause !is SocketTimeoutException) return true
             current = cause.cause
         }

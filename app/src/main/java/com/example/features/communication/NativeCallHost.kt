@@ -51,6 +51,9 @@ fun NativeCallHost(
     val engine = media as? NativeCallEngine
     val notice by model.notice.collectAsState()
     val context = LocalContext.current
+    // Always inspect the latest private-area gate when delayed system
+    // permission callbacks return, not the stale composition that launched it.
+    val privateAreaVisible by rememberUpdatedState(revealPeerName)
     LifecycleStartEffect(state.callId, state.phase, context) {
         val ringtone = if (state.phase == NativeCallPhase.RINGING) runCatching {
             RingtoneManager.getRingtone(context, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))?.apply {
@@ -68,14 +71,27 @@ fun NativeCallHost(
         model.attachHost()
         onStopOrDispose { confirm = null; model.detachHost() }
     }
-    LaunchedEffect(request) { if (request != null) { confirm = request; onRequestConsumed() } }
+    // A delayed chat action must not reopen a private outgoing-call dialog
+    // over the public calculator after screen-off or PIN lock. Consume any
+    // stale request without authorizing media or disclosing the conversation.
+    LaunchedEffect(request, revealPeerName) {
+        if (!revealPeerName) {
+            confirm = null
+            if (permissionTarget?.third == false) permissionTarget = null
+            if (request != null) onRequestConsumed()
+        } else if (request != null) {
+            confirm = request
+            onRequestConsumed()
+        }
+    }
     LaunchedEffect(state.callId) {
         if (state.phase == NativeCallPhase.RINGING) { confirm = null; permissionTarget = null }
     }
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         val target = permissionTarget
         permissionTarget = null
-        if (target != null) {
+        if (target != null && PrivateCallHostDisclosurePolicy.mayCompletePermissionRequest(
+                privateAreaVisible, target.third)) {
             val microphone = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
             val camera = !target.second || ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
             if (microphone && camera && CallForegroundService.start(context, target.second)) {
@@ -87,6 +103,8 @@ fun NativeCallHost(
         }
     }
     fun authorize(id: String, video: Boolean, incoming: Boolean) {
+        if (!PrivateCallHostDisclosurePolicy.mayCompletePermissionRequest(
+                privateAreaVisible, incoming)) return
         val needed = listOfNotNull(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA.takeIf { video })
             .filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
         if (needed.isEmpty()) {
@@ -108,10 +126,11 @@ fun NativeCallHost(
             authorize(state.callId, state.video, true)
         }
     }
-    if (confirm != null) {
+    if (PrivateCallHostDisclosurePolicy.mayShowOutgoingConfirmation(revealPeerName) &&
+        confirm != null) {
         val target = confirm!!
         AlertDialog(onDismissRequest = { confirm = null }, title = { Text(if (target.second) "Görüntülü arama" else "Sesli arama") },
-            text = { Text("İki telefonda da güncel LANU ve güvenli alan açık olmalıdır. Doğrudan görüşmede IP adresinizi karşı taraf ve Google/Cloudflare STUN hizmetleri görebilir. Mikrofon ve kamera yalnız görüşme kabul edilince açılır. Görüşme devam ederken hesap makinesine dönebilirsiniz.") },
+            text = { Text("İki telefonda da güncel LANU ve karşılıklı doğrulanmış kişi bağlantısı bulunmalıdır. Doğrudan görüşmede IP adresinizi karşı taraf ve Google/Cloudflare STUN hizmetleri görebilir. Mikrofon ve kamera yalnız görüşme kabul edilince açılır. Görüşme devam ederken hesap makinesine dönebilirsiniz.") },
             confirmButton = { TextButton(onClick = { confirm = null; authorize(target.first, target.second, false) }) { Text("Aramayı başlat") } },
             dismissButton = { TextButton(onClick = { confirm = null }) { Text("Vazgeç") } })
     }
@@ -130,7 +149,7 @@ fun NativeCallHost(
                         NativeCallPhase.CONNECTING -> "Güvenli bağlantı kuruluyor…"
                         NativeCallPhase.CONNECTED -> "Bağlandı"
                         NativeCallPhase.RECONNECTING -> "Ağ bağlantısı yenileniyor…"
-                        else -> state.message.ifBlank { "Arama kapandı." }
+                        else -> PrivateCallUiTextPolicy.terminal(state.phase, revealPeerName, state.message)
                     }, style = MaterialTheme.typography.bodyLarge)
                     if (state.connectedAt > 0 && !ended) {
                         var elapsed by remember { mutableLongStateOf(0) }
@@ -169,7 +188,7 @@ fun NativeCallHost(
                         Text("WebRTC gürültü ve yankı azaltma · kalite cihaza ve ortama bağlıdır", style = MaterialTheme.typography.bodySmall)
                     }
                     if (state.phase == NativeCallPhase.RINGING) {
-                        Text("Doğrudan görüşmede IP adresinizi karşı taraf ve Google/Cloudflare STUN hizmetleri görebilir. Gizli alanı açmadan yanıtlayabilirsiniz.",
+                        Text("Doğrudan görüşmede IP adresinizi karşı taraf ve Google/Cloudflare STUN hizmetleri görebilir. Aramayı doğrudan yanıtlayabilirsiniz.",
                             style = MaterialTheme.typography.bodySmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                             Button(onClick = { authorize(state.callId, state.video, true) }) { Text("Kabul et") }
@@ -183,9 +202,10 @@ fun NativeCallHost(
             }
         }
     }
-    if (notice != null && state.phase == NativeCallPhase.IDLE) {
+    if (PrivateCallHostDisclosurePolicy.mayShowIdleNotice(revealPeerName, state.phase) &&
+        notice != null) {
         AlertDialog(onDismissRequest = model::clearNotice, title = { Text("Arama bilgisi") },
-            text = { Text(notice!!) }, confirmButton = { TextButton(onClick = model::clearNotice) { Text("Tamam") } })
+            text = { Text(PrivateCallUiTextPolicy.notice(revealPeerName, notice) ?: "Arama bilgisi kullanılamıyor.") }, confirmButton = { TextButton(onClick = model::clearNotice) { Text("Tamam") } })
     }
 }
 
@@ -225,6 +245,11 @@ private fun CallAudioRouteControls(engine: NativeCallEngine, enabled: Boolean) {
             Text(routeAnnouncement)
         }
         DropdownMenu(expanded = menu && enabled, onDismissRequest = { menu = false }) {
+            DropdownMenuItem(
+                text = { Text("Otomatik ses çıkışı") },
+                modifier = Modifier.testTag("call_audio_route_auto"),
+                onClick = { menu = false; engine.chooseRoute(null) }
+            )
             for (item in route.available.sortedBy { it.ordinal })
                 DropdownMenuItem(
                     text = { Text(CallAudioRouteLabelPolicy.routeName(item)) },

@@ -11,6 +11,8 @@ object CalculatorEngine {
     private val MC = MathContext(16, RoundingMode.HALF_UP)
 
     fun evaluate(expression: String, isDegrees: Boolean = true): Double {
+        // Reject oversized untrusted expressions before entering the parser.
+        require(expression.length <= 8192) { "Expression exceeds supported length (8192 characters)" }
         val sanitized = sanitize(expression)
         if (sanitized.isBlank()) return 0.0
         return Parser(sanitized, isDegrees).parse()
@@ -28,6 +30,8 @@ object CalculatorEngine {
 
     // High precision helper to format double values to avoid floating point errors
     fun formatResult(value: Double, precision: Int = 6): String {
+        // Prevent unbounded decimal padding and String.format allocations.
+        require(precision in 0..100) { "Precision must be between 0 and 100" }
         if (value.isNaN()) return "Error"
         if (value.isInfinite()) return "Infinity"
         
@@ -61,6 +65,8 @@ object CalculatorEngine {
     private class Parser(private val str: String, private val isDegrees: Boolean) {
         private var pos = -1
         private var ch = ' '
+        private var factorDepth = 0
+        private val maxFactorDepth = 128
 
         private fun nextChar() {
             pos++
@@ -118,6 +124,13 @@ object CalculatorEngine {
 
         // Factor = (+/- Factor) or (Base ^ Factor)
         private fun parseFactor(): Double {
+            // Parentheses, unary signs and exponent chains all recurse here.
+            // Bound nesting before stack exhaustion even for short input.
+            if (factorDepth >= maxFactorDepth) {
+                throw IllegalArgumentException("Expression nesting exceeds supported depth (128)")
+            }
+            factorDepth++
+            try {
             if (eat('+')) return parseFactor() // unary plus
             val negate = eat('-')
             var x: Double
@@ -207,6 +220,9 @@ object CalculatorEngine {
             }
 
             return if (negate) -x else x
+            } finally {
+                factorDepth--
+            }
         }
     }
 }

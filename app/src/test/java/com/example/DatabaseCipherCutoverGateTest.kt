@@ -91,9 +91,10 @@ class DatabaseCipherCutoverGateTest {
                 conservativeRequiredBytes = DatabaseEncryptionPreflight.conservativeRequiredBytes(
                     8192, 0, 0, 4096))
         )) {
+            // Contradictory metadata fails before considering checkpoint evidence.
             blocked(ready().copy(snapshot = companion,
                 checkpointAndWalVerified = false),
-                DatabaseCipherCutoverGate.BlockReason.WAL_CHECKPOINT_NOT_VERIFIED)
+                DatabaseCipherCutoverGate.BlockReason.INVALID_SNAPSHOT_METADATA)
         }
     }
 
@@ -144,6 +145,23 @@ class DatabaseCipherCutoverGateTest {
         assertEquals(Long.MAX_VALUE,
             DatabaseEncryptionPreflight.conservativeRequiredBytes(
                 8192, -1, 0, 0))
+    }
+
+    @Test fun forgedWalCheckpointFlagCannotApproveEvenWithEveryOtherProof() {
+        val reason = DatabaseCipherCutoverGate.BlockReason.INVALID_SNAPSHOT_METADATA
+        // WAL is present but a stale/forged caller says no checkpoint is needed.
+        // A copied Snapshot must never serve as authorization to use the DB.
+        blocked(ready().copy(snapshot = snapshot.copy(needsWalCheckpoint = false)), reason)
+
+        // Conversely, no companion files exist: the checkpoint field cannot
+        // claim an imaginary one, even if a caller also forged positive proof.
+        val noCompanions = snapshot.copy(
+            walBytes = 0L, sharedMemoryBytes = 0L,
+            rollbackJournalBytes = 0L, needsWalCheckpoint = true,
+            conservativeRequiredBytes = DatabaseEncryptionPreflight.conservativeRequiredBytes(
+                snapshot.databaseBytes, 0L, 0L, 0L)
+        )
+        blocked(ready().copy(snapshot = noCompanions), reason)
     }
 
     @Test fun accurateDiskBudgetRetainsIsolatedShadowOnlyNotLiveCutover() {

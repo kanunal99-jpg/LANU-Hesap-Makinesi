@@ -3,6 +3,12 @@
 # WebRTC JNI resolves Java names/callbacks. Verified by a native DTLS loopback
 # test on both debug and minified release, not by disabling R8.
 -keep class org.webrtc.** { *; }
+# The separate release AndroidTest APK exercises genuine SQLCipher 4.20.0 JNI
+# and Room's SQLCipher SupportOpenHelperFactory. Preserve its external ABI.
+# Do not skip this test or mark encrypted-at-rest complete if it fails.
+-keep class net.zetetic.database.** { *; }
+-keep class com.example.core.database.IsolatedSqlcipherRoomFactory { *; }
+-keep class com.example.core.database.IsolatedSqlcipherShadowKeyVault { *; }
 # Keep the concrete, JNI-invoked override adapter across minified releases.
 # Without these explicit methods, older Android desugaring may attempt an
 # Observer$-CC companion that is not present in the release APK (CI #412).
@@ -44,6 +50,14 @@
 # destructive-migration regression checks on the minified release variant.
 # This does not migrate or reset the existing user's Room database.
 -keep class com.example.core.database.** { *; }
+# Release AndroidTest is packaged separately from the R8-shrunk target APK.
+# Its synthetic encryption fixture invokes UserCodes.create(), E2EE encrypt()
+# and their MessagingIdentity return types. R8 may otherwise inline/rename
+# methods that still exist in the standalone test dex (CI #835 NoSuchMethodError).
+# Keep only these three messaging ABIs; production R8 remains fully enabled.
+-keep class com.example.core.messaging.UserCodes { *; }
+-keep class com.example.core.messaging.MessagingIdentity { *; }
+-keep class com.example.core.messaging.PeerMessageCrypto { *; }
 # The separate debug/release instrumentation APK starts a real opt-out worker.
 # Preserve only the public WorkManager ABI it links; implementation still shrinks.
 -keep class androidx.work.WorkManager { public *; }

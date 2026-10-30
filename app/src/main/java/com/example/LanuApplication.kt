@@ -10,6 +10,7 @@ import com.example.core.calls.CallWakePreferences
 import com.example.core.messaging.MessageWakeTokenRefreshWorker
 import com.example.core.messaging.MessageWakeNotification
 import com.example.core.messaging.MessageWakePreferences
+import com.example.core.notifications.PublicNotificationChannelSanitizer
 import com.example.core.media.PrivateMediaCacheRecovery
 import com.example.core.security.LegacyInsecurePreferencesCleanup
 import kotlinx.coroutines.CoroutineScope
@@ -38,6 +39,10 @@ class LanuApplication : Application(), Configuration.Provider {
         // Install before other startup work. Only sanitized app source frames are
         // stored locally; original Android crash reporting remains in the chain.
         LocalCrashHandler.install(this)
+        // Existing Android Settings channel names survive APK upgrades.
+        // Rename only already-created channels without exposing private
+        // features, changing consent, or creating channels on clean installs.
+        PublicNotificationChannelSanitizer.sanitizeExisting(this)
         // After a crash, no later session must inherit verified plaintext.
         // Only LANU temporary media prefixes are touched; Room, PIN and
         // existing 18 KB attachments remain unchanged.

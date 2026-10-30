@@ -50,6 +50,31 @@ object RelayResponseReader {
         } catch (_: Exception) { throw RelayException(503, "Sunucu yanıtı okunamadı.") }
     }
 }
+/**
+ * HTTP status must be validated before reading/parsing a possibly empty, HTML
+ * or oversized error response. Otherwise 401/403/429 can be misreported as
+ * 503 and a caller may retry an unauthorized operation.
+ *
+ * Never surface the server's response body or header contents.
+ */
+internal object RelayHttpResponseGate {
+    fun <T> readSuccessBody(code: Int, retryAfterHeader: String?, readBody: () -> T): T {
+        if (code !in 200..299) {
+            val message = when (code) {
+                401 -> "Kimlik doğrulanamadı. Telefonun tarih ve saatini kontrol edin."
+                403 -> "Bu işlem için yetki bulunamadı."
+                409 -> "Karşılıklı kişi kaydı bekleniyor veya kayıt çakıştı."
+                413 -> "Gönderim boyutu izin verilen sınırı aşıyor."
+                429 -> "Çok fazla istek. Mesajlar korunarak yeniden denenecek."
+                else -> "Bağlantı tamamlanamadı. Mesajlarınız korunuyor."
+            }
+            val retry = retryAfterHeader?.toLongOrNull()?.coerceIn(5L, 120L)?.times(1000L) ?: 60000L
+            throw RelayException(code, message, retry)
+        }
+        return readBody()
+    }
+}
+
 interface MessagingRelay {
     val configured: Boolean
     suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject = JSONObject()): JSONObject
@@ -83,30 +108,28 @@ class HttpMessagingRelay(private val endpoint: String) : MessagingRelay {
             })
         }
         response.use {
+            // Classify HTTP errors before consuming any untrusted error body.
+            // This preserves 401/403/409/429 even when a gateway returns HTML.
+            if (!response.isSuccessful) PrivateRelayHealth.recordHttp(response.code)
             val raw = try {
-                response.body?.let { body ->
-                    body.byteStream().use { RelayResponseReader.read(it, body.contentLength()) }
-                } ?: "{}"
+                RelayHttpResponseGate.readSuccessBody(response.code, response.header("Retry-After")) {
+                    response.body?.let { body ->
+                        body.byteStream().use { RelayResponseReader.read(it, body.contentLength()) }
+                    } ?: "{}"
+                }
             } catch (e: Exception) {
-                PrivateRelayHealth.record(PrivateRelayHealth.Outcome.RESPONSE)
+                if (response.isSuccessful) PrivateRelayHealth.record(PrivateRelayHealth.Outcome.RESPONSE)
                 throw e
             }
             val value = try { JSONObject(raw) } catch (_: Exception) {
                 PrivateRelayHealth.record(PrivateRelayHealth.Outcome.RESPONSE)
                 throw RelayException(503, "Sunucu yanıtı okunamadı.")
             }
-            if (!response.isSuccessful || value.has("error")) {
-                PrivateRelayHealth.recordHttp(if (response.isSuccessful) 503 else response.code)
-                val message = when (response.code) {
-                    401 -> "Kimlik doğrulanamadı. Telefonun tarih ve saatini kontrol edin."
-                    403 -> "Bu işlem için yetki bulunamadı."
-                    409 -> "Karşılıklı kişi kaydı bekleniyor veya kayıt çakıştı."
-                    413 -> "Gönderim boyutu izin verilen sınırı aşıyor."
-                    429 -> "Çok fazla istek. Mesajlar korunarak yeniden denenecek."
-                    else -> "Bağlantı tamamlanamadı. Mesajlarınız korunuyor."
-                }
-                val retry = response.header("Retry-After")?.toLongOrNull()?.coerceIn(5L, 120L)?.times(1000L) ?: 60000L
-                throw RelayException(response.code, message, retry)
+            if (value.has("error")) {
+                PrivateRelayHealth.recordHttp(503)
+                // Retain the existing non-retry behavior for 2xx protocol error
+                // envelopes until the server's error contract is reviewed.
+                throw RelayException(response.code, "Bağlantı tamamlanamadı. Mesajlarınız korunuyor.")
             }
             PrivateRelayHealth.record(PrivateRelayHealth.Outcome.SUCCESS)
             value

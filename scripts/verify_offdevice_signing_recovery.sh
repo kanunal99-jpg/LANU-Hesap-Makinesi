@@ -41,11 +41,33 @@ if [[ -d /dev/shm && -w /dev/shm && ! -L /dev/shm ]]; then scratch_base=/dev/shm
 scratch="$(mktemp -d "$scratch_base/lanu-recovery.XXXXXXXX")"
 passphrase=''
 STORE_PASSWORD=''
+KEY_PASSWORD=''
 cleanup() {
-  unset passphrase STORE_PASSWORD
+  unset passphrase STORE_PASSWORD KEY_PASSWORD
   rm -rf -- "$scratch"
 }
 trap cleanup EXIT INT TERM
+
+# A removable/cloud-synced backup can change between the three archive
+# inspections and extraction. Snapshot the encrypted bytes ONCE into the
+# private 0700 scratch directory, and decrypt only that immutable-by-path
+# local copy. A source swapped to a symlink during copy must fail closed.
+# This never touches the original encrypted backup or signing keystore.
+cp -P -- "$archive" "$scratch/backup.gpg" || {
+  echo 'RECOVERY FAILED: cannot create private encrypted backup snapshot.' >&2
+  exit 1
+}
+[[ -f "$scratch/backup.gpg" && ! -L "$scratch/backup.gpg" &&
+   -s "$scratch/backup.gpg" ]] || {
+  echo 'RECOVERY FAILED: encrypted backup snapshot is unsafe.' >&2
+  exit 1
+}
+(( $(stat -c '%s' "$scratch/backup.gpg") <= 4194304 )) || {
+  echo 'RECOVERY FAILED: encrypted backup changed size during snapshot.' >&2
+  exit 1
+}
+archive="$scratch/backup.gpg"
+
 [[ -r /dev/tty ]] || { echo 'Open a trusted interactive terminal to enter the recovery password.' >&2; exit 1; }
 printf 'Enter encrypted backup password (never sent anywhere): ' > /dev/tty
 IFS= read -r -s passphrase < /dev/tty || { echo 'Unable to read backup password.' >&2; exit 1; }
@@ -106,15 +128,17 @@ for name in lanu-stable.jks store-password key-password; do
   }
 done
 
-# The LANU PKCS12 bootstrap intentionally uses one password for the store
-# and private key. A mismatched/corrupted key-password cannot be a recovery.
-cmp -s "$scratch/signing/store-password" "$scratch/signing/key-password" || {
-  echo 'RECOVERY FAILED: recovered store and key credentials differ.' >&2
+# Preserve BOTH independently supplied credentials. PKCS12/JKS archives and
+# providers may use distinct store and private-key passwords; byte equality
+# is not a valid recovery requirement. An incorrect key password is rejected
+# by the isolated private-key signing challenge below (fail closed).
+STORE_PASSWORD="$(cat "$scratch/signing/store-password")"
+KEY_PASSWORD="$(cat "$scratch/signing/key-password")"
+[[ -n "$STORE_PASSWORD" && -n "$KEY_PASSWORD" ]] || {
+  echo 'RECOVERY FAILED: recovered signing credentials are empty.' >&2
   exit 1
 }
-STORE_PASSWORD="$(cat "$scratch/signing/store-password")"
-[[ -n "$STORE_PASSWORD" ]] || { echo 'Recovered store password is empty.' >&2; exit 1; }
-export STORE_PASSWORD
+export STORE_PASSWORD KEY_PASSWORD
 # A matching public certificate without its private key is not recoverable.
 # Verify the PKCS12 alias is a PrivateKeyEntry, not a trusted cert-only entry.
 key_entry="$(keytool -list -v -alias lanu \
@@ -125,8 +149,10 @@ key_entry="$(keytool -list -v -alias lanu \
   exit 1
 }
 unset key_entry
-# Use the same alias as bootstrap_stable_signing.sh. Key data and credentials
-# never appear in process arguments, stdout, GitHub artifacts or network traffic.
+# Use the same alias as bootstrap_stable_signing.sh. JDK auto-detects the
+# actual JKS/PKCS12 keystore format; a filename suffix is not proof of format.
+# Key data and credentials never appear in process arguments, stdout,
+# GitHub artifacts or network traffic.
 actual="$(keytool -exportcert -rfc -alias lanu \
   -keystore "$scratch/signing/lanu-stable.jks" -storepass:env STORE_PASSWORD |
   openssl x509 -noout -fingerprint -sha256 | sed 's/^[^=]*=//' |
@@ -145,8 +171,8 @@ jar cf "$scratch/challenge-unsigned.jar" -C "$scratch" proof.txt >/dev/null 2>&1
   echo 'RECOVERY FAILED: cannot prepare offline signing challenge.' >&2
   exit 1
 }
-jarsigner -keystore "$scratch/signing/lanu-stable.jks" -storetype PKCS12 \
-  -storepass:env STORE_PASSWORD -keypass:env STORE_PASSWORD \
+jarsigner -keystore "$scratch/signing/lanu-stable.jks" \
+  -storepass:env STORE_PASSWORD -keypass:env KEY_PASSWORD \
   -signedjar "$scratch/challenge-signed.jar" \
   "$scratch/challenge-unsigned.jar" lanu >"$scratch/sign.log" 2>&1 || {
     echo 'RECOVERY FAILED: recovered private key could not sign offline challenge.' >&2

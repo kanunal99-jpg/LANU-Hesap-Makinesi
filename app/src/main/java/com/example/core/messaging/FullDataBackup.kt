@@ -41,6 +41,10 @@ object FullDataBackup {
 
     fun capture(db: SupportSQLiteDatabase, identity: MessagingIdentity): JSONObject {
         require(UserCodes.isConsistentIdentity(identity)) { "Kimlik doğrulanamadı; mevcut kayıtlar korunuyor." }
+        // Explicit user-requested backup only, in a Room read transaction:
+        // never seal/export a partially corrupted SQLite snapshot as a trusted
+        // recovery point. No automatic repair, deletion or startup scan.
+        RoomBackupIntegrityGate.requireHealthy(db)
         val data = JSONObject()
         var count = 0
         var estimatedBytes = 0L
@@ -147,6 +151,61 @@ object FullDataBackup {
                         db.execSQL(sql, args)
                     }
                 } else db.execSQL(sql, args)
+            }
+        }
+    }
+
+    /**
+     * Read back EVERY archived record in the same Room transaction, before COMMIT.
+     * INSERT OR IGNORE / RAISE(IGNORE) can silently skip a record; pre-import
+     * conflict checks cannot detect this. Never print archived values or paths.
+     */
+    fun verifyImported(db: SupportSQLiteDatabase, opened: Opened) {
+        for ((table, columns) in tables) {
+            if (table == "user_profiles") continue // Restored by the repository.
+            val rows = opened.rows(table)
+            for (i in 0 until rows.length()) {
+                val expected = rows.getJSONArray(i)
+                val verified = when (table) {
+                    "calculation_history", "call_logs" -> {
+                        // Numeric row IDs are local to each device. All other
+                        // fields must exist in one real row, without alteration.
+                        val conditions = columns.drop(1).joinToString(" AND ") { "`$it` IS ?" }
+                        val args = Array<Any?>(expected.length() - 1) { n ->
+                            expected.get(n + 1).takeUnless { it === JSONObject.NULL }
+                        }
+                        db.query("SELECT 1 FROM `$table` WHERE $conditions LIMIT 1", args)
+                            .use { it.moveToFirst() }
+                    }
+                    "app_settings" -> {
+                        // Only PIN verifier / local lockout preferences can
+                        // deliberately retain a value different from the
+                        // encrypted archive. Peer proofs, drafts, identity
+                        // markers and delivery metadata must be EXACT: a
+                        // conflicting INSERT OR IGNORE is otherwise silent.
+                        val key = expected.getString(0)
+                        val locallyProtectedPinKey = key in setOf(
+                            "pin_hash", "entry_pin_enabled",
+                            "pin_attempt_state", "pin_lockout_strikes"
+                        )
+                        db.query("SELECT `key`, `value` FROM `app_settings` WHERE `key` = ? LIMIT 1",
+                            arrayOf(key)).use { actual ->
+                            actual.moveToFirst() &&
+                                (locallyProtectedPinKey ||
+                                    row(actual).toString() == expected.toString())
+                        }
+                    }
+                    else -> {
+                        val query = "SELECT " + columns.joinToString(",") { "`$it`" } +
+                            " FROM `$table` WHERE `${columns.first()}` = ? LIMIT 1"
+                        db.query(query, arrayOf(expected.get(0))).use { actual ->
+                            actual.moveToFirst() && row(actual).toString() == expected.toString()
+                        }
+                    }
+                }
+                require(verified) {
+                    "Şifreli yedek kaydı doğrulanamadı. Mevcut kayıtlar korunuyor."
+                }
             }
         }
     }

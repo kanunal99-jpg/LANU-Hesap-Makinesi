@@ -77,14 +77,22 @@ object LocalCrashReport {
             val bytes = AtomicFile(target).openRead().use { readBounded(it) }
                 ?: return@runCatching null
             val json = JSONObject(String(bytes, Charsets.UTF_8))
-            if (json.optInt("version") != 1) return@runCatching null
-            val timestamp = json.optLong("time", -1L)
-            if (timestamp < 1 || now < timestamp || now - timestamp > MAX_AGE_MS) return@runCatching null
-            val type = json.optString("type")
+            // org.json optInt/optLong/optString and getString can coerce
+            // attacker-edited JSON scalars. This on-device report is diagnostic
+            // evidence only: invalid schema must fail closed without leaking
+            // its raw contents or blocking the calculator.
+            if (json.opt("version") !is Int || json.opt("version") != 1)
+                return@runCatching null
+            val timestamp = json.opt("time") as? Long ?: return@runCatching null
+            if (timestamp < 1 || now < timestamp || now - timestamp > MAX_AGE_MS)
+                return@runCatching null
+            val type = json.opt("type") as? String ?: return@runCatching null
             if (!type.matches(safeIdentifier)) return@runCatching null
-            val arr = json.optJSONArray("appFrames") ?: return@runCatching null
+            val arr = json.opt("appFrames") as? JSONArray ?: return@runCatching null
             if (arr.length() > MAX_FRAMES) return@runCatching null
-            val frames = (0 until arr.length()).map { arr.getString(it) }
+            val frames = (0 until arr.length()).map { index ->
+                arr.opt(index) as? String ?: return@runCatching null
+            }
             if (frames.any { !it.matches(safeFrame) }) return@runCatching null
             Record(timestamp, type, frames)
         }.getOrNull()

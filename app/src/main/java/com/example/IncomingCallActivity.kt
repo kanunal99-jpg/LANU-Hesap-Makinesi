@@ -36,11 +36,17 @@ class IncomingCallActivity : ComponentActivity() {
         readWakeIntent(intent)
         setContent {
             val state by (application as LanuApplication).callModel.state.collectAsState()
+            var observedLiveCall by remember { mutableStateOf(false) }
             LaunchedEffect(state.phase, state.callId) {
-                // A call-only Activity may not navigate or expose a private back stack.
-                // Closing it leaves the calculator/lock owner responsible for entry.
-                if (CallReturnPrivacyPolicy.requiresLockedCalculator(state.phase, state.callId))
-                    finish()
+                // MainActivity can dismiss a completed call concurrently,
+                // resetting the shared state to IDLE. Close this call-only
+                // Activity in BOTH orders; never reveal the private back stack.
+                if (state.callId.isNotBlank() && state.phase in setOf(
+                        NativeCallPhase.RINGING, NativeCallPhase.DIALING,
+                        NativeCallPhase.CONNECTING, NativeCallPhase.CONNECTED,
+                        NativeCallPhase.RECONNECTING)) observedLiveCall = true
+                if (CallReturnPrivacyPolicy.requiresLockedCalculator(state.phase, state.callId) ||
+                    (observedLiveCall && state.phase == NativeCallPhase.IDLE)) finish()
             }
             MyApplicationTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
