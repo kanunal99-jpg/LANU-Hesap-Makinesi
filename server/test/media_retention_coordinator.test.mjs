@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { cleanExpiredPrivateMedia } from '../../supabase/functions/lanu-relay/media-retention.mjs';
 
 const now=Date.now(), first='a'.repeat(32), second='b'.repeat(32);
-const expired=new Date(now-1000).toISOString();
+const expired=new Date(now-8_000_000).toISOString();
 function fixture(changed={}) {
   const rows=[
     {file_id:first,state:'ready',expires_at:expired},
@@ -54,6 +54,18 @@ test('no path traversal, duplicates, not expired, purged or unknown states',asyn
  });
  assert.deepEqual(value,{scanned:6,purged:1,refused:5});
  assert.deepEqual(f.remove.map(x=>x[1]),['v1/'+first+'.cipher']);
+});
+test('recently expired files survive any signed upload grant still in flight',async()=>{
+ const recent = new Date(now - 60_000).toISOString();
+ const f = fixture({ rows: [
+   {file_id:first,state:'pending',expires_at:recent},
+   {file_id:second,state:'ready',expires_at:expired}
+ ]});
+ const result = await cleanExpiredPrivateMedia({
+   store:f.store,storage:f.storage,nowMs:now,limit:2
+ });
+ assert.deepEqual(result,{scanned:2,purged:1,refused:1});
+ assert.deepEqual(f.remove.map(x=>x[1]),['v1/'+second+'.cipher']);
 });
 test('oversized batch and invalid service-only adapter are refused before deletions',async()=>{
  const f=fixture();
