@@ -119,6 +119,30 @@ object MessageWakePolicy {
     fun releaseFailed(at: Long) { recent.remove(at) }
 
     /**
+     * A vendor notification implementation may throw before posting an alert,
+     * including LinkageError from missing OEM framework methods. Never burn a
+     * timestamp claim for an alert that was not delivered. Do not swallow
+     * fatal VM errors (e.g. OutOfMemoryError).
+     */
+    fun publishOnce(at: Long, notify: () -> Boolean): Boolean {
+        if (!claim(at)) return false
+        return try {
+            val delivered = notify()
+            if (!delivered) releaseFailed(at)
+            delivered
+        } catch (_: SecurityException) {
+            releaseFailed(at)
+            false
+        } catch (_: RuntimeException) {
+            releaseFailed(at)
+            false
+        } catch (_: LinkageError) {
+            releaseFailed(at)
+            false
+        }
+    }
+
+    /**
      * The user can opt out from the private settings while FCM is still
      * preparing an alert on another thread. Recheck consent immediately
      * before and after Android's notification service receives it.
@@ -150,6 +174,7 @@ object MessageWakePolicy {
     fun safeShow(block: () -> Boolean): Boolean =
         try { block() } catch (_: SecurityException) { false }
         catch (_: RuntimeException) { false }
+        catch (_: LinkageError) { false }
 }
 
 /** No private deep link. The normal calculator gate is mandatory on every tap. */
@@ -204,8 +229,7 @@ object MessageWakeNotification {
                     NotificationManager.IMPORTANCE_DEFAULT) return@safeShow false
 
             val at = data["at"]?.toLongOrNull() ?: return@safeShow false
-            if (!MessageWakePolicy.claim(at)) return@safeShow false
-            try {
+            MessageWakePolicy.publishOnce(at) {
                 val launch = Intent(context, MainActivity::class.java).apply {
                     action = MessageWakeTapPolicy.ACTION
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or
@@ -223,21 +247,13 @@ object MessageWakeNotification {
                     .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
                     .setAutoCancel(true)
                     .build()
-                val delivered = MessageWakePolicy.postIfStillEnabled(
+                MessageWakePolicy.postIfStillEnabled(
                     isEnabled = {
                         !CallWakePolicy.privateAreaVisible && MessageWakePreferences.isEnabled(context)
                     },
                     post = { manager.notify(ID, notification) },
                     cancel = { manager.cancel(ID) }
                 )
-                if (!delivered) MessageWakePolicy.releaseFailed(at)
-                delivered
-            } catch (e: SecurityException) {
-                MessageWakePolicy.releaseFailed(at)
-                false
-            } catch (e: RuntimeException) {
-                MessageWakePolicy.releaseFailed(at)
-                false
             }
         }
 }

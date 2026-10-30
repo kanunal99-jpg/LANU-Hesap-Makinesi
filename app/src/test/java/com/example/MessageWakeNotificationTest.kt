@@ -115,6 +115,42 @@ class MessageWakeNotificationTest {
         assertFalse(MessageWakeNotification.CHANNEL_ID == "lanu_private_calls_ringing_v2")
     }
 
+    @Test fun oemLinkageFailureCannotCrashMessageWakeOrBurnTimestamp() {
+        val at = now + 987L
+        assertFalse(MessageWakePolicy.safeShow {
+            throw NoSuchMethodError("synthetic vendor channel ABI mismatch")
+        })
+        var attempts = 0
+        assertFalse(MessageWakePolicy.publishOnce(at) {
+            attempts++
+            throw AbstractMethodError("synthetic vendor notify dispatch")
+        })
+        assertTrue("A failed OEM notification must allow the same wake to retry",
+            MessageWakePolicy.publishOnce(at) { attempts++; true })
+        assertFalse("A successfully posted hint remains deduplicated",
+            MessageWakePolicy.publishOnce(at) { attempts++; true })
+        assertEquals(2, attempts)
+    }
+
+    @Test fun revokedOrFailedMessagePostCannotConsumeWakeClaim() {
+        val at = now + 988L
+        assertFalse(MessageWakePolicy.publishOnce(at) {
+            MessageWakePolicy.postIfStillEnabled(
+                isEnabled = { false },
+                post = { throw AssertionError("Opted-out user must not be notified") },
+                cancel = { throw AssertionError("Nothing was posted") }
+            )
+        })
+        assertFalse(MessageWakePolicy.publishOnce(at) {
+            throw SecurityException("synthetic notification permission revoked")
+        })
+        assertFalse(MessageWakePolicy.publishOnce(at) {
+            throw IllegalStateException("synthetic Android service outage")
+        })
+        assertTrue(MessageWakePolicy.publishOnce(at) { true })
+        assertFalse(MessageWakePolicy.publishOnce(at) { true })
+    }
+
     @Test fun privateForegroundOrNoOptInSuppressesHintsWithoutFetchingChats() {
         val hint=mapOf("type" to MessageWakePolicy.TYPE,"at" to now.toString())
         assertFalse(MessageWakeNotification.show(context,hint,now))
