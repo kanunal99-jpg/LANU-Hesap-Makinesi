@@ -318,6 +318,25 @@ class CommunicationViewModel(private val repository: CommunicationRepository) : 
     fun addReaction(messageId: String, emoji: String) = operation { repository.addReaction(messageId, emoji); synchronize() }
     fun deleteMessage(messageId: String) = operation { repository.deleteMessage(messageId); synchronize() }
     fun retryMessage(messageId: String) = operation { repository.retryMessage(messageId); refresh() }
+    /**
+     * Requeue one bounded batch before starting network synchronization.
+     * Individual retries can otherwise race their own refresh jobs, sending
+     * only the first item immediately and leaving the others until next poll.
+     * The repository validates identity/FAILED state under its sync mutex.
+     */
+    fun retryFailedMessages(messageIds: List<String>) = operation {
+        var requeued = 0
+        for (id in messageIds.distinct().take(ChatFailedRetryPolicy.MAX_BATCH)) {
+            try {
+                repository.retryMessage(id)
+                requeued++
+            } catch (_: IllegalArgumentException) {
+                // Status may have changed to SENT/PENDING after menu opened.
+                // Never requeue already accepted or someone else's message.
+            }
+        }
+        if (requeued > 0) synchronize()
+    }
     fun editMessage(messageId: String, text: String) {
         val conversation = _activeConversation.value ?: return
         operation { repository.editMessage(messageId, conversation.id, text); synchronize() }
