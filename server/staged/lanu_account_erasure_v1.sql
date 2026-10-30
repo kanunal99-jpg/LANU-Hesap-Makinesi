@@ -159,3 +159,41 @@ end $$;
 revoke all on function public.lanu_delete_account_v1(text,text)
     from public, anon, authenticated;
 grant execute on function public.lanu_delete_account_v1(text,text) to service_role;
+
+-- STAGING READ-ONLY owner media gate. A positive result only means the
+-- CURRENT database metadata says all owner-linked media are purged. It is
+-- NOT proof of physical Storage deletion, legal approval, receipt durability,
+-- or authorization to activate the destructive account deletion RPC.
+-- Never deploy without an independently reviewed staging/production gate.
+create or replace function public.lanu_account_erasure_preflight_v1(
+    p_owner text, p_expected_code text
+) returns jsonb language plpgsql security invoker
+set search_path = '' as $$
+declare
+  current_code text;
+  pending_media boolean;
+begin
+  if p_owner is null or p_owner !~ '^[a-f0-9]{64}$' or
+     p_expected_code is null or
+     p_expected_code !~ '^LANU(-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{4}){5}$' then
+    raise exception 'Invalid account deletion preflight request';
+  end if;
+
+  select code into current_code from public.lanu_identities
+    where id = p_owner;
+  if not found or current_code <> p_expected_code then
+    return jsonb_build_object('storageReady', false);
+  end if;
+
+  select exists (
+    select 1 from public.lanu_media_objects
+    where (sender_id = p_owner or recipient_id = p_owner)
+      and state is distinct from 'purged'
+  ) into pending_media;
+  return jsonb_build_object('storageReady', not pending_media);
+end $$;
+
+revoke all on function public.lanu_account_erasure_preflight_v1(text,text)
+    from public, anon, authenticated;
+grant execute on function public.lanu_account_erasure_preflight_v1(text,text)
+    to service_role;
