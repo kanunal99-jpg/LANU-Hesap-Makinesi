@@ -283,7 +283,8 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     }
 
     private fun confirmLargeSend(chatId: String, prepare: suspend () -> PrivateMediaCrypto.EncryptedFile) {
-        if (!::securityViewModel.isInitialized || securityViewModel.isLocked.value || largeMediaBusy) return
+        if (!BuildConfig.LANU_PRIVATE_MEDIA_UI_ENABLED ||
+            !::securityViewModel.isInitialized || securityViewModel.isLocked.value || largeMediaBusy) return
         // Selecting a file is not equivalent to consent to upload it.
         android.app.AlertDialog.Builder(this)
             .setTitle("Güvenli dosya gönder")
@@ -297,6 +298,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     }
 
     private fun sendPreparedLargeMedia(chatId: String, prepare: suspend () -> PrivateMediaCrypto.EncryptedFile) {
+        if (!BuildConfig.LANU_PRIVATE_MEDIA_UI_ENABLED) return
         largeMediaBusy = true
         lifecycleScope.launch {
             var prepared: PrivateMediaCrypto.EncryptedFile? = null
@@ -355,7 +357,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     }
 
     private fun downloadLargeDocument(chatId: String, messageId: String) {
-        if (!::securityViewModel.isInitialized || securityViewModel.isLocked.value ||
+        if (!BuildConfig.LANU_PRIVATE_MEDIA_UI_ENABLED || !::securityViewModel.isInitialized || securityViewModel.isLocked.value ||
             pendingLargeExport != null || largeMediaBusy) return
         largeMediaBusy = true
         lifecycleScope.launch {
