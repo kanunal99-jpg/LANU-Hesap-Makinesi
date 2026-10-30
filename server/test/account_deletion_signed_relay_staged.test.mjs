@@ -100,7 +100,7 @@ test('staged read-only account deletion preflight is owner signed and disabled i
     confirmation:'DELETE_ACCOUNT',expectedCode:f.alice.code
   })),{status:503});
   const valid = envelope(f.alice,'checkAccountDeletion',payload);
-  assert.deepEqual(await relay(valid),{storageReady:false});
+  assert.deepEqual(await relay(valid),{storageReady:false,deletionEnabled:false});
   assert.deepEqual(calls,[{owner:f.alice.id,expectedCode:f.alice.code}]);
   await assert.rejects(relay(valid),{status:409},'signed nonce replay is forbidden');
   assert.equal(calls.length,1);
@@ -116,7 +116,22 @@ test('preflight refuses malformed RPC results and never equates metadata with de
     await assert.rejects(relay(request()),{status:503});
   }
   f.store.accountDeletionPreflight = async () => ({storageReady:true, deleted:true, token:'SECRET'});
-  assert.deepEqual(await relay(request()),{storageReady:true},
-    'only the advisory boolean is returned; never claim account deletion or leak backend fields');
+  assert.deepEqual(await relay(request()),{storageReady:true,deletionEnabled:false},
+    'metadata alone does not permit destructive UI, and backend private fields must not leak');
   assert.equal(f.store.users.has(f.alice.id),true);
+});
+
+test('destructive UI capability is advertised only with both explicit flags', async () => {
+  const f = await fixture();
+  f.store.accountDeletionPreflight = async () => ({storageReady:true});
+  f.store.accountDelete = async () => ({deleted:true});
+  const request = () => envelope(f.alice,'checkAccountDeletion',{expectedCode:f.alice.code});
+  const readOnly = createRelay(f.store, Date.now, {accountDeletionPreflightEnabled:true});
+  assert.deepEqual(await readOnly(request()),{storageReady:true,deletionEnabled:false});
+  const destructiveStage = createRelay(f.store, Date.now, {
+    accountDeletionPreflightEnabled:true,accountDeletionEnabled:true
+  });
+  assert.deepEqual(await destructiveStage(request()),{storageReady:true,deletionEnabled:true});
+  // The ordinary live Edge wrapper still passes neither flag.
+  await assert.rejects(f.relay(request()), {status:503});
 });
