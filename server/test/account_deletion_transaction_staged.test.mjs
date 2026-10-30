@@ -176,3 +176,50 @@ test('account erasure RPC is denied to anonymous or authenticated mobile clients
     assert.equal(await count(db,'lanu_identities'),3);
   } finally { await db.close(); }
 });
+
+
+test('malformed or ambiguous owner identifiers and codes fail closed without mutating any account', async () => {
+  const {db} = await createFixture();
+  try {
+    const before = await fingerprint(db);
+    const invalid = [
+      [null, code('A')],
+      ['', code('A')],
+      [alice.toUpperCase(), code('A')],
+      [alice + "' OR TRUE --", code('A')],
+      [alice, null],
+      [alice, ''],
+      [alice, code('A').toLowerCase()],
+      [alice, code('A') + ' ']
+    ];
+    for (const [owner, expectedCode] of invalid) {
+      await assert.rejects(
+        db.query('select public.lanu_delete_account_v1($1,$2)', [owner, expectedCode]),
+        /Invalid account deletion request/i
+      );
+      assert.deepEqual(await fingerprint(db), before,
+        'invalid identity/code must not mutate even a peer-owned row');
+    }
+    assert.equal(await count(db,'lanu_identities','id=$1',[alice]),1);
+  } finally { await db.close(); }
+});
+
+test('verified purged synthetic media permits atomic metadata cleanup without affecting peers', async () => {
+  const {db} = await createFixture();
+  try {
+    const fileId = 'f'.repeat(32);
+    await db.query(`
+      insert into public.lanu_media_objects(
+        file_id,message_id,sender_id,recipient_id,cipher_bytes,cipher_sha256,state
+      ) values($1,$2,$3,$4,$5,$6,$7)
+    `, [fileId,randomUUID(),alice,bob,512,'e'.repeat(64),'purged']);
+    const result = await db.query(
+      'select public.lanu_delete_account_v1($1,$2) as result',[alice,code('A')]);
+    assert.equal(result.rows[0].result.deleted,true);
+    assert.equal(await count(db,'lanu_media_objects','file_id=$1',[fileId]),0);
+    assert.equal(await count(db,'lanu_identities','id=$1',[bob]),1);
+    assert.equal(await count(db,'lanu_identities','id=$1',[carol]),1);
+    assert.equal(await count(db,'lanu_call_wake_devices','owner_id=$1',[bob]),1);
+    assert.equal(await count(db,'lanu_message_wake_devices','owner_id=$1',[bob]),1);
+  } finally { await db.close(); }
+});
