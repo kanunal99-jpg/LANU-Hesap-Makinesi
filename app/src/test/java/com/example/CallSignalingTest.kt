@@ -74,6 +74,29 @@ class CallSignalingTest {
         assertThrows(IllegalArgumentException::class.java) { CallSignaling.create(call,CallSignalKind.END,false,sdp,now) }
         assertThrows(IllegalArgumentException::class.java) { CallSignaling.decode("x".repeat(24001),source.id,call,now) }
     }
+    @Test fun callDecoderRejectsCoercibleFieldsEvenInsideAuthenticatedFrames() {
+        val signed = CallSignaling.create(call, CallSignalKind.INVITE, true, now = now)
+        val canonical = org.json.JSONObject(CallSignaling.encode(signed))
+        val corrupted = listOf(
+            canonical.toString().let { org.json.JSONObject(it).put("id", 1234) },
+            canonical.toString().let { org.json.JSONObject(it).put("call", true) },
+            canonical.toString().let { org.json.JSONObject(it).put("kind", 1) },
+            canonical.toString().let { org.json.JSONObject(it).put("sdp", 0) },
+            canonical.toString().let { org.json.JSONObject(it).put("video", "true") },
+            canonical.toString().let { org.json.JSONObject(it).put("at", now.toString()) },
+            canonical.toString().let { org.json.JSONObject(it).put("at", now + 0.5) },
+            canonical.toString().let { org.json.JSONObject(it).put("v", "1") },
+            canonical.toString().let { org.json.JSONObject(it).put("v", true) }
+        )
+        for (payload in corrupted) {
+            assertThrows(IllegalArgumentException::class.java) {
+                CallSignaling.decode(payload.toString(), signed.id, call, now)
+            }
+        }
+        assertEquals(CallSignalKind.INVITE,
+            CallSignaling.decode(canonical.toString(), signed.id, call, now).kind)
+    }
+
     @Test fun callCiphertextCannotBeReplayedAsChatOrForAnotherPeerOrSignal() {
         val a=UserCodes.create();val b=UserCodes.create();val id=UUID.randomUUID().toString()
         val cipher=PeerMessageCrypto.encrypt(a,b.id,b.publicKey,CallSignaling.aadId(id),"signal")
