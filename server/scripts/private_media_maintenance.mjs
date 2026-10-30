@@ -8,7 +8,7 @@
 import { pathToFileURL } from 'node:url';
 import { RestStore } from '../../supabase/functions/lanu-relay/core.mjs';
 import { createPrivateMediaStorage } from '../../supabase/functions/lanu-relay/media-storage.mjs';
-import { cleanExpiredPrivateMedia } from '../../supabase/functions/lanu-relay/media-retention.mjs';
+import { cleanExpiredPrivateMedia, mediaCleanupCutoff } from '../../supabase/functions/lanu-relay/media-retention.mjs';
 
 export async function runPrivateMediaMaintenance({
   store, storage, mode = 'preview', nowMs = Date.now(), limit = 10,
@@ -22,7 +22,7 @@ export async function runPrivateMediaMaintenance({
   }
   if (mode === 'preview') {
     // Read-only: do not emit file IDs, identity IDs, tokens or timestamps.
-    const rows = await store.expiredMedia(nowMs, limit);
+    const rows = await store.expiredMedia(mediaCleanupCutoff(nowMs), limit);
     if (!Array.isArray(rows) || rows.length > limit) throw new Error('Invalid maintenance preview');
     return Object.freeze({ mode: 'preview', eligible: rows.length, deleted: 0 });
   }
