@@ -39,8 +39,14 @@ object CallSignaling {
         require(text.length <= 24_000 && text.toByteArray(Charsets.UTF_8).size <= 24_000)
         val o = JSONObject(text)
         require(o.keys().asSequence().toSet() == setOf("v", "id", "call", "kind", "video", "at", "sdp"))
-        require(o.get("v") is Int && o.getInt("v") == VERSION && o.get("video") is Boolean)
-        require(o.get("at") is Long || o.get("at") is Int)
+        // The signed ciphertext authenticates the sender but JSON getters
+        // can still coerce numbers or booleans to strings. Require the exact
+        // protocol field types before invoking a call or parsing SDP.
+        require(o.opt("v") is Int && o.optInt("v") == VERSION &&
+            o.opt("id") is String && o.opt("call") is String &&
+            o.opt("kind") is String && o.opt("video") is Boolean &&
+            (o.opt("at") is Long || o.opt("at") is Int) &&
+            o.opt("sdp") is String)
         val result = CallSignal(o.getString("id"), o.getString("call"), CallSignalKind.valueOf(o.getString("kind")),
             o.getBoolean("video"), o.getLong("at"), o.getString("sdp"))
         require(result.id == outerId && result.callId == outerCall)
