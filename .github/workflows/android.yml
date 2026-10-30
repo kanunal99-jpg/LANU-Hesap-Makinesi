@@ -135,6 +135,7 @@ jobs:
         run: |
           python3 -m unittest discover -s scripts -p 'test_verify_android_privacy.py'
           python3 scripts/verify_android_privacy.py
+          python3 -m unittest discover -s scripts -p 'test_privacy_crashlytics_contract.py'
 
       - name: Verify no private feature hints on public calculator and release surfaces
         run: |
