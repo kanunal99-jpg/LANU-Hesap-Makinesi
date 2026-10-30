@@ -57,6 +57,28 @@ class CommunicationRepository(
 
     suspend fun prepareCalling() { synchronize(requireExistingIdentity = true) }
 
+    /**
+     * #224: Owner-signed, read-only STAGING readiness check. Never creates an
+     * identity, changes Room, or calls deleteAccount. A true result reports
+     * media METADATA only; it is not proof of physical Storage erasure.
+     */
+    suspend fun checkAccountDeletionPreflight(): Boolean {
+        check(relay.configured) { "Sunucu hesap silme ön kontrolü kullanılamıyor." }
+        val own = identityMutex.withLock {
+            _identity.value ?: withContext(Dispatchers.IO) { identityStore.read() }
+                ?: error("Mevcut LANU kimliği bulunamadı; hiçbir veri değiştirilmedi.")
+        }
+        check(settingsDao.getSettingValue("lanu_full_restore_identity")?.let { it == own.id } != false) {
+            "Kimlik yedeği eşleşmiyor; hiçbir veri değiştirilmedi."
+        }
+        val result = relay.request(own, "checkAccountDeletion",
+            JSONObject().put("expectedCode", own.code))
+        check(result.length() == 1 && result.opt("storageReady") is Boolean) {
+            "Sunucu ön kontrol yanıtı doğrulanamadı; hiçbir veri değiştirilmedi."
+        }
+        return result.getBoolean("storageReady")
+    }
+
     suspend fun callPeerForConversation(id: String): CallPeer {
         val peer = peerForConversation(id) ?: error("Önce karşılıklı kişi kaydını tamamlayın.")
         return verifiedCallPeer(peer.getString("id")) ?: error("Arama için karşılıklı kişi kaydı gerekir.")
