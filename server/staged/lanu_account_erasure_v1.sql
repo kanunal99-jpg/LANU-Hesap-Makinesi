@@ -23,33 +23,51 @@ begin
   -- Fail closed on FK schema drift BEFORE deleting any related row. A new
   -- ON DELETE CASCADE edge can silently erase peer-owned records; unlike a
   -- default NO ACTION FK, it would not raise at the final identity DELETE.
+  -- Check exact FK child/parent columns and arity, not just per-table counts:
+  -- swapping an FK for another on the same table/mode must also fail closed.
   -- This is the reviewed full-schema inventory, not a dynamic allow-all.
   if exists (
-    with expected(parent_rel, child_rel, mode, edges) as (
+    with expected(parent_rel, child_rel, child_col, parent_col, mode, child_cols, parent_cols, edges) as (
       values
-        ('public.lanu_identities'::regclass, 'public.lanu_contacts'::regclass, 'a'::"char", 2),
-        ('public.lanu_identities'::regclass, 'public.lanu_messages'::regclass, 'a'::"char", 2),
-        ('public.lanu_identities'::regclass, 'public.lanu_events'::regclass, 'a'::"char", 1),
-        ('public.lanu_identities'::regclass, 'public.lanu_nonces'::regclass, 'a'::"char", 1),
-        ('public.lanu_identities'::regclass, 'public.lanu_media_objects'::regclass, 'a'::"char", 2),
-        ('public.lanu_identities'::regclass, 'public.lanu_call_signals'::regclass, 'c'::"char", 2),
-        ('public.lanu_identities'::regclass, 'public.lanu_call_wake_devices'::regclass, 'c'::"char", 1),
-        ('public.lanu_identities'::regclass, 'public.lanu_message_wake_devices'::regclass, 'c'::"char", 1),
-        ('public.lanu_identities'::regclass, 'public.lanu_message_wake_claims'::regclass, 'c'::"char", 2),
-        ('public.lanu_messages'::regclass, 'public.lanu_events'::regclass, 'a'::"char", 1),
-        ('public.lanu_messages'::regclass, 'public.lanu_message_wake_claims'::regclass, 'c'::"char", 1)
+        ('public.lanu_identities'::regclass, 'public.lanu_contacts'::regclass, 'owner_id', 'id', 'a'::"char", 1, 1, 1),
+        ('public.lanu_identities'::regclass, 'public.lanu_contacts'::regclass, 'peer_id', 'id', 'a'::"char", 1, 1, 1),
+        ('public.lanu_identities'::regclass, 'public.lanu_messages'::regclass, 'sender_id', 'id', 'a'::"char", 1, 1, 1),
+        ('public.lanu_identities'::regclass, 'public.lanu_messages'::regclass, 'recipient_id', 'id', 'a'::"char", 1, 1, 1),
+        ('public.lanu_identities'::regclass, 'public.lanu_events'::regclass, 'owner_id', 'id', 'a'::"char", 1, 1, 1),
+        ('public.lanu_identities'::regclass, 'public.lanu_nonces'::regclass, 'owner_id', 'id', 'a'::"char", 1, 1, 1),
+        ('public.lanu_identities'::regclass, 'public.lanu_media_objects'::regclass, 'sender_id', 'id', 'a'::"char", 1, 1, 1),
+        ('public.lanu_identities'::regclass, 'public.lanu_media_objects'::regclass, 'recipient_id', 'id', 'a'::"char", 1, 1, 1),
+        ('public.lanu_identities'::regclass, 'public.lanu_call_signals'::regclass, 'sender_id', 'id', 'c'::"char", 1, 1, 1),
+        ('public.lanu_identities'::regclass, 'public.lanu_call_signals'::regclass, 'recipient_id', 'id', 'c'::"char", 1, 1, 1),
+        ('public.lanu_identities'::regclass, 'public.lanu_call_wake_devices'::regclass, 'owner_id', 'id', 'c'::"char", 1, 1, 1),
+        ('public.lanu_identities'::regclass, 'public.lanu_message_wake_devices'::regclass, 'owner_id', 'id', 'c'::"char", 1, 1, 1),
+        ('public.lanu_identities'::regclass, 'public.lanu_message_wake_claims'::regclass, 'sender_id', 'id', 'c'::"char", 1, 1, 1),
+        ('public.lanu_identities'::regclass, 'public.lanu_message_wake_claims'::regclass, 'recipient_id', 'id', 'c'::"char", 1, 1, 1),
+        ('public.lanu_messages'::regclass, 'public.lanu_events'::regclass, 'message_id', 'id', 'a'::"char", 1, 1, 1),
+        ('public.lanu_messages'::regclass, 'public.lanu_message_wake_claims'::regclass, 'message_id', 'id', 'c'::"char", 1, 1, 1)
     ),
     actual as (
-      select confrelid as parent_rel, conrelid as child_rel,
-             confdeltype as mode, count(*)::integer as edges
-      from pg_catalog.pg_constraint
-      where contype = 'f'
-        and confrelid in ('public.lanu_identities'::regclass,
-                          'public.lanu_messages'::regclass)
-      group by confrelid, conrelid, confdeltype
+      select c.confrelid as parent_rel, c.conrelid as child_rel,
+             child_att.attname::text as child_col,
+             parent_att.attname::text as parent_col,
+             c.confdeltype as mode,
+             pg_catalog.array_length(c.conkey, 1) as child_cols,
+             pg_catalog.array_length(c.confkey, 1) as parent_cols,
+             count(*)::integer as edges
+      from pg_catalog.pg_constraint c
+      join pg_catalog.pg_attribute child_att
+        on child_att.attrelid = c.conrelid and child_att.attnum = c.conkey[1]
+      join pg_catalog.pg_attribute parent_att
+        on parent_att.attrelid = c.confrelid and parent_att.attnum = c.confkey[1]
+      where c.contype = 'f'
+        and c.confrelid in ('public.lanu_identities'::regclass,
+                            'public.lanu_messages'::regclass)
+      group by c.confrelid, c.conrelid, child_att.attname, parent_att.attname,
+               c.confdeltype, c.conkey, c.confkey
     )
     select 1 from expected e
-    full join actual a using (parent_rel, child_rel, mode)
+    full join actual a using
+      (parent_rel, child_rel, child_col, parent_col, mode, child_cols, parent_cols)
     where coalesce(e.edges, 0) <> coalesce(a.edges, 0)
   ) then
     raise exception 'Account schema review required before deletion';
