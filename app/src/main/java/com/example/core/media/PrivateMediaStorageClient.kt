@@ -80,7 +80,7 @@ internal class PrivateMediaStorageClient(
         return candidate.toString()
     }
 
-    private fun signedToken(signedUrl: String, token: String): String {
+    private fun validatedToken(signedUrl: String, token: String): String {
         require(token.length in 8..4096 && token.none { it.isWhitespace() }) {
             "Dosya gönderim izni geçersiz."
         }
@@ -108,7 +108,7 @@ internal class PrivateMediaStorageClient(
         signedUrl: String, signedToken: String
     ) = withContext(Dispatchers.IO) {
         val base = authorizedBase(signedUrl, fileId, upload = true)
-        val token = signedToken(signedUrl, signedToken)
+        val token = validatedToken(signedUrl, signedToken)
         require(expectedBytes in 17..PrivateMediaTransferBudget.MAX_RESERVED_CIPHER_BYTES &&
             encrypted.isFile && encrypted.length() == expectedBytes) {
             "Şifreli dosya boyutu beklenen değere uymuyor."
