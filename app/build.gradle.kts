@@ -93,7 +93,20 @@ android {
     compose = true
     buildConfig = true
   }
-  testOptions { unitTests { isIncludeAndroidResources = true } }
+  testOptions {
+    unitTests {
+      isIncludeAndroidResources = true
+      // Robolectric fetches android-all-instrumented outside Gradle's Maven
+      // resolver. Avoid intermittent repo1.maven.org HTTP failures without
+      // skipping, ignoring, or retrying any actual test assertions.
+      all {
+        it.systemProperty(
+          "robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2"
+        )
+        it.systemProperty("robolectric.dependency.repo.id", "mavenCentral")
+      }
+    }
+  }
   testBuildType = providers.gradleProperty("lanuDeviceBuildType").orNull ?: "debug"
   dependenciesInfo {
     includeInApk = false
