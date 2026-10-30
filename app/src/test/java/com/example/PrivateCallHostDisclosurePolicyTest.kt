@@ -15,6 +15,23 @@ class PrivateCallHostDisclosurePolicyTest {
         }
     }
 
+    @Test fun delayedPermissionCallbacksCannotStartPrivateOutgoingCallOverCalculator() {
+        assertFalse(PrivateCallHostDisclosurePolicy.mayCompletePermissionRequest(
+            privateAreaVisible = false, incoming = false
+        ))
+        assertTrue(PrivateCallHostDisclosurePolicy.mayCompletePermissionRequest(
+            privateAreaVisible = true, incoming = false
+        ))
+        // A separately consented and verified incoming call can still be
+        // answered without making the rest of the private area accessible.
+        assertTrue(PrivateCallHostDisclosurePolicy.mayCompletePermissionRequest(
+            privateAreaVisible = false, incoming = true
+        ))
+        assertTrue(PrivateCallHostDisclosurePolicy.mayCompletePermissionRequest(
+            privateAreaVisible = true, incoming = true
+        ))
+    }
+
     @Test fun authenticatedPrivateAreaCanShowItsOwnOutgoingDialogAndIdleFailureNotice() {
         assertTrue(PrivateCallHostDisclosurePolicy.mayShowOutgoingConfirmation(true))
         assertTrue(PrivateCallHostDisclosurePolicy.mayShowIdleNotice(true, NativeCallPhase.IDLE))
