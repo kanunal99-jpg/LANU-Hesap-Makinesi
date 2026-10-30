@@ -30,6 +30,7 @@ fun InlineMediaComposer(
     onCamera: () -> Unit,
     onDocument: () -> Unit,
     onLargeDocument: () -> Unit = {},
+    onLargePhoto: () -> Unit = {},
     onCancel: () -> Unit,
     onSend: (String, () -> Unit) -> Unit
 ) {
@@ -60,6 +61,11 @@ fun InlineMediaComposer(
                 text = { Text("Şifreli büyük belge (en fazla 40 MB)") },
                 leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null) },
                 onClick = { menu = false; onLargeDocument() }
+            )
+            DropdownMenuItem(
+                text = { Text("Yüksek kaliteli fotoğraf (EXIF temizlenir)") },
+                leadingIcon = { Icon(Icons.Default.ImageIcon, contentDescription = null) },
+                onClick = { menu = false; onLargePhoto() }
             )
         }
     }
