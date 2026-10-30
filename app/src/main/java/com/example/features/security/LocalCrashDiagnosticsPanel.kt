@@ -9,6 +9,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -26,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import com.example.core.diagnostics.CrashDiagnostics
 import com.example.core.diagnostics.LocalCrashReport
 import com.example.core.diagnostics.PrivateRelayHealth
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.text.DateFormat
@@ -61,6 +63,15 @@ fun LocalCrashDiagnosticsPanel() {
     var detailsVisible by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
     var relaySummary by remember { mutableStateOf(PrivateRelayHealth.safeSummary()) }
+    // The SDK may be unavailable in a debug build without Firebase config.
+    // Never make calculator startup or private settings depend on it.
+    var remoteEnabled by remember(context) {
+        mutableStateOf(runCatching {
+            FirebaseCrashlytics.getInstance().isCrashlyticsCollectionEnabled
+        }.getOrDefault(false))
+    }
+    var remoteError by remember { mutableStateOf<String?>(null) }
+    var confirmRemote by remember { mutableStateOf(false) }
 
     Card(Modifier.fillMaxWidth().testTag("private_crash_diagnostics")) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -96,6 +107,42 @@ fun LocalCrashDiagnosticsPanel() {
                 }
                 TextButton(onClick = { confirmClear = true }) { Text("Tanılama kaydını sil") }
             }
+            // This control is visible ONLY inside the unlocked private area.
+            // No custom keys, messages, identifiers, SDP, URLs or exceptions
+            // are ever forwarded by our code to the remote crash reporter.
+            Text("İsteğe bağlı uzaktan hata raporlama", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Firebase Crashlytics varsayılan kapalıdır. Açarsanız Android hata/ANR " +
+                    "ve teknik cihaz bilgileri Firebase'e iletilebilir. Daha önce cihazda " +
+                    "birikmiş hata raporları da gönderilebilir. Mesaj ve PIN paylaşmayın. " +
+                    "Kapatma, SDK gereği uygulama yeniden açıldığında kesinleşir.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Switch(
+                checked = remoteEnabled,
+                onCheckedChange = { requested ->
+                    remoteError = null
+                    if (requested) {
+                        // A second affirmative tap is required: a scroll or
+                        // accidental toggle cannot start telemetry.
+                        confirmRemote = true
+                    } else {
+                        val disabled = runCatching {
+                            FirebaseCrashlytics.getInstance().apply {
+                                setCrashlyticsCollectionEnabled(false)
+                                deleteUnsentReports()
+                            }
+                            true
+                        }.getOrDefault(false)
+                        if (disabled) remoteEnabled = false
+                        else remoteError = "Uzaktan raporlama kapatılamadı; interneti kesin ve uygulamayı yeniden başlatın."
+                    }
+                },
+                modifier = Modifier.testTag("private_crashlytics_opt_in")
+            )
+            if (remoteError != null) Text(remoteError!!, style = MaterialTheme.typography.bodySmall)
+            Text("Yerel tanılama uzaktan raporlamadan bağımsızdır.",
+                style = MaterialTheme.typography.bodySmall)
             Text("Android cihaz kapanış tanılaması", style = MaterialTheme.typography.titleSmall)
             Text(
                 "Android 11 ve üzerinde son 7 günün yalnızca güvenli kapanış nedeni ve zamanı gösterilir. " +
@@ -157,6 +204,35 @@ fun LocalCrashDiagnosticsPanel() {
                 Text("Oturum sayaçlarını sıfırla")
             }
         }
+    }
+
+    if (confirmRemote) {
+        AlertDialog(
+            onDismissRequest = { confirmRemote = false },
+            title = { Text("Uzaktan hata raporlamasını aç?") },
+            text = {
+                Text("Hata yığınları, cihaz bilgileri ve geçmişte bekleyen hata raporları " +
+                    "Firebase sunucusuna gidebilir. İstediğiniz zaman kapatabilirsiniz.")
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val enabled = runCatching {
+                        FirebaseCrashlytics.getInstance().apply {
+                            // Never attach a private user ID, PIN or custom keys.
+                            setCrashlyticsCollectionEnabled(true)
+                        }.isCrashlyticsCollectionEnabled
+                    }.getOrDefault(false)
+                    remoteEnabled = enabled
+                    if (!enabled) remoteError = "Firebase kurulumu doğrulanamadı; özellik kapalı kaldı."
+                    confirmRemote = false
+                }, modifier = Modifier.testTag("confirm_crashlytics_opt_in")) {
+                    Text("Anladım, etkinleştir")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRemote = false }) { Text("Vazgeç") }
+            }
+        )
     }
 
     if (confirmClear) {
