@@ -19,6 +19,23 @@ class PrivateMediaTransferHttpTest {
             url("sign"), id, upload = false))
     }
 
+    @Test fun encodedPathsAndNoncanonicalBearerTokensAreRejected() {
+        val valid = url("sign")
+        for (bad in listOf(
+            valid.replace("/v1/$id.cipher", "/v1/%61${id.drop(1)}.cipher"),
+            valid.replace("?token=$token", "?token=${token}%0A"),
+            valid.replace("?token=$token", "?token=${token}&token=another"),
+            valid.replace("?token=$token", "?token=short"),
+            valid.replace("?token=$token", "?token=${"c".repeat(4097)}"),
+            valid.replace("?token=$token", "?token=%62${token.drop(1)}"),
+            valid.replace("https://", "https://user:pass@")
+        )) {
+            assertTrue("Noncanonical signed grant must fail", runCatching {
+                PrivateMediaTransferHttp.verifyGrantUrl(bad, id, upload = false)
+            }.isFailure)
+        }
+    }
+
     @Test fun offSiteRedirectWrongModeHostPortAndPathAreRejected() {
         val valid = url("sign")
         for (bad in listOf(
