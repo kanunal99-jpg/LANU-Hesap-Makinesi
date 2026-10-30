@@ -85,6 +85,15 @@ begin
   -- Binary Storage objects are not transactional with Postgres. Refuse even
   -- partial metadata deletion while any associated object is unverified as
   -- purged. A separate signed Storage cleanup + evidence gate must precede.
+  --
+  -- Lock EVERY existing media row involving this owner, not only rows that
+  -- currently fail the state check. Otherwise a concurrent Storage worker
+  -- could change 'purged' back to 'ready' between verification and DELETE,
+  -- orphaning a physical object while erasing its cleanup metadata.
+  -- The identity FOR UPDATE above also blocks new FK-linked media inserts.
+  perform 1 from public.lanu_media_objects
+    where sender_id = p_owner or recipient_id = p_owner
+    for update;
   if exists (
     select 1 from public.lanu_media_objects
     where (sender_id = p_owner or recipient_id = p_owner)
