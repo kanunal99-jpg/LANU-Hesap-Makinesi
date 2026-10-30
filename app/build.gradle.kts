@@ -64,7 +64,9 @@ android {
       configure<CrashlyticsExtension> {
         mappingFileUploadEnabled =
           System.getenv("GITHUB_EVENT_NAME") in setOf("push", "workflow_dispatch") &&
-          System.getenv("GITHUB_REF") in setOf("refs/heads/main", "refs/heads/master")
+          System.getenv("GITHUB_REF") in setOf("refs/heads/main", "refs/heads/master") &&
+          System.getenv("LANU_FIREBASE_CONFIG_VERIFIED") == "true" &&
+          file("google-services.json").isFile
       }
       isCrunchPngs = false
       isMinifyEnabled = true

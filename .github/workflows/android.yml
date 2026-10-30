@@ -64,6 +64,9 @@ jobs:
             exit 1
           fi
           echo "Verified Firebase Android config installed for LANU; continuing build (content withheld)."
+          # Job-local approval is issued ONLY after the protected client config
+          # installer succeeds. API34/OTA emulator jobs never receive this flag.
+          echo "LANU_FIREBASE_CONFIG_VERIFIED=true" >> "$GITHUB_ENV"
 
       - name: Test privacy-safe WebRTC native failure explanations
         run: python3 -m unittest discover -s scripts -p 'test_rtc_failure_diagnose.py'

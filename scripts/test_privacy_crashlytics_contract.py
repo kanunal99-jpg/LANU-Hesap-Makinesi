@@ -25,6 +25,12 @@ class CrashlyticsPrivacyContractTest(unittest.TestCase):
         self.assertIn('System.getenv("GITHUB_EVENT_NAME") in setOf("push", "workflow_dispatch")', module)
         self.assertIn('System.getenv("GITHUB_REF") in setOf("refs/heads/main", "refs/heads/master")', module)
         self.assertIn('mappingFileUploadEnabled = false', module)
+        # All jobs compile the release variant, but only the trusted build
+        # with verified Firebase configuration may upload the mapping file.
+        self.assertIn('System.getenv("LANU_FIREBASE_CONFIG_VERIFIED") == "true"', module)
+        self.assertIn('file("google-services.json").isFile', module)
+        workflow = (ROOT / ".github/workflows/android.yml").read_text()
+        self.assertIn('echo "LANU_FIREBASE_CONFIG_VERIFIED=true" >> "$GITHUB_ENV"', workflow)
         self.assertIn('confirmRemote = true', private_panel)
         self.assertIn('setCrashlyticsCollectionEnabled(true)', private_panel)
         self.assertIn('setCrashlyticsCollectionEnabled(false)', private_panel)
