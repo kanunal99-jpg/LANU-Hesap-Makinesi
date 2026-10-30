@@ -4,6 +4,8 @@ import com.example.core.messaging.MessageWakeNotification
 import com.example.core.messaging.MessageWakePolicy
 import com.example.core.messaging.MessageWakePreferences
 import com.example.core.messaging.MessageWakeTokenRefreshWorker
+import com.example.core.messaging.MessageWakeSyncWorker
+import com.example.core.messaging.MessageWakeSyncPolicy
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 
@@ -17,7 +19,18 @@ class CallWakeMessagingService : FirebaseMessagingService() {
         // Never enqueue a chat sync, activity launch or media capture here.
         when (message.data["type"]) {
             CallWakePolicy.TYPE -> CallWakeNotification.show(applicationContext, message.data)
-            MessageWakePolicy.TYPE -> MessageWakeNotification.show(applicationContext, message.data)
+            MessageWakePolicy.TYPE -> {
+                // An opt-in FCM hint schedules only a bounded, metadata-free
+                // encrypted sync. The hint never authenticates a peer, opens
+                // private UI, creates an identity or carries message content.
+                if (MessageWakeSyncPolicy.shouldSchedule(
+                        MessageWakePreferences.isEnabled(applicationContext),
+                        MessageWakePolicy.eligible(message.data, System.currentTimeMillis())
+                    )) {
+                    MessageWakeSyncWorker.enqueue(applicationContext)
+                }
+                MessageWakeNotification.show(applicationContext, message.data)
+            }
             else -> Unit // Never show an unrecognized notification.
         }
     }

@@ -71,6 +71,9 @@ class NativeCallEngine(
     // Thread-safe evidence tracker rejects cumulative RTP packets from prior ICE epochs.
     private val rtpEvidence = CallRtpEvidenceTracker()
     private val statsRequestSequence = AtomicLong()
+    // Video-only adaptation never changes the existing Opus/AEC/NS/AGC path.
+    private val videoBitratePolicy = AdaptiveVideoBitratePolicy()
+    private var lastVideoStatsSequence = 0L
     @Volatile private var lastCandidateAt = 0L
     private var renderers: CallVideoRendererBindings? = null
 
@@ -400,16 +403,52 @@ class NativeCallEngine(
         connection?.getStats { report ->
             if (closing.get()) return@getStats
             var received = 0L; var sent = 0L
+            var remoteVideoLoss: Double? = null
+            var remoteVideoRttMs: Double? = null
             for (stat in report.statsMap.values) {
                 val kind = stat.members["kind"] ?: stat.members["mediaType"]
-                if (kind != "audio") continue
-                if (stat.type == "inbound-rtp")
-                    received = CallRtpCountPolicy.add(received, stat.members["packetsReceived"])
-                if (stat.type == "outbound-rtp")
-                    sent = CallRtpCountPolicy.add(sent, stat.members["packetsSent"])
+                if (kind == "audio") {
+                    if (stat.type == "inbound-rtp")
+                        received = CallRtpCountPolicy.add(received, stat.members["packetsReceived"])
+                    if (stat.type == "outbound-rtp")
+                        sent = CallRtpCountPolicy.add(sent, stat.members["packetsSent"])
+                }
+                // Remote inbound RTP describes what the peer actually received.
+                // Never infer network quality from local cumulative packet counts.
+                if (kind == "video" && stat.type == "remote-inbound-rtp") {
+                    remoteVideoLoss = (stat.members["fractionLost"] as? Number)?.toDouble()
+                    remoteVideoRttMs = (stat.members["roundTripTime"] as? Number)
+                        ?.toDouble()?.times(1000.0)
+                }
             }
             rtpEvidence.observe(snapshotEpoch, received, sent,
                 snapshotSequence = snapshotSequence)?.let(evidence)
+            if (remoteVideoLoss != null || remoteVideoRttMs != null) {
+                val loss = remoteVideoLoss
+                val rtt = remoteVideoRttMs
+                scope.launch {
+                    if (closing.get() || !videoEnabled ||
+                        snapshotSequence <= lastVideoStatsSequence) return@launch
+                    lastVideoStatsSequence = snapshotSequence
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    val target = videoBitratePolicy.recommend(loss, rtt, now) ?: return@launch
+                    val sender = connection?.senders?.firstOrNull {
+                        it.track()?.kind() == "video"
+                    } ?: return@launch
+                    val applied = try {
+                        val parameters = sender.parameters
+                        if (parameters.encodings.isEmpty()) false
+                        else {
+                            parameters.encodings.forEach { it.maxBitrateBps = target }
+                            sender.setParameters(parameters)
+                        }
+                    } catch (_: RuntimeException) { false }
+                      catch (_: LinkageError) { false }
+                    // A rejected OEM/WebRTC setting is not a successful change.
+                    // Keep the call and its original encoder running.
+                    videoBitratePolicy.attemptFinished(target, now, applied)
+                }
+            }
         }
     }
     private val observer = object : EmptyPeerObserver() {
