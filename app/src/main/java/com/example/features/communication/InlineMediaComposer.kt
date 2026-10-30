@@ -29,6 +29,7 @@ fun InlineMediaComposer(
     onPhoto: () -> Unit,
     onCamera: () -> Unit,
     onDocument: () -> Unit,
+    onLargeDocument: () -> Unit = {},
     onCancel: () -> Unit,
     onSend: (String, () -> Unit) -> Unit
 ) {
@@ -54,6 +55,11 @@ fun InlineMediaComposer(
                 text = { Text("Küçük PDF / TXT (18 KB)") },
                 leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null) },
                 onClick = { menu = false; onDocument() }
+            )
+            DropdownMenuItem(
+                text = { Text("Şifreli büyük belge (en fazla 40 MB)") },
+                leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null) },
+                onClick = { menu = false; onLargeDocument() }
             )
         }
     }
