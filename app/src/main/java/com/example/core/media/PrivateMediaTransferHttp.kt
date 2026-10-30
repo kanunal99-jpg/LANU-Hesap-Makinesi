@@ -161,10 +161,10 @@ internal object PrivateMediaTransferHttp {
             }
         }
         val request = Request.Builder().url(address).put(requestBody).build()
-        withCancellableResponse(request) { response ->
+        withCancellableResponse(request, process = { response ->
             if (response.code !in 200..299)
                 throw IOException("Şifreli dosya yüklenemedi. Tekrar deneyin.")
-        }
+        })
     }
 
     suspend fun downloadCiphertext(
@@ -179,7 +179,7 @@ internal object PrivateMediaTransferHttp {
         val destination = File.createTempFile("lanu-media-v1-", ".cipher", privateDirectory)
         try {
             val request = Request.Builder().url(address).get().build()
-            withCancellableResponse(request) { response ->
+            withCancellableResponse(request, process = { response ->
                 require(response.code == 200 && !response.isRedirect) {
                     "Güvenli medya indirilemedi."
                 }
@@ -202,7 +202,7 @@ internal object PrivateMediaTransferHttp {
                     }
                     output.fd.sync()
                 }
-            }
+            })
             require(destination.length() == expectedBytes) { "Şifreli dosya eksik indirildi." }
             destination
         } catch (e: Throwable) {
