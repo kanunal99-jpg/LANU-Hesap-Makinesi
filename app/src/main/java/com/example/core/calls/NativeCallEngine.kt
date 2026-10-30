@@ -494,9 +494,13 @@ class NativeCallEngine(
             // Only fresh inbound AND outbound RTP after this transport epoch
             // can restore the "Connected" label following an ICE interruption.
             val action = CallIceConnectionPolicy.classify(state)
-            evidence(rtpEvidence.updateTransport(
+            val mediaEvidence = rtpEvidence.updateTransport(
                 action == CallIceConnectionPolicy.Action.MEDIA_CONNECTED
-            ))
+            )
+            // Only a native FAILED callback expedites recovery. A merely
+            // DISCONNECTED handover retains normal grace for self-healing.
+            evidence(if (state == PeerConnection.PeerConnectionState.FAILED)
+                mediaEvidence.copy(iceFailed = true) else mediaEvidence)
             // FAILED/DISCONNECTED are recoverable for one authenticated,
             // foreground-owned ICE restart. An immediate failure callback here
             // would race its evidence callback and terminate the call first.
