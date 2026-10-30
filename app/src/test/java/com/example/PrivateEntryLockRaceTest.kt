@@ -42,7 +42,7 @@ class PrivateEntryLockRaceTest {
             val delegate = db.settingsDao()
             val dao = object : SettingsDao by delegate {
                 override suspend fun getSettingValue(key: String): String? {
-                    if (key == "pin_hash" && pauseEntry) {
+                    if (key == "entry_pin_enabled" && pauseEntry) {
                         entered.complete(Unit)
                         release.await()
                     }
