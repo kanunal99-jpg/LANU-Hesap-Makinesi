@@ -179,14 +179,22 @@ object PrivateMediaCrypto {
         validate(manifest)
         require(keyMaterial.size == KEY_BYTES) { "Dosya anahtarı geçersiz." }
         require(privateDirectory.isDirectory) { "Özel dosya alanı bulunamadı." }
-        // Remote downloads must be staged in the owner's app-private cache.
-        // Reject outside paths and symlinks, even with a valid hash, rather
-        // than reading attacker-controlled world-readable or shared files.
-        require(encrypted.isFile &&
-            encrypted.canonicalFile.parentFile == privateDirectory.canonicalFile &&
+        // The caller MUST provide context.cacheDir/filesDir or a verified
+        // private child directory: a File argument alone cannot prove Android
+        // app ownership. Reject direct symlinks (including those targeting a
+        // different file in the SAME private directory) and path traversal.
+        // No follow-symlink / race-free open guarantee is claimed here: before
+        // enabling remote downloads the owner must bind a protected staging
+        // directory and use a no-follow file-descriptor open on Android.
+        val canonicalDirectory = privateDirectory.canonicalFile
+        val canonicalEncrypted = encrypted.canonicalFile
+        require(privateDirectory.absoluteFile == canonicalDirectory &&
+            encrypted.absoluteFile == canonicalEncrypted &&
+            canonicalEncrypted.parentFile == canonicalDirectory &&
+            encrypted.isFile &&
             encrypted.length() ==
             manifest.plainBytes + manifest.chunks * GCM_TAG_BYTES.toLong()) {
-            "Şifreli dosya özel alanda değil veya boyutu geçersiz."
+            "Şifreli dosya özel alanda değil, sembolik bağlantı veya boyutu geçersiz."
         }
         // Verify the complete encrypted object BEFORE writing even a temporary
         // plaintext byte. This prevents a wrong SHA manifest or truncated
