@@ -70,3 +70,48 @@ test('transaction failure or zero deleted rows never becomes a false success res
   // No client or local database state is destroyed by this server gate.
   assert.equal(f.store.users.has(f.alice.id),true);
 });
+
+test('staged read-only account deletion preflight is owner signed and disabled in production', async () => {
+  const f = await fixture();
+  const calls = [];
+  f.store.accountDeletionPreflight = async (owner, expectedCode) => {
+    calls.push({owner, expectedCode});
+    return {storageReady: false};
+  };
+  const payload = {expectedCode: f.alice.code};
+  await assert.rejects(f.relay(envelope(f.alice,'checkAccountDeletion',payload)),{status:503});
+  assert.equal(calls.length,0, 'default Edge must not call the staging RPC');
+
+  const relay = createRelay(f.store, Date.now, {accountDeletionEnabled:true});
+  for (const data of [
+    {}, {expectedCode:f.bob.code}, {...payload,accountId:f.bob.id},
+    {...payload,peerId:f.bob.id}, {...payload,force:true}
+  ]) {
+    await assert.rejects(relay(envelope(f.alice,'checkAccountDeletion',data)),{status:409});
+  }
+  await assert.rejects(relay(envelope(f.bob,'checkAccountDeletion',payload)),{status:409});
+  await assert.rejects(relay(envelope(f.bob,'checkAccountDeletion',payload,
+    {identityId:f.alice.id})),{status:401});
+  assert.equal(calls.length,0);
+
+  const valid = envelope(f.alice,'checkAccountDeletion',payload);
+  assert.deepEqual(await relay(valid),{storageReady:false});
+  assert.deepEqual(calls,[{owner:f.alice.id,expectedCode:f.alice.code}]);
+  await assert.rejects(relay(valid),{status:409},'signed nonce replay is forbidden');
+  assert.equal(calls.length,1);
+  assert.equal(f.store.users.size,3,'read-only preflight never removes an identity');
+});
+
+test('preflight refuses malformed RPC results and never equates metadata with deletion', async () => {
+  const f = await fixture();
+  const relay = createRelay(f.store, Date.now, {accountDeletionEnabled:true});
+  const request = () => envelope(f.alice,'checkAccountDeletion',{expectedCode:f.alice.code});
+  for (const result of [null, {}, {storageReady:'true'}, {storageReady:1}]) {
+    f.store.accountDeletionPreflight = async () => result;
+    await assert.rejects(relay(request()),{status:503});
+  }
+  f.store.accountDeletionPreflight = async () => ({storageReady:true, deleted:true, token:'SECRET'});
+  assert.deepEqual(await relay(request()),{storageReady:true},
+    'only the advisory boolean is returned; never claim account deletion or leak backend fields');
+  assert.equal(f.store.users.has(f.alice.id),true);
+});
