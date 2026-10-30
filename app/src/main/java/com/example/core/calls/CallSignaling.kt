@@ -80,6 +80,12 @@ class CallPeer(val id: String, val code: String, val name: String, internal val 
 class ReceivedCallSignal(val peer: CallPeer, val signal: CallSignal)
 
 /** A connection badge requires actual transport and audio packet counters. */
-data class CallMediaEvidence(val transportConnected: Boolean = false, val receivedAudio: Long = 0, val sentAudio: Long = 0) {
+data class CallMediaEvidence(
+    val transportConnected: Boolean = false,
+    val receivedAudio: Long = 0,
+    val sentAudio: Long = 0,
+    /** True only for native WebRTC PeerConnectionState.FAILED; never inferred from silence. */
+    val iceFailed: Boolean = false
+) {
     val connected: Boolean get() = transportConnected && receivedAudio > 0 && sentAudio > 0
 }
