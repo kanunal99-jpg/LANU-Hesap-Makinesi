@@ -20,6 +20,41 @@ begin
     raise exception 'Invalid account deletion request';
   end if;
 
+  -- Fail closed on FK schema drift BEFORE deleting any related row. A new
+  -- ON DELETE CASCADE edge can silently erase peer-owned records; unlike a
+  -- default NO ACTION FK, it would not raise at the final identity DELETE.
+  -- This is the reviewed full-schema inventory, not a dynamic allow-all.
+  if exists (
+    with expected(parent_rel, child_rel, mode, edges) as (
+      values
+        ('public.lanu_identities'::regclass, 'public.lanu_contacts'::regclass, 'a'::"char", 2),
+        ('public.lanu_identities'::regclass, 'public.lanu_messages'::regclass, 'a'::"char", 2),
+        ('public.lanu_identities'::regclass, 'public.lanu_events'::regclass, 'a'::"char", 1),
+        ('public.lanu_identities'::regclass, 'public.lanu_nonces'::regclass, 'a'::"char", 1),
+        ('public.lanu_identities'::regclass, 'public.lanu_media_objects'::regclass, 'a'::"char", 2),
+        ('public.lanu_identities'::regclass, 'public.lanu_call_signals'::regclass, 'c'::"char", 2),
+        ('public.lanu_identities'::regclass, 'public.lanu_call_wake_devices'::regclass, 'c'::"char", 1),
+        ('public.lanu_identities'::regclass, 'public.lanu_message_wake_devices'::regclass, 'c'::"char", 1),
+        ('public.lanu_identities'::regclass, 'public.lanu_message_wake_claims'::regclass, 'c'::"char", 2),
+        ('public.lanu_messages'::regclass, 'public.lanu_events'::regclass, 'a'::"char", 1),
+        ('public.lanu_messages'::regclass, 'public.lanu_message_wake_claims'::regclass, 'c'::"char", 1)
+    ),
+    actual as (
+      select confrelid as parent_rel, conrelid as child_rel,
+             confdeltype as mode, count(*)::integer as edges
+      from pg_catalog.pg_constraint
+      where contype = 'f'
+        and confrelid in ('public.lanu_identities'::regclass,
+                          'public.lanu_messages'::regclass)
+      group by confrelid, conrelid, confdeltype
+    )
+    select 1 from expected e
+    full join actual a using (parent_rel, child_rel, mode)
+    where coalesce(e.edges, 0) <> coalesce(a.edges, 0)
+  ) then
+    raise exception 'Account schema review required before deletion';
+  end if;
+
   -- An exclusive lock on the identity row blocks new FK references until
   -- the operation commits. Existing signed requests have a short lifetime.
   perform pg_advisory_xact_lock(hashtextextended(p_owner, 0));
