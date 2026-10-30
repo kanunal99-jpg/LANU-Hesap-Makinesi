@@ -179,29 +179,30 @@ object PrivateMediaCrypto {
         validate(manifest)
         require(keyMaterial.size == KEY_BYTES) { "Dosya anahtarı geçersiz." }
         require(privateDirectory.isDirectory) { "Özel dosya alanı bulunamadı." }
-        // The caller MUST provide context.cacheDir/filesDir or a verified
-        // private child directory: a File argument alone cannot prove Android
-        // app ownership. Reject direct symlinks (including those targeting a
-        // different file in the SAME private directory) and path traversal.
-        // No follow-symlink / race-free open guarantee is claimed here: before
-        // enabling remote downloads the owner must bind a protected staging
-        // directory and use a no-follow file-descriptor open on Android.
+        // The caller MUST supply an app-owned cache/files staging directory.
+        // Canonical validation rejects stable direct/parent symlinks and traversal.
+        // This does NOT yet provide an atomic no-follow open for a hostile parent
+        // path: large-media network downloading remains disabled until then.
         val canonicalDirectory = privateDirectory.canonicalFile
         val canonicalEncrypted = encrypted.canonicalFile
+        val expectedCipherBytes = manifest.plainBytes + manifest.chunks * GCM_TAG_BYTES.toLong()
         require(privateDirectory.absoluteFile == canonicalDirectory &&
             encrypted.absoluteFile == canonicalEncrypted &&
             canonicalEncrypted.parentFile == canonicalDirectory &&
             encrypted.isFile &&
-            encrypted.length() ==
-            manifest.plainBytes + manifest.chunks * GCM_TAG_BYTES.toLong()) {
+            encrypted.length() == expectedCipherBytes) {
             "Şifreli dosya özel alanda değil, sembolik bağlantı veya boyutu geçersiz."
         }
-        // Verify the complete encrypted object BEFORE writing even a temporary
-        // plaintext byte. This prevents a wrong SHA manifest or truncated
-        // object from creating any private plaintext at all. GCM tags still
-        // authenticate each block independently on the following pass.
-        val fullDigest = MessageDigest.getInstance("SHA-256")
+
+        // Open ONCE and pin this descriptor across the SHA and GCM passes.
+        // A renamed/replaced path must never silently swap the ciphertext after
+        // digest verification. A live uploader must use the same discipline.
         FileInputStream(encrypted).use { source ->
+            val channel = source.channel
+            require(channel.size() == expectedCipherBytes) {
+                "Şifreli medya dosya boyutu doğrulanamadı."
+            }
+            val fullDigest = MessageDigest.getInstance("SHA-256")
             val buffer = ByteArray(CHUNK_BYTES)
             var total = 0L
             var stalledReads = 0
@@ -214,29 +215,32 @@ object PrivateMediaCrypto {
                 }
                 stalledReads = 0
                 total += count
-                require(total <= manifest.plainBytes +
-                    manifest.chunks * GCM_TAG_BYTES.toLong()) {
+                require(total <= expectedCipherBytes) {
                     "Şifreli medya boyutu güvenli sınırı aşıyor."
                 }
                 fullDigest.update(buffer, 0, count)
             }
-        }
-        require(MessageDigest.isEqual(
-            fullDigest.digest(), fromHex(manifest.cipherSha256)
-        )) { "Şifreli dosya özeti eşleşmiyor." }
+            require(total == expectedCipherBytes &&
+                MessageDigest.isEqual(fullDigest.digest(), fromHex(manifest.cipherSha256))) {
+                "Şifreli dosya özeti eşleşmiyor."
+            }
+            require(channel.size() == expectedCipherBytes) {
+                "Şifreli medya doğrulama sırasında değişti."
+            }
+            channel.position(0L)
 
-        val plain = File.createTempFile("lanu-verified-", ".private", privateDirectory)
-        val fileId = fromHex(manifest.fileId)
-        val prefix = fromHex(manifest.noncePrefix)
-        val digest = MessageDigest.getInstance("SHA-256")
-        try {
-            FileInputStream(encrypted).use { source ->
+            // Nothing is decrypted before the complete ciphertext SHA passes.
+            val plain = File.createTempFile("lanu-verified-", ".private", privateDirectory)
+            val fileId = fromHex(manifest.fileId)
+            val prefix = fromHex(manifest.noncePrefix)
+            val decryptedDigest = MessageDigest.getInstance("SHA-256")
+            try {
                 FileOutputStream(plain).use { sink ->
                     var processed = 0L
                     for (index in 0 until manifest.chunks) {
                         val size = minOf(CHUNK_BYTES.toLong(), manifest.plainBytes - processed).toInt()
                         val chunk = readExactly(source, size + GCM_TAG_BYTES)
-                        digest.update(chunk)
+                        decryptedDigest.update(chunk)
                         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
                         cipher.init(
                             Cipher.DECRYPT_MODE,
@@ -245,24 +249,31 @@ object PrivateMediaCrypto {
                         )
                         cipher.updateAAD(aad(fileId, manifest.mime, manifest.plainBytes,
                             manifest.chunks, index, size))
-                        val decrypted = cipher.doFinal(chunk)  // Throws if tag wrong.
-                        check(decrypted.size == size)
-                        sink.write(decrypted)
-                        Arrays.fill(decrypted, 0)
+                        val decrypted = cipher.doFinal(chunk)
+                        try {
+                            check(decrypted.size == size)
+                            sink.write(decrypted)
+                        } finally {
+                            Arrays.fill(decrypted, 0)
+                            Arrays.fill(chunk, 0)
+                        }
                         processed += size
                     }
                     require(source.read() == -1) { "Şifreli dosyada fazla veri bulunuyor." }
                     sink.fd.sync()
                 }
+                // Detect in-place mutation during the second pass too; discard
+                // all temporary plaintext rather than exposing a mixed object.
+                require(channel.size() == expectedCipherBytes &&
+                    MessageDigest.isEqual(decryptedDigest.digest(), fromHex(manifest.cipherSha256))) {
+                    "Şifreli dosya doğrulama sırasında değişti."
+                }
+                check(plain.length() == manifest.plainBytes)
+                return plain
+            } catch (error: Throwable) {
+                plain.delete()
+                throw error
             }
-            require(MessageDigest.isEqual(digest.digest(), fromHex(manifest.cipherSha256))) {
-                "Şifreli dosya özeti eşleşmiyor."
-            }
-            check(plain.length() == manifest.plainBytes)
-            return plain
-        } catch (error: Throwable) {
-            plain.delete()
-            throw error
         }
     }
 
