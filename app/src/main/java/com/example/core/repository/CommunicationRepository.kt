@@ -544,11 +544,24 @@ class CommunicationRepository(
                 grant.getString("cipherSha256") == reservation.cipherSha256) {
                 "Yükleme izni dosyayla eşleşmiyor."
             }
-            PrivateMediaTransferHttp.uploadCiphertext(grant.getString("url"),
-                manifest.fileId, prepared.ciphertextFile, manifest, privateDirectory)
-
-            val accepted = relay.request(own, "mediaComplete",
-                JSONObject().put("fileId", manifest.fileId))
+            // A proxy may drop the upload HTTP response *after* Storage has
+            // committed the ciphertext. A failed PUT cannot be treated as
+            // success; only the trusted relay's complete-object SHA verification
+            // may recover that lost-ACK case.
+            var uploadError: java.io.IOException? = null
+            try {
+                PrivateMediaTransferHttp.uploadCiphertext(grant.getString("url"),
+                    manifest.fileId, prepared.ciphertextFile, manifest, privateDirectory)
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: java.io.IOException) { uploadError = e }
+            val accepted = try {
+                relay.request(own, "mediaComplete",
+                    JSONObject().put("fileId", manifest.fileId))
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) {
+                if (uploadError != null) throw uploadError
+                throw e
+            }
             check(accepted.getString("fileId") == manifest.fileId &&
                 accepted.getString("state") == "ready") { "Dosya bütünlüğü onaylanmadı." }
 
