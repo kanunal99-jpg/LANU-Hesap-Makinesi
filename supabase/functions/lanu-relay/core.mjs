@@ -500,6 +500,26 @@ export class RestStore {
     return rows.length === 1 && rows[0].state === 'ready' &&
       rows[0].file_id === record.file_id;
   }
+  async expiredMedia(nowMs, limit) {
+    if (!Number.isSafeInteger(nowMs) || nowMs < 1 ||
+        !Number.isInteger(limit) || limit < 1 || limit > 25)
+      throw new RelayError(400, 'Geçersiz temizlik sınırı.');
+    const timestamp = encodeURIComponent(new Date(nowMs).toISOString());
+    return this.query('lanu_media_objects?expires_at=lte.' + timestamp +
+      '&state=in.(pending,ready,cancelled)' +
+      '&select=file_id,state,expires_at&order=expires_at.asc&limit=' + limit);
+  }
+  async markMediaPurged(fileId, priorState, nowMs) {
+    if (!mediaFileId.test(fileId ?? '') ||
+        !['pending', 'ready', 'cancelled'].includes(priorState) ||
+        !Number.isSafeInteger(nowMs) || nowMs < 1)
+      throw new RelayError(400, 'Geçersiz medya durum geçişi.');
+    const timestamp = encodeURIComponent(new Date(nowMs).toISOString());
+    const rows = await this.query('lanu_media_objects?file_id=eq.' + fileId +
+      '&state=eq.' + priorState + '&expires_at=lte.' + timestamp,
+      'PATCH', { state: 'purged' }, 'return=representation');
+    return Array.isArray(rows) && rows.length === 1 && rows[0].state === 'purged';
+  }
   async reserveMedia({ owner, peer, fileId, messageId, cipherBytes, cipherSha256 }) {
     return this.query('rpc/lanu_reserve_private_media', 'POST', {
       p_owner: owner, p_peer: peer, p_file: fileId,
