@@ -29,6 +29,14 @@ export function createPrivateMediaTransfer({ store, storage, now = Date.now }) {
         typeof fileId !== 'string' || !FILE_ID.test(fileId)) throw reject(400, BAD_REQUEST);
     const row = await store.mediaReservation(fileId);
     if (!row) throw reject(404, 'Dosya bulunamadı veya süresi doldu.');
+    // Revoking either contact immediately prevents NEW signed grants.
+    if (typeof store.mutual !== 'function' ||
+        !await store.mutual(row.sender_id, row.recipient_id))
+      throw reject(403, 'Karşılıklı kişi kaydı artık geçerli değil.');
+    if (typeof store.mediaVersion !== 'function' ||
+        await store.mediaVersion(row.sender_id) !== 1 ||
+        await store.mediaVersion(row.recipient_id) !== 1)
+      throw reject(409, 'İki cihazın medya sürümü uyumlu değil.');
     let plan;
     try { plan = authorizePrivateMediaGrant(owner, mode, row, now()); }
     catch { throw reject(403, 'Dosyaya erişim izni bulunamadı.'); }
