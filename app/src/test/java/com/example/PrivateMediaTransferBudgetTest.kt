@@ -117,6 +117,57 @@ class PrivateMediaTransferBudgetTest {
         }
     }
 
+    @Test fun reservationRejectsSameDirectorySymlinkEvenForAuthenticCiphertext() {
+        val dir = work.newFolder("reservation-private")
+        val source = ByteArray(2_080) { it.toByte() }
+        val encrypted = PrivateMediaCrypto.encryptToPrivateFile(
+            ByteArrayInputStream(source), source.size.toLong(), "image/jpeg", dir
+        )
+        val alias = java.io.File(dir, "lanu-media-v1-alias.cipher")
+        try {
+            java.nio.file.Files.createSymbolicLink(
+                alias.toPath(), encrypted.ciphertextFile.toPath().fileName
+            )
+            // The symlink matches the naming scheme, size, SHA-256 and parent.
+            // The production preflight must still reject it.
+            rejected {
+                PrivateMediaTransferBudget.verifyForReservation(
+                    alias, encrypted.manifest, dir
+                )
+            }
+            val verified = PrivateMediaTransferBudget.verifyForReservation(
+                encrypted.ciphertextFile, encrypted.manifest, dir
+            )
+            assertEquals(encrypted.manifest.cipherSha256, verified.cipherSha256)
+        } finally {
+            alias.delete()
+            encrypted.destroyKey()
+            encrypted.ciphertextFile.delete()
+        }
+    }
+
+    @Test fun reservationRejectsSymlinkedStagingParent() {
+        val dir = work.newFolder("reservation-real-dir")
+        val alias = java.io.File(work.root, "reservation-alias")
+        val bytes = ByteArray(17) { (it + 1).toByte() }
+        val encrypted = PrivateMediaCrypto.encryptToPrivateFile(
+            ByteArrayInputStream(bytes), bytes.size.toLong(), "text/plain", dir
+        )
+        try {
+            java.nio.file.Files.createSymbolicLink(alias.toPath(), dir.toPath())
+            rejected {
+                PrivateMediaTransferBudget.verifyForReservation(
+                    java.io.File(alias, encrypted.ciphertextFile.name),
+                    encrypted.manifest, alias
+                )
+            }
+        } finally {
+            alias.delete()
+            encrypted.destroyKey()
+            encrypted.ciphertextFile.delete()
+        }
+    }
+
     @Test fun stagedCipherBytesMustMatchReservationExactly() {
         val ciphertext = work.newFile("encrypted.bin")
         ciphertext.writeBytes(ByteArray(17))
