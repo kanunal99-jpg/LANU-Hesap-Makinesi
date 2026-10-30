@@ -424,6 +424,8 @@ class NativeCallEngine(
             var received = 0L; var sent = 0L
             var remoteVideoLoss: Double? = null
             var remoteVideoRttMs: Double? = null
+            var remoteAudioLoss: Double? = null
+            var remoteAudioRttMs: Double? = null
             for (stat in report.statsMap.values) {
                 val kind = stat.members["kind"] ?: stat.members["mediaType"]
                 if (kind == "audio") {
@@ -434,6 +436,11 @@ class NativeCallEngine(
                 }
                 // Remote inbound RTP describes what the peer actually received.
                 // Never infer network quality from local cumulative packet counts.
+                if (kind == "audio" && stat.type == "remote-inbound-rtp") {
+                    remoteAudioLoss = (stat.members["fractionLost"] as? Number)?.toDouble()
+                    remoteAudioRttMs = (stat.members["roundTripTime"] as? Number)
+                        ?.toDouble()?.times(1000.0)
+                }
                 if (kind == "video" && stat.type == "remote-inbound-rtp") {
                     remoteVideoLoss = (stat.members["fractionLost"] as? Number)?.toDouble()
                     remoteVideoRttMs = (stat.members["roundTripTime"] as? Number)
@@ -442,9 +449,14 @@ class NativeCallEngine(
             }
             rtpEvidence.observe(snapshotEpoch, received, sent,
                 snapshotSequence = snapshotSequence)?.let(evidence)
-            if (remoteVideoLoss != null || remoteVideoRttMs != null) {
-                val loss = remoteVideoLoss
-                val rtt = remoteVideoRttMs
+            val voiceFirst = VoiceFirstNetworkPolicy.select(
+                remoteVideoLoss, remoteVideoRttMs, remoteAudioLoss, remoteAudioRttMs
+            )
+            if (voiceFirst.available) {
+                // Keep full-rate microphone; downshift video when audio is
+                // dropping, even if video-only statistics still look good.
+                val loss = voiceFirst.loss
+                val rtt = voiceFirst.rttMs
                 scope.launch {
                     if (closing.get() || !videoEnabled ||
                         snapshotSequence <= lastVideoStatsSequence) return@launch

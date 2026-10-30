@@ -14,7 +14,7 @@ import java.util.UUID
 
 // WebRTC evidence is sampled about once per second. Waiting longer than one
 // sample gives a brief self-healing radio handover time to earn fresh RTP
-// evidence before spending the only signed ICE restart. The separate 25s
+// evidence before spending a bounded authenticated ICE restart. The separate 25s
 // call deadline still bounds genuine outages.
 internal const val ICE_RESTART_GRACE_MS = 2_250L
 // RTP stats are sampled once per second. An old CONNECTED UI phase alone
@@ -44,9 +44,11 @@ class NativeCallViewModel(
     private val _notice = MutableStateFlow<String?>(null)
     val notice = _notice.asStateFlow()
     private class Session(val id: String, val peer: CallPeer, val video: Boolean, val outgoing: Boolean) {
-        val reconnectBudget = CallReconnectBudget()
+        // Two different, verified outages may recover in one call. This is
+        // a per-session hard ceiling, not an infinite renegotiation loop.
+        val reconnectBudget = CallReconnectBudget(2)
         // Increment on each real recovery or disconnect; stale delayed ICE
-        // restarts must never spend the single budget on a later outage.
+        // restarts must never spend an attempt on a later outage.
         var reconnectGeneration = 0L
         // Updated only by fresh, bidirectional RTP evidence; never by ICE
         // transport alone or the UI's last CONNECTED label.
@@ -289,7 +291,7 @@ class NativeCallViewModel(
                 val digest = MessageDigest.getInstance("SHA-256")
                     .digest(s.sdp.toByteArray(Charsets.UTF_8))
                 if (current.lastOfferDigest?.contentEquals(digest) == true) return
-                if (current.offers >= 2) return // Initial negotiation plus one genuine ICE restart.
+                if (current.offers >= 3) return // Initial offer plus at most two authenticated ICE restarts.
                 current.lastOfferDigest = digest
                 current.offers++
                 val previous = pipeline
@@ -355,7 +357,7 @@ class NativeCallViewModel(
                         pipeline = guarded(current) {
                             // Mobile radio/Wi-Fi handovers often recover on their
                             // own. Give the existing ICE transport a brief grace
-                            // period before spending the ONE authorized restart.
+                            // period before spending a bounded restart attempt.
                             delay(ICE_RESTART_GRACE_MS)
                             if (session !== current || !foreground ||
                                 current.reconnectGeneration != generation ||

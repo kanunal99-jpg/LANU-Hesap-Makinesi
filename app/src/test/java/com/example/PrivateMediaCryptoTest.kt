@@ -216,6 +216,77 @@ class PrivateMediaCryptoTest {
         } finally { encrypted.destroyKey() }
     }
 
+    @Test fun decryptionRejectsCiphertextOutsideAppPrivateDirectory() {
+        val trusted = work.newFolder("trusted-download")
+        val shared = work.newFolder("untrusted-shared")
+        val payload = makeSource(1024)
+        val encrypted = PrivateMediaCrypto.encryptToPrivateFile(
+            ByteArrayInputStream(payload), payload.size.toLong(), "image/jpeg", shared
+        )
+        try {
+            assertRejected {
+                PrivateMediaCrypto.decryptToVerifiedPrivateFile(
+                    encrypted.ciphertextFile, encrypted.manifest, encrypted.keyMaterial, trusted
+                )
+            }
+            assertEquals(0, trusted.listFiles()!!.size)
+            val verified = PrivateMediaCrypto.decryptToVerifiedPrivateFile(
+                encrypted.ciphertextFile, encrypted.manifest, encrypted.keyMaterial, shared
+            )
+            try { assertArrayEquals(payload, verified.readBytes()) }
+            finally { assertTrue(verified.delete()) }
+        } finally { encrypted.destroyKey() }
+    }
+
+    @Test fun sameDirectorySymlinkToValidCiphertextIsRejected() {
+        val dir = work.newFolder("private-media-link")
+        val bytes = makeSource(2048)
+        val encrypted = PrivateMediaCrypto.encryptToPrivateFile(
+            ByteArrayInputStream(bytes), bytes.size.toLong(), "image/jpeg", dir
+        )
+        val link = File(dir, "media-alias.cipher")
+        try {
+            java.nio.file.Files.createSymbolicLink(
+                link.toPath(), encrypted.ciphertextFile.toPath().fileName
+            )
+            // The link resolves into the SAME canonical directory and has the
+            // correct hash. Authorization must not be based on parent alone.
+            assertEquals(dir.canonicalFile, link.canonicalFile.parentFile)
+            assertRejected {
+                PrivateMediaCrypto.decryptToVerifiedPrivateFile(
+                    link, encrypted.manifest, encrypted.keyMaterial, dir
+                )
+            }
+            assertEquals(0, dir.listFiles()!!.count { it.name.startsWith("lanu-verified-") })
+        } finally {
+            link.delete()
+            encrypted.destroyKey()
+            encrypted.ciphertextFile.delete()
+        }
+    }
+
+    @Test fun symlinkedPrivateDirectoryIsRejectedBeforeReleasingPlaintext() {
+        val dir = work.newFolder("private-media-dir-real")
+        val encrypted = PrivateMediaCrypto.encryptToPrivateFile(
+            ByteArrayInputStream(makeSource(1536)), 1536L, "application/pdf", dir
+        )
+        val alias = File(work.root, "private-media-dir-alias")
+        try {
+            java.nio.file.Files.createSymbolicLink(alias.toPath(), dir.toPath())
+            assertRejected {
+                PrivateMediaCrypto.decryptToVerifiedPrivateFile(
+                    File(alias, encrypted.ciphertextFile.name),
+                    encrypted.manifest, encrypted.keyMaterial, alias
+                )
+            }
+            assertEquals(0, dir.listFiles()!!.count { it.name.startsWith("lanu-verified-") })
+        } finally {
+            alias.delete()
+            encrypted.destroyKey()
+            encrypted.ciphertextFile.delete()
+        }
+    }
+
     @Test fun separateFilesHaveIndependentKeysNoncesAndIds() {
         val dir = work.newFolder("unique")
         val source = makeSource(18000)

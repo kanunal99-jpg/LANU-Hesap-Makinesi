@@ -179,9 +179,22 @@ object PrivateMediaCrypto {
         validate(manifest)
         require(keyMaterial.size == KEY_BYTES) { "Dosya anahtarı geçersiz." }
         require(privateDirectory.isDirectory) { "Özel dosya alanı bulunamadı." }
-        require(encrypted.isFile && encrypted.length() ==
+        // The caller MUST provide context.cacheDir/filesDir or a verified
+        // private child directory: a File argument alone cannot prove Android
+        // app ownership. Reject direct symlinks (including those targeting a
+        // different file in the SAME private directory) and path traversal.
+        // No follow-symlink / race-free open guarantee is claimed here: before
+        // enabling remote downloads the owner must bind a protected staging
+        // directory and use a no-follow file-descriptor open on Android.
+        val canonicalDirectory = privateDirectory.canonicalFile
+        val canonicalEncrypted = encrypted.canonicalFile
+        require(privateDirectory.absoluteFile == canonicalDirectory &&
+            encrypted.absoluteFile == canonicalEncrypted &&
+            canonicalEncrypted.parentFile == canonicalDirectory &&
+            encrypted.isFile &&
+            encrypted.length() ==
             manifest.plainBytes + manifest.chunks * GCM_TAG_BYTES.toLong()) {
-            "Şifreli dosya boyutu geçersiz."
+            "Şifreli dosya özel alanda değil, sembolik bağlantı veya boyutu geçersiz."
         }
         // Verify the complete encrypted object BEFORE writing even a temporary
         // plaintext byte. This prevents a wrong SHA manifest or truncated
@@ -191,10 +204,15 @@ object PrivateMediaCrypto {
         FileInputStream(encrypted).use { source ->
             val buffer = ByteArray(CHUNK_BYTES)
             var total = 0L
+            var stalledReads = 0
             while (true) {
                 val count = source.read(buffer)
                 if (count < 0) break
-                if (count == 0) continue
+                if (count == 0) {
+                    if (++stalledReads >= 3) throw IOException("Şifreli dosya okumada ilerleme yok.")
+                    continue
+                }
+                stalledReads = 0
                 total += count
                 require(total <= manifest.plainBytes +
                     manifest.chunks * GCM_TAG_BYTES.toLong()) {

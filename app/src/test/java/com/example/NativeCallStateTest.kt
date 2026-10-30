@@ -525,8 +525,12 @@ class NativeCallStateTest {
         inject(CallSignaling.create(call,CallSignalKind.OFFER,false,restartSdp))
         withTimeout(3000) { sent.first { list -> list.count { it.kind==CallSignalKind.ANSWER } == 2 } }
         inject(CallSignaling.create(call,CallSignalKind.OFFER,false,restartSdp))
-        inject(CallSignaling.create(call,CallSignalKind.OFFER,false,restartSdp+"a=ice-pwd:third\\r\\n"))
-        assertEquals("Exactly one initial offer and one new restart are allowed",2,
+        val secondRestart = restartSdp+"a=ice-pwd:third\\r\\n"
+        inject(CallSignaling.create(call,CallSignalKind.OFFER,false,secondRestart))
+        withTimeout(3000) { sent.first { list -> list.count { it.kind==CallSignalKind.ANSWER } == 3 } }
+        inject(CallSignaling.create(call,CallSignalKind.OFFER,false,secondRestart))
+        inject(CallSignaling.create(call,CallSignalKind.OFFER,false,secondRestart+"a=ice-ufrag:fourth\\r\\n"))
+        assertEquals("At most two changed restarts plus the initial offer",3,
             sent.value.count { it.kind==CallSignalKind.ANSWER })
         assertEquals(1,starts)
         assertEquals(NativeCallPhase.CONNECTED,vm.state.value.phase)
@@ -677,6 +681,36 @@ class NativeCallStateTest {
         vm.end();waitPhase(NativeCallPhase.ENDED)
     }
 
+    @Test fun twoDistinctVerifiedOutagesMayRestartButThirdCannotLoop() = runBlocking<Unit> {
+        vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
+        val invite=awaitSent(CallSignalKind.INVITE)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,false))
+        awaitSent(CallSignalKind.OFFER)
+        repeat(2) { index ->
+            val fresh=5L+index
+            report!!(CallMediaEvidence(true,fresh,fresh))
+            waitPhase(NativeCallPhase.CONNECTED)
+            report!!(CallMediaEvidence(false,fresh,fresh))
+            waitPhase(NativeCallPhase.RECONNECTING)
+            mainTestDispatcher.scheduler.advanceTimeBy(ICE_RESTART_GRACE_MS + 1L)
+            mainTestDispatcher.scheduler.runCurrent()
+            withTimeout(5_000) {
+                sent.first { rows -> rows.count { it.kind==CallSignalKind.OFFER } == index+2 }
+            }
+            assertEquals(index+1,iceRestarts)
+        }
+        report!!(CallMediaEvidence(true,9,9))
+        waitPhase(NativeCallPhase.CONNECTED)
+        report!!(CallMediaEvidence(false,9,9))
+        waitPhase(NativeCallPhase.RECONNECTING)
+        mainTestDispatcher.scheduler.advanceTimeBy(ICE_RESTART_GRACE_MS + 1L)
+        mainTestDispatcher.scheduler.runCurrent()
+        assertEquals("Third outage must not create an unlimited restart loop",2,iceRestarts)
+        assertEquals(3,sent.value.count { it.kind==CallSignalKind.OFFER })
+        vm.end()
+        waitPhase(NativeCallPhase.ENDED)
+    }
+
     @Test fun recoveredRtpWhileNativeRestartOfferIsPendingMustNotSendStaleSdp() = runBlocking<Unit> {
         restartOfferGate=CompletableDeferred()
         restartOfferEntered=CompletableDeferred()
@@ -721,9 +755,14 @@ class NativeCallStateTest {
         mainTestDispatcher.scheduler.advanceTimeBy(ICE_RESTART_GRACE_MS + 1L)
         mainTestDispatcher.scheduler.runCurrent()
         delay(50)
-        assertEquals("Old outage must not send into newer generation",1,
+        // The first native callback belonged to the OLD generation; only
+        // the second verified outage may produce its own new OFFER.
+        withTimeout(3_000) {
+            sent.first { rows -> rows.count { it.kind==CallSignalKind.OFFER } == 2 }
+        }
+        assertEquals("Only the newer generation may publish a restart offer",2,
             sent.value.count { it.kind==CallSignalKind.OFFER })
-        assertEquals(1,iceRestarts)
+        assertEquals(2,iceRestarts)
         assertEquals(NativeCallPhase.RECONNECTING,vm.state.value.phase)
         vm.end();waitPhase(NativeCallPhase.ENDED)
     }
