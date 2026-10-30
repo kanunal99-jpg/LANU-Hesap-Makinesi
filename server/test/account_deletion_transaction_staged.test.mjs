@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { PGlite } from '@electric-sql/pglite';
+import { createRelay } from '../../supabase/functions/lanu-relay/core.mjs';
+import { fixture, envelope } from './fixtures.mjs';
 
 /**
  * ALL rows below are disposable synthetic PGlite fixtures.
@@ -496,5 +498,45 @@ test('staged preflight rejects nullable unknown media state and unprivileged cal
       'select public.lanu_account_erasure_preflight_v1($1,$2)',
       [alice.toUpperCase(),code('A')]),/Invalid account deletion preflight request/i);
     assert.equal(await count(db,'lanu_identities'),3);
+  } finally { await db.close(); }
+});
+
+test('signed owner preflight reaches the actual staged PGlite RPC without enabling deletion', async () => {
+  const {db} = await createFixture();
+  try {
+    const f = await fixture();
+    // Add only synthetic test identities to the disposable database.
+    await db.query(`
+      insert into public.lanu_identities(id,code,nonce,public_key)
+      values($1,$2,$3,$4),($5,$6,$7,$8)
+    `,[f.alice.id,f.alice.code,f.alice.nonce,f.alice.publicKey,
+       f.bob.id,f.bob.code,f.bob.nonce,f.bob.publicKey]);
+    f.store.accountDeletionPreflight = async (owner, expectedCode) => {
+      const rows = await db.query(
+        'select public.lanu_account_erasure_preflight_v1($1,$2) as result',
+        [owner,expectedCode]);
+      return rows.rows[0].result;
+    };
+    const relay = createRelay(f.store,Date.now,
+      {accountDeletionPreflightEnabled:true});
+    const signed = () => envelope(f.alice,'checkAccountDeletion',
+      {expectedCode:f.alice.code});
+    assert.deepEqual(await relay(signed()),{storageReady:true});
+    await db.query(`
+      insert into public.lanu_media_objects(
+        file_id,message_id,sender_id,recipient_id,cipher_bytes,cipher_sha256,state
+      ) values($1,$2,$3,$4,$5,$6,$7)
+    `,['f'.repeat(32),randomUUID(),f.alice.id,f.bob.id,512,'e'.repeat(64),'ready']);
+    assert.deepEqual(await relay(signed()),{storageReady:false});
+    await db.query("update public.lanu_media_objects set state='purged' where file_id=$1",
+      ['f'.repeat(32)]);
+    assert.deepEqual(await relay(signed()),{storageReady:true});
+    assert.equal(await count(db,'lanu_identities','id=$1',[f.alice.id]),1);
+    assert.equal(await count(db,'lanu_media_objects','sender_id=$1',[f.alice.id]),1);
+    // Preflight activation alone must not allow the destructive operation.
+    f.store.accountDelete = async () => { throw new Error('unreachable'); };
+    await assert.rejects(relay(envelope(f.alice,'deleteAccount',{
+      confirmation:'DELETE_ACCOUNT',expectedCode:f.alice.code
+    })),{status:503});
   } finally { await db.close(); }
 });
