@@ -257,7 +257,7 @@ class NativeCallEngine(
         lastCandidateAt = 0L
         val constraints = MediaConstraints().apply { if (restart) mandatory.add(MediaConstraints.KeyValuePair("IceRestart", "true")) }
         val sdp = createSdp { pc.createOffer(it, constraints) }
-        setSdp { pc.setLocalDescription(it, sdp) }
+        setPreferredLocalSdp(pc, sdp)
         awaitIce(pc)
         checkNotNull(pc.localDescription).description
     }
@@ -267,7 +267,7 @@ class NativeCallEngine(
         setSdp { pc.setRemoteDescription(it, SessionDescription(SessionDescription.Type.OFFER, remote)) }
         lastCandidateAt = 0L
         val sdp = createSdp { pc.createAnswer(it, MediaConstraints()) }
-        setSdp { pc.setLocalDescription(it, sdp) }
+        setPreferredLocalSdp(pc, sdp)
         awaitIce(pc)
         checkNotNull(pc.localDescription).description
     }
@@ -275,6 +275,25 @@ class NativeCallEngine(
     override suspend fun remoteAnswer(remote: String) = withContext(dispatcher) {
         setSdp { connection!!.setRemoteDescription(it, SessionDescription(SessionDescription.Type.ANSWER, remote)) }
     }
+    /**
+     * Prefer Opus in-band loss recovery but never strand an existing call:
+     * older/OEM WebRTC builds that reject the modified SDP use the native
+     * offer/answer unchanged. DTX is intentionally not forced on working audio.
+     */
+    private suspend fun setPreferredLocalSdp(pc: PeerConnection, original: SessionDescription) {
+        val preferredText = OpusSdpPolicy.preferReceiveFec(original.description)
+        if (preferredText == original.description) {
+            setSdp { pc.setLocalDescription(it, original) }
+            return
+        }
+        val preferred = SessionDescription(original.type, preferredText)
+        try {
+            setSdp { pc.setLocalDescription(it, preferred) }
+        } catch (_: IllegalStateException) {
+            setSdp { pc.setLocalDescription(it, original) }
+        }
+    }
+
     private suspend fun awaitIce(pc: PeerConnection) {
         // Non-trickle SDP must contain REAL candidates. Fast path requires a
         // stable server-reflexive candidate IN the current local SDP, not a
@@ -439,7 +458,12 @@ class NativeCallEngine(
                         val parameters = sender.parameters
                         if (parameters.encodings.isEmpty()) false
                         else {
-                            parameters.encodings.forEach { it.maxBitrateBps = target }
+                            val profile = AdaptiveVideoEncodingPolicy.forBitrate(target)
+                            parameters.encodings.forEach {
+                                it.maxBitrateBps = target
+                                it.maxFramerate = profile.maxFramerate
+                                it.scaleResolutionDownBy = profile.scaleResolutionDownBy
+                            }
                             sender.setParameters(parameters)
                         }
                     } catch (_: RuntimeException) { false }
