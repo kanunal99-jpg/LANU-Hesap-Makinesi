@@ -84,22 +84,35 @@ object PrivateMediaTransferBudget {
     ): VerifiedReservation {
         PrivateMediaCrypto.validate(manifest)
         val expectedBytes = encryptedBytes(manifest.plainBytes)
-        require(privateDirectory.isDirectory && encryptedFile.isFile &&
+        // Fail closed for direct or parent symlinks even if they resolve to a
+        // valid-looking ciphertext in the same directory. App ownership still
+        // has to be established by the Android caller before using this API.
+        val trusted = privateDirectory.canonicalFile
+        val candidate = encryptedFile.canonicalFile
+        require(privateDirectory.isDirectory &&
+            privateDirectory.absoluteFile == trusted &&
+            encryptedFile.absoluteFile == candidate &&
             encryptedFile.name.matches(Regex("lanu-media-v1-[A-Za-z0-9_-]+\\.cipher")) &&
-            encryptedFile.canonicalFile.parentFile == privateDirectory.canonicalFile) {
+            candidate.parentFile == trusted &&
+            encryptedFile.isFile && encryptedFile.length() == expectedBytes) {
             "Şifreli medya yalnız uygulamanın özel dosya alanından yüklenebilir."
         }
-        verifyCiphertext(encryptedFile, manifest.plainBytes)
-        val digest = FileInputStream(encryptedFile).use { input ->
-            digestCipherStream(input, expectedBytes)
-        }
-        require(encryptedFile.length() == expectedBytes) {
-            "Şifreli dosya rezervasyon boyutuyla eşleşmiyor."
-        }
-        val expectedSha = manifest.cipherSha256.chunked(2)
-            .map { it.toInt(16).toByte() }.toByteArray()
-        require(MessageDigest.isEqual(digest, expectedSha)) {
-            "Şifreli dosya SHA-256 özetiyle eşleşmiyor."
+        // Check the opened descriptor rather than trusting an earlier stat.
+        // The actual network upload must use a pinned source descriptor too;
+        // this offline preflight alone is NOT a live upload authorization.
+        FileInputStream(encryptedFile).use { input ->
+            require(input.channel.size() == expectedBytes) {
+                "Şifreli dosyanın boyutu rezervasyonla eşleşmiyor."
+            }
+            val digest = digestCipherStream(input, expectedBytes)
+            require(input.channel.size() == expectedBytes) {
+                "Şifreli dosya doğrulama sırasında değişti."
+            }
+            val expectedSha = manifest.cipherSha256.chunked(2)
+                .map { it.toInt(16).toByte() }.toByteArray()
+            require(MessageDigest.isEqual(digest, expectedSha)) {
+                "Şifreli dosya SHA-256 özetiyle eşleşmiyor."
+            }
         }
         return VerifiedReservation(manifest.fileId, expectedBytes, manifest.cipherSha256)
     }
