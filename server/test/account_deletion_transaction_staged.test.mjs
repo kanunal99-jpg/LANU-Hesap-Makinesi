@@ -204,6 +204,50 @@ test('malformed or ambiguous owner identifiers and codes fail closed without mut
   } finally { await db.close(); }
 });
 
+test('future FK schema drift rejects erasure and preserves every existing row', async () => {
+  const {db} = await createFixture();
+  try {
+    // Simulate a later migration introducing account-linked records that
+    // the reviewed deletion function has not yet learned to clean up.
+    await db.exec(`
+      create table public.lanu_future_account_data (
+        owner_id text not null references public.lanu_identities(id),
+        payload text not null
+      );
+    `);
+    await db.query(
+      'insert into public.lanu_future_account_data(owner_id,payload) values($1,$2)',
+      [alice,'synthetic-future-record']);
+    const before = await fingerprint(db);
+    await assert.rejects(
+      db.query('select public.lanu_delete_account_v1($1,$2)',[alice,code('A')]),
+      /foreign key|violates|lanu_future_account_data/i
+    );
+    assert.deepEqual(await fingerprint(db),before,
+      'new account-linked FK must abort every part of the deletion transaction');
+    assert.equal(await count(db,'lanu_future_account_data','owner_id=$1',[alice]),1);
+    assert.equal(await count(db,'lanu_identities','id=$1',[alice]),1);
+  } finally { await db.close(); }
+});
+
+test('another pair\'s unpurged media does not authorize or block unrelated account deletion', async () => {
+  const {db} = await createFixture();
+  try {
+    const fileId = 'd'.repeat(32);
+    await db.query(`
+      insert into public.lanu_media_objects(
+        file_id,message_id,sender_id,recipient_id,cipher_bytes,cipher_sha256,state
+      ) values($1,$2,$3,$4,$5,$6,$7)
+    `, [fileId,randomUUID(),carol,bob,512,'e'.repeat(64),'ready']);
+    const result = await db.query(
+      'select public.lanu_delete_account_v1($1,$2) as result',[alice,code('A')]);
+    assert.equal(result.rows[0].result.deleted,true);
+    assert.equal(await count(db,'lanu_media_objects','file_id=$1',[fileId]),1);
+    assert.equal(await count(db,'lanu_identities','id=$1',[bob]),1);
+    assert.equal(await count(db,'lanu_identities','id=$1',[carol]),1);
+  } finally { await db.close(); }
+});
+
 test('verified purged synthetic media permits atomic metadata cleanup without affecting peers', async () => {
   const {db} = await createFixture();
   try {
