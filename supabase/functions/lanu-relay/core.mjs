@@ -330,6 +330,17 @@ export function createRelay(store, clock = Date.now, options = {}) {
         insist(row && row.file_id === data.fileId &&
           typeof row.sender_id === 'string' && typeof row.recipient_id === 'string',
           404, 'Dosya kaydı bulunamadı.');
+        // If the exact object was previously SHA-verified and marked ready,
+        // a lost HTTP acknowledgement may be retried with a fresh signed
+        // request nonce without reopening any upload capability.
+        if (action === 'mediaComplete' && row.state === 'ready') {
+          insist(row.sender_id === owner &&
+            Number.isFinite(Date.parse(row.expires_at)) &&
+            Date.parse(row.expires_at) > clock() &&
+            await store.mutual(row.sender_id, row.recipient_id),
+            403, 'Dosya erişimi doğrulanamadı.');
+          return { fileId: row.file_id, state: 'ready' };
+        }
         const mode = action === 'mediaDownloadGrant' ? 'download' : 'upload';
         let plan;
         try { plan = authorizePrivateMediaGrant(owner, mode, row, clock()); }
