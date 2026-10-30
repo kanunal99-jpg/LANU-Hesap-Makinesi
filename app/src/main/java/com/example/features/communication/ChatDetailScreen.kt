@@ -41,6 +41,7 @@ import com.example.R
 import com.example.core.crypto.CryptoUtils
 import com.example.core.database.MessageEntity
 import com.example.core.media.InlineMediaCodec
+import com.example.core.repository.CommunicationRepository
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -57,7 +58,10 @@ fun ChatDetailScreen(
     onChoosePhoto: () -> Unit = {},
     onTakePhoto: () -> Unit = {},
     onChooseDocument: () -> Unit = {},
-    onSaveAttachment: (InlineMediaCodec.Attachment) -> Unit = {}
+    onChooseLargeDocument: () -> Unit = {},
+    onSaveLargeAttachment: (String) -> Unit = {},
+    onSaveAttachment: (InlineMediaCodec.Attachment) -> Unit = {},
+    onSaveLargeAttachment: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val activeConversation by viewModel.activeConversation.collectAsState()
@@ -324,11 +328,13 @@ fun ChatDetailScreen(
                         },
                         onRetry = { viewModel.retryMessage(message.id) },
                         onEdit = { newText ->
-                            if (!InlineMediaCodec.isAttachment(message.content)) {
+                            if (!InlineMediaCodec.isAttachment(message.content) &&
+                                !message.content.startsWith(CommunicationRepository.PRIVATE_MEDIA_MARKER)) {
                                 viewModel.editMessage(message.id, newText)
                             }
                         },
-                        onSaveAttachment = onSaveAttachment
+                        onSaveAttachment = onSaveAttachment,
+                        onSaveLargeAttachment = onSaveLargeAttachment
                     )
                 }
             }
@@ -364,6 +370,7 @@ fun ChatDetailScreen(
                         onPhoto = onChoosePhoto,
                         onCamera = onTakePhoto,
                         onDocument = onChooseDocument,
+                        onLargeDocument = onChooseLargeDocument,
                         onCancel = { viewModel.clearPreparedMedia() },
                         onSend = { envelope, onQueued ->
                             viewModel.sendInlineAttachment(
@@ -557,6 +564,16 @@ fun MessageBubble(
             // Never render their base64 JSON as ordinary text.
             if (InlineMediaCodec.isAttachment(text)) {
                 InlineMediaAttachment(payload = text, onSave = onSaveAttachment)
+            } else if (text.startsWith(CommunicationRepository.PRIVATE_MEDIA_MARKER)) {
+                Text("Uçtan uca şifreli belge · yalnız izinli kişiler")
+                OutlinedButton(
+                    onClick = {
+                        onSaveLargeAttachment(
+                            text.removePrefix(CommunicationRepository.PRIVATE_MEDIA_MARKER)
+                        )
+                    },
+                    modifier = Modifier.testTag("private_media_download")
+                ) { Text("Güvenle indir ve kaydet") }
             } else {
                 // Old remote URLs are NOT encrypted inline attachments. Never
                 // contact a third party simply because a private chat opened.
@@ -634,7 +651,8 @@ fun MessageBubble(
                     }
                 }
                 HorizontalDivider()
-                if (!InlineMediaCodec.isAttachment(text)) DropdownMenuItem(
+                if (!InlineMediaCodec.isAttachment(text) &&
+                    !text.startsWith(CommunicationRepository.PRIVATE_MEDIA_MARKER)) DropdownMenuItem(
                     text = { Text("Metni Kopyala") },
                     leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp)) },
                     onClick = {
@@ -647,7 +665,8 @@ fun MessageBubble(
                             Toast.makeText(context, "Mesaj panoya kopyalandı", Toast.LENGTH_SHORT).show()
                     }
                 )
-                if (isMine && !InlineMediaCodec.isAttachment(text)) {
+                if (isMine && !InlineMediaCodec.isAttachment(text) &&
+                    !text.startsWith(CommunicationRepository.PRIVATE_MEDIA_MARKER)) {
                     DropdownMenuItem(
                         text = { Text("Mesajı Düzenle") },
                         leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp)) },
