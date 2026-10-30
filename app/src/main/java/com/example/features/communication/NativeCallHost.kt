@@ -68,7 +68,18 @@ fun NativeCallHost(
         model.attachHost()
         onStopOrDispose { confirm = null; model.detachHost() }
     }
-    LaunchedEffect(request) { if (request != null) { confirm = request; onRequestConsumed() } }
+    // A delayed chat action must not reopen a private outgoing-call dialog
+    // over the public calculator after screen-off or PIN lock. Consume any
+    // stale request without authorizing media or disclosing the conversation.
+    LaunchedEffect(request, revealPeerName) {
+        if (!revealPeerName) {
+            confirm = null
+            if (request != null) onRequestConsumed()
+        } else if (request != null) {
+            confirm = request
+            onRequestConsumed()
+        }
+    }
     LaunchedEffect(state.callId) {
         if (state.phase == NativeCallPhase.RINGING) { confirm = null; permissionTarget = null }
     }
@@ -108,7 +119,8 @@ fun NativeCallHost(
             authorize(state.callId, state.video, true)
         }
     }
-    if (confirm != null) {
+    if (PrivateCallHostDisclosurePolicy.mayShowOutgoingConfirmation(revealPeerName) &&
+        confirm != null) {
         val target = confirm!!
         AlertDialog(onDismissRequest = { confirm = null }, title = { Text(if (target.second) "Görüntülü arama" else "Sesli arama") },
             text = { Text("İki telefonda da güncel LANU ve karşılıklı doğrulanmış kişi bağlantısı bulunmalıdır. Doğrudan görüşmede IP adresinizi karşı taraf ve Google/Cloudflare STUN hizmetleri görebilir. Mikrofon ve kamera yalnız görüşme kabul edilince açılır. Görüşme devam ederken hesap makinesine dönebilirsiniz.") },
@@ -183,7 +195,8 @@ fun NativeCallHost(
             }
         }
     }
-    if (notice != null && state.phase == NativeCallPhase.IDLE) {
+    if (PrivateCallHostDisclosurePolicy.mayShowIdleNotice(revealPeerName, state.phase) &&
+        notice != null) {
         AlertDialog(onDismissRequest = model::clearNotice, title = { Text("Arama bilgisi") },
             text = { Text(notice!!) }, confirmButton = { TextButton(onClick = model::clearNotice) { Text("Tamam") } })
     }
