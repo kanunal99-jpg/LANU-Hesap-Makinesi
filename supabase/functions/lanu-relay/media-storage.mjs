@@ -61,9 +61,10 @@ export function createPrivateMediaStorage(projectUrl, serviceKey, fetcher = fetc
   };
 
   async function request(relativePath, method, body, timeout = 15000) {
-    const abort = new AbortController();
-    const timer = setTimeout(() => abort.abort(), timeout);
     try {
+      // An AbortSignal timeout remains active for the complete streamed body.
+      // Clearing a timer after response HEADERS alone would allow a stuck
+      // private 40MiB GET to run indefinitely.
       return await fetcher(base + relativePath, {
         method,
         redirect: 'error',
@@ -73,12 +74,10 @@ export function createPrivateMediaStorage(projectUrl, serviceKey, fetcher = fetc
           Accept: 'application/octet-stream, application/json'
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        signal: abort.signal
+        signal: AbortSignal.timeout(timeout)
       });
     } catch {
       throw fail();
-    } finally {
-      clearTimeout(timer);
     }
   }
 
@@ -118,9 +117,11 @@ export function createPrivateMediaStorage(projectUrl, serviceKey, fetcher = fetc
     const required = '/storage/v1/object/sign/' + path;
     // A signed link must stay on THIS project's private Storage hostname and
     // exact validated path. No client-selected URLs, offsite redirects or fragments.
+    const token = url.searchParams.get('token');
     if (url.origin !== origin.origin || url.pathname !== required || url.hash ||
-        !url.searchParams.has('token') ||
-        url.searchParams.get('token')?.length < 16) throw fail();
+        [...url.searchParams.keys()].join(',') !== 'token' ||
+        typeof token !== 'string' || token.length < 16 || token.length > 4096 ||
+        !/^[A-Za-z0-9._~-]+$/.test(token)) throw fail();
     return Object.freeze({ url: url.href, expiresInSeconds: 60 });
   }
 
