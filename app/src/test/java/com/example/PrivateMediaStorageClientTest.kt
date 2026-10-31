@@ -23,7 +23,7 @@ class PrivateMediaStorageClientTest {
         assertFalse(PrivateMediaStorageClient.validSignedToken(url + "&download=other", "correct.jwt_token"))
         assertFalse(PrivateMediaStorageClient.validSignedToken(url.replace("token=correct.jwt_token", "download=correct.jwt_token"), "correct.jwt_token"))
         assertFalse(PrivateMediaStorageClient.validSignedToken(url.replace("correct.jwt_token", "%ZZ"), "correct.jwt_token"))
-        assertFalse(PrivateMediaStorageClient.validSignedToken(url, "bad\\nline"))
+        assertFalse(PrivateMediaStorageClient.validSignedToken(url, "bad\nline"))
     }
 
     @Test fun bothSignedGrantHostsMapToTheSameTusStorageOrigin() {
