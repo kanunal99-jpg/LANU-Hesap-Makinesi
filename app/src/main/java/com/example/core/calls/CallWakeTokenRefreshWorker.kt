@@ -30,6 +30,12 @@ object CallWakeTokenRefreshPolicy {
     // Never let a delayed revoke land after a newer positive registration.
     private val registrationMutex = Mutex()
 
+    // Reject malformed or unbounded SDK input before any signed relay write.
+    // Firebase tokens are opaque; do not log, normalize, or persist them.
+    private fun validFirebaseToken(token: String?): Boolean =
+        token != null && token.isNotBlank() && token.length <= 4096 &&
+            token.none { it.isWhitespace() || Character.isISOControl(it) }
+
     suspend fun completeRegistration(
         context: Context,
         token: String,
@@ -37,7 +43,7 @@ object CallWakeTokenRefreshPolicy {
     ) = registrationMutex.withLock {
         // A blank or whitespace-only Firebase token must never reach the signed
         // relay registration or mark the device as remotely enrolled.
-        check(token.isNotBlank()) { "Call wake token is unavailable" }
+        check(validFirebaseToken(token)) { "Call wake token is unavailable or malformed" }
         check(CallWakePreferences.isRegistrationInProgress(context))
         register(token)
         if (!CallWakePreferences.completeRemoteRegistration(context)) {
@@ -90,7 +96,7 @@ object CallWakeTokenRefreshPolicy {
         val token = currentToken()
         if (CallWakePreferences.isRegistrationInProgress(context)) return true
         if (!CallWakePreferences.isEnabled(context)) return finishOptOut()
-        if (token.isNullOrBlank()) return false
+        if (!validFirebaseToken(token)) return false
         register(token)
         // The new UI registration waits for this lock and owns the final write.
         if (CallWakePreferences.isRegistrationInProgress(context)) return true
