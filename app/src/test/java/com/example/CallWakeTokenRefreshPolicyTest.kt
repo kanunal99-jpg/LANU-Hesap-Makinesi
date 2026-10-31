@@ -195,6 +195,28 @@ class CallWakeTokenRefreshPolicyTest {
         assertTrue(CallWakePreferences.isEnabled(context))
     }
 
+    @Test fun blankFirebaseTokenNeverReachesSignedRelayOrCompletesConsent() = runBlocking {
+        assertTrue(CallWakePreferences.beginRemoteRegistration(context))
+        var serverWrites = 0
+        for (invalid in listOf("", " ", "\t\n")) {
+            try {
+                CallWakeTokenRefreshPolicy.completeRegistration(context, invalid) {
+                    serverWrites++
+                }
+                throw AssertionError("Blank FCM token must be rejected")
+            } catch (_: IllegalStateException) {
+                assertFalse(CallWakePreferences.isEnabled(context))
+                assertTrue(CallWakePreferences.isRegistrationInProgress(context))
+            }
+        }
+        assertEquals(0, serverWrites)
+        // If Android kills the process after rejection, the durable marker
+        // forces a signed remote revoke rather than silent enrollment.
+        assertTrue(CallWakePreferences.recoverInterruptedRegistration(context))
+        assertTrue(CallWakePreferences.hasPendingRemoteRevoke(context))
+        assertFalse(CallWakePreferences.isEnabled(context))
+    }
+
     @Test fun cancelledEnrollmentRejectsLateTokenBeforeAnyServerWrite() = runBlocking {
         assertTrue(CallWakePreferences.beginRemoteRegistration(context))
         assertTrue(CallWakePreferences.disableAndQueueRemoteRevoke(context))
