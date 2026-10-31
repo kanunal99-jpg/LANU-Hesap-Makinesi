@@ -80,9 +80,9 @@ class CrashlyticsPrivacyContractTest(unittest.TestCase):
         for path in source_root.rglob("*.kt"):
             source = path.read_text(encoding="utf-8")
             # Strip comments so examples in documentation do not count as code.
-            source = re.sub(r"/\\*.*?\\*/|//[^\\n]*", "", source, flags=re.DOTALL)
+            source = re.sub(r"/\*.*?\*/|//[^\n]*", "", source, flags=re.DOTALL)
             for call in re.finditer(
-                r"\\bsetCrashlyticsCollectionEnabled\\s*\\(\\s*([^)]*?)\\s*\\)",
+                r"\bsetCrashlyticsCollectionEnabled\s*\(\s*([^)]*?)\s*\)",
                 source,
             ):
                 argument = call.group(1).strip()
@@ -92,7 +92,7 @@ class CrashlyticsPrivacyContractTest(unittest.TestCase):
                     )
             self.assertNotRegex(
                 source,
-                r"\\bsendUnsentReports\\s*\\(",
+                r"\bsendUnsentReports\s*\(",
                 f"{path}: pending crash reports must never be force-flushed",
             )
         self.assertEqual(
