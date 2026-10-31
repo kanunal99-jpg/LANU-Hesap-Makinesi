@@ -150,4 +150,41 @@ class MessageWakeTokenRefreshPolicyTest {
         assertEquals(listOf<String?>(null), writes)
         assertFalse(MessageWakePreferences.hasPendingRemoteRevoke(context))
     }
+
+    @Test fun revokedConsentDuringSignedEnrollmentCannotRemainRegistered() = runBlocking {
+        withTimeout(5_000) {
+            assertTrue(MessageWakePreferences.beginEnrollment(context))
+            val entered = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val writes = mutableListOf<String?>()
+            val enrollment = async(start = CoroutineStart.UNDISPATCHED) {
+                try {
+                    MessageWakeTokenRefreshPolicy.completeRegistration(context, "inflight-token") { token ->
+                        writes.add(token)
+                        entered.complete(Unit)
+                        release.await()
+                    }
+                    false
+                } catch (_: IllegalStateException) {
+                    true
+                }
+            }
+            entered.await()
+            // A consent revocation can arrive from a second settings surface
+            // while the signed relay write is suspended on the network.
+            assertTrue(MessageWakePreferences.disableAndQueueRemoteRevoke(context))
+            release.complete(Unit)
+            assertTrue(enrollment.await())
+            assertFalse(MessageWakePreferences.isEnabled(context))
+            assertTrue(MessageWakePreferences.hasPendingRemoteRevoke(context))
+            // The next worker pass must not fetch a new token; it must remove
+            // the already-acknowledged late registration instead.
+            assertTrue(MessageWakeTokenRefreshPolicy.reconcile(context,
+                { error("Opted-out worker must not fetch an FCM token") },
+                { writes.add(it) }))
+            assertEquals(listOf<String?>("inflight-token", null), writes)
+            assertFalse(MessageWakePreferences.hasPendingRemoteRevoke(context))
+        }
+    }
+
 }
