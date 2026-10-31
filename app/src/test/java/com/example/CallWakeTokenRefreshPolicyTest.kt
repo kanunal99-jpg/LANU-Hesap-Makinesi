@@ -195,6 +195,36 @@ class CallWakeTokenRefreshPolicyTest {
         assertTrue(CallWakePreferences.isEnabled(context))
     }
 
+    @Test fun malformedFirebaseTokensNeverReachSignedEnrollment() = runBlocking {
+        assertTrue(CallWakePreferences.beginRemoteRegistration(context))
+        var signedWrites = 0
+        val malformed = listOf("embedded space", "line\\nfeed", "nul\\u0000byte", "x".repeat(4097))
+        for (token in malformed) {
+            try {
+                CallWakeTokenRefreshPolicy.completeRegistration(context, token) { signedWrites++ }
+                throw AssertionError("Malformed token must be rejected")
+            } catch (_: IllegalStateException) {
+                assertFalse(CallWakePreferences.isEnabled(context))
+                assertTrue(CallWakePreferences.isRegistrationInProgress(context))
+            }
+        }
+        assertEquals(0, signedWrites)
+        assertTrue(CallWakePreferences.recoverInterruptedRegistration(context))
+        assertTrue(CallWakePreferences.hasPendingRemoteRevoke(context))
+    }
+
+    @Test fun backgroundRefreshRejectsMalformedTokensWithoutRemoteWrite() = runBlocking {
+        assertTrue(CallWakePreferences.setEnabled(context, true))
+        var signedWrites = 0
+        for (token in listOf("embedded space", "line\\nfeed", "nul\\u0000byte", "x".repeat(4097))) {
+            val done = CallWakeTokenRefreshPolicy.reconcile(context,
+                { token }, { signedWrites++ })
+            assertFalse(done)
+        }
+        assertEquals(0, signedWrites)
+        assertTrue(CallWakePreferences.isEnabled(context))
+    }
+
     @Test fun blankFirebaseTokenNeverReachesSignedRelayOrCompletesConsent() = runBlocking {
         assertTrue(CallWakePreferences.beginRemoteRegistration(context))
         var serverWrites = 0
