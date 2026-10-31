@@ -79,7 +79,7 @@ class CrashlyticsPrivacyContractTest(unittest.TestCase):
             path.relative_to(source_root).as_posix()
             for path in source_root.rglob("*.kt")
             if re.search(
-                r"\\bsetCrashlyticsCollectionEnabled\\s*\\(\\s*true\\s*\\)",
+                r"\bsetCrashlyticsCollectionEnabled\s*\(\s*true\s*\)",
                 path.read_text(encoding="utf-8"),
             )
         ]
