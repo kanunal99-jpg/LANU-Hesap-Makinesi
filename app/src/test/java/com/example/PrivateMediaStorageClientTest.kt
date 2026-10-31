@@ -15,6 +15,26 @@ class PrivateMediaStorageClientTest {
         assertFalse(PrivateMediaStorageClient.safeSignedUrl(endpoint, download, id, true))
         assertFalse(PrivateMediaStorageClient.safeSignedUrl(endpoint, upload, id, false))
     }
+    @Test fun uploadTokenMustMatchExactlyOneAuthorizedGrantParameter() {
+        val url = "https://talhknjcjaijqiqwdyhf.supabase.co/storage/v1/object/upload/sign/lanu-private-media-v1/v1/$id.cipher?token=correct.jwt_token"
+        assertTrue(PrivateMediaStorageClient.validSignedToken(url, "correct.jwt_token"))
+        assertFalse(PrivateMediaStorageClient.validSignedToken(url, "different.jwt_token"))
+        assertFalse(PrivateMediaStorageClient.validSignedToken(url + "&token=correct.jwt_token", "correct.jwt_token"))
+        assertFalse(PrivateMediaStorageClient.validSignedToken(url + "&download=other", "correct.jwt_token"))
+        assertFalse(PrivateMediaStorageClient.validSignedToken(url.replace("token=correct.jwt_token", "download=correct.jwt_token"), "correct.jwt_token"))
+        assertFalse(PrivateMediaStorageClient.validSignedToken(url.replace("correct.jwt_token", "%ZZ"), "correct.jwt_token"))
+        assertFalse(PrivateMediaStorageClient.validSignedToken(url, "bad\\nline"))
+    }
+
+    @Test fun bothSignedGrantHostsMapToTheSameTusStorageOrigin() {
+        val project = "talhknjcjaijqiqwdyhf.supabase.co"
+        val storage = "talhknjcjaijqiqwdyhf.storage.supabase.co"
+        val signedStorageUrl = "https://$storage/storage/v1/object/upload/sign/lanu-private-media-v1/v1/$id.cipher?token=correct.jwt_token"
+        assertTrue(PrivateMediaStorageClient.safeSignedUrl(endpoint, signedStorageUrl, id, true))
+        assertEquals(storage, PrivateMediaStorageClient.storageHost(project))
+        assertEquals(storage, PrivateMediaStorageClient.storageHost(storage))
+    }
+
     @Test fun maliciousUrlsCannotExfiltrateAnyCiphertext() {
         val path = "/storage/v1/object/upload/sign/lanu-private-media-v1/v1/$id.cipher?token=opaque"
         val hostile = listOf(
