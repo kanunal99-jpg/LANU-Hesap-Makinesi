@@ -70,28 +70,38 @@ class CrashlyticsPrivacyContractTest(unittest.TestCase):
             )
 
     def test_remote_crash_collection_can_only_be_enabled_in_private_dialog(self):
-        # No future public screen, Application startup, service or worker may
-        # silently enable remote crash collection. This is a source boundary
-        # guard, NOT proof of Firebase delivery or physical device consent.
+        # Reject all non-literal and dynamic SDK collection activation, not
+        # only the literal "true" spelling. A future worker must not bypass
+        # explicit consent with setCrashlyticsCollectionEnabled(flag).
         import re
         source_root = ROOT / "app/src/main/java"
-        enabled_at = [
-            path.relative_to(source_root).as_posix()
-            for path in source_root.rglob("*.kt")
-            if re.search(
-                r"\bsetCrashlyticsCollectionEnabled\s*\(\s*true\s*\)",
-                path.read_text(encoding="utf-8"),
+        panel_path = "com/example/features/security/LocalCrashDiagnosticsPanel.kt"
+        enabling_calls = []
+        for path in source_root.rglob("*.kt"):
+            source = path.read_text(encoding="utf-8")
+            # Strip comments so examples in documentation do not count as code.
+            source = re.sub(r"/\\*.*?\\*/|//[^\\n]*", "", source, flags=re.DOTALL)
+            for call in re.finditer(
+                r"\\bsetCrashlyticsCollectionEnabled\\s*\\(\\s*([^)]*?)\\s*\\)",
+                source,
+            ):
+                argument = call.group(1).strip()
+                if argument != "false":
+                    enabling_calls.append(
+                        (path.relative_to(source_root).as_posix(), argument)
+                    )
+            self.assertNotRegex(
+                source,
+                r"\\bsendUnsentReports\\s*\\(",
+                f"{path}: pending crash reports must never be force-flushed",
             )
-        ]
         self.assertEqual(
-            enabled_at,
-            ["com/example/features/security/LocalCrashDiagnosticsPanel.kt"],
-            "Remote Crashlytics activation must stay behind private opt-in",
+            enabling_calls,
+            [(panel_path, "true")],
+            "Only the private confirmation may enable remote collection; "
+            "variable/dynamic activation is forbidden",
         )
-        panel = (
-            source_root
-            / "com/example/features/security/LocalCrashDiagnosticsPanel.kt"
-        ).read_text(encoding="utf-8")
+        panel = (source_root / panel_path).read_text(encoding="utf-8")
         self.assertIn("if (confirmRemote)", panel)
         self.assertIn("confirm_crashlytics_opt_in", panel)
         self.assertIn("setCrashlyticsCollectionEnabled(false)", panel)
