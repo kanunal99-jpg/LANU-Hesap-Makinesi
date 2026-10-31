@@ -217,6 +217,51 @@ class CallWakeTokenRefreshPolicyTest {
         assertFalse(CallWakePreferences.isEnabled(context))
     }
 
+    @Test fun cancelledDuringSignedEnrollmentCompensatesEvenAfterOldRevokeWasAcknowledged() = runBlocking {
+        assertTrue(CallWakePreferences.beginRemoteRegistration(context))
+        val calls = mutableListOf<String?>()
+        try {
+            CallWakeTokenRefreshPolicy.completeRegistration(context, "inflight-token") { token ->
+                calls.add(token)
+                if (token != null) {
+                    // A second settings surface revoked consent and completed
+                    // its signed cleanup before the positive request returned.
+                    assertTrue(CallWakePreferences.disableAndQueueRemoteRevoke(context))
+                    assertTrue(CallWakePreferences.acknowledgeRemoteRevoke(context))
+                }
+            }
+            throw AssertionError("Revoked enrollment must not commit consent")
+        } catch (_: IllegalStateException) {
+            assertEquals(listOf<String?>("inflight-token", null), calls)
+            assertFalse(CallWakePreferences.isEnabled(context))
+            assertFalse(CallWakePreferences.hasPendingRemoteRevoke(context))
+        }
+    }
+
+    @Test fun failedCompensationPersistsRetryObligationAfterRevokeWasCleared() = runBlocking {
+        assertTrue(CallWakePreferences.beginRemoteRegistration(context))
+        val calls = mutableListOf<String?>()
+        try {
+            CallWakeTokenRefreshPolicy.completeRegistration(context, "inflight-token") { token ->
+                calls.add(token)
+                if (token != null) {
+                    assertTrue(CallWakePreferences.disableAndQueueRemoteRevoke(context))
+                    assertTrue(CallWakePreferences.acknowledgeRemoteRevoke(context))
+                } else throw IllegalStateException("offline during compensation")
+            }
+            throw AssertionError("Failed compensation must propagate")
+        } catch (_: IllegalStateException) {
+            assertEquals(listOf<String?>("inflight-token", null), calls)
+            assertFalse(CallWakePreferences.isEnabled(context))
+            assertTrue(CallWakePreferences.hasPendingRemoteRevoke(context))
+        }
+        assertTrue(CallWakeTokenRefreshPolicy.reconcile(context,
+            { error("Revoked device must never fetch an FCM token") },
+            { calls.add(it) }))
+        assertEquals(listOf<String?>("inflight-token", null, null), calls)
+        assertFalse(CallWakePreferences.hasPendingRemoteRevoke(context))
+    }
+
     @Test fun cancelledEnrollmentRejectsLateTokenBeforeAnyServerWrite() = runBlocking {
         assertTrue(CallWakePreferences.beginRemoteRegistration(context))
         assertTrue(CallWakePreferences.disableAndQueueRemoteRevoke(context))
