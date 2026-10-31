@@ -35,6 +35,9 @@ object CallWakeTokenRefreshPolicy {
         token: String,
         register: suspend (String?) -> Unit
     ) = registrationMutex.withLock {
+        // A blank or whitespace-only Firebase token must never reach the signed
+        // relay registration or mark the device as remotely enrolled.
+        check(token.isNotBlank()) { "Call wake token is unavailable" }
         check(CallWakePreferences.isRegistrationInProgress(context))
         register(token)
         check(CallWakePreferences.completeRemoteRegistration(context))
