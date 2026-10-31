@@ -684,7 +684,11 @@ fun SettingsTab(
             onDismissRequest = dismiss,
             title = { Text("Sunucu hesap silme ön kontrolü") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Keep long consent/status text accessible at 200% font and in landscape.
+                Column(
+                    modifier = Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     Text("Bu kontrol yalnızca kimliğinizle imzalı bir sunucu sorgusudur. " +
                         "Hesabınızı, sohbetleri, PIN'i veya cihaz verilerini silmez.")
                     when (deletionPreflight) {
