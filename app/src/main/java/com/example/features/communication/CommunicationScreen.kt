@@ -34,9 +34,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import com.example.R
+import com.example.ui.accessibility.AccessibleActionCatalog
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -395,7 +397,9 @@ fun ChatCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable {
+            .heightIn(min = AccessibleActionCatalog.MIN_TOUCH_TARGET_DP.dp)
+            .clickable(onClickLabel = AccessibleActionCatalog.description(
+                AccessibleActionCatalog.Action.OPEN_PRIVATE_CHAT), role = Role.Button) {
                 triggerVibration()
                 onClick()
             }
@@ -527,7 +531,9 @@ fun ContactsTab(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable {
+                        .heightIn(min = AccessibleActionCatalog.MIN_TOUCH_TARGET_DP.dp)
+                        .clickable(onClickLabel = AccessibleActionCatalog.description(
+                            AccessibleActionCatalog.Action.START_PRIVATE_CONTACT_CHAT), role = Role.Button) {
                             triggerVibration()
                             viewModel.startChat(contact.phoneNumber, contact.name) { id ->
                                 onNavigateToChat(id)
@@ -681,7 +687,11 @@ fun SettingsTab(
             onDismissRequest = dismiss,
             title = { Text("Sunucu hesap silme ön kontrolü") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Keep long consent/status text accessible at 200% font and in landscape.
+                Column(
+                    modifier = Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     Text("Bu kontrol yalnızca kimliğinizle imzalı bir sunucu sorgusudur. " +
                         "Hesabınızı, sohbetleri, PIN'i veya cihaz verilerini silmez.")
                     when (deletionPreflight) {
