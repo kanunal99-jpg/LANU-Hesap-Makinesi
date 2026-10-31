@@ -140,6 +140,65 @@ class CommunicationViewModel(
     }
 
     fun clearError() { _errorMessage.value = null }
+
+    /** #224 private-area, non-destructive staging readiness flow. */
+    enum class AccountDeletionPreflight {
+        IDLE, CHECKING, METADATA_READY, READY_TO_CONFIRM, STORAGE_PENDING, UNAVAILABLE
+    enum class AccountServerErasure {
+        IDLE, SENDING, SERVER_ERASED_LOCAL_RETAINED, RESULT_UNKNOWN
+    private val _accountDeletionPreflight = MutableStateFlow(AccountDeletionPreflight.IDLE)
+    val accountDeletionPreflight = _accountDeletionPreflight.asStateFlow()
+    private val _accountServerErasure = MutableStateFlow(AccountServerErasure.IDLE)
+    val accountServerErasure = _accountServerErasure.asStateFlow()
+    private var accountDeletionPreflightJob: Job? = null
+
+    fun checkAccountDeletionPreflight() {
+        if (accountDeletionPreflightJob?.isActive == true) return
+        _accountDeletionPreflight.value = AccountDeletionPreflight.CHECKING
+        accountDeletionPreflightJob = viewModelScope.launch {
+            try {
+                val readiness = repository.checkAccountDeletionPreflight()
+                _accountDeletionPreflight.value = when {
+                    !readiness.storageReady -> AccountDeletionPreflight.STORAGE_PENDING
+                    readiness.deletionEnabled -> AccountDeletionPreflight.READY_TO_CONFIRM
+                    else -> AccountDeletionPreflight.METADATA_READY
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Do not display backend payloads, identity codes or network URLs.
+                _accountDeletionPreflight.value = AccountDeletionPreflight.UNAVAILABLE
+            }
+
+    fun requestStagedAccountErasure(
+        enteredCode: String, enteredPhrase: String, backupAcknowledged: Boolean
+    ) {
+        if (_accountServerErasure.value != AccountServerErasure.IDLE) return
+        if (!AccountDeletionConsentPolicy.accepted(
+                _userPhone.value, enteredCode, enteredPhrase, backupAcknowledged,
+                _accountDeletionPreflight.value == AccountDeletionPreflight.READY_TO_CONFIRM
+            )) return
+        _accountServerErasure.value = AccountServerErasure.SENDING
+        viewModelScope.launch {
+            try {
+                repository.requestSignedAccountErasure(enteredCode, confirmed = true)
+                _accountServerErasure.value = AccountServerErasure.SERVER_ERASED_LOCAL_RETAINED
+                stopSync("account-erasure")
+            } catch (e: CancellationException) {
+                _accountServerErasure.value = AccountServerErasure.RESULT_UNKNOWN
+                throw e
+            } catch (_: Exception) {
+                // The relay may have committed before connection loss.
+                // Never claim failure or automatically replay destructive work.
+                _accountServerErasure.value = AccountServerErasure.RESULT_UNKNOWN
+            }
+
+    fun clearAccountDeletionPreflight() {
+        accountDeletionPreflightJob?.cancel()
+        accountDeletionPreflightJob = null
+        _accountDeletionPreflight.value = AccountDeletionPreflight.IDLE
+        // Intentionally do NOT reset SENDING/UNKNOWN/SERVER_ERASED.
+        // A second attempt could erase a re-created identity.
     fun checkRegistration() = operation {
         val own = repository.ensureIdentity()
         _userPhone.value = own.code
