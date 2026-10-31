@@ -9,7 +9,8 @@ object AccessibleActionCatalog {
     enum class Action {
         CALCULATOR_TOOLS, HISTORY, UPDATES, END_CALL,
         MUTE_MICROPHONE, SWITCH_CAMERA, ANSWER_CALL, DECLINE_CALL,
-        PRIVATE_DIAGNOSTICS, BACK_TO_CALCULATOR
+        PRIVATE_DIAGNOSTICS, BACK_TO_CALCULATOR,
+        OPEN_PRIVATE_CHAT, START_PRIVATE_CONTACT_CHAT
     }
     fun description(action: Action): String = when (action) {
         Action.CALCULATOR_TOOLS -> "Diğer hesaplama araçları"
@@ -22,5 +23,7 @@ object AccessibleActionCatalog {
         Action.DECLINE_CALL -> "Gelen görüşmeyi reddet"
         Action.PRIVATE_DIAGNOSTICS -> "Özel tanılama ekranını göster"
         Action.BACK_TO_CALCULATOR -> "Hesap makinesi ekranına geri dön"
+        Action.OPEN_PRIVATE_CHAT -> "Seçili sohbeti aç"
+        Action.START_PRIVATE_CONTACT_CHAT -> "Seçili kişiyle sohbet başlat"
     }
 }
