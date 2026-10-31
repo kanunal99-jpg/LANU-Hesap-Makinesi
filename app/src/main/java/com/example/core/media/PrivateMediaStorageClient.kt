@@ -66,15 +66,25 @@ internal class PrivateMediaStorageClient(
         return URI(signedUrl)
     }
 
-    private fun locationForTus(base: URI, location: String): String {
-        val candidate = base.resolve(location)
+    /**
+     * TUS Location is untrusted server input. Only one opaque upload identifier
+     * under the exact resumable path is allowed: no query, encoded separators,
+     * traversal, or nested paths. Never forward the signed token elsewhere.
+     */
+    internal fun locationForTus(base: URI, location: String): String {
+        val candidate = runCatching { base.resolve(location) }.getOrNull()
+            ?: throw IllegalArgumentException("Şifreli dosya aktarım bağlantısı güvenli değil.")
         val origin = URI(relayEndpoint)
         val expectedHosts = setOf(origin.host,
             origin.host.replace(".supabase.co", ".storage.supabase.co"))
+        val prefix = "/storage/v1/upload/resumable/"
+        val rawPath = candidate.rawPath.orEmpty()
+        val uploadId = if (rawPath.startsWith(prefix)) rawPath.removePrefix(prefix) else ""
         require(candidate.scheme == "https" && candidate.userInfo == null &&
-            candidate.fragment == null && candidate.port == -1 &&
-            candidate.host in expectedHosts &&
-            candidate.path.startsWith("/storage/v1/upload/resumable/")) {
+            candidate.rawFragment == null && candidate.rawQuery == null &&
+            candidate.port == -1 && candidate.host in expectedHosts &&
+            uploadId.matches(Regex("[A-Za-z0-9._~-]{1,512}")) &&
+            uploadId != "." && uploadId != "..") {
             "Şifreli dosya aktarım bağlantısı güvenli değil."
         }
         return candidate.toString()
