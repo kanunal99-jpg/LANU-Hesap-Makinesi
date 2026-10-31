@@ -79,11 +79,26 @@ interface MessagingRelay {
     val configured: Boolean
     suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject = JSONObject()): JSONObject
 }
+/**
+ * Completion verifies a whole encrypted object on the relay. The Storage
+ * verifier has a strict 90s deadline, so the 35s ordinary messaging budget
+ * cannot be reused for this one authenticated, user-initiated operation.
+ * No user-triggered action can ask for an arbitrary/unbounded timeout.
+ */
+internal object RelayRequestDeadlinePolicy {
+    fun callTimeoutSeconds(action: String): Long = if (action == "mediaComplete") 110L else 35L
+    fun readTimeoutSeconds(action: String): Long = if (action == "mediaComplete") 100L else 20L
+}
+
 class HttpMessagingRelay(private val endpoint: String) : MessagingRelay {
     override val configured: Boolean get() = endpoint.startsWith("https://")
     private val client = OkHttpClient.Builder().connectTimeout(12, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS)
         .callTimeout(35, TimeUnit.SECONDS)
         .followRedirects(false).followSslRedirects(false).build()
+    private val verifiedMediaClient = client.newBuilder()
+        .readTimeout(RelayRequestDeadlinePolicy.readTimeoutSeconds("mediaComplete"), TimeUnit.SECONDS)
+        .callTimeout(RelayRequestDeadlinePolicy.callTimeoutSeconds("mediaComplete"), TimeUnit.SECONDS)
+        .build()
     override suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject): JSONObject = withContext(Dispatchers.IO) {
         if (!configured) throw RelayException(0, "Mesajlaşma sunucusu henüz bağlanmadı. Mesaj gönderilmedi.")
         val payload = JSONObject().put("action", action).put("identityId", identity.id).put("ts", System.currentTimeMillis())
@@ -91,7 +106,9 @@ class HttpMessagingRelay(private val endpoint: String) : MessagingRelay {
         val envelope = JSONObject().put("payload", payload).put("signature", UserCodes.sign(identity, payload))
         val request = Request.Builder().url(endpoint).post(envelope.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
         val response = suspendCancellableCoroutine<Response> { continuation ->
-            val call = client.newCall(request)
+            // Only whole-object SHA256 confirmation may outlive the normal
+            // message/receipt budget. This is still cancellable and bounded.
+            val call = (if (action == "mediaComplete") verifiedMediaClient else client).newCall(request)
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {

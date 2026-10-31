@@ -1,8 +1,15 @@
 package com.example.core.repository
 
+import com.example.BuildConfig
+
 import androidx.room.withTransaction
 import com.example.core.crypto.CryptoUtils
 import com.example.core.media.InlineMediaCodec
+import com.example.core.media.PrivateMediaCrypto
+import com.example.core.media.PrivateMediaKeyEnvelope
+import com.example.core.media.PrivateMediaTransferBudget
+import com.example.core.media.PrivateMediaTransferHttp
+import java.io.File
 import com.example.core.database.*
 import com.example.core.messaging.*
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +48,8 @@ class CommunicationRepository(
     private val draftMutex = Mutex()
     private var nextSyncAt = 0L
     private var nextSendAt = 0L
+    private var privateMediaCapable = false
+    private var nextPrivateMediaCapabilityCheckAt = 0L
     private val _identity = MutableStateFlow<MessagingIdentity?>(null)
     val identity: StateFlow<MessagingIdentity?> = _identity.asStateFlow()
     val relayConfigured get() = relay.configured
@@ -57,6 +66,76 @@ class CommunicationRepository(
     }
 
     suspend fun prepareCalling() { synchronize(requireExistingIdentity = true) }
+
+    /**
+     * #224: Owner-signed, read-only STAGING readiness check. Never creates an
+     * identity, changes Room, or calls deleteAccount. A true result reports
+     * media METADATA only; it is not proof of physical Storage erasure.
+     */
+    data class AccountDeletionReadiness(val storageReady: Boolean, val deletionEnabled: Boolean)
+
+    suspend fun checkAccountDeletionPreflight(): AccountDeletionReadiness {
+        check(relay.configured) { "Sunucu hesap silme ön kontrolü kullanılamıyor." }
+        check(settingsDao.getSettingValue("lanu_server_erasure_state") == null) {
+            "Önceki silme isteğinin sonucu belirsiz veya tamamlandı; otomatik tekrar yapılmaz."
+        }
+        val own = identityMutex.withLock {
+            _identity.value ?: withContext(Dispatchers.IO) { identityStore.read() }
+                ?: error("Mevcut LANU kimliği bulunamadı; hiçbir veri değiştirilmedi.")
+        }
+        check(settingsDao.getSettingValue("lanu_full_restore_identity")?.let { it == own.id } != false) {
+            "Kimlik yedeği eşleşmiyor; hiçbir veri değiştirilmedi."
+        }
+        val result = relay.request(own, "checkAccountDeletion",
+            JSONObject().put("expectedCode", own.code))
+        check(result.length() == 2 &&
+            result.opt("storageReady") is Boolean &&
+            result.opt("deletionEnabled") is Boolean) {
+            "Sunucu ön kontrol yanıtı doğrulanamadı; hiçbir veri değiştirilmedi."
+        }
+        return AccountDeletionReadiness(
+            storageReady = result.getBoolean("storageReady"),
+            deletionEnabled = result.getBoolean("deletionEnabled")
+        )
+    }
+
+    /**
+     * #224 STAGED: a second owner-signed request after fresh preflight, the
+     * user's exact current code and explicit irreversible-action consent.
+     * Never run when the live relay does not advertise deletion capability.
+     *
+     * Persist a pending tombstone BEFORE sending. If the HTTP response is
+     * lost after a successful remote deletion, normal sync must not silently
+     * re-register the supposedly erased account. Neither a timeout nor an
+     * arbitrary JSON value is a deletion receipt. Local Room/keys stay intact
+     * pending a separately authorized final local cleanup.
+     */
+    suspend fun requestSignedAccountErasure(
+        expectedCode: String, confirmed: Boolean
+    ): Boolean = syncMutex.withLock {
+        check(confirmed && expectedCode.isNotBlank()) { "Hesap silme onayı eksik." }
+        check(settingsDao.getSettingValue("lanu_server_erasure_state") == null) {
+            "Önceki sunucu silme işlemi yeniden başlatılamaz."
+        }
+        val readiness = checkAccountDeletionPreflight()
+        check(readiness.storageReady && readiness.deletionEnabled) {
+            "Sunucu silme işlemi henüz güvenli şekilde etkin değil."
+        }
+        val own = identityMutex.withLock {
+            _identity.value ?: withContext(Dispatchers.IO) { identityStore.read() }
+                ?: error("Mevcut kimlik bulunamadı; hiçbir veri değiştirilmedi.")
+        }
+        check(own.code == expectedCode) { "Hesap kodu değişti; silme işlemi durduruldu." }
+        settingsDao.insertSetting(SettingsEntity("lanu_server_erasure_state", "pending"))
+        val result = relay.request(own, "deleteAccount", JSONObject()
+            .put("confirmation", "DELETE_ACCOUNT").put("expectedCode", own.code))
+        check(result.length() == 1 && result.opt("deleted") is Boolean &&
+            result.getBoolean("deleted")) {
+            "Sunucu silme sonucu doğrulanamadı. Tekrar denenmeyecek."
+        }
+        settingsDao.insertSetting(SettingsEntity("lanu_server_erasure_state", "complete"))
+        true
+    }
 
     suspend fun callPeerForConversation(id: String): CallPeer {
         val peer = peerForConversation(id) ?: error("Önce karşılıklı kişi kaydını tamamlayın.")
@@ -247,6 +326,11 @@ class CommunicationRepository(
     suspend fun logout() { /* Identity intentionally survives leaving the private space. */ }
 
     private suspend fun registerRemote(requireExistingIdentity: Boolean = false): MessagingIdentity {
+        // Server deletion may have committed even if the HTTP response vanished.
+        // Never resurrect that identity through sync/register on next cold start.
+        check(settingsDao.getSettingValue("lanu_server_erasure_state") == null) {
+            "Hesap silme isteği bekliyor veya tamamlandı. Sunucu kaydı otomatik açılmaz."
+        }
         val own = loadIdentity(allowCreate = !requireExistingIdentity)
         val response = relay.request(own, "register", JSONObject().put("code", own.code).put("nonce", own.nonce).put("publicKey", own.publicKey))
         val code = response.getString("code")
@@ -460,7 +544,10 @@ class CommunicationRepository(
                 else if (!message.content.startsWith("lanu2:")) CryptoUtils.decrypt(message.content, conversationId)
                 else "Mesaj anahtarı bulunamadı"
             } catch (_: Exception) { "Mesaj doğrulanamadı veya çözülemedi" }
-            message.copy(content = plain)
+            // Never place the authenticated one-time file key in Compose text,
+            // clipboard menus, previews, accessibility, or screenshot surfaces.
+            message.copy(content = if (PrivateMediaKeyEnvelope.isAuthenticatedMediaPayload(plain))
+                PRIVATE_MEDIA_MARKER + message.id else plain)
         }
     }
 
@@ -483,6 +570,171 @@ class CommunicationRepository(
         }
         InlineMediaCodec.decode(envelope) // Fail closed on corrupt MIME, data or SHA-256.
         return queueEncryptedContent(conversationId, envelope)
+    }
+
+    companion object {
+        const val PRIVATE_MEDIA_MARKER = "LANU-PRIVATE-MEDIA:"
+    }
+
+    /**
+     * Full private ciphertext upload followed by atomic verified ready, then
+     * E2EE key-envelope messaging. The relay never sees media key, name,
+     * plaintext URI or source bytes. A failed upload never creates a chat message.
+     * Encrypted private temp and in-memory key are destroyed in all outcomes.
+     */
+    suspend fun sendLargeAttachment(
+        conversationId: String,
+        prepared: PrivateMediaCrypto.EncryptedFile,
+        privateDirectory: File
+    ): String {
+        try {
+            check(BuildConfig.LANU_PRIVATE_MEDIA_UI_ENABLED) {
+                "Güvenli büyük medya aktarımı henüz bu sürümde etkin değil."
+            }
+            val own = loadIdentity(allowCreate = false)
+            val peer = peerForConversation(conversationId)
+                ?: error("Önce kişinin güvenlik kimliğini doğrulayın.")
+            val peerId = peer.getString("id")
+            val publicKey = peer.getString("publicKey")
+            check(PeerConversationBindingPolicy.matches(own.id, conversationId,
+                peerId, publicKey, peer.getString("code"), peer.getString("nonce"))) {
+                "Alıcının güvenlik kimliği doğrulanamadı."
+            }
+            val verified = verifiedCallPeer(peerId)
+                ?: error("Dosya paylaşımı için karşılıklı kişi kaydı gerekir.")
+            check(verified.publicKey == publicKey) { "Alıcının kimliği değişti." }
+            val manifest = prepared.manifest
+            PrivateMediaCrypto.validate(manifest)
+            val reservation = withContext(Dispatchers.IO) {
+                PrivateMediaTransferBudget.verifyForReservation(
+                    prepared.ciphertextFile, manifest, privateDirectory
+                )
+            }
+            val id = UUID.randomUUID().toString()
+            relay.request(own, "enablePrivateMedia", JSONObject().put("version", 1))
+            val reserved = relay.request(own, "reservePrivateMedia", JSONObject()
+                .put("fileId", reservation.fileId).put("messageId", id)
+                .put("peerId", peerId).put("cipherBytes", reservation.cipherBytes)
+                .put("cipherSha256", reservation.cipherSha256))
+            check(reserved.getString("fileId") == manifest.fileId &&
+                reserved.getString("state") == "pending") { "Medya rezervasyonu tamamlanamadı." }
+
+            val grant = relay.request(own, "mediaUploadGrant",
+                JSONObject().put("fileId", manifest.fileId))
+            check(grant.getString("fileId") == manifest.fileId &&
+                grant.getLong("cipherBytes") == reservation.cipherBytes &&
+                grant.getString("cipherSha256") == reservation.cipherSha256) {
+                "Yükleme izni dosyayla eşleşmiyor."
+            }
+            // A proxy may drop the upload HTTP response *after* Storage has
+            // committed the ciphertext. A failed PUT cannot be treated as
+            // success; only the trusted relay's complete-object SHA verification
+            // may recover that lost-ACK case.
+            var uploadError: java.io.IOException? = null
+            try {
+                PrivateMediaTransferHttp.uploadCiphertext(grant.getString("url"),
+                    manifest.fileId, prepared.ciphertextFile, manifest, privateDirectory)
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: java.io.IOException) { uploadError = e }
+            val accepted = try {
+                relay.request(own, "mediaComplete",
+                    JSONObject().put("fileId", manifest.fileId))
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) {
+                if (uploadError != null) throw uploadError
+                throw e
+            }
+            check(accepted.getString("fileId") == manifest.fileId &&
+                accepted.getString("state") == "ready") { "Dosya bütünlüğü onaylanmadı." }
+
+            // The encryption key enters ONLY the authenticated peer message.
+            val messageCipher = PrivateMediaKeyEnvelope.encryptForPeer(
+                own, peerId, publicKey, id, manifest, prepared.keyMaterial
+            )
+            // Do not queue on a stale conversation after a slow upload.
+            draftMutex.withLock {
+                val latest = peerForConversation(conversationId)
+                    ?: error("Sohbet kapandı; dosya mesajı gönderilmedi.")
+                check(PeerConversationBindingPolicy.matches(own.id, conversationId,
+                    latest.getString("id"), latest.getString("publicKey"),
+                    latest.getString("code"), latest.getString("nonce")) &&
+                    latest.getString("publicKey") == publicKey) {
+                    "Sohbet kimliği değişti; dosya mesajı gönderilmedi."
+                }
+                database.withTransaction {
+                    messageDao.insertMessage(MessageEntity(id, conversationId, own.id,
+                        userProfileDao.getUserProfile()?.displayName ?: "Ben",
+                        messageCipher, status = "PENDING"))
+                    conversationDao.getConversationById(conversationId)?.let {
+                        conversationDao.insertConversation(it.copy(
+                            lastMessageText = "Şifreli dosya",
+                            lastMessageTime = clock()))
+                    }
+                }
+            }
+            return id
+        } finally {
+            prepared.destroyKey()
+            prepared.ciphertextFile.delete()
+        }
+    }
+
+    class DownloadedPrivateMedia(val verifiedFile: File, val mime: String) {
+        fun destroy() { verifiedFile.delete() }
+    }
+
+    /** Manual download after explicit user action, into private app temp only. */
+    suspend fun downloadLargeAttachment(
+        conversationId: String, messageId: String, privateDirectory: File
+    ): DownloadedPrivateMedia {
+        check(BuildConfig.LANU_PRIVATE_MEDIA_UI_ENABLED) {
+            "Güvenli büyük medya indirme bu sürümde etkin değil."
+        }
+        val own = loadIdentity(allowCreate = false)
+        val message = messageDao.getMessage(messageId)
+            ?: error("Dosya mesajı bulunamadı.")
+        require(message.conversationId == conversationId &&
+            message.senderPhone in setOf(own.id,
+                peerForConversation(conversationId)?.optString("id"))) {
+            "Dosya mesajı bu sohbetin parçası değil."
+        }
+        val peer = peerForConversation(conversationId)
+            ?: error("Gönderen kimliği doğrulanamadı.")
+        check(PeerConversationBindingPolicy.matches(own.id, conversationId,
+            peer.getString("id"), peer.getString("publicKey"),
+            peer.getString("code"), peer.getString("nonce"))) {
+            "Gönderen kimliği değişti."
+        }
+        val plaintext = withContext(Dispatchers.Default) {
+            PeerMessageCrypto.decrypt(own, peer.getString("id"),
+                peer.getString("publicKey"), messageId, message.senderPhone,
+                message.content)
+        }
+        // This parser is ONLY called after the original E2EE frame authenticates.
+        val opened = PrivateMediaKeyEnvelope.openAuthenticatedPayload(plaintext)
+        try {
+            relay.request(own, "enablePrivateMedia", JSONObject().put("version", 1))
+            val grant = relay.request(own, "mediaDownloadGrant",
+                JSONObject().put("fileId", opened.manifest.fileId))
+            val budget = PrivateMediaTransferBudget.encryptedBytes(opened.manifest.plainBytes)
+            check(grant.getString("fileId") == opened.manifest.fileId &&
+                grant.getLong("cipherBytes") == budget &&
+                grant.getString("cipherSha256") == opened.manifest.cipherSha256) {
+                "İndirilecek dosya güvenlik bilgileriyle eşleşmiyor."
+            }
+            val encrypted = PrivateMediaTransferHttp.downloadCiphertext(
+                grant.getString("url"), opened.manifest, privateDirectory)
+            try {
+                val verified = withContext(Dispatchers.IO) {
+                    PrivateMediaCrypto.decryptToVerifiedPrivateFile(
+                        encrypted, opened.manifest, opened.keyMaterial, privateDirectory
+                    )
+                }
+                return DownloadedPrivateMedia(verified, opened.manifest.mime)
+            } finally {
+                encrypted.delete()
+            }
+        } finally { opened.destroyKey() }
     }
 
     private fun draftMessageId(conversationId: String): String =
@@ -537,10 +789,23 @@ class CommunicationRepository(
     suspend fun synchronize(activeConversationId: String? = null, requireExistingIdentity: Boolean = false) = syncMutex.withLock {
         if (clock() < nextSyncAt) throw RelayException(429, "Bağlantı kısa süre bekletiliyor. Mesajlarınız korunuyor.", nextSyncAt - clock())
         val own = registerRemote(requireExistingIdentity = requireExistingIdentity)
+        // Automatic, explicitly versioned capability upgrade only for THIS
+        // new client; older APKs never advertise mediaVersion=1.
+        // Legacy relay 400/503 responses cannot break ordinary message sync.
+        if (BuildConfig.LANU_PRIVATE_MEDIA_UI_ENABLED &&
+            !privateMediaCapable && clock() >= nextPrivateMediaCapabilityCheckAt) {
+            nextPrivateMediaCapabilityCheckAt = clock() + 300_000L
+            try {
+                privateMediaCapable = relay.request(own, "enablePrivateMedia",
+                    JSONObject().put("version", 1)).optInt("privateMediaVersion") == 1
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* Old or disabled server: safe legacy sync. */ }
+        }
         // Receive and acknowledge BEFORE sending: one blocked/invalid outgoing
         // message must never prevent unrelated incoming conversations arriving.
         val response = relay.request(own, "sync", JSONObject().apply {
             if (callingForeground) put("callVersion", CallSignaling.VERSION)
+            if (privateMediaCapable) put("mediaVersion", 1)
         })
         val peers = response.getJSONArray("contacts")
         for (i in 0 until peers.length()) savePeer(peers.getJSONObject(i), peers.getJSONObject(i).optString("codeAtAdd"))

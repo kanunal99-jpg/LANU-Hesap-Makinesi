@@ -609,6 +609,12 @@ fun SettingsTab(
     val busy by viewModel.busy.collectAsState()
     var showRotate by remember { mutableStateOf(false) }
     var showName by remember { mutableStateOf(false) }
+    var showDeletionPreflight by remember { mutableStateOf(false) }
+    val deletionPreflight by viewModel.accountDeletionPreflight.collectAsState()
+    val accountErasure by viewModel.accountServerErasure.collectAsState()
+    var deletionCodeInput by remember { mutableStateOf("") }
+    var deletionPhraseInput by remember { mutableStateOf("") }
+    var deletionBackupAcknowledged by remember { mutableStateOf(false) }
     var backupAction by remember { mutableStateOf<String?>(null) }
     var filePassword by remember { mutableStateOf("") }
     val context = LocalContext.current
@@ -646,6 +652,13 @@ fun SettingsTab(
         Text("Uygulamayı silmeden veya cihaz değiştirmeden önce kimliğini yedekle. Parolalı yedeği geri yükleyerek aynı kodu kullanabilirsin.", fontSize = 12.sp)
         OutlinedButton(onClick = { backupAction = "export" }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Kimliğimi yedekle") }
         OutlinedButton(onClick = { backupAction = "restore" }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Kimlik yedeğini geri yükle") }
+        // #224: visible only inside authenticated private communication settings.
+        // This read-only check never triggers remote or local account erasure.
+        OutlinedButton(
+            onClick = { showDeletionPreflight = true },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth().testTag("private_account_deletion_preflight")
+        ) { Text("Sunucu hesabı silme ön kontrolü") }
         com.example.features.security.FullBackupPanel(backupBusy, pendingFullRestore, backupMessage,
             onExportFullBackup, onChooseFullBackup, onRestoreFullBackup, onCancelFullRestore)
         callPushRepository?.let {
@@ -653,6 +666,116 @@ fun SettingsTab(
             MessageWakeSettings(it)
         }
         com.example.features.security.SettingsScreen(securityViewModel, triggerVibration)
+    }
+    if (showDeletionPreflight) {
+        val dismiss: () -> Unit = {
+            if (accountErasure != CommunicationViewModel.AccountServerErasure.SENDING) {
+                deletionCodeInput = ""
+                deletionPhraseInput = ""
+                deletionBackupAcknowledged = false
+                viewModel.clearAccountDeletionPreflight()
+                showDeletionPreflight = false
+            }
+        }
+        AlertDialog(
+            onDismissRequest = dismiss,
+            title = { Text("Sunucu hesap silme ön kontrolü") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Bu kontrol yalnızca kimliğinizle imzalı bir sunucu sorgusudur. " +
+                        "Hesabınızı, sohbetleri, PIN'i veya cihaz verilerini silmez.")
+                    when (deletionPreflight) {
+                        CommunicationViewModel.AccountDeletionPreflight.IDLE ->
+                            Text("İşlemi başlatmak için ön kontrol düğmesine dokunun.")
+                        CommunicationViewModel.AccountDeletionPreflight.CHECKING -> {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            Text("Sunucu doğrulaması bekleniyor…")
+                        }
+                        CommunicationViewModel.AccountDeletionPreflight.METADATA_READY ->
+                            Text("Medya kayıtları ön kontrole göre hazır. Sunucu silme özelliği " +
+                                "yasal/operasyonel kabulü beklediği için kapalıdır.")
+                        CommunicationViewModel.AccountDeletionPreflight.READY_TO_CONFIRM ->
+                            Text("Sunucu silme yetkisi açık ve medya ön kontrolü uygun. " +
+                                "Bu işlem geri alınamayabilir; yerel veri ayrıca korunur.")
+                        CommunicationViewModel.AccountDeletionPreflight.STORAGE_PENDING ->
+                            Text("Sunucu medya kayıtları silme için henüz hazır değil. Hesap korunuyor.")
+                        CommunicationViewModel.AccountDeletionPreflight.UNAVAILABLE ->
+                            Text("Güvenli ön kontrol kullanılamıyor. Hesap ve veriler korunuyor.")
+                    }
+                    if (deletionPreflight == CommunicationViewModel.AccountDeletionPreflight.READY_TO_CONFIRM &&
+                        accountErasure == CommunicationViewModel.AccountServerErasure.IDLE) {
+                        Text("Hesap kodunuzu ve DELETE_ACCOUNT ifadesini kendiniz yazın. " +
+                            "Bu işlem karşı tarafın cihazındaki kayıtları silmez.")
+                        OutlinedTextField(
+                            value = deletionCodeInput,
+                            onValueChange = { deletionCodeInput = it.take(80) },
+                            label = { Text("Mevcut LANU kodum") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().testTag("account_erasure_code")
+                        )
+                        OutlinedTextField(
+                            value = deletionPhraseInput,
+                            onValueChange = { deletionPhraseInput = it.take(32) },
+                            label = { Text("DELETE_ACCOUNT yazın") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().testTag("account_erasure_phrase")
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = deletionBackupAcknowledged,
+                                onCheckedChange = { deletionBackupAcknowledged = it }
+                            )
+                            Text("İşlemin geri alınamayacağını anladım ve yedek sorumluluğunu kabul ediyorum.")
+                        }
+                    }
+                    when (accountErasure) {
+                        CommunicationViewModel.AccountServerErasure.IDLE ->
+                            Text("Canlı silme onayı verilmeden hiçbir kayıt silinmez.")
+                        CommunicationViewModel.AccountServerErasure.SENDING -> {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            Text("İmzalı istek gönderildi; yanıt doğrulanıyor. Ekranı kapatmayın.")
+                        }
+                        CommunicationViewModel.AccountServerErasure.SERVER_ERASED_LOCAL_RETAINED ->
+                            Text("Sunucu silmeyi onayladı. Yerel şifreli verileriniz ve kimlik " +
+                                "otomatik silinmedi; sunucuya yeniden kayıt engellendi.")
+                        CommunicationViewModel.AccountServerErasure.RESULT_UNKNOWN ->
+                            Text("İsteğin sunucudaki sonucu belirsiz. Güvenlik için tekrar gönderilmeyecek. " +
+                                "Yerel veriler korunuyor; durum ayrıca doğrulanmalıdır.")
+                    }
+                }
+            },
+            confirmButton = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { viewModel.checkAccountDeletionPreflight() },
+                        enabled = deletionPreflight != CommunicationViewModel.AccountDeletionPreflight.CHECKING &&
+                            accountErasure == CommunicationViewModel.AccountServerErasure.IDLE,
+                        modifier = Modifier.testTag("run_account_deletion_preflight")
+                    ) { Text("Yalnızca ön kontrol") }
+                    if (deletionPreflight == CommunicationViewModel.AccountDeletionPreflight.READY_TO_CONFIRM) {
+                        Button(
+                            onClick = {
+                                viewModel.requestStagedAccountErasure(
+                                    deletionCodeInput, deletionPhraseInput, deletionBackupAcknowledged
+                                )
+                            },
+                            enabled = accountErasure == CommunicationViewModel.AccountServerErasure.IDLE &&
+                                AccountDeletionConsentPolicy.accepted(
+                                    code, deletionCodeInput, deletionPhraseInput,
+                                    deletionBackupAcknowledged, true
+                                ),
+                            modifier = Modifier.testTag("confirm_server_account_erasure")
+                        ) { Text("Sunucu hesabımı sil") }
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = dismiss,
+                    enabled = accountErasure != CommunicationViewModel.AccountServerErasure.SENDING
+                ) { Text("Kapat") }
+            }
+        )
     }
     if (showRotate) AlertDialog(onDismissRequest = { showRotate = false }, title = { Text("Yeni kullanıcı kodu oluşturulsun mu?") },
         text = { Text("Yeni kişiler sizi yeni kodunuzla ekleyecek. Kimliğiniz, kayıtlı kişileriniz ve mesaj geçmişiniz korunur. Bu işlem yalnızca sizin isteğinizle yapılır.") },

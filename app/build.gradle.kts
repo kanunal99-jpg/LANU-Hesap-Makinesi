@@ -31,6 +31,11 @@ android {
     // signed OTA updates still require the pinned stable certificate.
     versionCode = providers.environmentVariable("LANU_VERSION_CODE").orNull?.toIntOrNull() ?: 693
     versionName = "1.2.0"
+    // Never surface a large-media option unless a separately approved,
+    // production-verified server rollout explicitly enables this APK build.
+    // Missing, malformed, or untrusted values always mean feature OFF.
+    buildConfigField("boolean", "LANU_PRIVATE_MEDIA_UI_ENABLED",
+      if (providers.environmentVariable("LANU_PRIVATE_MEDIA_UI_ENABLED").orNull == "true") "true" else "false")
     buildConfigField("String", "LANU_RELAY_URL", "\"${providers.environmentVariable("LANU_RELAY_URL").orNull ?: "https://talhknjcjaijqiqwdyhf.supabase.co/functions/v1/lanu-relay"}\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -88,7 +93,20 @@ android {
     compose = true
     buildConfig = true
   }
-  testOptions { unitTests { isIncludeAndroidResources = true } }
+  testOptions {
+    unitTests {
+      isIncludeAndroidResources = true
+      // Robolectric fetches android-all-instrumented outside Gradle's Maven
+      // resolver. Avoid intermittent repo1.maven.org HTTP failures without
+      // skipping, ignoring, or retrying any actual test assertions.
+      all {
+        it.systemProperty(
+          "robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2"
+        )
+        it.systemProperty("robolectric.dependency.repo.id", "mavenCentral")
+      }
+    }
+  }
   testBuildType = providers.gradleProperty("lanuDeviceBuildType").orNull ?: "debug"
   dependenciesInfo {
     includeInApk = false

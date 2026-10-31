@@ -37,6 +37,9 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.example.core.media.InlineMediaPreparer
 import com.example.core.media.InlineMediaCodec
+import com.example.core.media.PrivateMediaDocumentPreparer
+import com.example.core.media.PrivateMediaCrypto
+import com.example.core.repository.CommunicationRepository
 import com.example.core.messaging.FullDataBackup
 import java.io.File
 import java.io.FileOutputStream
@@ -257,6 +260,144 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         }
     }
 
+    // A system document picker returns only a short-lived URI. The complete
+    // source is copied into private bounded staging and E2EE-encrypted before
+    // any network call. No shared-storage path, file name or clear bytes are
+    // sent to the relay. Never run this callback while the private area locked.
+    private var largeMediaBusy = false
+    private val largeDocumentPicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        val chatId = takePendingPickerChat()
+        if (chatId != null && uri != null) confirmLargeSend(chatId) {
+            PrivateMediaDocumentPreparer.encryptDocument(this@MainActivity, uri)
+        }
+    }
+    private val largePhotoPicker = registerForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        val chatId = takePendingPickerChat()
+        if (chatId != null && uri != null) confirmLargeSend(chatId) {
+            com.example.core.media.PrivatePhotoStaging.stage(this@MainActivity, uri)
+        }
+    }
+
+    private fun confirmLargeSend(chatId: String, prepare: suspend () -> PrivateMediaCrypto.EncryptedFile) {
+        if (!BuildConfig.LANU_PRIVATE_MEDIA_UI_ENABLED ||
+            !::securityViewModel.isInitialized || securityViewModel.isLocked.value || largeMediaBusy) return
+        // Selecting a file is not equivalent to consent to upload it.
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Güvenli dosya gönder")
+            .setMessage("Seçtiğiniz dosya şifrelenip yalnız doğrulanmış kişiye gönderilecek. Belge en fazla 40 MB olabilir. Gönderilsin mi?")
+            .setNegativeButton("Vazgeç", null)
+            .setPositiveButton("Şifreli gönder") { _, _ ->
+                if (!securityViewModel.isLocked.value && !largeMediaBusy)
+                    sendPreparedLargeMedia(chatId, prepare)
+            }
+            .show()
+    }
+
+    private fun sendPreparedLargeMedia(chatId: String, prepare: suspend () -> PrivateMediaCrypto.EncryptedFile) {
+        if (!BuildConfig.LANU_PRIVATE_MEDIA_UI_ENABLED) return
+        largeMediaBusy = true
+        lifecycleScope.launch {
+            var prepared: PrivateMediaCrypto.EncryptedFile? = null
+            try {
+                prepared = prepare()
+                // Delayed SAF/cloud access cannot reopen an already-locked chat.
+                if (securityViewModel.isLocked.value) return@launch
+                val repo = (application as LanuApplication).container.communicationRepository
+                repo.sendLargeAttachment(chatId, prepared,
+                    PrivateMediaDocumentPreparer.privateDirectory(this@MainActivity))
+                prepared = null // repository destroys the one-use key/temp
+                commViewModel.refresh()
+                if (!securityViewModel.isLocked.value)
+                    Toast.makeText(this@MainActivity, "Şifreli dosya gönderime alındı.", Toast.LENGTH_SHORT).show()
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (_: Exception) {
+                if (!securityViewModel.isLocked.value)
+                    Toast.makeText(this@MainActivity,
+                        "Şifreli dosya gönderilemedi. Dosyalarınız korunuyor.",
+                        Toast.LENGTH_LONG).show()
+            } finally {
+                prepared?.destroyKey()
+                prepared?.ciphertextFile?.delete()
+                largeMediaBusy = false
+            }
+        }
+    }
+
+    private var pendingLargeExport: CommunicationRepository.DownloadedPrivateMedia? = null
+    private val largeDocumentExportPicker = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val downloaded = pendingLargeExport
+        pendingLargeExport = null
+        completeExternalPickerResult()
+        val uri = result.data?.data
+        if (result.resultCode == Activity.RESULT_OK && uri != null &&
+            downloaded != null && ::securityViewModel.isInitialized &&
+            !securityViewModel.isLocked.value) {
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        contentResolver.openOutputStream(uri, "w")?.use { target ->
+                            downloaded.verifiedFile.inputStream().use { it.copyTo(target, 64 * 1024) }
+                        } ?: error("Hedef dosya açılamadı.")
+                    }
+                    if (!securityViewModel.isLocked.value)
+                        Toast.makeText(this@MainActivity, "Dosya kaydedildi.", Toast.LENGTH_SHORT).show()
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (_: Exception) {
+                    if (!securityViewModel.isLocked.value)
+                        Toast.makeText(this@MainActivity, "Dosya kaydedilemedi.", Toast.LENGTH_LONG).show()
+                } finally { downloaded.destroy() }
+            }
+        } else downloaded?.destroy()
+    }
+
+    private fun downloadLargeDocument(chatId: String, messageId: String) {
+        if (!BuildConfig.LANU_PRIVATE_MEDIA_UI_ENABLED || !::securityViewModel.isInitialized || securityViewModel.isLocked.value ||
+            pendingLargeExport != null || largeMediaBusy) return
+        largeMediaBusy = true
+        lifecycleScope.launch {
+            var downloaded: CommunicationRepository.DownloadedPrivateMedia? = null
+            try {
+                val repo = (application as LanuApplication).container.communicationRepository
+                downloaded = repo.downloadLargeAttachment(chatId, messageId,
+                    PrivateMediaDocumentPreparer.privateDirectory(this@MainActivity))
+                if (securityViewModel.isLocked.value) return@launch
+                val extension = when (downloaded.mime) {
+                    "image/jpeg" -> "jpg"
+                    "image/png" -> "png"
+                    "video/mp4" -> "mp4"
+                    "application/pdf" -> "pdf"
+                    "text/plain" -> "txt"
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> "docx"
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" -> "xlsx"
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation" -> "pptx"
+                    else -> "bin"
+                }
+                val pickerIntent = Intent(Intent.ACTION_CREATE_DOCUMENT)
+                    .addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType(downloaded.mime)
+                    .putExtra(Intent.EXTRA_TITLE, "dosya.$extension")
+                pendingLargeExport = downloaded
+                downloaded = null
+                beginExternalPicker()
+                largeDocumentExportPicker.launch(pickerIntent)
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (_: Exception) {
+                if (!securityViewModel.isLocked.value)
+                    Toast.makeText(this@MainActivity,
+                        "Şifreli dosya indirilemedi veya doğrulanamadı.", Toast.LENGTH_LONG).show()
+            } finally {
+                downloaded?.destroy()
+                largeMediaBusy = false
+            }
+        }
+    }
+
     private fun takePendingPickerChat(): String? {
         val chatId = pendingPickerConversationId
         pendingPickerConversationId = null
@@ -291,6 +432,15 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                 "gallery" -> imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                 "camera" -> cameraPreviewPicker.launch(null)
                 "document" -> documentPicker.launch(arrayOf("application/pdf", "text/plain"))
+                "largeDocument" -> largeDocumentPicker.launch(arrayOf(
+                    "application/pdf", "text/plain",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                ))
+                "largePhoto" -> largePhotoPicker.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
                 else -> {
                     pendingPickerConversationId = null
                     externalPickerStartedAtMs = null
@@ -664,6 +814,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                     onChoosePhoto = { launchMediaPicker(screen.conversationId, "gallery") },
                                     onTakePhoto = { launchMediaPicker(screen.conversationId, "camera") },
                                     onChooseDocument = { launchMediaPicker(screen.conversationId, "document") },
+                                    onChooseLargeDocument = { launchMediaPicker(screen.conversationId, "largeDocument") },
+                                    onChooseLargePhoto = { launchMediaPicker(screen.conversationId, "largePhoto") },
+                                    onSaveLargeAttachment = { id -> downloadLargeDocument(screen.conversationId, id) },
                                     onSaveAttachment = { attachment -> saveAttachmentWithPicker(attachment) },
                                 )
                             }
