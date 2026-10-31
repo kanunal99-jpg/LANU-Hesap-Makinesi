@@ -80,12 +80,31 @@ internal class PrivateMediaStorageClient(
         return candidate.toString()
     }
 
+    /** Bind the signed TUS header to the one token in the authorized grant URL. */
+    internal fun validSignedToken(signedUrl: String, token: String): Boolean {
+        if (token.length !in 8..4096 ||
+            token.any { it.isWhitespace() || Character.isISOControl(it) }) return false
+        val query = runCatching { URI(signedUrl).rawQuery }.getOrNull() ?: return false
+        val fields = query.split('&')
+        if (fields.size != 1 || !fields[0].startsWith("token=")) return false
+        val decoded = runCatching {
+            java.net.URLDecoder.decode(fields[0].removePrefix("token="), "UTF-8")
+        }.getOrNull() ?: return false
+        return decoded == token
+    }
+
     private fun validatedToken(signedUrl: String, token: String): String {
-        require(token.length in 8..4096 && token.none { it.isWhitespace() }) {
-            "Dosya gönderim izni geçersiz."
+        require(validSignedToken(signedUrl, token)) {
+            "Dosya gönderim izni veya bağlantısı geçersiz."
         }
-        require(signedUrl.contains("token=")) { "Dosya gönderim bağlantısı geçersiz." }
         return token
+    }
+
+    /** Signed grants may use either supported Supabase host; never double the storage label. */
+    internal fun storageHost(host: String): String {
+        require(host.matches(Regex("[a-z0-9-]+(\\.storage)?\\.supabase\\.co")))
+        return if (host.endsWith(".storage.supabase.co")) host
+        else host.removeSuffix(".supabase.co") + ".storage.supabase.co"
     }
 
     private fun metadata(bucket: String, path: String): String {
@@ -113,7 +132,7 @@ internal class PrivateMediaStorageClient(
             encrypted.isFile && encrypted.length() == expectedBytes) {
             "Şifreli dosya boyutu beklenen değere uymuyor."
         }
-        val origin = base.host.replace(".supabase.co", ".storage.supabase.co")
+        val origin = storageHost(base.host)
         val createUrl = "https://$origin/storage/v1/upload/resumable"
         val path = "v1/$fileId.cipher"
         val create = Request.Builder().url(createUrl)
