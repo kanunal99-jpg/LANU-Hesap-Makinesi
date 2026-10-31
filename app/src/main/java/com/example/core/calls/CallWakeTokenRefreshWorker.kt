@@ -40,7 +40,20 @@ object CallWakeTokenRefreshPolicy {
         check(token.isNotBlank()) { "Call wake token is unavailable" }
         check(CallWakePreferences.isRegistrationInProgress(context))
         register(token)
-        check(CallWakePreferences.completeRemoteRegistration(context))
+        if (!CallWakePreferences.completeRemoteRegistration(context)) {
+            // The signed positive write may have completed after consent was
+            // withdrawn. A separate UI revoke could already have cleared its
+            // old pending flag; persist a NEW compensating revoke before IO.
+            // Fail closed even if another enrollment started concurrently.
+            check(CallWakePreferences.disableAndQueueRemoteRevoke(context)) {
+                "Unable to persist call wake compensating revoke"
+            }
+            register(null)
+            check(CallWakePreferences.acknowledgeRemoteRevoke(context)) {
+                "Unable to acknowledge call wake compensating revoke"
+            }
+            error("Call wake consent changed while registering")
+        }
     }
 
     suspend fun reconcile(
