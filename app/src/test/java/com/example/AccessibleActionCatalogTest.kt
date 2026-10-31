@@ -29,6 +29,19 @@ class AccessibleActionCatalogTest {
         }
     }
 
+    @Test fun privateChatAndContactActionsAreUnambiguousAndNeverExposeIdentifiers() {
+        val chat = AccessibleActionCatalog.description(Action.OPEN_PRIVATE_CHAT)
+        val contact = AccessibleActionCatalog.description(Action.START_PRIVATE_CONTACT_CHAT)
+        assertEquals("Seçili sohbeti aç", chat)
+        assertEquals("Seçili kişiyle sohbet başlat", contact)
+        assertNotEquals(chat, contact)
+        for (label in listOf(chat, contact)) {
+            assertFalse(label.contains("PIN", ignoreCase = true))
+            assertFalse(label.contains("LANU", ignoreCase = true))
+            assertFalse(label.contains("http", ignoreCase = true))
+        }
+    }
+
     @Test fun documentedInteractiveMinimumIsAtLeast48Dp() {
         assertTrue(AccessibleActionCatalog.MIN_TOUCH_TARGET_DP >= 48)
     }
