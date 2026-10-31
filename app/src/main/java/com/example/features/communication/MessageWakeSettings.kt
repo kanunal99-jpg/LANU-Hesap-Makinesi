@@ -36,6 +36,7 @@ import androidx.core.content.ContextCompat
 import com.example.core.calls.CallWakePreferences
 import com.example.core.messaging.MessageWakeNotification
 import com.example.core.messaging.MessageWakePreferences
+import com.example.core.messaging.MessageWakeTokenRefreshPolicy
 import com.example.core.messaging.MessageWakeTokenRefreshWorker
 import com.example.core.repository.CommunicationRepository
 import com.google.firebase.FirebaseApp
@@ -58,8 +59,9 @@ fun MessageWakeSettings(repository: CommunicationRepository) {
     var status by remember { mutableStateOf<String?>(null) }
 
     suspend fun revokeRemote(): Boolean = try {
-        repository.registerMessageWakeToken(null)
-        check(MessageWakePreferences.acknowledgeRemoteRevoke(context))
+        check(MessageWakeTokenRefreshPolicy.completeRevocation(context) { token ->
+            repository.registerMessageWakeToken(token)
+        })
         pending = false
         true
     } catch (e: CancellationException) {
@@ -133,8 +135,9 @@ fun MessageWakeSettings(repository: CommunicationRepository) {
                     Tasks.await(messaging.token, 12, TimeUnit.SECONDS)
                 }
                 check(!token.isNullOrBlank()) { "FCM token unavailable" }
-                repository.registerMessageWakeToken(token)
-                check(MessageWakePreferences.finishEnrollment(context))
+                MessageWakeTokenRefreshPolicy.completeRegistration(context, token) { freshToken ->
+                    repository.registerMessageWakeToken(freshToken)
+                }
                 pending = false
                 enabled = true
                 status = "Yalnız genel başlıklı bildirim ve arka planda şifreli mesaj eşitleme açık."
