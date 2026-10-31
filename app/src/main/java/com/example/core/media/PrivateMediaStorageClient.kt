@@ -40,6 +40,27 @@ internal class PrivateMediaStorageClient(
         private val HEX_ID = Regex("[a-f0-9]{32}")
         private val HEX_SHA = Regex("[a-f0-9]{64}")
 
+        /** Bind the signed TUS header to the one token in the authorized grant URL. */
+        internal fun validSignedToken(signedUrl: String, token: String): Boolean {
+            if (token.length !in 8..4096 ||
+                token.any { it.isWhitespace() || Character.isISOControl(it) }) return false
+            val query = runCatching { URI(signedUrl).rawQuery }.getOrNull() ?: return false
+            val fields = query.split('&')
+            if (fields.size != 1 || !fields[0].startsWith("token=")) return false
+            val decoded = runCatching {
+                java.net.URLDecoder.decode(fields[0].removePrefix("token="), "UTF-8")
+            }.getOrNull() ?: return false
+            return decoded == token
+        }
+
+        /** Signed grants may use either supported Supabase host; never double the storage label. */
+        internal fun storageHost(host: String): String {
+            require(host.matches(Regex("[a-z0-9-]+(\\.storage)?\\.supabase\\.co")))
+            return if (host.endsWith(".storage.supabase.co")) host
+            else host.removeSuffix(".supabase.co") + ".storage.supabase.co"
+        }
+
+
         /** Prevent a forged grant URL from exfiltrating private ciphertext. */
         internal fun safeSignedUrl(endpoint: String, url: String, fileId: String, upload: Boolean): Boolean {
             if (!HEX_ID.matches(fileId)) return false
@@ -90,31 +111,11 @@ internal class PrivateMediaStorageClient(
         return candidate.toString()
     }
 
-    /** Bind the signed TUS header to the one token in the authorized grant URL. */
-    internal fun validSignedToken(signedUrl: String, token: String): Boolean {
-        if (token.length !in 8..4096 ||
-            token.any { it.isWhitespace() || Character.isISOControl(it) }) return false
-        val query = runCatching { URI(signedUrl).rawQuery }.getOrNull() ?: return false
-        val fields = query.split('&')
-        if (fields.size != 1 || !fields[0].startsWith("token=")) return false
-        val decoded = runCatching {
-            java.net.URLDecoder.decode(fields[0].removePrefix("token="), "UTF-8")
-        }.getOrNull() ?: return false
-        return decoded == token
-    }
-
     private fun validatedToken(signedUrl: String, token: String): String {
         require(validSignedToken(signedUrl, token)) {
             "Dosya gönderim izni veya bağlantısı geçersiz."
         }
         return token
-    }
-
-    /** Signed grants may use either supported Supabase host; never double the storage label. */
-    internal fun storageHost(host: String): String {
-        require(host.matches(Regex("[a-z0-9-]+(\\.storage)?\\.supabase\\.co")))
-        return if (host.endsWith(".storage.supabase.co")) host
-        else host.removeSuffix(".supabase.co") + ".storage.supabase.co"
     }
 
     private fun metadata(bucket: String, path: String): String {
