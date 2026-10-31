@@ -50,4 +50,39 @@ class PrivateMediaStorageClientTest {
         for (url in hostile) assertFalse(url, PrivateMediaStorageClient.safeSignedUrl(endpoint,url,id,true))
         assertFalse(PrivateMediaStorageClient.safeSignedUrl(endpoint,"https://talhknjcjaijqiqwdyhf.supabase.co$path","wrong",true))
     }
+
+    @Test fun tusLocationMustStayOnExactOpaqueResumableUploadPath() {
+        val client = PrivateMediaStorageClient(endpoint)
+        val base = java.net.URI(
+            "https://talhknjcjaijqiqwdyhf.supabase.co/storage/v1/object/upload/sign/lanu-private-media-v1/v1/$id.cipher?token=opaque"
+        )
+        val good = "/storage/v1/upload/resumable/opaque-id_123.xyz"
+        assertEquals("https://talhknjcjaijqiqwdyhf.supabase.co$good",
+            client.locationForTus(base, good))
+        assertEquals("https://talhknjcjaijqiqwdyhf.storage.supabase.co$good",
+            client.locationForTus(base,
+                "https://talhknjcjaijqiqwdyhf.storage.supabase.co$good"))
+        val bad = listOf(
+            "$good?token=leak",
+            "$good#fragment",
+            "$good/nested",
+            "/storage/v1/upload/resumable/%2Fadmin",
+            "/storage/v1/upload/resumable/%2e%2e",
+            "/storage/v1/upload/resumable/../admin",
+            "/storage/v1/upload/resumable/",
+            "/storage/v1/upload/resumable/${"x".repeat(513)}",
+            "https://evil.invalid$good",
+            "http://talhknjcjaijqiqwdyhf.supabase.co$good",
+            "https://talhknjcjaijqiqwdyhf.supabase.co:8443$good",
+            "https://user@talhknjcjaijqiqwdyhf.supabase.co$good"
+        )
+        for (location in bad) {
+            try {
+                client.locationForTus(base, location)
+                fail("Untrusted TUS Location accepted: $location")
+            } catch (_: IllegalArgumentException) {
+                // Fail closed before the x-signature token reaches any request.
+            }
+        }
+    }
 }
