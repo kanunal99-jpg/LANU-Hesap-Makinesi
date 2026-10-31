@@ -144,8 +144,10 @@ class CommunicationViewModel(
     /** #224 private-area, non-destructive staging readiness flow. */
     enum class AccountDeletionPreflight {
         IDLE, CHECKING, METADATA_READY, READY_TO_CONFIRM, STORAGE_PENDING, UNAVAILABLE
+    }
     enum class AccountServerErasure {
         IDLE, SENDING, SERVER_ERASED_LOCAL_RETAINED, RESULT_UNKNOWN
+    }
     private val _accountDeletionPreflight = MutableStateFlow(AccountDeletionPreflight.IDLE)
     val accountDeletionPreflight = _accountDeletionPreflight.asStateFlow()
     private val _accountServerErasure = MutableStateFlow(AccountServerErasure.IDLE)
@@ -169,6 +171,8 @@ class CommunicationViewModel(
                 // Do not display backend payloads, identity codes or network URLs.
                 _accountDeletionPreflight.value = AccountDeletionPreflight.UNAVAILABLE
             }
+        }
+    }
 
     fun requestStagedAccountErasure(
         enteredCode: String, enteredPhrase: String, backupAcknowledged: Boolean
@@ -192,6 +196,8 @@ class CommunicationViewModel(
                 // Never claim failure or automatically replay destructive work.
                 _accountServerErasure.value = AccountServerErasure.RESULT_UNKNOWN
             }
+        }
+    }
 
     fun clearAccountDeletionPreflight() {
         accountDeletionPreflightJob?.cancel()
@@ -199,6 +205,7 @@ class CommunicationViewModel(
         _accountDeletionPreflight.value = AccountDeletionPreflight.IDLE
         // Intentionally do NOT reset SENDING/UNKNOWN/SERVER_ERASED.
         // A second attempt could erase a re-created identity.
+    }
     fun checkRegistration() = operation {
         val own = repository.ensureIdentity()
         _userPhone.value = own.code
