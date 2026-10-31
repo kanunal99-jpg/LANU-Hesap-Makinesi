@@ -16,10 +16,52 @@ import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.TimeUnit
 
 object MessageWakeTokenRefreshPolicy {
+    // UI enrollment/revoke and background token rotation must agree on the
+    // order of signed writes. In particular, an old worker revoke cannot
+    // arrive AFTER a new UI enrollment has been acknowledged by the relay.
+    private val registrationMutex = Mutex()
+
+    /** Only the already-consented private UI can commit an explicit enrollment. */
+    suspend fun completeRegistration(
+        context: Context,
+        token: String,
+        register: suspend (String?) -> Unit
+    ) = registrationMutex.withLock {
+        check(token.isNotBlank() && MessageWakePreferences.isEnrollmentInProgress(context)) {
+            "Message wake enrollment was cancelled or has no token"
+        }
+        register(token)
+        check(MessageWakePreferences.finishEnrollment(context)) {
+            "Message wake consent changed while registering"
+        }
+    }
+
+    /** UI and worker share the same lock and cannot issue duplicate revokes. */
+    suspend fun completeRevocation(
+        context: Context,
+        register: suspend (String?) -> Unit
+    ): Boolean = registrationMutex.withLock {
+        // An explicit active enrollment is not a pending opt-out.
+        if (MessageWakePreferences.isEnrollmentInProgress(context)) return@withLock false
+        if (!MessageWakePreferences.hasPendingRemoteRevoke(context)) return@withLock true
+        register(null)
+        MessageWakePreferences.acknowledgeRemoteRevoke(context)
+    }
+
     suspend fun reconcile(
+        context: Context,
+        currentToken: suspend () -> String?,
+        register: suspend (String?) -> Unit
+    ): Boolean = registrationMutex.withLock {
+        reconcileLocked(context, currentToken, register)
+    }
+
+    private suspend fun reconcileLocked(
         context: Context,
         currentToken: suspend () -> String?,
         register: suspend (String?) -> Unit
