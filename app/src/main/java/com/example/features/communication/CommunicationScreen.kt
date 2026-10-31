@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import com.example.R
@@ -395,7 +396,8 @@ fun ChatCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable {
+            .heightIn(min = 48.dp)
+            .clickable(onClickLabel = "Sohbeti aç", role = Role.Button) {
                 triggerVibration()
                 onClick()
             }
@@ -527,7 +529,8 @@ fun ContactsTab(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable {
+                        .heightIn(min = 48.dp)
+                        .clickable(onClickLabel = "Kişiyle sohbet başlat", role = Role.Button) {
                             triggerVibration()
                             viewModel.startChat(contact.phoneNumber, contact.name) { id ->
                                 onNavigateToChat(id)
