@@ -39,6 +39,9 @@ internal class PrivateMediaStorageClient(
         private const val MAX_RETRIES = 4
         private val HEX_ID = Regex("[a-f0-9]{32}")
         private val HEX_SHA = Regex("[a-f0-9]{64}")
+        // Supabase grants use one opaque URL-safe bearer token. Never accept
+        // duplicate/unknown query keys or encoded delimiters from relay input.
+        private val SIGNED_GRANT_QUERY = Regex("token=[A-Za-z0-9._~-]{16,4096}")
 
         /** Bind the signed TUS header to the one token in the authorized grant URL. */
         internal fun validSignedToken(signedUrl: String, token: String): Boolean {
@@ -76,7 +79,8 @@ internal class PrivateMediaStorageClient(
             val path = "/storage/v1/object/" +
                 (if (upload) "upload/sign/" else "sign/") +
                 "lanu-private-media-v1/v1/$fileId.cipher"
-            return target.rawPath == path && target.rawQuery?.isNotBlank() == true
+            return target.rawPath == path &&
+                target.rawQuery?.matches(SIGNED_GRANT_QUERY) == true
         }
     }
 
