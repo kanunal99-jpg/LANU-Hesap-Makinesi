@@ -7,6 +7,23 @@ import org.junit.Test
 class PrivateMediaStorageClientTest {
     private val endpoint = "https://talhknjcjaijqiqwdyhf.supabase.co/functions/v1/lanu-relay"
     private val id = "a".repeat(32)
+    @Test fun tusHeadRecoveryNeverSkipsUnsentCiphertextOrRewindsConfirmedBytes() {
+        val chunk = PrivateMediaStorageClient.TUS_CHUNK_BYTES
+        val previous = chunk.toLong()
+        val expected = previous + chunk
+        assertTrue(PrivateMediaStorageClient.validRecoveryOffset(previous, chunk, previous, expected))
+        assertTrue(PrivateMediaStorageClient.validRecoveryOffset(previous, chunk, previous + 1, expected))
+        assertTrue(PrivateMediaStorageClient.validRecoveryOffset(previous, chunk, expected, expected))
+        assertFalse(PrivateMediaStorageClient.validRecoveryOffset(previous, chunk, previous - 1, expected))
+        assertFalse(PrivateMediaStorageClient.validRecoveryOffset(previous, chunk, expected + 1, expected))
+        assertFalse(PrivateMediaStorageClient.validRecoveryOffset(previous, chunk, Long.MAX_VALUE, expected))
+        assertFalse(PrivateMediaStorageClient.validRecoveryOffset(-1, chunk, 0, expected))
+        assertFalse(PrivateMediaStorageClient.validRecoveryOffset(previous, 0, previous, expected))
+        assertFalse(PrivateMediaStorageClient.validRecoveryOffset(previous, chunk + 1, previous, expected))
+        assertFalse(PrivateMediaStorageClient.validRecoveryOffset(previous, chunk, previous, expected - 1))
+        assertFalse(PrivateMediaStorageClient.validRecoveryOffset(Long.MAX_VALUE, 1, Long.MAX_VALUE, Long.MAX_VALUE))
+    }
+
     @Test fun signedUploadAndDownloadRequirePrivateServerOwnedObjectIdentity() {
         val upload = "https://talhknjcjaijqiqwdyhf.supabase.co/storage/v1/object/upload/sign/lanu-private-media-v1/v1/$id.cipher?token=valid.jwt_token_12345"
         val download = "https://talhknjcjaijqiqwdyhf.supabase.co/storage/v1/object/sign/lanu-private-media-v1/v1/$id.cipher?token=valid.jwt_token_12345"

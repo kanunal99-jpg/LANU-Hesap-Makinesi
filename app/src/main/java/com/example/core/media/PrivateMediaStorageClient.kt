@@ -43,6 +43,22 @@ internal class PrivateMediaStorageClient(
         // duplicate/unknown query keys or encoded delimiters from relay input.
         private val SIGNED_GRANT_QUERY = Regex("token=[A-Za-z0-9._~-]{16,4096}")
 
+        /**
+         * A failed TUS PATCH may have committed zero, some, or all of the
+         * attempted bytes. HEAD must never move behind a confirmed offset or
+         * past bytes actually sent: that would silently skip ciphertext.
+         */
+        internal fun validRecoveryOffset(
+            previousOffset: Long, attemptedBytes: Int, serverOffset: Long, expectedBytes: Long
+        ): Boolean {
+            if (previousOffset < 0 || attemptedBytes <= 0 ||
+                attemptedBytes > TUS_CHUNK_BYTES || expectedBytes < 0 ||
+                previousOffset > expectedBytes ||
+                attemptedBytes.toLong() > expectedBytes - previousOffset) return false
+            return serverOffset >= previousOffset &&
+                serverOffset <= previousOffset + attemptedBytes.toLong()
+        }
+
         /** Bind the signed TUS header to the one token in the authorized grant URL. */
         internal fun validSignedToken(signedUrl: String, token: String): Boolean {
             if (token.length !in 8..4096 ||
@@ -199,8 +215,8 @@ internal class PrivateMediaStorageClient(
                                 throw IOException("Yükleme kaldığı yerden doğrulanamadı.")
                             val serverOffset = response.header("Upload-Offset")?.toLongOrNull()
                                 ?: throw IOException("Yükleme konumu bilinmiyor.")
-                            if (serverOffset !in 0..expectedBytes)
-                                throw IOException("Yükleme konumu güvenli sınırı aştı.")
+                            if (!validRecoveryOffset(offset, amount, serverOffset, expectedBytes))
+                                throw IOException("Yükleme konumu doğrulanmış parçanın dışına çıktı.")
                             offset = serverOffset
                         }
                     }
