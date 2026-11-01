@@ -26,7 +26,7 @@ class PrivateMediaStorageClientTest {
             "&token=$goodToken",
             "&download=1",
             "#fragment",
-            "?token=$goodToken",
+            "?token=",
             "?download=1",
             "?token=" + "x".repeat(4097),
             "?token=" + "x".repeat(15),
