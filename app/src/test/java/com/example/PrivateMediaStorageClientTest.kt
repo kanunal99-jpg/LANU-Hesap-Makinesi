@@ -7,6 +7,20 @@ import org.junit.Test
 class PrivateMediaStorageClientTest {
     private val endpoint = "https://talhknjcjaijqiqwdyhf.supabase.co/functions/v1/lanu-relay"
     private val id = "a".repeat(32)
+    @Test fun suppliedHttpClientCannotFollowRedirectsWithSignedBearerGrant() {
+        // A caller-provided OkHttpClient may be configured to follow 30x redirects.
+        // Storage PATCH/HEAD carry x-signature: never forward it to another host.
+        val permissive = okhttp3.OkHttpClient.Builder()
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .build()
+        assertTrue(permissive.followRedirects)
+        assertTrue(permissive.followSslRedirects)
+        val transport = PrivateMediaStorageClient(endpoint, permissive).transportClient
+        assertFalse(transport.followRedirects)
+        assertFalse(transport.followSslRedirects)
+    }
+
     @Test fun tusHeadRecoveryNeverSkipsUnsentCiphertextOrRewindsConfirmedBytes() {
         val chunk = PrivateMediaStorageClient.TUS_CHUNK_BYTES
         val previous = chunk.toLong()

@@ -34,6 +34,15 @@ internal class PrivateMediaStorageClient(
         .readTimeout(40, TimeUnit.SECONDS)
         .callTimeout(55, TimeUnit.SECONDS).build()
 ) {
+    // The caller may inject an OkHttpClient with redirects enabled. The TUS
+    // requests carry an opaque x-signature bearer credential: OkHttp only
+    // strips Authorization on cross-host redirects, not arbitrary headers.
+    // Force both redirect modes OFF for every private-media request.
+    internal val transportClient: OkHttpClient = client.newBuilder()
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .build()
+
     companion object {
         const val TUS_CHUNK_BYTES = 6 * 1024 * 1024
         private const val MAX_RETRIES = 4
@@ -172,7 +181,7 @@ internal class PrivateMediaStorageClient(
             .header("Upload-Metadata", metadata("lanu-private-media-v1", path))
             .header("x-signature", token)
             .post(ByteArray(0).toRequestBody()).build()
-        val location = client.newCall(create).execute().use { response ->
+        val location = transportClient.newCall(create).execute().use { response ->
             if (response.code != 201) throw IOException("Güvenli dosya yüklemesi başlatılamadı.")
             response.header("Location") ?: throw IOException("Dosya yükleme adresi bulunamadı.")
         }
@@ -195,7 +204,7 @@ internal class PrivateMediaStorageClient(
                         .method("PATCH", part.toRequestBody(
                             "application/offset+octet-stream".toMediaType())).build()
                     try {
-                        client.newCall(request).execute().use { response ->
+                        transportClient.newCall(request).execute().use { response ->
                             if (response.code !in listOf(200, 204))
                                 throw IOException("Dosya parçası aktarılamadı.")
                             val next = response.header("Upload-Offset")?.toLongOrNull()
@@ -210,7 +219,7 @@ internal class PrivateMediaStorageClient(
                         val probe = Request.Builder().url(tusUrl)
                             .header("Tus-Resumable", "1.0.0")
                             .header("x-signature", token).head().build()
-                        client.newCall(probe).execute().use { response ->
+                        transportClient.newCall(probe).execute().use { response ->
                             if (response.code != 200 && response.code != 204)
                                 throw IOException("Yükleme kaldığı yerden doğrulanamadı.")
                             val serverOffset = response.header("Upload-Offset")?.toLongOrNull()
@@ -244,7 +253,7 @@ internal class PrivateMediaStorageClient(
             val request = Request.Builder().url(target.toString())
                 .header("Accept-Encoding", "identity").get().build()
             val result = MessageDigest.getInstance("SHA-256")
-            client.newCall(request).execute().use { response ->
+            transportClient.newCall(request).execute().use { response ->
                 if (response.code != 200 || !response.isSuccessful)
                     throw IOException("Dosya indirme yetkisi doğrulanamadı.")
                 val declared = response.body?.contentLength() ?: -1
