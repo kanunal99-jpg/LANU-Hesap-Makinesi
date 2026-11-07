@@ -20,6 +20,10 @@ import org.robolectric.shadows.ShadowNetwork
 @Config(sdk = [23, 24, 34])
 @OptIn(ExperimentalCoroutinesApi::class)
 class AndroidNetworkRecoveryTest {
+    private fun capabilities(vararg values: Int): NetworkCapabilities = NetworkCapabilities().also { result ->
+        values.forEach { shadowOf(result).addCapability(it) }
+    }
+
     @Test fun coldOwnerValidatedOnlyDedupeAndCancellationUnregisterOnOldAndNewAndroid() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -32,14 +36,12 @@ class AndroidNetworkRecoveryTest {
         val callback = (shadowOf(manager).networkCallbacks.toSet() - before).single()
         val network = ShadowNetwork.newInstance(701)
         callback.onAvailable(network)
-        callback.onCapabilitiesChanged(network, NetworkCapabilities()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET))
+        callback.onCapabilitiesChanged(network, capabilities(NetworkCapabilities.NET_CAPABILITY_INTERNET))
         runCurrent(); assertEquals(0, events)
-        callback.onCapabilitiesChanged(network, NetworkCapabilities()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED))
+        callback.onCapabilitiesChanged(network, capabilities(NetworkCapabilities.NET_CAPABILITY_VALIDATED))
         runCurrent(); assertEquals(0, events)
-        val validated = NetworkCapabilities().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        val validated = capabilities(NetworkCapabilities.NET_CAPABILITY_INTERNET,
+            NetworkCapabilities.NET_CAPABILITY_VALIDATED)
         callback.onCapabilitiesChanged(network, validated)
         runCurrent(); assertEquals(1, events)
         repeat(100) { callback.onCapabilitiesChanged(network, validated) }
