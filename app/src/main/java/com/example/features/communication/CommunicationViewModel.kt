@@ -225,7 +225,7 @@ class CommunicationViewModel(
                 // be polled every five seconds or wake the phone in background.
                 failures = if (_networkState.value == NetworkState.ONLINE) 0
                     else (failures + 1).coerceAtMost(4)
-                delay(if (failures == 0) 5000L
+                delay(if (failures == 0) ForegroundSyncPolicy.intervalMillis(_activeConversation.value != null)
                     else minOf(60_000L, 5000L * (1 shl failures)))
             }
         }

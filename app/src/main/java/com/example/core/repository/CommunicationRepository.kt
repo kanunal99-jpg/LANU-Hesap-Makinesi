@@ -42,12 +42,17 @@ class CommunicationRepository(
     val callLogs = callLogDao.getAllCallLogs()
     private val identityMutex = Mutex()
     private val syncMutex = Mutex()
+    private val registrationMutex = Mutex()
     // Serializes overlapping foreground sync and callSync polls, protecting
     // enqueue -> ACK ordering across both paths without locking the chat sync.
     private val callDeliveryMutex = Mutex()
     private val draftMutex = Mutex()
     private var nextSyncAt = 0L
     private var nextSendAt = 0L
+    // Memory-only lease; never bypass local identity/erasure checks or retain
+    // network credentials on disk. Any failed sync forces a fresh registration.
+    @Volatile private var registeredIdentity: MessagingIdentity? = null
+    @Volatile private var registeredAt = Long.MIN_VALUE
     private var privateMediaCapable = false
     private var nextPrivateMediaCapabilityCheckAt = 0L
     private val _identity = MutableStateFlow<MessagingIdentity?>(null)
@@ -65,7 +70,7 @@ class CommunicationRepository(
         if (!enabled) while (callInbox.tryReceive().isSuccess) { /* discard ephemeral stale invites */ }
     }
 
-    suspend fun prepareCalling() { synchronize(requireExistingIdentity = true) }
+    suspend fun prepareCalling() { synchronize(requireExistingIdentity = true, drainOutbox = false) }
 
     /**
      * #224: Owner-signed, read-only STAGING readiness check. Never creates an
@@ -325,13 +330,16 @@ class CommunicationRepository(
     }
     suspend fun logout() { /* Identity intentionally survives leaving the private space. */ }
 
-    private suspend fun registerRemote(requireExistingIdentity: Boolean = false): MessagingIdentity {
+    private suspend fun registerRemote(requireExistingIdentity: Boolean = false, allowLease: Boolean = false): MessagingIdentity = registrationMutex.withLock {
         // Server deletion may have committed even if the HTTP response vanished.
         // Never resurrect that identity through sync/register on next cold start.
         check(settingsDao.getSettingValue("lanu_server_erasure_state") == null) {
             "Hesap silme isteği bekliyor veya tamamlandı. Sunucu kaydı otomatik açılmaz."
         }
         val own = loadIdentity(allowCreate = !requireExistingIdentity)
+        val age = clock() - registeredAt
+        if (allowLease && registeredIdentity == own && age in 0L until 30_000L) return@withLock own
+        registeredIdentity = null
         val response = relay.request(own, "register", JSONObject().put("code", own.code).put("nonce", own.nonce).put("publicKey", own.publicKey))
         val code = response.getString("code")
         val nonce = response.getString("nonce")
@@ -343,7 +351,10 @@ class CommunicationRepository(
             userProfileDao.replaceProfile(UserProfileEntity(code, userProfileDao.getUserProfile()?.displayName ?: "LANU Kullanıcısı"))
         }
         settingsDao.insertSetting(SettingsEntity("lanu_remote_registered", "true"))
-        return _identity.value!!
+        _identity.value!!.also {
+            registeredIdentity = it
+            registeredAt = clock()
+        }
     }
 
     suspend fun rotateCode(): MessagingIdentity = syncMutex.withLock {
@@ -786,9 +797,17 @@ class CommunicationRepository(
         id
     }
 
-    suspend fun synchronize(activeConversationId: String? = null, requireExistingIdentity: Boolean = false) = syncMutex.withLock {
+    suspend fun synchronize(activeConversationId: String? = null, requireExistingIdentity: Boolean = false, drainOutbox: Boolean = true) = syncMutex.withLock {
+        try { synchronizeLocked(activeConversationId, requireExistingIdentity, drainOutbox) }
+        catch (e: Exception) {
+            registeredIdentity = null
+            throw e
+        }
+    }
+
+    private suspend fun synchronizeLocked(activeConversationId: String?, requireExistingIdentity: Boolean, drainOutbox: Boolean) {
         if (clock() < nextSyncAt) throw RelayException(429, "Bağlantı kısa süre bekletiliyor. Mesajlarınız korunuyor.", nextSyncAt - clock())
-        val own = registerRemote(requireExistingIdentity = requireExistingIdentity)
+        val own = registerRemote(requireExistingIdentity = requireExistingIdentity, allowLease = true)
         // Automatic, explicitly versioned capability upgrade only for THIS
         // new client; older APKs never advertise mediaVersion=1.
         // Legacy relay 400/503 responses cannot break ordinary message sync.
@@ -820,7 +839,7 @@ class CommunicationRepository(
         }
         val events = response.getJSONArray("events")
         val ack = JSONArray()
-        val read = JSONArray()
+        val read = linkedSetOf<String>()
         for (i in 0 until events.length()) {
             val event = events.getJSONObject(i)
             val message = event.getJSONObject("message")
@@ -867,25 +886,28 @@ class CommunicationRepository(
             }
             ack.put(event.getString("id"))
             if (senderId != own.id && activeConversationId == convId &&
-                !message.optBoolean("deleted") && !threadDeleted) read.put(id)
+                !message.optBoolean("deleted") && !threadDeleted) read.add(id)
         }
-        if (ack.length() > 0 || read.length() > 0) relay.request(own, "ack", JSONObject().put("eventIds", ack).put("readIds", read))
-        // Also mark previously delivered messages when their conversation is opened later.
+        // Merge newly received and previously delivered READs into ONE
+        // bounded ACK. No duplicate request/ID, and never exceed relay's 200.
         if (activeConversationId != null) {
-            val ids = JSONArray()
-            messageDao.getMessagesForConversation(activeConversationId).first().filter { it.senderPhone != own.id && it.status != "READ" }.take(200).forEach { ids.put(it.id) }
-            if (ids.length() > 0) relay.request(own, "ack", JSONObject().put("eventIds", JSONArray()).put("readIds", ids))
+            messageDao.getMessagesForConversation(activeConversationId).first()
+                .asSequence().filter { it.senderPhone != own.id && it.status != "READ" }
+                .map { it.id }.filter { it !in read }.take((200 - read.size).coerceAtLeast(0))
+                .forEach { read.add(it) }
         }
+        if (ack.length() > 0 || read.isNotEmpty())
+            relay.request(own, "ack", JSONObject().put("eventIds", ack).put("readIds", JSONArray(read.toList())))
         // Five sends plus register/sync/receipts stay below 120 requests/minute
         // at the normal 5-second cadence. Manual rapid refresh is also bounded.
-        if (clock() < nextSendAt) return@withLock
-        nextSendAt = clock() + 5000L
+        if (!drainOutbox || clock() < nextSendAt) return
         var contactRequests = 0
         for (contact in contacts.first()) {
             if (callInProgress) break // Keep nonce/request budget for live call control.
             if (savedPeer(contact.phoneNumber) != null) continue
             val retryKey = "lanu_contact_retry_${contact.phoneNumber}"
             if ((settingsDao.getSettingValue(retryKey)?.toLongOrNull() ?: 0L) > clock()) continue
+            nextSendAt = clock() + 5000L
             contactRequests = 2 // resolveContact registers and links the peer.
             try {
                 resolveContact(contact.phoneNumber)
@@ -894,7 +916,7 @@ class CommunicationRepository(
                 settingsDao.insertSetting(SettingsEntity(retryKey, (clock() + 60000L).toString()))
                 if (e.status == 429) {
                     nextSyncAt = clock() + e.retryAfterMillis.coerceIn(5000L, 120000L)
-                    return@withLock
+                    return
                 }
             } catch (e: CancellationException) { throw e }
             catch (_: java.io.IOException) {
@@ -917,6 +939,7 @@ class CommunicationRepository(
                 }
                 continue
             }
+            nextSendAt = clock() + 5000L
             try {
                 val result = relay.request(own, "send", JSONObject().put("messageId", message.id).put("peerId", peer.getString("id")).put("content", message.content))
                 // HTTP 200 alone does not prove durable acceptance. Require the

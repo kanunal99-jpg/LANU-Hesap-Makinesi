@@ -28,4 +28,13 @@ class CallAudioProcessingPolicyTest {
         org.junit.Assert.assertEquals(fallback,
             com.example.core.calls.CallAudioProcessingPolicy.softwareFallback(fallback))
     }
+    @Test fun userSoftwareModeNeverStacksHardwareEffectsRegardlessOfReportedSupport() {
+        for (aec in listOf(false, true)) for (ns in listOf(false, true)) {
+            val chosen = CallAudioProcessingPolicy.choose(aec, ns, preferSoftware = true)
+            assertFalse(chosen.hardwareAec)
+            assertFalse(chosen.hardwareNs)
+            assertEquals(chosen, CallAudioProcessingPolicy.softwareFallback(chosen))
+        }
+    }
+
 }

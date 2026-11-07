@@ -8,8 +8,9 @@ package com.example.core.calls
  */
 internal object CallAudioProcessingPolicy {
     data class Decision(val hardwareAec: Boolean, val hardwareNs: Boolean)
-    fun choose(aecReported: Boolean, nsReported: Boolean): Decision =
-        Decision(hardwareAec = aecReported, hardwareNs = nsReported)
+    fun choose(aecReported: Boolean, nsReported: Boolean, preferSoftware: Boolean = false): Decision =
+        if (preferSoftware) Decision(false, false)
+        else Decision(hardwareAec = aecReported, hardwareNs = nsReported)
 
     /** A broken vendor AudioFX initialization may recover via WebRTC software APM. */
     fun softwareFallback(previous: Decision): Decision =
