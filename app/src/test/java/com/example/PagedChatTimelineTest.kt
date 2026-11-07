@@ -43,6 +43,19 @@ class PagedChatTimelineTest {
         compose.onNodeWithTag("chat_jump_to_latest").performClick()
         compose.onNodeWithText("text-300").assertIsDisplayed()
     }
+    @Test fun boundedWindowRefreshKeepsVisibleMessageEvenWhenItsIndexShrinksByTwoHundred() {
+        val pages = MutableStateFlow(data(rows(300)))
+        compose.setContent { MaterialTheme {
+            PagedChatTimeline(pages, "thread", "thread", "m300", {}, Modifier.fillMaxSize()) { message, _ ->
+                Text(message.content, Modifier.fillMaxWidth().height(48.dp))
+            }
+        } }
+        compose.onNodeWithTag("paged_chat_history").performScrollToIndex(250)
+        compose.onNodeWithText("text-50").assertIsDisplayed()
+        compose.runOnIdle { pages.value = data(rows(100)) }
+        compose.waitForIdle()
+        compose.onNodeWithText("text-50").assertIsDisplayed()
+    }
     @Test fun oldConversationRowsNeverRenderDuringSelectionTransition() {
         val old = MessageEntity("old", "old-thread", "own", "Owner", "DO-NOT-SHOW", status = "SENT")
         val pages = MutableStateFlow(data(listOf(old)))

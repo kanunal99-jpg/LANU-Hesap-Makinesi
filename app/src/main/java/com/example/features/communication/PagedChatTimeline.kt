@@ -19,6 +19,8 @@ import com.example.core.database.MessageEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 
+private class PresentedHistory { var ids: List<String> = emptyList() }
+
 /** Newest at index0; history pages load upward without decrypting the whole DB. */
 @Composable
 internal fun PagedChatTimeline(
@@ -36,10 +38,27 @@ internal fun PagedChatTimeline(
         val head = messages.itemSnapshotList.items.firstOrNull()
             ?.takeIf { PagedChatReadingPolicy.visible(it, activeConversationId, conversationId) }?.id
         val authorized = activeConversationId == conversationId
+        val snapshot = messages.itemSnapshotList
+        val ids = remember(snapshot) { snapshot.items.map { it.id } }
+        val presented = remember { PresentedHistory() }
+        // Stable lazy keys only search a nearby index range. A large prepend or
+        // dropped-page refresh can move the same visible key far beyond it.
+        // Restore that key BEFORE the next remeasure, preserving pixel offset.
+        SideEffect {
+            if (presented.ids != ids) {
+                val visible = list.layoutInfo.visibleItemsInfo.sortedBy { it.index }
+                val anchor = visible.firstNotNullOfOrNull { item ->
+                    ids.indexOf(item.key).takeIf { it >= 0 }
+                }
+                if (authorized && anchor != null && anchor != list.firstVisibleItemIndex)
+                    list.requestScrollToItem(anchor, list.firstVisibleItemScrollOffset)
+                presented.ids = ids
+            }
+        }
         LaunchedEffect(latestMessageId, authorized) {
             if (!authorized) return@LaunchedEffect
             if (PagedChatReadingPolicy.shouldFollow(previousNewest, latestMessageId,
-                    list.layoutInfo.visibleItemsInfo.firstOrNull()?.key)) {
+                    list.layoutInfo.visibleItemsInfo.minByOrNull { it.index }?.key)) {
                 followPending = true
                 if (messages.itemCount > 0 && head != latestMessageId) onReloadLatest()
             }
