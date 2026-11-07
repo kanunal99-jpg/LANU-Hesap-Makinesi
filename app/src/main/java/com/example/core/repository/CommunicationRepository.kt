@@ -35,7 +35,8 @@ class CommunicationRepository(
     private val identityStore: MessagingIdentityStore,
     private val relay: MessagingRelay,
     private val database: AppDatabase,
-    private val clock: () -> Long = System::currentTimeMillis
+    private val clock: () -> Long = System::currentTimeMillis,
+    val foregroundNetworkChanges: Flow<Unit> = emptyFlow()
 ) {
     val contacts = contactDao.getAllContacts().map { list -> list.filter { UserCodes.normalize(it.phoneNumber).isNotBlank() } }
     val conversations = conversationDao.getAllConversations()
