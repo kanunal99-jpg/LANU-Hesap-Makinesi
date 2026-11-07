@@ -14,7 +14,7 @@ import kotlin.concurrent.thread
 
 class CancellableHttpBodyTest {
     @Test fun cancellationClosesSocketAfterHeadersWhileBodyReadIsBlocked() = runBlocking {
-        val server = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
+        val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
         val release = CountDownLatch(1)
         val processing = CountDownLatch(1)
         val cancelled = AtomicInteger()

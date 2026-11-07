@@ -238,6 +238,7 @@ class UserCodeMessagingTest {
         val conversation = UserCodes.conversationId(alice.id, bob.id)
         val bad = java.util.UUID.randomUUID().toString()
         val good = java.util.UUID.randomUUID().toString()
+        var corruptRevision = false
         val acknowledged = mutableListOf<String>(); val reads = mutableListOf<String>(); val sent = mutableListOf<String>()
         val relay = object : MessagingRelay {
             override val configured = true
@@ -246,13 +247,14 @@ class UserCodeMessagingTest {
                 "sync" -> {
                     fun event(id: String, content: String) = JSONObject().put("id", id).put("message",
                         JSONObject().put("id", id).put("senderId", bob.id).put("recipientId", alice.id)
-                            .put("revision", 1).put("status", "SENT").put("createdAt", 1000).put("content", content))
+                            .put("revision", if (corruptRevision && id == good) 2 else 1).put("status", "SENT").put("createdAt", 1000).put("content", content))
                     JSONObject().put("contacts", org.json.JSONArray().put(JSONObject()
                         .put("id", bob.id).put("code", bob.code).put("nonce", bob.nonce)
                         .put("publicKey", bob.publicKey).put("codeAtAdd", bob.code).put("mutual", true)))
                         .put("events", org.json.JSONArray()
                             .put(event(bad, "lanu2:" + "A".repeat(40)))
-                            .put(event(good, PeerMessageCrypto.encrypt(bob, alice.id, alice.publicKey, good, "valid"))))
+                            .put(event(good, if (corruptRevision) "lanu2:" + "A".repeat(40) else
+                                PeerMessageCrypto.encrypt(bob, alice.id, alice.publicKey, good, "valid"))))
                 }
                 "ack" -> {
                     val ids = data.getJSONArray("eventIds"); val read = data.getJSONArray("readIds")
@@ -280,6 +282,12 @@ class UserCodeMessagingTest {
         assertEquals(listOf(outgoing), sent)
         assertEquals("SENT", db.messageDao().getMessage(outgoing)!!.status)
         assertEquals(encrypted, db.messageDao().getMessage(outgoing)!!.content)
+        val previousGood = db.messageDao().getMessage(good)!!.content
+        corruptRevision = true; acknowledged.clear(); reads.clear()
+        assertTrue(runCatching { repo.synchronize(conversation) }.exceptionOrNull() is SecurityException)
+        assertTrue(acknowledged.isEmpty()); assertTrue(reads.isEmpty())
+        assertEquals(previousGood, db.messageDao().getMessage(good)!!.content)
+        assertEquals("1", db.settingsDao().getSettingValue("lanu_message_revision_$good"))
     }
 
     @Test fun `recipient gets offline message on entering private area and unread badge counts once`() = runBlocking {

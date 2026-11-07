@@ -841,7 +841,7 @@ class CommunicationRepository(
         val events = response.getJSONArray("events")
         val ack = JSONArray()
         val read = linkedSetOf<String>()
-        var rejectedCiphertext = false
+        val rejectedIds = mutableSetOf<String>()
         for (i in 0 until events.length()) {
             val event = events.getJSONObject(i)
             val message = event.getJSONObject("message")
@@ -890,7 +890,8 @@ class CommunicationRepository(
             } catch (_: RejectedCiphertext) {
                 // Leave only this unauthenticated event on the relay. Valid
                 // later events and durable outgoing messages must keep moving.
-                rejectedCiphertext = true
+                rejectedIds.add(id)
+                read.remove(id)
                 continue
             }
             ack.put(event.getString("id"))
@@ -902,7 +903,7 @@ class CommunicationRepository(
         if (activeConversationId != null) {
             if (read.size < 200) {
                 messageDao.getIncomingReadReceiptIds(activeConversationId, own.id)
-                    .asSequence().filter { it !in read }.take(200 - read.size)
+                    .asSequence().filter { it !in read && it !in rejectedIds }.take(200 - read.size)
                     .forEach { read.add(it) }
             }
         }
@@ -911,7 +912,7 @@ class CommunicationRepository(
         // Five sends plus register/sync/receipts stay below 120 requests/minute
         // at the normal 5-second cadence. Manual rapid refresh is also bounded.
         if (drainOutbox && clock() >= nextSendAt) drainPendingOutbox(own)
-        if (rejectedCiphertext) throw RejectedCiphertext()
+        if (rejectedIds.isNotEmpty()) throw RejectedCiphertext()
     }
 
     private class RejectedCiphertext(cause: Exception? = null) :
