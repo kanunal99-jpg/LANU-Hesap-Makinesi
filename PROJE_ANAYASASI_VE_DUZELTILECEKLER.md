@@ -1,5 +1,10 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 07.11.2026 — Kullanıcı kapsamı: çalışan uygulamayı koruyarak iletişim performansı
+
+Kullanıcı mevcut uygulamanın iyi çalıştığını teyit etti. Hesap makinesi kodu ve görünümü değiştirilmeyecek. Gizli giriş/PIN ve veri koruma davranışı korunacak. Öncelik gerçek mesajlaşma/bağlantı gecikmesi, gürültü-yankı işleme dayanıklılığı ve güvenli dosya aktarımıdır. Sunucu kotası, kapalı özellik veya fiziksel kalite kanıtı yalnız sabit sayı/puan değişikliğiyle aşılmış gösterilmeyecek. Çalışma ayrı dalda; son HEAD CI, imzalı OTA ve APK read-back kapıları geçerli. Başlangıç: main `212363c`, Actions `41273776448` başarılı, mevcut sürüm `v1.2.0-signed.1114`; devam eden #331 medya taslağı ve #266 hesap silme taslağı ayrı tutulur. Bu kayıt kapsam kararıdır, yeni özellik kabul kanıtı değildir.
+
+
 ## 30.10.2026 — KESİN KULLANICI KARARI: GOOGLE PLAY YAYINI İPTAL / MAĞAZASIZ DAĞITIM
 
 **ÜSTÜN VE BAĞLAYICI YAYIN KURALI — KULLANICI KARARI:** LANU Hesap Makinesi ve gizli iletişim işlevleri **Google Play Store'da yayımlanmayacaktır.** Google Play hazırlığı, Play Console hesabı/yüklemesi, AAB paketini mağazaya gönderme, mağaza listelemesi, mağaza incelemesi, mağaza reklamı ve Play Store yayını için ayrı hedefler **iptal edilmiştir**. Bunlar eksik özellik, yayın ön koşulu veya 1/4–4/4 teslim tablosunda açık iş olarak gösterilmez. Eski plan, issue, görev veya anayasadaki Google Play/mağaza yayın hedefiyle çatışma olduğunda bu karar geçerlidir.
