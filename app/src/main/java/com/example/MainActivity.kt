@@ -44,6 +44,7 @@ import com.example.core.messaging.FullDataBackup
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
@@ -164,6 +165,39 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             catch (e: IllegalArgumentException) { fullBackupMessage = e.message ?: "Yedek geri yüklenemedi; mevcut kayıtlar korunuyor." }
             catch (_: Exception) { fullBackupMessage = "Yedek geri yüklenemedi; mevcut kayıtlar korunuyor. Dosyayı, parolayı ve boş alanı kontrol edin." }
             finally { fullBackupBusy = false }
+        }
+    }
+
+    private fun verifyFullBackup(password: String) {
+        if (!privateBackupAllowed()) return
+        val uri = fullRestoreUri ?: return
+        fullBackupMessage = "Yedek kurtarma doğrulanıyor…"
+        fullBackupBusy = true
+        lifecycleScope.launch {
+            try {
+                kotlinx.coroutines.withTimeout(120_000L) {
+                    val owner = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]!!
+                    val lockWatcher = launch {
+                        securityViewModel.isLocked.first { it }
+                        owner.cancel()
+                    }
+                    try {
+                        val bytes = com.example.core.messaging.BackupArchiveReader.read(this@MainActivity, uri)
+                        val result = try {
+                            com.example.core.messaging.FullBackupRecoveryVerifier.verify(this@MainActivity, bytes, password)
+                        } finally { bytes.fill(0) }
+                        fullBackupMessage = "Yedek kurtarma doğrulandı: ${result.tablesVerified} tablo, ${result.summary.description()}. Geçici şifreli kopya temizlendi; mevcut kayıtlar değiştirilmedi."
+                    } finally { lockWatcher.cancel() }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                fullBackupMessage = "Doğrulama tamamlanmadı; mevcut kayıtlar değiştirilmedi."
+                throw e
+            }
+            catch (_: Exception) {
+                fullBackupMessage = "Yedek kurtarma doğrulanamadı. Parolayı, dosyayı ve boş alanı kontrol edin; mevcut kayıtlar değiştirilmedi."
+            } catch (_: LinkageError) {
+                fullBackupMessage = "Bu cihazda şifreli kurtarma doğrulaması çalıştırılamadı; mevcut kayıtlar ve yedek korunuyor."
+            } finally { fullBackupBusy = false }
         }
     }
 
@@ -798,6 +832,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                     onExportFullBackup = ::createFullBackup,
                                     onChooseFullBackup = ::chooseFullBackup,
                                     onRestoreFullBackup = ::restoreFullBackup,
+                                    onVerifyFullBackup = ::verifyFullBackup,
                                     onCancelFullRestore = { fullRestoreUri = null },
                                     callPushRepository = container.communicationRepository
                                 )
