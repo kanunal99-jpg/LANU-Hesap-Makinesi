@@ -67,6 +67,7 @@ fun CommunicationScreen(
     onChooseFullBackup: () -> Unit = {},
     onRestoreFullBackup: (String) -> Unit = {},
     onCancelFullRestore: () -> Unit = {},
+    onVerifyFullBackup: (String) -> Unit = {},
     callPushRepository: CommunicationRepository? = null
 ) {
     val context = LocalContext.current
@@ -132,7 +133,7 @@ fun CommunicationScreen(
                         0 -> ChatsTab(viewModel, vibrate, onNavigateToChat)
                         1 -> ContactsTab(viewModel, vibrate, onNavigateToChat)
                         2 -> SettingsTab(viewModel, securityViewModel, vibrate, backupBusy, pendingFullRestore,
-                            backupMessage, onExportFullBackup, onChooseFullBackup, onRestoreFullBackup, onCancelFullRestore, callPushRepository)
+                            backupMessage, onExportFullBackup, onChooseFullBackup, onRestoreFullBackup, onCancelFullRestore, onVerifyFullBackup, callPushRepository)
                         3 -> UpdateCheckScreen()
                     }
                 }
@@ -608,6 +609,7 @@ fun SettingsTab(
     backupBusy: Boolean = false, pendingFullRestore: Boolean = false, backupMessage: String? = null,
     onExportFullBackup: (String) -> Unit = {}, onChooseFullBackup: () -> Unit = {},
     onRestoreFullBackup: (String) -> Unit = {}, onCancelFullRestore: () -> Unit = {},
+    onVerifyFullBackup: (String) -> Unit = {},
     callPushRepository: CommunicationRepository? = null
 ) {
     val code by viewModel.userPhone.collectAsState()
@@ -666,7 +668,7 @@ fun SettingsTab(
             modifier = Modifier.fillMaxWidth().testTag("private_account_deletion_preflight")
         ) { Text("Sunucu hesabı silme ön kontrolü") }
         com.example.features.security.FullBackupPanel(backupBusy, pendingFullRestore, backupMessage,
-            onExportFullBackup, onChooseFullBackup, onRestoreFullBackup, onCancelFullRestore)
+            onExportFullBackup, onChooseFullBackup, onRestoreFullBackup, onCancelFullRestore, onVerifyFullBackup)
         callPushRepository?.let {
             CallWakeSettings(it)
             MessageWakeSettings(it)

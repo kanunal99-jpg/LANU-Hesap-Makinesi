@@ -102,11 +102,12 @@ object FullDataBackup {
         } catch (_: Exception) { throw IllegalArgumentException("Tam yedek açılamadı. Dosyayı ve parolanızı kontrol edin; mevcut kayıtlar değiştirilmedi.") }
     }
 
-    fun readFile(input: InputStream): ByteArray {
+    fun readFile(input: InputStream, checkpoint: () -> Unit = {}): ByteArray {
         val out = ByteArrayOutputStream()
         val block = ByteArray(8192)
         var stalled = 0
         while (true) {
+            checkpoint()
             val n = input.read(block)
             if (n < 0) break
             if (n == 0) { require(++stalled < 3) { "Yedek sağlayıcısı veri göndermedi." }; continue }
@@ -207,6 +208,54 @@ object FullDataBackup {
                     "Şifreli yedek kaydı doğrulanamadı. Mevcut kayıtlar korunuyor."
                 }
             }
+        }
+    }
+
+    /** Exact-ID recovery rehearsal, restricted to a disposable allowlisted DB. */
+    internal fun populateRecoveryProbe(db: SupportSQLiteDatabase, opened: Opened, checkpoint: () -> Unit = {}) {
+        requireRecoveryProbe(db)
+        require(tables.keys.all { table ->
+            db.query("SELECT COUNT(*) FROM `$table`").use { it.moveToFirst() && it.getLong(0) == 0L }
+        }) { "Doğrulama hedefi boş olmalıdır; mevcut kayıtlar değiştirilmedi." }
+        for ((table, columns) in tables) {
+            val rows = opened.rows(table)
+            val sql = "INSERT INTO `$table` (" + columns.joinToString(",") { "`$it`" } +
+                ") VALUES (" + columns.joinToString(",") { "?" } + ")"
+            for (i in 0 until rows.length()) {
+                checkpoint()
+                val values = rows.getJSONArray(i)
+                db.execSQL(sql, Array<Any?>(values.length()) { n ->
+                    values.get(n).takeUnless { it === JSONObject.NULL }
+                })
+            }
+        }
+    }
+
+    internal fun verifyRecoveryProbe(db: SupportSQLiteDatabase, opened: Opened, checkpoint: () -> Unit = {}) {
+        requireRecoveryProbe(db)
+        RoomBackupIntegrityGate.requireHealthy(db)
+        for ((table, columns) in tables) {
+            checkpoint()
+            val rows = opened.rows(table)
+            check(db.query("SELECT COUNT(*) FROM `$table`").use {
+                it.moveToFirst() && it.getLong(0) == rows.length().toLong()
+            }) { "Doğrulama tablosundaki kayıt sayısı uyuşmuyor." }
+            val sql = "SELECT " + columns.joinToString(",") { "`$it`" } +
+                " FROM `$table` WHERE `${columns.first()}` = ?"
+            for (i in 0 until rows.length()) {
+                checkpoint()
+                val expected = rows.getJSONArray(i)
+                check(db.query(sql, arrayOf(expected.get(0))).use {
+                    it.moveToFirst() && row(it).toString() == expected.toString() && !it.moveToNext()
+                }) { "Yedek kayıtları birebir geri açılamadı; mevcut veriler değiştirilmedi." }
+            }
+        }
+    }
+
+    private fun requireRecoveryProbe(db: SupportSQLiteDatabase) {
+        require(BackupRecoveryFilePolicy.isProbe(java.io.File(db.path).name) &&
+            db.version == 4 && db.inTransaction()) {
+            "Yalnızca izole, işlem içindeki doğrulama veritabanı kabul edilir."
         }
     }
 
