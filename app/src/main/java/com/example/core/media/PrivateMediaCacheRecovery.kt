@@ -17,6 +17,7 @@ import java.io.IOException
 object PrivateMediaCacheRecovery {
     private val verifiedPlaintext = Regex("^lanu-verified-[A-Za-z0-9_-]+\\.private$")
     private val incompleteCipher = Regex("^lanu-media-v1-[A-Za-z0-9_-]+\\.cipher$")
+    private val stagedPlaintext = Regex("^lanu-staged-[A-Za-z0-9_-]+\\.private$")
 
     data class Result(val removed: Int, val unableToRemove: Int)
 
@@ -30,17 +31,30 @@ object PrivateMediaCacheRecovery {
         }
         var removed = 0
         var failures = 0
-        for (candidate in cacheDir.listFiles().orEmpty()) {
+        fun purgeFiles(directory: File, allowStaging: Boolean) {
+        for (candidate in directory.listFiles().orEmpty()) {
             if (!verifiedPlaintext.matches(candidate.name) &&
-                !incompleteCipher.matches(candidate.name)) continue
+                !incompleteCipher.matches(candidate.name) &&
+                !(allowStaging && stagedPlaintext.matches(candidate.name))) continue
             val safe = try {
-                candidate.canonicalFile.parentFile == base && candidate.isFile
+                candidate.absoluteFile == candidate.canonicalFile &&
+                    candidate.canonicalFile.parentFile == directory.canonicalFile && candidate.isFile
             } catch (_: IOException) { false }
             if (!safe) {
                 failures++
                 continue
             }
             if (candidate.delete()) removed++ else failures++
+        }
+        }
+        purgeFiles(base, false)
+        val large = File(base, "lanu-private-large-media")
+        if (large.exists()) {
+            val safe = try {
+                large.isDirectory && large.absoluteFile == large.canonicalFile &&
+                    large.canonicalFile.parentFile == base
+            } catch (_: IOException) { false }
+            if (safe) purgeFiles(large, true) else failures++
         }
         return Result(removed, failures)
     }

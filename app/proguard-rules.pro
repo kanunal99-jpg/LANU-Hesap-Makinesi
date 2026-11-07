@@ -58,6 +58,10 @@
 -keep class com.example.core.messaging.UserCodes { *; }
 -keep class com.example.core.messaging.MessagingIdentity { *; }
 -keep class com.example.core.messaging.PeerMessageCrypto { *; }
+# Real provider/encrypted-document runtime acceptance links these exact ABIs.
+-keep class com.example.core.media.PrivateMediaProviderIo { *; }
+-keep class com.example.core.media.PrivateMediaDocumentPreparer { *; }
+-keep class com.example.core.media.PrivateMediaCrypto** { *; }
 # The separate debug/release instrumentation APK starts a real opt-out worker.
 # Preserve only the public WorkManager ABI it links; implementation still shrinks.
 -keep class androidx.work.WorkManager { public *; }

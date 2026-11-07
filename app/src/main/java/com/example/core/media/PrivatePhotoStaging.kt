@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -15,17 +16,26 @@ import kotlin.math.max
 object PrivatePhotoStaging {
     private const val MAX_SOURCE = 12 * 1024 * 1024
 
-    suspend fun stage(context: Context, uri: Uri): PrivateMediaCrypto.EncryptedFile =
-        withContext(Dispatchers.IO) {
+    suspend fun stage(context: Context, uri: Uri): PrivateMediaCrypto.EncryptedFile {
+        var prepared: PrivateMediaCrypto.EncryptedFile? = null
+        try { return withContext(Dispatchers.IO) {
             require(uri.scheme == "content") { "Galeri seçicisi gerekiyor." }
             require(context.contentResolver.getType(uri)?.lowercase() in
                 setOf("image/jpeg", "image/png")) { "Fotoğraf türü desteklenmiyor." }
-            val source = context.contentResolver.openInputStream(uri)?.use {
-                InlineMediaPreparer.readBoundedInput(it, MAX_SOURCE)
-            } ?: throw IllegalArgumentException("Fotoğraf açılamadı.")
-            try { stageSelectedBytes(source, PrivateMediaDocumentPreparer.privateDirectory(context)) }
+            val source = PrivateMediaProviderIo.readPhoto(context, uri, MAX_SOURCE)
+            try {
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                prepared = stageSelectedBytes(source, PrivateMediaDocumentPreparer.privateDirectory(context))
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                checkNotNull(prepared)
+            }
             finally { source.fill(0) }
+        } } catch (error: Throwable) {
+            prepared?.destroyKey()
+            prepared?.ciphertextFile?.delete()
+            throw error
         }
+    }
 
     /** Re-encode pixels as JPEG rather than copying original metadata. */
     internal fun stageSelectedBytes(raw: ByteArray, privateDirectory: File): PrivateMediaCrypto.EncryptedFile {
