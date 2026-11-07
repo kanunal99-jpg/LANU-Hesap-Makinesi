@@ -70,4 +70,14 @@ class PrivateMediaCacheRecoveryTest {
         assertEquals(0, result.removed); assertEquals(1, result.unableToRemove)
         assertEquals("keep", protected.readText())
     }
+
+    @Test fun trustedOperatingSystemCacheAliasStillCleansItsRealChild() {
+        val real = temporary.newFolder("real-cache")
+        val alias = java.io.File(temporary.root, "system-cache-alias")
+        java.nio.file.Files.createSymbolicLink(alias.toPath(), real.toPath())
+        val large = java.io.File(real, "lanu-private-large-media").apply { mkdir() }
+        val abandoned = java.io.File(large, "lanu-staged-Ab12.private").apply { writeText("clear") }
+        assertEquals(1, PrivateMediaCacheRecovery.purge(alias).removed)
+        assertFalse(abandoned.exists())
+    }
 }

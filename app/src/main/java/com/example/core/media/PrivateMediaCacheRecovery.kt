@@ -29,7 +29,6 @@ object PrivateMediaCacheRecovery {
         val base = try { cacheDir.canonicalFile } catch (_: IOException) {
             return Result(0, 0)
         }
-        if (cacheDir.absoluteFile != base) return Result(0, 1)
         var removed = 0
         var failures = 0
         fun purgeFiles(directory: File, allowStaging: Boolean) {
@@ -48,8 +47,8 @@ object PrivateMediaCacheRecovery {
             if (candidate.delete()) removed++ else failures++
         }
         }
-        purgeFiles(cacheDir, false)
-        val large = File(cacheDir, "lanu-private-large-media")
+        purgeFiles(base, false)
+        val large = File(base, "lanu-private-large-media")
         if (large.exists()) {
             val safe = try {
                 large.isDirectory && large.absoluteFile == large.canonicalFile &&

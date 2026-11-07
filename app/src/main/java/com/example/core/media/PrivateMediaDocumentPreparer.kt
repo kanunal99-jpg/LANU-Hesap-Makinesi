@@ -24,10 +24,13 @@ internal object PrivateMediaDocumentPreparer {
         PrivateOfficeDocumentPreflight.PPTX_MIME
     )
     fun privateDirectory(context: Context): File {
-        val directory = File(context.cacheDir, "lanu-private-large-media")
+        // Android may expose its own cache through /data/user/0 -> /data/data.
+        // Normalize that trusted OS root before rejecting a symlinked child.
+        val root = context.cacheDir.canonicalFile
+        val directory = File(root, "lanu-private-large-media")
         check((directory.isDirectory || directory.mkdirs()) &&
             directory.absoluteFile == directory.canonicalFile &&
-            directory.canonicalFile.parentFile == context.cacheDir.canonicalFile) {
+            directory.canonicalFile.parentFile == root) {
             "Uygulamanın özel medya alanı açılamadı."
         }
         return directory
