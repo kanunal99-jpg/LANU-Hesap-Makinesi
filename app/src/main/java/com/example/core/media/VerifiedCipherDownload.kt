@@ -13,11 +13,8 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
-import java.io.InterruptedIOException
-import java.net.ProtocolException
 import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicBoolean
-import javax.net.ssl.SSLException
 
 /** Bounded Range recovery for an immutable, hash-bound encrypted object. */
 internal object VerifiedCipherDownload {
@@ -93,8 +90,7 @@ internal object VerifiedCipherDownload {
                     } catch (e: IOException) {
                         currentCoroutineContext().ensureActive()
                         // Trust/protocol/interruption errors are never retried.
-                        if (!networkFailure.get() || attempt == 2 || e is SSLException || e is ProtocolException ||
-                            (e is InterruptedIOException && e !is java.net.SocketTimeoutException)) throw e
+                        if (!CipherDownloadRetryPolicy.shouldRetry(e, attempt, networkFailure.get())) throw e
                         delay(250L * (attempt + 1))
                     }
                 }
