@@ -7,6 +7,8 @@ import com.example.core.database.*
 import com.example.core.messaging.*
 import com.example.core.repository.CommunicationRepository
 import com.example.features.communication.CommunicationViewModel
+import androidx.paging.testing.asSnapshot
+import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -103,7 +105,7 @@ class DurableDraftAndQueueIsolationTest {
             vm.leaveConversation(conversation)
             assertTrue("Closing a loading thread must cancel its collector", firstPending.isCancelled)
             assertNull(vm.activeConversation.value)
-            assertTrue(vm.activeMessages.value.isEmpty())
+            assertTrue(vm.activeMessages.take(1).asSnapshot().isEmpty())
 
             // An old LifecycleResumeEffect disposal must never close a newer
             // selected conversation, even while the next Room load is pending.

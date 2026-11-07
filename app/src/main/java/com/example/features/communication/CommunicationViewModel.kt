@@ -1,5 +1,7 @@
 package com.example.features.communication
 
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -34,7 +36,12 @@ class CommunicationViewModel(
     val userName = _userName.asStateFlow()
     private val _activeConversation = MutableStateFlow<ConversationEntity?>(null)
     val activeConversation = _activeConversation.asStateFlow()
-    private val _activeMessages = MutableStateFlow<List<MessageEntity>>(emptyList())
+    private val _activeMessages = MutableStateFlow<PagingData<MessageEntity>>(PagingData.empty())
+    private val messagePageRefresh = MutableStateFlow(0L)
+    private val _latestMessageId = MutableStateFlow<String?>(null)
+    val latestMessageId = _latestMessageId.asStateFlow()
+    private val _failedRetryIds = MutableStateFlow<List<String>>(emptyList())
+    val failedRetryIds = _failedRetryIds.asStateFlow()
     val activeMessages = _activeMessages.asStateFlow()
     val isPartnerTyping = MutableStateFlow(false).asStateFlow()
     private val _errorMessage = MutableStateFlow<String?>(null)
@@ -274,25 +281,47 @@ class CommunicationViewModel(
     }
     fun addContact(name: String, code: String) = operation { repository.addContact(name, code); refresh() }
     fun deleteContact(code: String) = operation { repository.deleteContact(code) }
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     fun selectConversation(id: String) {
         messagesCollectorJob?.cancel()
         // Clear the previous peer synchronously. Loading the next conversation
         // is suspendable and must not leave an old recipient target available.
         _activeConversation.value = null
-        _activeMessages.value = emptyList()
+        _activeMessages.value = PagingData.empty()
+        _latestMessageId.value = null
+        _failedRetryIds.value = emptyList()
         draftConversationId = id
         draftVersion = 0L
         _draftText.value = ""
         messagesCollectorJob = viewModelScope.launch {
             try {
-                val loaded = repository.getConversationById(id)
+                val loaded = checkNotNull(repository.getConversationById(id)) { "Sohbet bulunamadı." }
                 if (draftConversationId != id || !isActive) return@launch
                 _activeConversation.value = loaded
                 val draft = repository.loadDraft(id)
                 if (draftConversationId == id && draftVersion == 0L) _draftText.value = draft
                 repository.markConversationOpened(id)
                 refresh()
-                repository.getMessages(id).collectLatest { _activeMessages.value = it }
+                launch {
+                    repository.latestMessageId(id).catch { error ->
+                        if (error is CancellationException) throw error
+                        emit(null)
+                    }.collect { if (isActive && draftConversationId == id) _latestMessageId.value = it }
+                }
+                launch {
+                    repository.failedMessageRetryIds(id).catch { error ->
+                        if (error is CancellationException) throw error
+                        emit(emptyList())
+                    }.collect { if (isActive && draftConversationId == id) _failedRetryIds.value = it }
+                }
+                messagePageRefresh.flatMapLatest { repository.getMessagePages(id) }
+                    .catch { error ->
+                        if (error is CancellationException) throw error
+                        _errorMessage.value = "Sohbet geçmişi yüklenemedi. Tekrar deneyin."
+                        emit(PagingData.empty())
+                    }.cachedIn(this).collectLatest {
+                        if (isActive && draftConversationId == id) _activeMessages.value = it
+                    }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 // An uncaught coroutine failure terminates the Android process.
@@ -302,6 +331,12 @@ class CommunicationViewModel(
             }
         }
     }
+    fun reloadLatestMessages(id: String) {
+        if (_activeConversation.value?.id != id || draftConversationId != id) return
+        _activeMessages.value = PagingData.empty()
+        messagePageRefresh.value++
+    }
+
     fun leaveConversation(id: String) {
         // A chat may be closed before its Room load resolves. Cancel the
         // still-pending selection, but never let a late pause from an older
@@ -310,7 +345,9 @@ class CommunicationViewModel(
             messagesCollectorJob?.cancel()
             messagesCollectorJob = null
             _activeConversation.value = null
-            _activeMessages.value = emptyList()
+            _activeMessages.value = PagingData.empty()
+            _latestMessageId.value = null
+            _failedRetryIds.value = emptyList()
             draftConversationId = null
             draftVersion = 0L
             _draftText.value = ""

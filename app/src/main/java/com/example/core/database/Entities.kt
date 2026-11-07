@@ -56,7 +56,10 @@ data class MessageEntity(
     val timestamp: Long = System.currentTimeMillis(),
     val status: String, // PENDING, SENDING, SENT, DELIVERED, READ
     val reaction: String? = null
-)
+) {
+    // Paging/debug diagnostics must never stringify private message content.
+    override fun toString(): String = "MessageEntity(redacted)"
+}
 
 @Entity(tableName = "call_logs")
 data class CallLogEntity(

@@ -11,10 +11,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
-import kotlinx.coroutines.launch
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -65,7 +61,8 @@ fun ChatDetailScreen(
 ) {
     val context = LocalContext.current
     val activeConversation by viewModel.activeConversation.collectAsState()
-    val messages by viewModel.activeMessages.collectAsState()
+    val latestMessageId by viewModel.latestMessageId.collectAsState()
+    val failedRetryIds by viewModel.failedRetryIds.collectAsState()
     val userPhone by viewModel.userId.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
     val isSending by viewModel.isSending.collectAsState()
@@ -74,25 +71,10 @@ fun ChatDetailScreen(
         it.conversationId == conversationId && it.expiresAtMillis > System.currentTimeMillis()
     }?.envelope
 
-    val retryableFailedIds = remember(messages, activeConversation?.id, conversationId, userPhone) {
-        ChatFailedRetryPolicy.select(
-            messages, activeConversation?.id, conversationId, userPhone
-        )
-    }
+    val retryableFailedIds = if (activeConversation?.id == conversationId) failedRetryIds else emptyList()
     val textInput by viewModel.draftText.collectAsState()
     var isSelfDestructEnabled by remember(conversationId) { mutableStateOf(false) }
     var showClearConfirmation by remember(conversationId) { mutableStateOf(false) }
-    var previousMessageCount by remember(conversationId) { mutableIntStateOf(0) }
-    val listState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
-    val showJumpToLatest by remember(messages.size, listState) {
-        derivedStateOf {
-            messages.size > 1 && listState.layoutInfo.visibleItemsInfo.isNotEmpty() &&
-                !ChatReadingPositionPolicy.isNearLatest(
-                    messages.size, listState.layoutInfo.visibleItemsInfo.last().index
-                )
-        }
-    }
     // Silent UI policy: no sound or haptic feedback for chat actions.
     val triggerVibration: () -> Unit = {}
 
@@ -108,17 +90,6 @@ fun ChatDetailScreen(
         errorMessage?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show(); viewModel.clearError() }
     }
 
-
-    // An incoming message must not steal the viewport while reading history.
-    LaunchedEffect(conversationId, messages.size) {
-        val newestCount = messages.size
-        val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-        val shouldScroll = ChatReadingPositionPolicy.shouldAutoScroll(
-            previousMessageCount, newestCount, lastVisibleIndex
-        )
-        previousMessageCount = newestCount
-        if (shouldScroll) listState.animateScrollToItem(newestCount - 1)
-    }
 
     if (showClearConfirmation) {
         AlertDialog(
@@ -293,64 +264,39 @@ fun ChatDetailScreen(
                 }
             }
 
-            // Decrypted E2EE Message Stream
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                contentPadding = PaddingValues(vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                itemsIndexed(messages, key = { _, message -> message.id }) { index, message ->
-                    val showDateHeader = index == 0 || !isSameDay(messages[index - 1].timestamp, message.timestamp)
-                    if (showDateHeader) {
-                        DateHeader(formatDateHeader(message.timestamp))
-                    }
-
-                    val isMine = message.senderPhone == userPhone
-                    // Real-time client-side decryption using the secure utility
-                    val decryptedText = message.content
-                    
-                    MessageBubble(
-                        text = decryptedText,
-                        mediaUrl = message.mediaUrl,
-                        timestamp = message.timestamp,
-                        isMine = isMine,
-                        status = message.status,
-                        reaction = message.reaction,
-                        onAddReaction = { emoji ->
-                            viewModel.addReaction(message.id, emoji)
-                        },
-                        onDelete = {
-                            viewModel.deleteMessage(message.id)
-                        },
-                        onRetry = { viewModel.retryMessage(message.id) },
-                        onEdit = { newText ->
-                            if (!InlineMediaCodec.isAttachment(message.content) &&
-                                !message.content.startsWith(CommunicationRepository.PRIVATE_MEDIA_MARKER)) {
-                                viewModel.editMessage(message.id, newText)
-                            }
-                        },
-                        onSaveAttachment = onSaveAttachment,
-                        onSaveLargeAttachment = onSaveLargeAttachment
-                    )
-                }
-            }
-            if (showJumpToLatest) {
-                FilledTonalButton(
-                    onClick = {
-                        scope.launch { if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex) }
+            PagedChatTimeline(
+                pages = viewModel.activeMessages, conversationId = conversationId,
+                activeConversationId = activeConversation?.id, latestMessageId = latestMessageId,
+                onReloadLatest = { viewModel.reloadLatestMessages(conversationId) },
+                modifier = Modifier.weight(1f).fillMaxWidth()
+            ) { message, older ->
+                if (older == null || !isSameDay(older.timestamp, message.timestamp))
+                    DateHeader(formatDateHeader(message.timestamp))
+                val isMine = message.senderPhone == userPhone
+                val decryptedText = message.content
+                MessageBubble(
+                    text = decryptedText,
+                    mediaUrl = message.mediaUrl,
+                    timestamp = message.timestamp,
+                    isMine = isMine,
+                    status = message.status,
+                    reaction = message.reaction,
+                    onAddReaction = { emoji ->
+                        viewModel.addReaction(message.id, emoji)
                     },
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp)
-                        .testTag("chat_jump_to_latest")
-                ) {
-                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("En yeniye git")
-                }
-            }
+                    onDelete = {
+                        viewModel.deleteMessage(message.id)
+                    },
+                    onRetry = { viewModel.retryMessage(message.id) },
+                    onEdit = { newText ->
+                        if (!InlineMediaCodec.isAttachment(message.content) &&
+                            !message.content.startsWith(CommunicationRepository.PRIVATE_MEDIA_MARKER)) {
+                            viewModel.editMessage(message.id, newText)
+                        }
+                    },
+                    onSaveAttachment = onSaveAttachment,
+                    onSaveLargeAttachment = onSaveLargeAttachment
+                )
             }
 
             // Input Control Panel

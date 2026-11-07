@@ -104,3 +104,9 @@
 -keep class com.example.core.messaging.FullBackupRecoveryVerifier$Result { *; }
 -keep class com.example.core.messaging.BackupRecoveryFilePolicy { *; }
 -keep class com.example.core.messaging.BackupArchiveReader { *; }
+
+# Actual keyset paging is exercised by the separately packaged AndroidTest APK.
+-keep class com.example.core.repository.MessageHistoryPagingSource { *; }
+-keep class androidx.paging.PagingSource** { *; }
+-keep class androidx.paging.PagingState { *; }
+-keep class androidx.paging.PagingConfig { *; }
