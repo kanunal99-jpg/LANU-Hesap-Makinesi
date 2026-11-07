@@ -130,4 +130,35 @@ class VerifiedCipherDownloadTest {
         } finally { dir.deleteRecursively() }
     }
 
+    @Test fun wrappedTlsFailureIsNotRetriedAndDeletesItsPartialCache() = runBlocking {
+        val dir = Files.createTempDirectory("cipher-tls-test").toFile()
+        var requests = 0
+        val client = OkHttpClient.Builder().addInterceptor {
+            requests++
+            throw java.io.IOException("transport", javax.net.ssl.SSLHandshakeException("certificate rejected"))
+        }.build()
+        try {
+            assertTrue(runCatching {
+                VerifiedCipherDownload.download("https://local.invalid/cipher", bytes.size.toLong(), hash(bytes), dir, client)
+            }.isFailure)
+            assertEquals(1, requests)
+            assertTrue(dir.listFiles()!!.isEmpty())
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun wrappedTransientTimeoutCanRecoverWithoutChangingCiphertext() = runBlocking {
+        val dir = Files.createTempDirectory("cipher-timeout-test").toFile()
+        var requests = 0
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            if (++requests == 1) throw java.io.IOException("transport", java.net.SocketTimeoutException("timeout"))
+            response(chain.request(), 200, bytes)
+        }.build()
+        try {
+            val file = VerifiedCipherDownload.download(
+                "https://local.invalid/cipher", bytes.size.toLong(), hash(bytes), dir, client)
+            assertArrayEquals(bytes, file.readBytes())
+            assertEquals(2, requests)
+        } finally { dir.deleteRecursively() }
+    }
+
 }

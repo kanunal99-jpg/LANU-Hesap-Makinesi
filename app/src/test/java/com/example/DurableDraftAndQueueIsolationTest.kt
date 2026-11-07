@@ -69,7 +69,7 @@ class DurableDraftAndQueueIsolationTest {
             }
         }
     }
-    private fun repository() = CommunicationRepository(db.contactDao(), db.conversationDao(), db.messageDao(),
+    private fun repository(messageDao: MessageDao = db.messageDao()) = CommunicationRepository(db.contactDao(), db.conversationDao(), messageDao,
         db.settingsDao(), db.userProfileDao(), db.callLogDao(), store, relay, db, clock = { now })
 
     @Before fun setup() = runBlocking {
@@ -253,6 +253,35 @@ class DurableDraftAndQueueIsolationTest {
         assertEquals(1, readBatches.size)
         assertEquals(200, readBatches.single().size)
         assertEquals(205, db.messageDao().countMessages())
+    }
+
+    @Test fun `receipt sync never loads full history and large history drains in bounded stable batches`() = runBlocking {
+        val ids = (0 until 405).map { "receipt-%04d".format(it) }
+        // Bodies deliberately remain large and opaque; a receipt needs only IDs.
+        for (id in ids.reversed()) db.messageDao().insertMessage(MessageEntity(
+            id, conversation, peer.id, "Friend", "x".repeat(8192), timestamp = 1L, status = "DELIVERED"))
+        db.messageDao().insertMessage(MessageEntity("own", conversation, own.id, "Me", "retained", status = "SENT"))
+        db.messageDao().insertMessage(MessageEntity("read", conversation, peer.id, "Friend", "retained", status = "READ"))
+        db.messageDao().insertMessage(MessageEntity("other", "other-conversation", peer.id, "Friend", "retained", status = "SENT"))
+        val guarded = object : MessageDao by db.messageDao() {
+            override fun getMessagesForConversation(convId: String): kotlinx.coroutines.flow.Flow<List<MessageEntity>> =
+                error("Receipt sync must not fetch message bodies")
+        }
+        val bounded = repository(guarded)
+        val acknowledged = mutableListOf<String>()
+        repeat(3) {
+            readBatches.clear()
+            bounded.synchronize(conversation)
+            val batch = readBatches.single()
+            assertTrue(batch.size <= 200)
+            acknowledged.addAll(batch)
+            // Model server READ revisions arriving after accepted ACKs.
+            batch.forEach { db.messageDao().updateMessageStatus(it, "READ") }
+        }
+        assertEquals(ids, acknowledged)
+        assertEquals(405, acknowledged.distinct().size)
+        assertEquals(408, db.messageDao().countMessages())
+        assertTrue(db.messageDao().getIncomingReadReceiptIds(conversation, own.id).isEmpty())
     }
 
 }

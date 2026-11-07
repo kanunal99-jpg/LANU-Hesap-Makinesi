@@ -891,10 +891,11 @@ class CommunicationRepository(
         // Merge newly received and previously delivered READs into ONE
         // bounded ACK. No duplicate request/ID, and never exceed relay's 200.
         if (activeConversationId != null) {
-            messageDao.getMessagesForConversation(activeConversationId).first()
-                .asSequence().filter { it.senderPhone != own.id && it.status != "READ" }
-                .map { it.id }.filter { it !in read }.take((200 - read.size).coerceAtLeast(0))
-                .forEach { read.add(it) }
+            if (read.size < 200) {
+                messageDao.getIncomingReadReceiptIds(activeConversationId, own.id)
+                    .asSequence().filter { it !in read }.take(200 - read.size)
+                    .forEach { read.add(it) }
+            }
         }
         if (ack.length() > 0 || read.isNotEmpty())
             relay.request(own, "ack", JSONObject().put("eventIds", ack).put("readIds", JSONArray(read.toList())))

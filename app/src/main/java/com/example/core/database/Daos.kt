@@ -154,6 +154,15 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE conversationId = :convId ORDER BY timestamp ASC")
     fun getMessagesForConversation(convId: String): Flow<List<MessageEntity>>
 
+    // Read receipts need IDs only. Never materialize an entire encrypted
+    // conversation (including attachment bodies) for a 200-ID relay ACK.
+    @Query("""
+        SELECT id FROM messages
+        WHERE conversationId = :convId AND senderPhone != :ownId AND status != 'READ'
+        ORDER BY timestamp ASC, id ASC LIMIT 200
+    """)
+    suspend fun getIncomingReadReceiptIds(convId: String, ownId: String): List<String>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: MessageEntity)
 
