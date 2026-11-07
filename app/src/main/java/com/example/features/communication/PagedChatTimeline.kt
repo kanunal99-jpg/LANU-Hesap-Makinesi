@@ -48,7 +48,11 @@ internal fun PagedChatTimeline(
         // following. Competing scroll effects can otherwise undo each other.
         SideEffect {
             if (authorized) {
-                val visible = list.layoutInfo.visibleItemsInfo.sortedBy { it.index }
+                // layoutInfo may include an extra row in content padding before
+                // firstVisibleItemIndex. Use the actual scroll anchor, otherwise
+                // a page arriving before metadata makes the old head look hidden.
+                val visible = list.layoutInfo.visibleItemsInfo
+                    .filter { it.index >= list.firstVisibleItemIndex }.sortedBy { it.index }
                 val newestChanged = presented.newestId != latestMessageId
                 if (newestChanged) {
                     presented.follow = PagedChatReadingPolicy.shouldFollow(
