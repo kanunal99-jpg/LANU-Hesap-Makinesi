@@ -233,6 +233,55 @@ class UserCodeMessagingTest {
         assertEquals("doğrulanmış mesaj", repo.getMessages(conversationId).first()[0].content)
     }
 
+    @Test fun `bad ciphertext cannot block later authenticated events or acknowledge itself`() = runBlocking {
+        val alice = UserCodes.create(); val bob = UserCodes.create(); vault.save(alice)
+        val conversation = UserCodes.conversationId(alice.id, bob.id)
+        val bad = java.util.UUID.randomUUID().toString()
+        val good = java.util.UUID.randomUUID().toString()
+        val acknowledged = mutableListOf<String>(); val reads = mutableListOf<String>(); val sent = mutableListOf<String>()
+        val relay = object : MessagingRelay {
+            override val configured = true
+            override suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject): JSONObject = when (action) {
+                "register" -> JSONObject().put("code", alice.code).put("nonce", alice.nonce)
+                "sync" -> {
+                    fun event(id: String, content: String) = JSONObject().put("id", id).put("message",
+                        JSONObject().put("id", id).put("senderId", bob.id).put("recipientId", alice.id)
+                            .put("revision", 1).put("status", "SENT").put("createdAt", 1000).put("content", content))
+                    JSONObject().put("contacts", org.json.JSONArray().put(JSONObject()
+                        .put("id", bob.id).put("code", bob.code).put("nonce", bob.nonce)
+                        .put("publicKey", bob.publicKey).put("codeAtAdd", bob.code).put("mutual", true)))
+                        .put("events", org.json.JSONArray()
+                            .put(event(bad, "lanu2:" + "A".repeat(40)))
+                            .put(event(good, PeerMessageCrypto.encrypt(bob, alice.id, alice.publicKey, good, "valid"))))
+                }
+                "ack" -> {
+                    val ids = data.getJSONArray("eventIds"); val read = data.getJSONArray("readIds")
+                    repeat(ids.length()) { acknowledged += ids.getString(it) }
+                    repeat(read.length()) { reads += read.getString(it) }
+                    JSONObject().put("acknowledged", true)
+                }
+                "send" -> JSONObject().put("status", "SENT").also { sent += data.getString("messageId") }
+                else -> error("Unexpected action: $action")
+            }
+        }
+        val repo = repository(relay = relay)
+        repeat(2) {
+            assertTrue(runCatching { repo.synchronize(conversation) }.exceptionOrNull() is SecurityException)
+            assertNull(db.messageDao().getMessage(bad))
+            assertNull(db.settingsDao().getSettingValue("lanu_message_revision_$bad"))
+            assertNotNull(db.messageDao().getMessage(good))
+        }
+        assertTrue(good in acknowledged); assertTrue(good in reads)
+        assertFalse(bad in acknowledged); assertFalse(bad in reads)
+        assertEquals(1, repo.getMessages(conversation).first().size)
+        val outgoing = repo.sendMessage(conversation, "durable outgoing")
+        val encrypted = db.messageDao().getMessage(outgoing)!!.content
+        assertTrue(runCatching { repo.synchronize(conversation) }.exceptionOrNull() is SecurityException)
+        assertEquals(listOf(outgoing), sent)
+        assertEquals("SENT", db.messageDao().getMessage(outgoing)!!.status)
+        assertEquals(encrypted, db.messageDao().getMessage(outgoing)!!.content)
+    }
+
     @Test fun `recipient gets offline message on entering private area and unread badge counts once`() = runBlocking {
         val alice = UserCodes.create()
         val bob = UserCodes.create()

@@ -49,4 +49,38 @@ class PrivateChatClipboardTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         assertFalse(PrivateChatClipboard.copy(context, ""))
     }
+    @Test
+    @Config(sdk = [24, 34])
+    fun ownCopyExpiresButReplacementClipboardSurvives() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        assertTrue(PrivateChatClipboard.copy(context, "temporary"))
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
+            .idleFor(60, java.util.concurrent.TimeUnit.SECONDS)
+        assertTrue(clipboard.primaryClip == null || clipboard.primaryClip!!.getItemAt(0).text.isNullOrEmpty())
+        assertTrue(PrivateChatClipboard.copy(context, "private"))
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("other", "keep"))
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
+            .idleFor(60, java.util.concurrent.TimeUnit.SECONDS)
+        assertEquals("keep", clipboard.primaryClip!!.getItemAt(0).text.toString())
+    }
+
+    @Test
+    @Config(sdk = [34])
+    fun recopyGetsFreshLifetimeAndClipboardDenialDoesNotCrash() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val looper = org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
+        assertTrue(PrivateChatClipboard.copy(context, "first"))
+        looper.idleFor(59, java.util.concurrent.TimeUnit.SECONDS)
+        assertTrue(PrivateChatClipboard.copy(context, "second"))
+        looper.idleFor(1, java.util.concurrent.TimeUnit.SECONDS)
+        assertEquals("second", clipboard.primaryClip!!.getItemAt(0).text.toString())
+        looper.idleFor(59, java.util.concurrent.TimeUnit.SECONDS)
+        assertNull(clipboard.primaryClip)
+        val denied = object : android.content.ContextWrapper(context) {
+            override fun getSystemService(name: String): Any? = throw SecurityException("denied")
+        }
+        assertFalse(PrivateChatClipboard.copy(denied, "never logged"))
+    }
 }

@@ -15,6 +15,11 @@ internal class AdaptiveVideoBitratePolicy {
     private var poorSamples = 0
     private var goodSamples = 0
 
+    /** New ICE epoch discards old network observations, retaining the real encoder level. */
+    fun resetObservations() {
+        lastAttemptAt = null; poorSamples = 0; goodSamples = 0
+    }
+
     fun recommend(lossFraction: Double?, rttMs: Double?, nowMs: Long): Int? {
         if (nowMs < 0L || (lossFraction == null && rttMs == null)) return null
         if (lossFraction != null &&

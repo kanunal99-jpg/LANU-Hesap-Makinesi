@@ -13,11 +13,6 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
-import okhttp3.Call
-import okhttp3.Callback
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CancellationException
@@ -404,7 +399,7 @@ object SecureOtaUpdater {
         try {
             val existing = partial.length().takeIf { partial.isFile && it in 1..MAX_APK_BYTES } ?: 0L
             if (partial.isFile && existing == 0L) partial.delete()
-            trustedGet(release.apkUrl, "application/octet-stream", existing.takeIf { it > 0L }).use { response ->
+            trustedGet(release.apkUrl, "application/octet-stream", existing.takeIf { it > 0L }) { response ->
                 val body = response.body ?: error("APK yanıtı boş.")
                 val declared = body.contentLength()
                 val offset = validateDownloadResponse(
@@ -573,70 +568,42 @@ object SecureOtaUpdater {
             Regex("""lanu-\d+-[a-f0-9]{64}\.apk""").matches(canonical.name)
     }
 
-    /**
-     * Cancellable HTTP exchanges: closing the screen/cancelling a download immediately
-     * cancels its in-flight socket operation (not just the next file-read iteration).
-     */
-    private suspend fun executeCancellable(request: Request): Response = suspendCancellableCoroutine { cont ->
-        val call = http.newCall(request)
-        cont.invokeOnCancellation { call.cancel() }
-        call.enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                if (cont.isActive) cont.resumeWithException(e)
-            }
-            override fun onResponse(call: Call, response: Response) {
-                if (cont.isActive) cont.resume(response) { _, _, _ -> response.close() }
-                else response.close()
-            }
-        })
-    }
-
-    /**
-     * Pin all redirect destinations before making follow-on HTTP requests.
-     * GitHub assets legitimately redirect to its public release CDN.
-     */
-    private suspend fun trustedGet(url: String, accept: String, rangeStart: Long? = null): Response {
-        var next = Request.Builder().url(url).build().url
-        repeat(MAX_REDIRECTS + 1) { hop ->
-            require(isApprovedEndpoint(next.scheme, next.host, next.port, next.username, next.password)) {
-                "Güncelleme indirmesi onaylanmamış bir adrese yönlendirildi."
-            }
-            val builder = Request.Builder().url(next)
-                .header("User-Agent", "LANU-Android-Updater")
-                .header("Accept", accept)
-                .header("Accept-Encoding", "identity")
-                .header("Cache-Control", "no-cache")
-            if (rangeStart != null && rangeStart > 0L) builder.header("Range", "bytes=$rangeStart-")
-            val request = builder.build()
-            val response = executeCancellable(request)
+    /** Own every redirect AND the complete streamed body until processing ends. */
+    private suspend fun <T> trustedGet(
+        url: String, accept: String, rangeStart: Long? = null, hop: Int = 0,
+        process: suspend (Response) -> T
+    ): T {
+        val next = Request.Builder().url(url).build().url
+        require(hop <= MAX_REDIRECTS &&
+            isApprovedEndpoint(next.scheme, next.host, next.port, next.username, next.password)) {
+            "Güncelleme adresi veya yönlendirme sınırı geçersiz."
+        }
+        val builder = Request.Builder().url(next)
+            .header("User-Agent", "LANU-Android-Updater")
+            .header("Accept", accept).header("Accept-Encoding", "identity")
+            .header("Cache-Control", "no-cache")
+        if (rangeStart != null && rangeStart > 0L) builder.header("Range", "bytes=$rangeStart-")
+        return com.example.core.network.CancellableHttp.withResponse(builder.build(), http) { response ->
             if (rangeStart != null && rangeStart > 0L && response.code == 416) {
                 response.close()
-                // The previous prefix no longer matches the server size; restart safely.
-                return trustedGet(url, accept, null)
-            }
-            if (response.code in setOf(301, 302, 303, 307, 308)) {
-                val location = response.header("Location")
-                val resolved = location?.let { next.resolve(it) }
+                trustedGet(url, accept, null, hop, process)
+            } else if (response.code in setOf(301, 302, 303, 307, 308)) {
+                val resolved = response.header("Location")?.let { next.resolve(it) }
                 response.close()
                 require(hop < MAX_REDIRECTS && resolved != null) { "Güncelleme yönlendirme sınırına ulaştı." }
-                next = resolved
+                trustedGet(resolved.toString(), accept, rangeStart, hop + 1, process)
             } else {
-                if (!response.isSuccessful) {
-                    val code = response.code
-                    response.close()
-                    throw IllegalStateException("GitHub güncelleme hizmeti HTTP $code döndürdü.")
-                }
-                return response
+                check(response.isSuccessful) { "GitHub güncelleme hizmeti HTTP ${response.code} döndürdü." }
+                process(response)
             }
         }
-        error("Güncelleme yönlendirmesi doğrulanamadı.")
     }
 
     private suspend fun readText(url: String, limit: Int): String {
-        trustedGet(url, "application/vnd.github+json").use { response ->
+        return trustedGet(url, "application/vnd.github+json") { response ->
             val body = response.body ?: error("Sunucu yanıtı boş.")
             require(body.contentLength() <= limit) { "Beklenmeyen büyük yanıt." }
-            return body.byteStream().use { input ->
+            body.byteStream().use { input ->
                 val output = java.io.ByteArrayOutputStream()
                 val buffer = ByteArray(8192)
                 while (true) {

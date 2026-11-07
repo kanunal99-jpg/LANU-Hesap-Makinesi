@@ -73,7 +73,8 @@ class NativeCallEngine(
     private val statsRequestSequence = AtomicLong()
     // Video-only adaptation never changes the existing Opus/AEC/NS/AGC path.
     private val videoBitratePolicy = AdaptiveVideoBitratePolicy()
-    private var lastVideoStatsSequence = 0L
+    private val remoteStatsGate = RemoteCallStatsGate()
+    private var videoStatsEpoch: Long? = null
     @Volatile private var lastCandidateAt = 0L
     private var renderers: CallVideoRendererBindings? = null
 
@@ -109,18 +110,16 @@ class NativeCallEngine(
                 override fun onWebRtcAudioTrackError(error: String) = audioFailure()
             })
             .createAudioDeviceModule()
-        adm = try {
-            createAdm(audioProcessing.hardwareAec, audioProcessing.hardwareNs)
-        } catch (e: RuntimeException) {
-            // Broken OEM hardware-effect initialization: retry this call once
-            // with the WebRTC software APM, never double-stack Android AudioFX.
-            val fallback = CallAudioProcessingPolicy.softwareFallback(audioProcessing)
-            if (fallback == audioProcessing) throw e
-            createAdm(fallback.hardwareAec, fallback.hardwareNs)
-        }
-        factory = PeerConnectionFactory.builder().setAudioDeviceModule(adm)
-            .setVideoEncoderFactory(DefaultVideoEncoderFactory(egl!!.eglBaseContext, true, true))
-            .setVideoDecoderFactory(DefaultVideoDecoderFactory(egl!!.eglBaseContext)).createPeerConnectionFactory()
+        val audioPipeline = CallAudioPipelineFactory.build(audioProcessing,
+            createModule = { createAdm(it.hardwareAec, it.hardwareNs) },
+            createEngine = { module ->
+                PeerConnectionFactory.builder().setAudioDeviceModule(module)
+                    .setVideoEncoderFactory(DefaultVideoEncoderFactory(egl!!.eglBaseContext, true, true))
+                    .setVideoDecoderFactory(DefaultVideoDecoderFactory(egl!!.eglBaseContext))
+                    .createPeerConnectionFactory()
+            }, releaseModule = { it.release() })
+        adm = audioPipeline.first
+        factory = audioPipeline.second
         ensureActive(); check(!closing.get())
         // Separate provider protects STUN discovery from a single provider
         // outage. No TURN credentials, hidden billing or guaranteed NAT relay.
@@ -420,13 +419,10 @@ class NativeCallEngine(
         // Otherwise a late old result could be attributed to a newer connection.
         val snapshotEpoch = rtpEvidence.currentEpoch()
         val snapshotSequence = statsRequestSequence.incrementAndGet()
+        val requestedAtMs = android.os.SystemClock.elapsedRealtime()
         connection?.getStats { report ->
             if (closing.get()) return@getStats
             var received = 0L; var sent = 0L
-            var remoteVideoLoss: Double? = null
-            var remoteVideoRttMs: Double? = null
-            var remoteAudioLoss: Double? = null
-            var remoteAudioRttMs: Double? = null
             for (stat in report.statsMap.values) {
                 val kind = stat.members["kind"] ?: stat.members["mediaType"]
                 if (kind == "audio") {
@@ -435,56 +431,53 @@ class NativeCallEngine(
                     if (stat.type == "outbound-rtp")
                         sent = CallRtpCountPolicy.add(sent, stat.members["packetsSent"])
                 }
-                // Remote inbound RTP describes what the peer actually received.
-                // Never infer network quality from local cumulative packet counts.
-                if (kind == "audio" && stat.type == "remote-inbound-rtp") {
-                    remoteAudioLoss = (stat.members["fractionLost"] as? Number)?.toDouble()
-                    remoteAudioRttMs = (stat.members["roundTripTime"] as? Number)
-                        ?.toDouble()?.times(1000.0)
-                }
-                if (kind == "video" && stat.type == "remote-inbound-rtp") {
-                    remoteVideoLoss = (stat.members["fractionLost"] as? Number)?.toDouble()
-                    remoteVideoRttMs = (stat.members["roundTripTime"] as? Number)
-                        ?.toDouble()?.times(1000.0)
-                }
             }
             rtpEvidence.observe(snapshotEpoch, received, sent,
                 snapshotSequence = snapshotSequence)?.let(evidence)
-            val voiceFirst = VoiceFirstNetworkPolicy.select(
-                remoteVideoLoss, remoteVideoRttMs, remoteAudioLoss, remoteAudioRttMs
-            )
-            if (voiceFirst.available) {
-                // Keep full-rate microphone; downshift video when audio is
-                // dropping, even if video-only statistics still look good.
-                val loss = voiceFirst.loss
-                val rtt = voiceFirst.rttMs
-                scope.launch {
-                    if (closing.get() || !videoEnabled ||
-                        snapshotSequence <= lastVideoStatsSequence) return@launch
-                    lastVideoStatsSequence = snapshotSequence
-                    val now = android.os.SystemClock.elapsedRealtime()
-                    val target = videoBitratePolicy.recommend(loss, rtt, now) ?: return@launch
-                    val sender = connection?.senders?.firstOrNull {
-                        it.track()?.kind() == "video"
-                    } ?: return@launch
-                    val applied = try {
-                        val parameters = sender.parameters
-                        if (parameters.encodings.isEmpty()) false
-                        else {
-                            val profile = AdaptiveVideoEncodingPolicy.forBitrate(target)
-                            parameters.encodings.forEach {
-                                it.maxBitrateBps = target
-                                it.maxFramerate = profile.maxFramerate
-                                it.scaleResolutionDownBy = profile.scaleResolutionDownBy
-                            }
-                            sender.setParameters(parameters)
-                        }
-                    } catch (_: RuntimeException) { false }
-                      catch (_: LinkageError) { false }
-                    // A rejected OEM/WebRTC setting is not a successful change.
-                    // Keep the call and its original encoder running.
-                    videoBitratePolicy.attemptFinished(target, now, applied)
+            scope.launch {
+                if (closing.get() || !videoEnabled || !remoteStatsGate.begin(
+                        rtpEvidence.currentEpoch(), snapshotEpoch, snapshotSequence,
+                        requestedAtMs, android.os.SystemClock.elapsedRealtime())) return@launch
+                if (videoStatsEpoch != snapshotEpoch) {
+                    videoStatsEpoch = snapshotEpoch
+                    videoBitratePolicy.resetObservations()
                 }
+                var audioLoss: Double? = null; var audioRtt: Double? = null
+                var videoLoss: Double? = null; var videoRtt: Double? = null
+                for (stat in report.statsMap.values) {
+                    if (stat.type != "remote-inbound-rtp") continue
+                    val kind = (stat.members["kind"] ?: stat.members["mediaType"]) as? String ?: continue
+                    if (!remoteStatsGate.fresh(kind, stat.timestampUs)) continue
+                    val loss = (stat.members["fractionLost"] as? Number)?.toDouble()
+                    val rtt = (stat.members["roundTripTime"] as? Number)?.toDouble()?.times(1000.0)
+                    if (kind == "audio") { audioLoss = loss; audioRtt = rtt }
+                    if (kind == "video") { videoLoss = loss; videoRtt = rtt }
+                }
+                val voiceFirst = VoiceFirstNetworkPolicy.select(videoLoss, videoRtt, audioLoss, audioRtt)
+                if (!voiceFirst.available) return@launch
+                val loss = voiceFirst.loss; val rtt = voiceFirst.rttMs
+                val now = android.os.SystemClock.elapsedRealtime()
+                val target = videoBitratePolicy.recommend(loss, rtt, now) ?: return@launch
+                val sender = connection?.senders?.firstOrNull {
+                    it.track()?.kind() == "video"
+                } ?: return@launch
+                val applied = try {
+                    val parameters = sender.parameters
+                    if (parameters.encodings.isEmpty()) false
+                    else {
+                        val profile = AdaptiveVideoEncodingPolicy.forBitrate(target)
+                        parameters.encodings.forEach {
+                            it.maxBitrateBps = target
+                            it.maxFramerate = profile.maxFramerate
+                            it.scaleResolutionDownBy = profile.scaleResolutionDownBy
+                        }
+                        sender.setParameters(parameters)
+                    }
+                } catch (_: RuntimeException) { false }
+                  catch (_: LinkageError) { false }
+                // A rejected OEM/WebRTC setting is not a successful change.
+                // Keep the call and its original encoder running.
+                videoBitratePolicy.attemptFinished(target, now, applied)
             }
         }
     }
