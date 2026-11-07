@@ -22,6 +22,7 @@ import kotlinx.coroutines.launch
 private class PresentedHistory { var ids: List<String> = emptyList() }
 
 /** Newest at index0; history pages load upward without decrypting the whole DB. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 internal fun PagedChatTimeline(
     pages: Flow<PagingData<MessageEntity>>, conversationId: String, activeConversationId: String?,
@@ -48,7 +49,7 @@ internal fun PagedChatTimeline(
             if (presented.ids != ids) {
                 val visible = list.layoutInfo.visibleItemsInfo.sortedBy { it.index }
                 val anchor = visible.firstNotNullOfOrNull { item ->
-                    ids.indexOf(item.key).takeIf { it >= 0 }
+                    (item.key as? String)?.let { key -> ids.indexOf(key).takeIf { it >= 0 } }
                 }
                 if (authorized && anchor != null && anchor != list.firstVisibleItemIndex)
                     list.requestScrollToItem(anchor, list.firstVisibleItemScrollOffset)
