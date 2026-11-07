@@ -1,5 +1,10 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 07.11.2026 — Altı alanın sağlamlaştırılması ve tam puan hedefi
+
+Kullanıcı gizlilik, mesajlaşma, sesli/görüntülü görüşme, gürültü-yankı azaltma ve yayın/güncelleme alanlarını birlikte güçlendirip kullanıcı APK'sına yayımlamayı istedi. Başlangıç main `875f68c`, imzalı sürüm `1123`, geçici teknik puan `75/100`. Hedef tam puandır; hedef beyanı fiziksel iki cihaz, gerçek ses/video, güvenli kurtarma veya gecikme kabul kanıtı değildir. Hesap makinesi, mevcut giriş/PIN, kimlik/veri ve signer korunur; ücretli servis açılmaz. Kod ve testle kapatılabilen eksikler uygulanır, kalan fiziksel/bağımsız kurtarma kapıları somut kaydedilir. Son HEAD CI → main CI → imzalı veri koruyan OTA → public APK/SHA/signer doğrulaması zorunludur. Kanıtsız puan yükseltilmez.
+
+
 ## 07.11.2026 — Kullanıcı kapsamı: çalışan uygulamayı koruyarak iletişim performansı
 
 Kullanıcı mevcut uygulamanın iyi çalıştığını teyit etti. Hesap makinesi kodu ve görünümü değiştirilmeyecek. Gizli giriş/PIN ve veri koruma davranışı korunacak. Öncelik gerçek mesajlaşma/bağlantı gecikmesi, gürültü-yankı işleme dayanıklılığı ve güvenli dosya aktarımıdır. Sunucu kotası, kapalı özellik veya fiziksel kalite kanıtı yalnız sabit sayı/puan değişikliğiyle aşılmış gösterilmeyecek. Çalışma ayrı dalda; son HEAD CI, imzalı OTA ve APK read-back kapıları geçerli. Başlangıç: main `212363c`, Actions `41273776448` başarılı, mevcut sürüm `v1.2.0-signed.1114`; devam eden #331 medya taslağı ve #266 hesap silme taslağı ayrı tutulur. Bu kayıt kapsam kararıdır, yeni özellik kabul kanıtı değildir.
