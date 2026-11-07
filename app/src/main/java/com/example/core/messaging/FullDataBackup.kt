@@ -253,7 +253,8 @@ object FullDataBackup {
     }
 
     private fun requireRecoveryProbe(db: SupportSQLiteDatabase) {
-        require(BackupRecoveryFilePolicy.isProbe(java.io.File(db.path).name) &&
+        val path = requireNotNull(db.path) { "Doğrulama veritabanı yolu bulunamadı." }
+        require(BackupRecoveryFilePolicy.isProbe(java.io.File(path).name) &&
             db.version == 4 && db.inTransaction()) {
             "Yalnızca izole, işlem içindeki doğrulama veritabanı kabul edilir."
         }

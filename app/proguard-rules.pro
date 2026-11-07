@@ -93,3 +93,14 @@
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
 
+
+# The separate release instrumentation APK invokes the real backup rehearsal
+# entrypoints. Preserve only these Kotlin object/result ABIs, including INSTANCE;
+# all other app shrinking remains enabled. CI1127 exposed a stripped field.
+-keep class com.example.core.messaging.FullDataBackup { *; }
+-keep class com.example.core.messaging.FullDataBackup$Opened { *; }
+-keep class com.example.core.messaging.FullDataBackup$Summary { *; }
+-keep class com.example.core.messaging.FullBackupRecoveryVerifier { *; }
+-keep class com.example.core.messaging.FullBackupRecoveryVerifier$Result { *; }
+-keep class com.example.core.messaging.BackupRecoveryFilePolicy { *; }
+-keep class com.example.core.messaging.BackupArchiveReader { *; }
