@@ -34,4 +34,16 @@ class CallAudioPreferenceTest {
         assertTrue(CallAudioPreference(prefs).savePreferSoftware(true))
         assertEquals("yes", prefs.getString("preserved", null))
     }
+    @Test fun unavailablePreferenceStoreDoesNotPreventAutomaticCallAudio() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val failing = object : android.content.ContextWrapper(context) {
+            override fun getSharedPreferences(name: String, mode: Int): android.content.SharedPreferences {
+                throw SecurityException("preference storage unavailable")
+            }
+        }
+        val store = CallAudioPreference(failing)
+        assertFalse(store.preferSoftware())
+        assertFalse(store.savePreferSoftware(true))
+    }
+
 }

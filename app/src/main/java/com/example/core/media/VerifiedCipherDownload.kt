@@ -51,7 +51,7 @@ internal object VerifiedCipherDownload {
                             require(response.code == 200 || (offset > 0 && response.code == 206)) {
                                 "Güvenli medya indirilemedi."
                             }
-                            require(response.header("Content-Encoding").orEmpty().lowercase() in setOf("", "identity"))
+                            require(response.header("Content-Encoding").orEmpty().lowercase(java.util.Locale.ROOT) in setOf("", "identity"))
                             require(response.header("Content-Type")?.substringBefore(';')?.trim()
                                 ?.equals("application/octet-stream", ignoreCase = true) == true)
                             val append = response.code == 206
