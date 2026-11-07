@@ -76,6 +76,35 @@ class PagedChatTimelineTest {
         compose.waitForIdle()
         compose.onNodeWithText("text-300").assertIsDisplayed()
     }
+    @Test fun latestMetadataBeforePageStillFollowsWhenPageArrives() {
+        val pages = MutableStateFlow(data(rows(100))); val latest = mutableStateOf<String?>("m100")
+        compose.setContent { MaterialTheme {
+            PagedChatTimeline(pages, "thread", "thread", latest.value, {}, Modifier.fillMaxSize()) { message, _ ->
+                Text(message.content, Modifier.fillMaxWidth().height(48.dp))
+            }
+        } }
+        compose.onNodeWithText("text-100").assertIsDisplayed()
+        compose.runOnIdle { latest.value = "m300" }
+        compose.waitForIdle()
+        compose.runOnIdle { pages.value = data(rows(300)) }
+        compose.waitForIdle()
+        compose.onNodeWithText("text-300").assertIsDisplayed()
+    }
+    @Test fun pageBeforeLatestMetadataPreservesThenFollowsTheOldHead() {
+        val pages = MutableStateFlow(data(rows(100))); val latest = mutableStateOf<String?>("m100")
+        compose.setContent { MaterialTheme {
+            PagedChatTimeline(pages, "thread", "thread", latest.value, {}, Modifier.fillMaxSize()) { message, _ ->
+                Text(message.content, Modifier.fillMaxWidth().height(48.dp))
+            }
+        } }
+        compose.onNodeWithText("text-100").assertIsDisplayed()
+        compose.runOnIdle { pages.value = data(rows(300)) }
+        compose.waitForIdle()
+        compose.onNodeWithText("text-100").assertIsDisplayed()
+        compose.runOnIdle { latest.value = "m300" }
+        compose.waitForIdle()
+        compose.onNodeWithText("text-300").assertIsDisplayed()
+    }
     @Test fun pageFailureOffersRetryWithoutPrintingExceptionDetails() {
         val safeStates = LoadStates(LoadState.Error(IllegalStateException("PRIVATE-PATH")), LoadState.NotLoading(true), LoadState.NotLoading(true))
         val pages = MutableStateFlow(PagingData.empty<MessageEntity>(safeStates))
