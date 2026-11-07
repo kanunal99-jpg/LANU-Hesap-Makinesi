@@ -15,6 +15,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import com.example.core.messaging.RelayException
 
 class CommunicationViewModel(
     private val repository: CommunicationRepository,
@@ -46,7 +47,6 @@ class CommunicationViewModel(
     val draftText = _draftText.asStateFlow()
     private var draftConversationId: String? = null
     private var draftVersion = 0L
-    private var refreshJob: Job? = null
 
     fun updateDraft(text: String) {
         if (text.length > 8000) {
@@ -114,8 +114,11 @@ class CommunicationViewModel(
     private val _networkState = MutableStateFlow(if (repository.relayConfigured) NetworkState.OFFLINE else NetworkState.UNCONFIGURED)
     val networkState = _networkState.asStateFlow()
     private var messagesCollectorJob: Job? = null
-    private var syncJob: Job? = null
-    private val syncOwners = mutableSetOf<String>()
+    private val foregroundSync by lazy {
+        ForegroundSyncSession(viewModelScope, repository.foregroundNetworkChanges,
+            { _activeConversation.value != null },
+            clockMillis = { android.os.SystemClock.elapsedRealtime() }, synchronize = ::synchronize)
+    }
 
     private fun operation(block: suspend () -> Unit) {
         viewModelScope.launch {
@@ -214,27 +217,12 @@ class CommunicationViewModel(
         _isRegistered.value = true
     }
     fun startSync(owner: String) {
-        syncOwners.add(owner)
+        if (owner.isBlank()) return
         checkRegistration()
-        if (syncJob?.isActive == true) return
-        syncJob = viewModelScope.launch {
-            var failures = 0
-            while (isActive && syncOwners.isNotEmpty()) {
-                synchronize()
-                // Foreground-only adaptive backoff. A failed network must not
-                // be polled every five seconds or wake the phone in background.
-                failures = if (_networkState.value == NetworkState.ONLINE) 0
-                    else (failures + 1).coerceAtMost(4)
-                delay(if (failures == 0) ForegroundSyncPolicy.intervalMillis(_activeConversation.value != null)
-                    else minOf(60_000L, 5000L * (1 shl failures)))
-            }
-        }
+        foregroundSync.start(owner)
     }
-    fun stopSync(owner: String) {
-        syncOwners.remove(owner)
-        if (syncOwners.isEmpty()) { syncJob?.cancel(); syncJob = null }
-    }
-    private suspend fun synchronize() {
+    fun stopSync(owner: String) { foregroundSync.stop(owner) }
+    private suspend fun synchronize(): ForegroundSyncPump.Attempt {
         if (repository.relayConfigured && _networkState.value != NetworkState.ONLINE) {
             _networkState.value = NetworkState.RECONNECTING
         }
@@ -242,15 +230,19 @@ class CommunicationViewModel(
             repository.synchronize(_activeConversation.value?.id)
             _networkState.value = NetworkState.ONLINE
             repository.identity.value?.let { _userPhone.value = it.code; _userId.value = it.id }
+            return ForegroundSyncPump.Attempt(successful = true)
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             _networkState.value = if (repository.relayConfigured) NetworkState.OFFLINE else NetworkState.UNCONFIGURED
             if (repository.relayConfigured) _errorMessage.value = e.message ?: "Sunucuya bağlanılamadı. Mesajlar bekliyor."
+            return ForegroundSyncPump.Attempt(false,
+                if (e is RelayException && e.status == 429) e.retryAfterMillis.coerceIn(5000L, 120000L) else 0L)
         }
     }
     fun refresh() {
-        if (refreshJob?.isActive == true) return
-        refreshJob = viewModelScope.launch { synchronize() }
+        // No hidden/background network without a visible owner. A trigger
+        // during an in-flight sync is retained instead of silently dropped.
+        foregroundSync.request()
     }
     fun updateDisplayName(name: String) = operation {
         require(name.isNotBlank()) { "Görünen adı girin." }
@@ -280,7 +272,7 @@ class CommunicationViewModel(
             } finally { _busy.value = false }
         }
     }
-    fun addContact(name: String, code: String) = operation { repository.addContact(name, code); synchronize() }
+    fun addContact(name: String, code: String) = operation { repository.addContact(name, code); refresh() }
     fun deleteContact(code: String) = operation { repository.deleteContact(code) }
     fun selectConversation(id: String) {
         messagesCollectorJob?.cancel()
@@ -299,6 +291,7 @@ class CommunicationViewModel(
                 val draft = repository.loadDraft(id)
                 if (draftConversationId == id && draftVersion == 0L) _draftText.value = draft
                 repository.markConversationOpened(id)
+                refresh()
                 repository.getMessages(id).collectLatest { _activeMessages.value = it }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
@@ -402,8 +395,8 @@ class CommunicationViewModel(
         _errorMessage.value = "Büyük medya aktarımı henüz etkin değil. Küçük fotoğraf/belge seçebilirsiniz."
     }
     fun insertSystemMessage(partnerName: String, text: String) { /* Call UI demos never create a delivered remote message. */ }
-    fun addReaction(messageId: String, emoji: String) = operation { repository.addReaction(messageId, emoji); synchronize() }
-    fun deleteMessage(messageId: String) = operation { repository.deleteMessage(messageId); synchronize() }
+    fun addReaction(messageId: String, emoji: String) = operation { repository.addReaction(messageId, emoji); refresh() }
+    fun deleteMessage(messageId: String) = operation { repository.deleteMessage(messageId); refresh() }
     fun retryMessage(messageId: String) = operation {
         repository.retryMessage(messageId)
         requestOutboxDrain()
@@ -435,12 +428,12 @@ class CommunicationViewModel(
         }
         if (requeued > 0 && _activeConversation.value?.id == expectedConversationId) {
             requestOutboxDrain()
-            synchronize()
+            refresh()
         }
     }
     fun editMessage(messageId: String, text: String) {
         val conversation = _activeConversation.value ?: return
-        operation { repository.editMessage(messageId, conversation.id, text); synchronize() }
+        operation { repository.editMessage(messageId, conversation.id, text); refresh() }
     }
     fun clearConversationMessages(id: String) = operation { repository.clearConversationMessages(id) }
     fun deleteConversation(id: String) = operation { repository.clearConversationMessages(id); repository.deleteConversation(id); leaveConversation(id) }

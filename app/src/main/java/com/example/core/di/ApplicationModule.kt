@@ -27,7 +27,8 @@ object ApplicationModule {
     @Provides @Singleton fun calculator(db: AppDatabase) = CalculatorRepository(db.calculationHistoryDao(), db.settingsDao())
     @Provides @Singleton fun security(@ApplicationContext context: Context, db: AppDatabase) = SecurityRepository(context, db.settingsDao())
     @Provides @Singleton fun events(@ApplicationContext context: Context) = SecurityEventTracker(context)
-    @Provides @Singleton fun communication(db: AppDatabase, identity: MessagingIdentityStore, relay: MessagingRelay) = CommunicationRepository(
-        db.contactDao(), db.conversationDao(), db.messageDao(), db.settingsDao(), db.userProfileDao(), db.callLogDao(), identity, relay, db
+    @Provides @Singleton fun communication(@ApplicationContext context: Context, db: AppDatabase, identity: MessagingIdentityStore, relay: MessagingRelay) = CommunicationRepository(
+        db.contactDao(), db.conversationDao(), db.messageDao(), db.settingsDao(), db.userProfileDao(), db.callLogDao(), identity, relay, db,
+        foregroundNetworkChanges = com.example.core.network.AndroidNetworkRecovery.changes(context)
     )
 }
