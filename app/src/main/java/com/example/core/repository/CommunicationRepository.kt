@@ -841,6 +841,7 @@ class CommunicationRepository(
         val events = response.getJSONArray("events")
         val ack = JSONArray()
         val read = linkedSetOf<String>()
+        val rejectedIds = mutableSetOf<String>()
         for (i in 0 until events.length()) {
             val event = events.getJSONObject(i)
             val message = event.getJSONObject("message")
@@ -853,7 +854,7 @@ class CommunicationRepository(
             val threadDeleted = settingsDao.getSettingValue("lanu_hidden_conv_$convId") == "true"
             // Message, unread count and replay revision are one durable unit.
             // A crash before commit must not leave a message without its unread badge.
-            database.withTransaction {
+            try { database.withTransaction {
                 val revision = message.getLong("revision")
                 val previous = settingsDao.getSettingValue("lanu_message_revision_$id")?.toLongOrNull() ?: 0L
                 val hidden = settingsDao.getSettingValue("lanu_hidden_$id") == "true"
@@ -865,8 +866,9 @@ class CommunicationRepository(
                         // The relay cannot authenticate E2EE ciphertext; only the recipient can.
                         try {
                             PeerMessageCrypto.decrypt(own, peerId, peer.getString("publicKey"), id, senderId, message.getString("content"))
-                        } catch (e: Exception) {
-                            throw SecurityException("Şifreli mesaj doğrulanamadı. Teslim/okundu onayı gönderilmedi.", e)
+                        } catch (e: CancellationException) { throw e }
+                        catch (e: Exception) {
+                            throw RejectedCiphertext(e)
                         }
                         settingsDao.insertSetting(SettingsEntity("lanu_peer_conv_$convId", peer.toString()))
                         if (conversationDao.getConversationById(convId) == null) {
@@ -885,6 +887,13 @@ class CommunicationRepository(
                     settingsDao.insertSetting(SettingsEntity("lanu_message_revision_$id", revision.toString()))
                 }
             }
+            } catch (_: RejectedCiphertext) {
+                // Leave only this unauthenticated event on the relay. Valid
+                // later events and durable outgoing messages must keep moving.
+                rejectedIds.add(id)
+                read.remove(id)
+                continue
+            }
             ack.put(event.getString("id"))
             if (senderId != own.id && activeConversationId == convId &&
                 !message.optBoolean("deleted") && !threadDeleted) read.add(id)
@@ -894,7 +903,7 @@ class CommunicationRepository(
         if (activeConversationId != null) {
             if (read.size < 200) {
                 messageDao.getIncomingReadReceiptIds(activeConversationId, own.id)
-                    .asSequence().filter { it !in read }.take(200 - read.size)
+                    .asSequence().filter { it !in read && it !in rejectedIds }.take(200 - read.size)
                     .forEach { read.add(it) }
             }
         }
@@ -902,7 +911,14 @@ class CommunicationRepository(
             relay.request(own, "ack", JSONObject().put("eventIds", ack).put("readIds", JSONArray(read.toList())))
         // Five sends plus register/sync/receipts stay below 120 requests/minute
         // at the normal 5-second cadence. Manual rapid refresh is also bounded.
-        if (!drainOutbox || clock() < nextSendAt) return
+        if (drainOutbox && clock() >= nextSendAt) drainPendingOutbox(own)
+        if (rejectedIds.isNotEmpty()) throw RejectedCiphertext()
+    }
+
+    private class RejectedCiphertext(cause: Exception? = null) :
+        SecurityException("Şifreli mesaj doğrulanamadı. Teslim/okundu onayı gönderilmedi.", cause)
+
+    private suspend fun drainPendingOutbox(own: MessagingIdentity) {
         var contactRequests = 0
         for (contact in contacts.first()) {
             if (callInProgress) break // Keep nonce/request budget for live call control.

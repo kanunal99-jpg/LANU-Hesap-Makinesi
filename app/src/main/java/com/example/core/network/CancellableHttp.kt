@@ -1,5 +1,7 @@
 package com.example.core.network
 
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
@@ -19,7 +21,7 @@ internal object CancellableHttp {
         request: Request,
         client: OkHttpClient,
         onNetworkFailure: () -> Unit = {},
-        process: (Response) -> T
+        process: suspend (Response) -> T
     ): T = coroutineScope {
         val call = client.newCall(request)
         val cancelWatcher = launch(start = CoroutineStart.UNDISPATCHED) {
@@ -43,7 +45,10 @@ internal object CancellableHttp {
                     }
                 })
             }
-            response.use(process)
+            response.use { process(it) }
+        } catch (error: IOException) {
+            currentCoroutineContext().ensureActive()
+            throw error
         } finally { cancelWatcher.cancel() }
     }
 }
