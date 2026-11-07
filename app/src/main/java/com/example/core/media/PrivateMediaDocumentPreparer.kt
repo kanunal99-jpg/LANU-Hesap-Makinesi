@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -32,53 +33,42 @@ internal object PrivateMediaDocumentPreparer {
         return directory
     }
 
-    suspend fun encryptDocument(context: Context, uri: Uri): PrivateMediaCrypto.EncryptedFile =
-        withContext(Dispatchers.IO) {
+    suspend fun encryptDocument(context: Context, uri: Uri): PrivateMediaCrypto.EncryptedFile {
+        var prepared: PrivateMediaCrypto.EncryptedFile? = null
+        try { return withContext(Dispatchers.IO) {
             val mime = context.contentResolver.getType(uri)?.lowercase()
                 ?: throw IllegalArgumentException("Dosya türü okunamadı.")
             require(mime in permitted) { "Yalnız PDF, TXT, DOCX, XLSX ve PPTX paylaşılabilir." }
             val dir = privateDirectory(context)
             val stage = File.createTempFile("lanu-staged-", ".private", dir)
             try {
-                val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
-                    FileOutputStream(stage).use { output ->
-                        val buffer = ByteArray(64 * 1024)
-                        var length = 0L
-                        var stalled = 0
-                        while (true) {
-                            val count = input.read(buffer)
-                            if (count < 0) break
-                            if (count == 0) {
-                                if (++stalled >= 3) throw IOException("Dosya sağlayıcısı yanıt vermedi.")
-                                continue
-                            }
-                            stalled = 0
-                            length += count
-                            require(length <= PrivateMediaTransferBudget.MAX_PLAIN_BYTES) {
-                                "Dosya 40 MB sınırını aşıyor."
-                            }
-                            output.write(buffer, 0, count)
-                        }
-                        output.fd.sync()
-                        length
-                    }
-                } ?: throw IOException("Dosya okunamadı.")
+                val bytes = PrivateMediaProviderIo.copyIntoPrivateFile(
+                    context, uri, stage, PrivateMediaTransferBudget.MAX_PLAIN_BYTES)
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
                 require(bytes > 0 && stage.length() == bytes) { "Dosya eksik okundu." }
                 if (mime == "application/pdf") {
                     PrivateMediaSourcePreflight.inspect(
                         FileInputStream(stage), mime
                     ).use { /* Validate PDF bytes and release provider stream. */ }
                 }
-                if (PrivateOfficeDocumentPreflight.isOfficeMime(mime)) {
+                prepared = if (PrivateOfficeDocumentPreflight.isOfficeMime(mime)) {
                     PrivateMediaCrypto.encryptOfficeDocumentToPrivateFile(stage, mime, dir)
                 } else {
                     FileInputStream(stage).use {
                         PrivateMediaCrypto.encryptToPrivateFile(it, bytes, mime, dir)
                     }
                 }
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                checkNotNull(prepared)
             } finally {
                 // Never retain a plaintext document in app cache after encryption.
                 stage.delete()
             }
+        } } catch (error: Throwable) {
+            // Keep ownership if cancellation wins the return dispatch race.
+            prepared?.destroyKey()
+            prepared?.ciphertextFile?.delete()
+            throw error
         }
+    }
 }

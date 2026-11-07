@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
 import org.json.JSONObject
 import org.json.JSONArray
 import java.util.UUID
@@ -706,6 +707,7 @@ class CommunicationRepository(
                 own, peerId, publicKey, id, manifest, prepared.keyMaterial
             )
             // Do not queue on a stale conversation after a slow upload.
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
             draftMutex.withLock {
                 val latest = peerForConversation(conversationId)
                     ?: error("Sohbet kapandı; dosya mesajı gönderilmedi.")
@@ -778,14 +780,17 @@ class CommunicationRepository(
             }
             val encrypted = PrivateMediaTransferHttp.downloadCiphertext(
                 grant.getString("url"), opened.manifest, privateDirectory)
+            var ownedPlaintext: File? = null
             try {
                 val verified = withContext(Dispatchers.IO) {
                     PrivateMediaCrypto.decryptToVerifiedPrivateFile(
                         encrypted, opened.manifest, opened.keyMaterial, privateDirectory
-                    )
+                    ).also { ownedPlaintext = it }
                 }
-                return DownloadedPrivateMedia(verified, opened.manifest.mime)
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                return DownloadedPrivateMedia(verified, opened.manifest.mime).also { ownedPlaintext = null }
             } finally {
+                ownedPlaintext?.delete()
                 encrypted.delete()
             }
         } finally { opened.destroyKey() }

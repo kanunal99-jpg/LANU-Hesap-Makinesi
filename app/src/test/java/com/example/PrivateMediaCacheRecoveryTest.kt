@@ -46,4 +46,28 @@ class PrivateMediaCacheRecoveryTest {
         assertEquals(0, PrivateMediaCacheRecovery.purge(nonexistent).removed)
         assertEquals("do not delete outside selected cache directory", userFile.readText())
     }
+
+    @Test fun processDeathCleansDedicatedLargeMediaStagingButPreservesUnrelatedAndNestedFiles() {
+        val cache = temporary.newFolder("cache")
+        val large = java.io.File(cache, "lanu-private-large-media").apply { mkdir() }
+        val expired = listOf("lanu-staged-Ab12.private", "lanu-verified-Cd34.private", "lanu-media-v1-Ef56.cipher")
+            .map { java.io.File(large, it).apply { writeText("abandoned") } }
+        val unrelated = java.io.File(large, "backup.private").apply { writeText("keep") }
+        val rootStage = java.io.File(cache, "lanu-staged-Ab12.private").apply { writeText("keep") }
+        val nested = java.io.File(large, "nested").apply { mkdir() }
+        val nestedFile = java.io.File(nested, "lanu-staged-Ab12.private").apply { writeText("keep") }
+        assertEquals(3, PrivateMediaCacheRecovery.purge(cache).removed)
+        assertTrue(expired.none { it.exists() })
+        for (file in listOf(unrelated, rootStage, nestedFile)) assertEquals("keep", file.readText())
+    }
+
+    @Test fun dedicatedDirectorySymlinkCannotDeleteOutsideCache() {
+        val cache = temporary.newFolder("cache-link")
+        val outside = temporary.newFolder("outside")
+        val protected = java.io.File(outside, "lanu-staged-Ab12.private").apply { writeText("keep") }
+        java.nio.file.Files.createSymbolicLink(java.io.File(cache, "lanu-private-large-media").toPath(), outside.toPath())
+        val result = PrivateMediaCacheRecovery.purge(cache)
+        assertEquals(0, result.removed); assertEquals(1, result.unableToRemove)
+        assertEquals("keep", protected.readText())
+    }
 }

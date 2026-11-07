@@ -45,6 +45,8 @@ import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
@@ -298,18 +300,40 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     // source is copied into private bounded staging and E2EE-encrypted before
     // any network call. No shared-storage path, file name or clear bytes are
     // sent to the relay. Never run this callback while the private area locked.
-    private var largeMediaBusy = false
-    private val largeDocumentPicker = registerForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
+    private var largeMediaOwner: com.example.core.media.PrivateMediaOperationOwner? = null
+    private var pendingLargeExportResult: kotlinx.coroutines.CancellableContinuation<Uri?>? = null
+    private var largeExportPickerOutstanding = false
+
+    private fun currentMediaConversation(): String? =
+        (navigationBackstack.lastOrNull() as? Screen.ChatDetail)?.conversationId
+
+    private fun mediaChatAllowed(chatId: String): Boolean =
+        ::securityViewModel.isInitialized && !securityViewModel.isLocked.value &&
+            currentMediaConversation() == chatId
+
+    private fun launchLargeMedia(chatId: String, task: suspend () -> Unit) {
+        if (!BuildConfig.LANU_PRIVATE_MEDIA_UI_ENABLED || !mediaChatAllowed(chatId)) return
+        val owner = largeMediaOwner ?: com.example.core.media.PrivateMediaOperationOwner(
+            lifecycleScope, securityViewModel.isLocked,
+            snapshotFlow { currentMediaConversation() }, ::currentMediaConversation
+        ).also { largeMediaOwner = it }
+        owner.launch(chatId) {
+            try { task() }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (_: Exception) {
+                if (mediaChatAllowed(chatId)) Toast.makeText(this@MainActivity,
+                    "Dosya işlemi tamamlanamadı. Mevcut kayıtlar korunuyor.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private val largeDocumentPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         val chatId = takePendingPickerChat()
         if (chatId != null && uri != null) confirmLargeSend(chatId) {
             PrivateMediaDocumentPreparer.encryptDocument(this@MainActivity, uri)
         }
     }
-    private val largePhotoPicker = registerForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { uri: Uri? ->
+    private val largePhotoPicker = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
         val chatId = takePendingPickerChat()
         if (chatId != null && uri != null) confirmLargeSend(chatId) {
             com.example.core.media.PrivatePhotoStaging.stage(this@MainActivity, uri)
@@ -317,90 +341,58 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     }
 
     private fun confirmLargeSend(chatId: String, prepare: suspend () -> PrivateMediaCrypto.EncryptedFile) {
-        if (!BuildConfig.LANU_PRIVATE_MEDIA_UI_ENABLED ||
-            !::securityViewModel.isInitialized || securityViewModel.isLocked.value || largeMediaBusy) return
-        // Selecting a file is not equivalent to consent to upload it.
-        android.app.AlertDialog.Builder(this)
-            .setTitle("Güvenli dosya gönder")
-            .setMessage("Seçtiğiniz dosya şifrelenip yalnız doğrulanmış kişiye gönderilecek. Belge en fazla 40 MB olabilir. Gönderilsin mi?")
-            .setNegativeButton("Vazgeç", null)
-            .setPositiveButton("Şifreli gönder") { _, _ ->
-                if (!securityViewModel.isLocked.value && !largeMediaBusy)
-                    sendPreparedLargeMedia(chatId, prepare)
+        launchLargeMedia(chatId) {
+            val confirmed = kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { result ->
+                val dialog = android.app.AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Güvenli dosya gönder")
+                    .setMessage("Seçtiğiniz dosya şifrelenip yalnız doğrulanmış kişiye gönderilecek. Belge en fazla 40 MB olabilir. Gönderilsin mi?")
+                    .setNegativeButton("Vazgeç") { _, _ -> if (result.isActive) result.resume(false) }
+                    .setPositiveButton("Şifreli gönder") { _, _ -> if (result.isActive) result.resume(true) }
+                    .setOnCancelListener { if (result.isActive) result.resume(false) }
+                    .create()
+                dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                result.invokeOnCancellation {
+                    lifecycleScope.launch(Dispatchers.Main.immediate) { dialog.dismiss() }
+                }
+                dialog.show()
             }
-            .show()
-    }
-
-    private fun sendPreparedLargeMedia(chatId: String, prepare: suspend () -> PrivateMediaCrypto.EncryptedFile) {
-        if (!BuildConfig.LANU_PRIVATE_MEDIA_UI_ENABLED) return
-        largeMediaBusy = true
-        lifecycleScope.launch {
+            if (!confirmed || !mediaChatAllowed(chatId)) return@launchLargeMedia
             var prepared: PrivateMediaCrypto.EncryptedFile? = null
             try {
                 prepared = prepare()
-                // Delayed SAF/cloud access cannot reopen an already-locked chat.
-                if (securityViewModel.isLocked.value) return@launch
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                if (!mediaChatAllowed(chatId)) return@launchLargeMedia
                 val repo = (application as LanuApplication).container.communicationRepository
                 repo.sendLargeAttachment(chatId, prepared,
                     PrivateMediaDocumentPreparer.privateDirectory(this@MainActivity))
-                prepared = null // repository destroys the one-use key/temp
+                prepared = null
                 commViewModel.refresh()
-                if (!securityViewModel.isLocked.value)
-                    Toast.makeText(this@MainActivity, "Şifreli dosya gönderime alındı.", Toast.LENGTH_SHORT).show()
-            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-            catch (_: Exception) {
-                if (!securityViewModel.isLocked.value)
-                    Toast.makeText(this@MainActivity,
-                        "Şifreli dosya gönderilemedi. Dosyalarınız korunuyor.",
-                        Toast.LENGTH_LONG).show()
+                if (mediaChatAllowed(chatId)) Toast.makeText(this@MainActivity,
+                    "Şifreli dosya gönderime alındı.", Toast.LENGTH_SHORT).show()
             } finally {
                 prepared?.destroyKey()
                 prepared?.ciphertextFile?.delete()
-                largeMediaBusy = false
             }
         }
     }
 
-    private var pendingLargeExport: CommunicationRepository.DownloadedPrivateMedia? = null
-    private val largeDocumentExportPicker = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        val downloaded = pendingLargeExport
-        pendingLargeExport = null
+    private val largeDocumentExportPicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        largeExportPickerOutstanding = false
+        val continuation = pendingLargeExportResult
+        pendingLargeExportResult = null
         completeExternalPickerResult()
-        val uri = result.data?.data
-        if (result.resultCode == Activity.RESULT_OK && uri != null &&
-            downloaded != null && ::securityViewModel.isInitialized &&
-            !securityViewModel.isLocked.value) {
-            lifecycleScope.launch {
-                try {
-                    withContext(Dispatchers.IO) {
-                        contentResolver.openOutputStream(uri, "w")?.use { target ->
-                            downloaded.verifiedFile.inputStream().use { it.copyTo(target, 64 * 1024) }
-                        } ?: error("Hedef dosya açılamadı.")
-                    }
-                    if (!securityViewModel.isLocked.value)
-                        Toast.makeText(this@MainActivity, "Dosya kaydedildi.", Toast.LENGTH_SHORT).show()
-                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                catch (_: Exception) {
-                    if (!securityViewModel.isLocked.value)
-                        Toast.makeText(this@MainActivity, "Dosya kaydedilemedi.", Toast.LENGTH_LONG).show()
-                } finally { downloaded.destroy() }
-            }
-        } else downloaded?.destroy()
+        if (continuation?.isActive == true) continuation.resume(
+            if (result.resultCode == Activity.RESULT_OK) result.data?.data else null)
     }
 
     private fun downloadLargeDocument(chatId: String, messageId: String) {
-        if (!BuildConfig.LANU_PRIVATE_MEDIA_UI_ENABLED || !::securityViewModel.isInitialized || securityViewModel.isLocked.value ||
-            pendingLargeExport != null || largeMediaBusy) return
-        largeMediaBusy = true
-        lifecycleScope.launch {
-            var downloaded: CommunicationRepository.DownloadedPrivateMedia? = null
+        if (largeExportPickerOutstanding) return
+        launchLargeMedia(chatId) {
+            val repo = (application as LanuApplication).container.communicationRepository
+            val downloaded = repo.downloadLargeAttachment(chatId, messageId,
+                PrivateMediaDocumentPreparer.privateDirectory(this@MainActivity))
             try {
-                val repo = (application as LanuApplication).container.communicationRepository
-                downloaded = repo.downloadLargeAttachment(chatId, messageId,
-                    PrivateMediaDocumentPreparer.privateDirectory(this@MainActivity))
-                if (securityViewModel.isLocked.value) return@launch
+                if (!mediaChatAllowed(chatId)) return@launchLargeMedia
                 val extension = when (downloaded.mime) {
                     "image/jpeg" -> "jpg"
                     "image/png" -> "png"
@@ -412,23 +404,32 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                     "application/vnd.openxmlformats-officedocument.presentationml.presentation" -> "pptx"
                     else -> "bin"
                 }
-                val pickerIntent = Intent(Intent.ACTION_CREATE_DOCUMENT)
-                    .addCategory(Intent.CATEGORY_OPENABLE)
-                    .setType(downloaded.mime)
-                    .putExtra(Intent.EXTRA_TITLE, "dosya.$extension")
-                pendingLargeExport = downloaded
-                downloaded = null
-                beginExternalPicker()
-                largeDocumentExportPicker.launch(pickerIntent)
-            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-            catch (_: Exception) {
-                if (!securityViewModel.isLocked.value)
-                    Toast.makeText(this@MainActivity,
-                        "Şifreli dosya indirilemedi veya doğrulanamadı.", Toast.LENGTH_LONG).show()
-            } finally {
-                downloaded?.destroy()
-                largeMediaBusy = false
-            }
+                val uri = kotlinx.coroutines.suspendCancellableCoroutine<Uri?> { result ->
+                    pendingLargeExportResult = result
+                    result.invokeOnCancellation {
+                        if (pendingLargeExportResult === result) pendingLargeExportResult = null
+                    }
+                    val intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
+                        .addCategory(Intent.CATEGORY_OPENABLE).setType(downloaded.mime)
+                        .putExtra(Intent.EXTRA_TITLE, "dosya.$extension")
+                    try {
+                        largeExportPickerOutstanding = true
+                        beginExternalPicker()
+                        largeDocumentExportPicker.launch(intent)
+                    } catch (error: Exception) {
+                        largeExportPickerOutstanding = false
+                        pendingLargeExportResult = null
+                        completeExternalPickerResult()
+                        result.cancel(kotlinx.coroutines.CancellationException("Dosya seçicisi açılamadı.", error))
+                    }
+                }
+                if (uri != null && mediaChatAllowed(chatId)) {
+                    com.example.core.media.PrivateMediaProviderIo.exportVerifiedFile(
+                        this@MainActivity, uri, downloaded.verifiedFile)
+                    if (mediaChatAllowed(chatId)) Toast.makeText(this@MainActivity,
+                        "Dosya kaydedildi.", Toast.LENGTH_SHORT).show()
+                }
+            } finally { downloaded.destroy() }
         }
     }
 
@@ -982,6 +983,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     }
 
     override fun onDestroy() {
+        largeMediaOwner?.cancel()
+        pendingLargeExportResult?.cancel()
+        pendingLargeExportResult = null
         super.onDestroy()
         lifecycle.removeObserver(appLifecycleObserver)
         try {
@@ -995,6 +999,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     }
 
     private fun returnToCalculator() {
+        largeMediaOwner?.cancel()
         securityViewModel.lock()
         calcViewModel.onKeyPress("AC")
         navigationBackstack.clear()
