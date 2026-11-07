@@ -158,6 +158,8 @@ dependencies {
   // implementation(libs.androidx.navigation.compose)
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
+  implementation(libs.androidx.paging.runtime)
+  implementation(libs.androidx.paging.compose)
   // SQLCipher native library is used only by isolated shadow tests, never live Room.
   // Keep a single Zetetic version to avoid conflicting native libraries/classes.
   implementation("net.zetetic:sqlcipher-android:4.20.0")
@@ -191,6 +193,7 @@ dependencies {
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
   testImplementation(libs.junit)
+  testImplementation(libs.androidx.paging.testing)
   testImplementation(libs.kotlinx.coroutines.test)
   testImplementation(libs.robolectric)
   testImplementation(libs.roborazzi)

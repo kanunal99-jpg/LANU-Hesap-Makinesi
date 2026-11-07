@@ -151,8 +151,44 @@ interface MessageDao {
     @Query("UPDATE messages SET senderPhone = :newId WHERE senderPhone = :oldId")
     suspend fun migrateSender(oldId: String, newId: String)
 
-    @Query("SELECT * FROM messages WHERE conversationId = :convId ORDER BY timestamp ASC")
+    @Query("SELECT * FROM messages WHERE conversationId = :convId ORDER BY timestamp ASC, id ASC")
     fun getMessagesForConversation(convId: String): Flow<List<MessageEntity>>
+
+    @Query("SELECT * FROM messages WHERE conversationId = :convId ORDER BY timestamp DESC, id DESC LIMIT :limit")
+    suspend fun latestMessagePage(convId: String, limit: Int): List<MessageEntity>
+
+    @Query("""SELECT * FROM messages WHERE conversationId = :convId AND
+        (timestamp < :at OR (timestamp = :at AND id < :id))
+        ORDER BY timestamp DESC, id DESC LIMIT :limit""")
+    suspend fun olderMessagePage(convId: String, at: Long, id: String, limit: Int): List<MessageEntity>
+
+    @Query("""SELECT * FROM messages WHERE conversationId = :convId AND
+        (timestamp < :at OR (timestamp = :at AND id <= :id))
+        ORDER BY timestamp DESC, id DESC LIMIT :limit""")
+    suspend fun messagePageAtOrBefore(convId: String, at: Long, id: String, limit: Int): List<MessageEntity>
+
+    @Query("""SELECT * FROM messages WHERE conversationId = :convId AND
+        (timestamp > :at OR (timestamp = :at AND id > :id))
+        ORDER BY timestamp ASC, id ASC LIMIT :limit""")
+    suspend fun newerMessagePage(convId: String, at: Long, id: String, limit: Int): List<MessageEntity>
+
+    @Query("SELECT timestamp, id FROM messages WHERE conversationId = :convId AND id = :id LIMIT 1")
+    suspend fun messageHistoryCursor(convId: String, id: String): MessageHistoryCursor?
+
+    @Query("""SELECT EXISTS(SELECT 1 FROM messages WHERE conversationId = :convId AND
+        (timestamp > :at OR (timestamp = :at AND id > :id)) LIMIT 1)""")
+    suspend fun hasNewerMessages(convId: String, at: Long, id: String): Boolean
+
+    @Query("""SELECT EXISTS(SELECT 1 FROM messages WHERE conversationId = :convId AND
+        (timestamp < :at OR (timestamp = :at AND id < :id)) LIMIT 1)""")
+    suspend fun hasOlderMessages(convId: String, at: Long, id: String): Boolean
+
+    @Query("SELECT id FROM messages WHERE conversationId = :convId ORDER BY timestamp DESC, id DESC LIMIT 1")
+    fun latestMessageId(convId: String): Flow<String?>
+
+    @Query("""SELECT id FROM messages WHERE conversationId = :convId AND senderPhone = :ownId AND status = 'FAILED'
+        ORDER BY timestamp ASC, id ASC LIMIT 20""")
+    fun failedRetryIds(convId: String, ownId: String): Flow<List<String>>
 
     // Read receipts need IDs only. Never materialize an entire encrypted
     // conversation (including attachment bodies) for a 200-ID relay ACK.

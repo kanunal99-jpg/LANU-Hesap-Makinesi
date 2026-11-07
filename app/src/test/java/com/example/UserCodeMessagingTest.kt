@@ -2,10 +2,14 @@ package com.example
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
 import com.example.core.database.*
 import com.example.core.messaging.*
 import com.example.core.repository.CommunicationRepository
+import androidx.paging.cachedIn
+import androidx.paging.testing.asSnapshot
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.first
 import org.json.JSONObject
@@ -690,5 +694,25 @@ class UserCodeMessagingTest {
         assertNotNull(db.conversationDao().getConversationById(id))
         assertNotNull(db.messageDao().getMessage("msg-rollback"))
         assertNull(db.settingsDao().getSettingValue("lanu_hidden_conv_$id"))
+    }
+    @Test fun `paged display decrypts loaded history and keeps durable ciphertext untouched`() = runTest {
+        val own = UserCodes.create(); val peer = UserCodes.create(); vault.save(own)
+        val conversation = UserCodes.conversationId(own.id, peer.id)
+        val peerJson = JSONObject().put("id", peer.id).put("code", peer.code)
+            .put("nonce", peer.nonce).put("publicKey", peer.publicKey)
+        db.settingsDao().insertSetting(SettingsEntity("lanu_peer_conv_$conversation", peerJson.toString()))
+        db.conversationDao().insertConversation(ConversationEntity(conversation, peer.code, "Peer"))
+        db.withTransaction {
+            repeat(200) { i ->
+                val id = "page-$i"
+                val encrypted = PeerMessageCrypto.encrypt(peer, own.id, own.publicKey, id, "message-$i")
+                db.messageDao().insertMessage(MessageEntity(id, conversation, peer.id, "Peer", encrypted, timestamp = i.toLong(), status = "SENT"))
+            }
+        }
+        val values = repository().getMessagePages(conversation).cachedIn(backgroundScope).asSnapshot { scrollTo(180) }
+        assertEquals(200, values.size)
+        assertEquals("message-199", values.first().content)
+        assertEquals("message-0", values.last().content)
+        assertTrue(db.messageDao().getMessage("page-199")!!.content.startsWith("lanu2:"))
     }
 }

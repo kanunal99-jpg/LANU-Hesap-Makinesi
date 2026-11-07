@@ -1,6 +1,10 @@
 package com.example.core.repository
 
 import com.example.BuildConfig
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.map
 
 import androidx.room.withTransaction
 import com.example.core.crypto.CryptoUtils
@@ -547,20 +551,58 @@ class CommunicationRepository(
         id
     }
 
+    fun getMessagePages(conversationId: String): Flow<PagingData<MessageEntity>> = flow {
+        require(conversationId.isNotBlank())
+        val lock = Any()
+        var closed = false
+        val sources = mutableSetOf<MessageHistoryPagingSource>()
+        val pager = Pager(PagingConfig(pageSize = 50, initialLoadSize = 100,
+            prefetchDistance = 10, maxSize = 300, enablePlaceholders = false)) {
+            val source = MessageHistoryPagingSource(database, conversationId)
+            val allowed = synchronized(lock) { if (closed) false else { sources.add(source); true } }
+            source.registerInvalidatedCallback { synchronized(lock) { sources.remove(source) } }
+            if (!allowed) source.invalidate()
+            source
+        }
+        try {
+            emitAll(pager.flow.map { data ->
+                val own = ensureIdentity()
+                val peer = peerForConversation(conversationId)
+                data.map { message -> withContext(Dispatchers.Default) {
+                    messageForDisplay(message, conversationId, own, peer)
+                } }
+            })
+        } finally {
+            val remaining = synchronized(lock) { closed = true; sources.toList().also { sources.clear() } }
+            remaining.forEach { it.invalidate() }
+        }
+    }.flowOn(Dispatchers.IO)
+
+    fun latestMessageId(conversationId: String): Flow<String?> = messageDao.latestMessageId(conversationId)
+
+    fun failedMessageRetryIds(conversationId: String): Flow<List<String>> = flow {
+        val own = ensureIdentity()
+        emitAll(messageDao.failedRetryIds(conversationId, own.id))
+    }.flowOn(Dispatchers.IO)
+
+    // Retained for explicit export/legacy non-UI callers. The chat UI uses pages.
     fun getMessages(conversationId: String): Flow<List<MessageEntity>> = messageDao.getMessagesForConversation(conversationId).map { list ->
         val own = ensureIdentity()
         val peer = peerForConversation(conversationId)
-        list.map { message ->
-            val plain = try {
-                if (message.content.startsWith("lanu2:") && peer != null) PeerMessageCrypto.decrypt(own, peer.getString("id"), peer.getString("publicKey"), message.id, message.senderPhone, message.content)
-                else if (!message.content.startsWith("lanu2:")) CryptoUtils.decrypt(message.content, conversationId)
-                else "Mesaj anahtarı bulunamadı"
-            } catch (_: Exception) { "Mesaj doğrulanamadı veya çözülemedi" }
-            // Never place the authenticated one-time file key in Compose text,
-            // clipboard menus, previews, accessibility, or screenshot surfaces.
-            message.copy(content = if (PrivateMediaKeyEnvelope.isAuthenticatedMediaPayload(plain))
-                PRIVATE_MEDIA_MARKER + message.id else plain)
-        }
+        list.map { messageForDisplay(it, conversationId, own, peer) }
+    }.flowOn(Dispatchers.IO)
+
+    private fun messageForDisplay(message: MessageEntity, conversationId: String,
+        own: MessagingIdentity, peer: JSONObject?): MessageEntity {
+        val plain = try {
+            if (message.content.startsWith("lanu2:") && peer != null) PeerMessageCrypto.decrypt(own, peer.getString("id"), peer.getString("publicKey"), message.id, message.senderPhone, message.content)
+            else if (!message.content.startsWith("lanu2:")) CryptoUtils.decrypt(message.content, conversationId)
+            else "Mesaj anahtarı bulunamadı"
+        } catch (e: CancellationException) { throw e }
+        catch (_: Exception) { "Mesaj doğrulanamadı veya çözülemedi" }
+        // Authenticated media keys never enter Compose text, clipboard or TalkBack.
+        return message.copy(content = if (PrivateMediaKeyEnvelope.isAuthenticatedMediaPayload(plain))
+            PRIVATE_MEDIA_MARKER + message.id else plain)
     }
 
     suspend fun sendMessage(conversationId: String, text: String, mediaUrl: String? = null, onTypingStateChange: (suspend (Boolean) -> Unit)? = null): String {
