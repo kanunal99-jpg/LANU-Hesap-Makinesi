@@ -10,12 +10,9 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.MediaType.Companion.toMediaType
 import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.io.IOException
 import java.io.RandomAccessFile
 import java.net.URI
-import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
 /**
@@ -181,10 +178,10 @@ internal class PrivateMediaStorageClient(
             .header("Upload-Metadata", metadata("lanu-private-media-v1", path))
             .header("x-signature", token)
             .post(ByteArray(0).toRequestBody()).build()
-        val location = transportClient.newCall(create).execute().use { response ->
+        val location = PrivateMediaTransferHttp.withCancellableResponse(create, client = transportClient, process = { response ->
             if (response.code != 201) throw IOException("Güvenli dosya yüklemesi başlatılamadı.")
             response.header("Location") ?: throw IOException("Dosya yükleme adresi bulunamadı.")
-        }
+        })
         val tusUrl = locationForTus(base, location)
         RandomAccessFile(encrypted, "r").use { file ->
             var offset = 0L
@@ -204,7 +201,7 @@ internal class PrivateMediaStorageClient(
                         .method("PATCH", part.toRequestBody(
                             "application/offset+octet-stream".toMediaType())).build()
                     try {
-                        transportClient.newCall(request).execute().use { response ->
+                        PrivateMediaTransferHttp.withCancellableResponse(request, client = transportClient, process = { response ->
                             if (response.code !in listOf(200, 204))
                                 throw IOException("Dosya parçası aktarılamadı.")
                             val next = response.header("Upload-Offset")?.toLongOrNull()
@@ -212,14 +209,14 @@ internal class PrivateMediaStorageClient(
                             require(next == offset + amount) { "Yükleme sırası geçersiz." }
                             offset = next
                             failures = 0
-                        }
+                        })
                     } catch (error: IOException) {
                         if (++failures > MAX_RETRIES) throw error
                         delay(300L * failures)
                         val probe = Request.Builder().url(tusUrl)
                             .header("Tus-Resumable", "1.0.0")
                             .header("x-signature", token).head().build()
-                        transportClient.newCall(probe).execute().use { response ->
+                        PrivateMediaTransferHttp.withCancellableResponse(probe, client = transportClient, process = { response ->
                             if (response.code != 200 && response.code != 204)
                                 throw IOException("Yükleme kaldığı yerden doğrulanamadı.")
                             val serverOffset = response.header("Upload-Offset")?.toLongOrNull()
@@ -227,7 +224,7 @@ internal class PrivateMediaStorageClient(
                             if (!validRecoveryOffset(offset, amount, serverOffset, expectedBytes))
                                 throw IOException("Yükleme konumu doğrulanmış parçanın dışına çıktı.")
                             offset = serverOffset
-                        }
+                        })
                     }
                 } finally { part.fill(0) }
             }
@@ -248,45 +245,9 @@ internal class PrivateMediaStorageClient(
             privateDirectory.isDirectory && privateDirectory.absoluteFile == privateDirectory.canonicalFile)
         val target = authorizedBase(signedUrl, fileId, upload = false)
         val expected = PrivateMediaTransferBudget.encryptedBytes(manifest.plainBytes)
-        val cipher = File.createTempFile("lanu-media-v1-", ".cipher", privateDirectory)
+        val cipher = VerifiedCipherDownload.download(
+            target.toString(), expected, manifest.cipherSha256, privateDirectory, transportClient)
         try {
-            val request = Request.Builder().url(target.toString())
-                .header("Accept-Encoding", "identity").get().build()
-            val result = MessageDigest.getInstance("SHA-256")
-            transportClient.newCall(request).execute().use { response ->
-                if (response.code != 200 || !response.isSuccessful)
-                    throw IOException("Dosya indirme yetkisi doğrulanamadı.")
-                val declared = response.body?.contentLength() ?: -1
-                if (declared > expected) throw IOException("Şifreli dosya beklenen boyutu aştı.")
-                val input = response.body?.byteStream()
-                    ?: throw IOException("Dosya içeriği alınamadı.")
-                FileOutputStream(cipher).use { sink ->
-                    val buffer = ByteArray(64 * 1024)
-                    var readTotal = 0L
-                    var stalls = 0
-                    while (true) {
-                        currentCoroutineContext().ensureActive()
-                        val n = input.read(buffer)
-                        if (n < 0) break
-                        if (n == 0) {
-                            if (++stalls >= 3) throw IOException("Dosya aktarımı durdu.")
-                            continue
-                        }
-                        stalls = 0
-                        readTotal += n
-                        if (readTotal > expected) throw IOException("Şifreli dosya sınırı aşıldı.")
-                        result.update(buffer, 0, n)
-                        sink.write(buffer, 0, n)
-                    }
-                    sink.fd.sync()
-                    require(readTotal == expected) { "Şifreli dosya eksik alındı." }
-                }
-            }
-            val expectedDigest = manifest.cipherSha256.chunked(2)
-                .map { it.toInt(16).toByte() }.toByteArray()
-            require(MessageDigest.isEqual(result.digest(), expectedDigest)) {
-                "Şifreli dosya doğrulanamadı."
-            }
             return@withContext PrivateMediaCrypto.decryptToVerifiedPrivateFile(
                 cipher, manifest, key, privateDirectory
             )

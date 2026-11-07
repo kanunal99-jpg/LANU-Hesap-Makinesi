@@ -7,18 +7,9 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
-import okhttp3.Call
-import okhttp3.Callback
 import okhttp3.Response
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.CoroutineStart
-import kotlin.coroutines.resumeWithException
 import java.io.File
 import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.io.IOException
 import java.net.URI
 import java.security.MessageDigest
@@ -53,35 +44,7 @@ internal object PrivateMediaTransferHttp {
         request: Request,
         process: (Response) -> T,
         client: OkHttpClient = http
-    ): T = coroutineScope {
-        val call = client.newCall(request)
-        // A sibling child can react to cancellation while process() is in a
-        // non-suspending InputStream read or BufferedSink write on this thread.
-        val cancelWatcher = launch(start = CoroutineStart.UNDISPATCHED) {
-            try { awaitCancellation() }
-            finally { call.cancel() }
-        }
-        try {
-            val response = suspendCancellableCoroutine<Response> { continuation ->
-                continuation.invokeOnCancellation { call.cancel() }
-                call.enqueue(object : Callback {
-                    override fun onFailure(call: Call, error: IOException) {
-                        if (continuation.isActive) continuation.resumeWithException(error)
-                    }
-                    override fun onResponse(call: Call, response: Response) {
-                        if (continuation.isActive) {
-                            continuation.resume(response, onCancellation = { _, value, _ -> value.close() })
-                        } else {
-                            response.close()
-                        }
-                    }
-                })
-            }
-            response.use(process)
-        } finally {
-            cancelWatcher.cancel()
-        }
-    }
+    ): T = com.example.core.network.CancellableHttp.withResponse(request, client, process = process)
 
     internal fun verifyGrantUrl(signedUrl: String, id: String, upload: Boolean): String {
         require(id.matches(fileId)) { "Dosya kimliği geçersiz." }
@@ -175,40 +138,7 @@ internal object PrivateMediaTransferHttp {
         PrivateMediaCrypto.validate(manifest)
         val expectedBytes = PrivateMediaTransferBudget.encryptedBytes(manifest.plainBytes)
         val address = verifyGrantUrl(signedUrl, manifest.fileId, upload = false)
-        require(privateDirectory.isDirectory && privateDirectory.absoluteFile == privateDirectory.canonicalFile)
-        val destination = File.createTempFile("lanu-media-v1-", ".cipher", privateDirectory)
-        try {
-            val request = Request.Builder().url(address).get().build()
-            withCancellableResponse(request, process = { response ->
-                require(response.code == 200 && !response.isRedirect) {
-                    "Güvenli medya indirilemedi."
-                }
-                require(response.header("Content-Encoding").orEmpty().lowercase() in setOf("", "identity"))
-                require(response.header("Content-Type")?.startsWith("application/octet-stream") == true)
-                val body = response.body ?: throw IOException("Boş dosya yanıtı.")
-                require(body.contentLength() == -1L || body.contentLength() == expectedBytes)
-                FileOutputStream(destination).use { output ->
-                    val bytes = PrivateMediaTransferBudget.digestCipherStream(
-                        object : java.io.FilterInputStream(body.byteStream()) {
-                            override fun read(b: ByteArray, off: Int, len: Int): Int {
-                                val n = super.read(b, off, len)
-                                if (n > 0) output.write(b, off, n)
-                                return n
-                            }
-                        }, expectedBytes
-                    )
-                    require(MessageDigest.isEqual(bytes, hex(manifest.cipherSha256))) {
-                        "Şifreli dosya bütünlüğü doğrulanamadı."
-                    }
-                    output.fd.sync()
-                }
-            })
-            require(destination.length() == expectedBytes) { "Şifreli dosya eksik indirildi." }
-            destination
-        } catch (e: Throwable) {
-            destination.delete()
-            throw e
-        }
+        VerifiedCipherDownload.download(address, expectedBytes, manifest.cipherSha256, privateDirectory, http)
     }
 
     private fun hex(value: String): ByteArray {

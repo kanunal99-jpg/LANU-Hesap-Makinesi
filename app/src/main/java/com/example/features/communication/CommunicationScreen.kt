@@ -671,6 +671,7 @@ fun SettingsTab(
             CallWakeSettings(it)
             MessageWakeSettings(it)
         }
+        CallAudioSettings()
         com.example.features.security.SettingsScreen(securityViewModel, triggerVibration)
     }
     if (showDeletionPreflight) {

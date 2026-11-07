@@ -91,7 +91,8 @@ class NativeCallEngine(
         // AudioEffect or report an unmeasured dB/ANC improvement.
         val audioProcessing = CallAudioProcessingPolicy.choose(
             aecReported = runCatching { JavaAudioDeviceModule.isBuiltInAcousticEchoCancelerSupported() }.getOrDefault(false),
-            nsReported = runCatching { JavaAudioDeviceModule.isBuiltInNoiseSuppressorSupported() }.getOrDefault(false)
+            nsReported = runCatching { JavaAudioDeviceModule.isBuiltInNoiseSuppressorSupported() }.getOrDefault(false),
+            preferSoftware = CallAudioPreference(context).preferSoftware()
         )
         fun createAdm(hardwareAec: Boolean, hardwareNs: Boolean): JavaAudioDeviceModule =
             JavaAudioDeviceModule.builder(context).setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)

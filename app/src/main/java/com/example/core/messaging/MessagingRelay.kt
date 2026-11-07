@@ -15,12 +15,6 @@ import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
-import kotlinx.coroutines.suspendCancellableCoroutine
-import okhttp3.Call
-import okhttp3.Callback
-import okhttp3.Response
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 class RelayException(val status: Int, message: String, val retryAfterMillis: Long = 60000L) : IOException(message)
 
@@ -105,26 +99,10 @@ class HttpMessagingRelay(private val endpoint: String) : MessagingRelay {
             .put("requestId", UUID.randomUUID().toString()).put("data", data).toString()
         val envelope = JSONObject().put("payload", payload).put("signature", UserCodes.sign(identity, payload))
         val request = Request.Builder().url(endpoint).post(envelope.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
-        val response = suspendCancellableCoroutine<Response> { continuation ->
-            // Only whole-object SHA256 confirmation may outlive the normal
-            // message/receipt budget. This is still cancellable and bounded.
-            val call = (if (action == "mediaComplete") verifiedMediaClient else client).newCall(request)
-            continuation.invokeOnCancellation { call.cancel() }
-            call.enqueue(object : Callback {
-                override fun onFailure(call: Call, e: IOException) {
-                    if (continuation.isActive) {
-                        // Record only the fixed network-failure category.
-                        // Never retain e.message (URLs, headers or device data).
-                        PrivateRelayHealth.record(PrivateRelayHealth.Outcome.NETWORK)
-                        continuation.resumeWithException(e)
-                    }
-                }
-                override fun onResponse(call: Call, response: Response) {
-                    continuation.resume(response, onCancellation = { _, value, _ -> value.close() })
-                }
-            })
-        }
-        response.use {
+        com.example.core.network.CancellableHttp.withResponse(
+            request, if (action == "mediaComplete") verifiedMediaClient else client,
+            onNetworkFailure = { PrivateRelayHealth.record(PrivateRelayHealth.Outcome.NETWORK) }
+        ) { response ->
             // Classify HTTP errors before consuming any untrusted error body.
             // This preserves 401/403/409/429 even when a gateway returns HTML.
             if (!response.isSuccessful) PrivateRelayHealth.recordHttp(response.code)

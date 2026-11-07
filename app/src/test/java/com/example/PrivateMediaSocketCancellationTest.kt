@@ -88,4 +88,38 @@ class PrivateMediaSocketCancellationTest {
                 streamStopped.await(5, TimeUnit.SECONDS))
         } finally { worker.cancelAndJoin() }
     }
+    @Test fun cancelledVerifiedDownloadDeletesPartialFileAndStopsBodySocket() = runBlocking {
+        val dir = java.nio.file.Files.createTempDirectory("cancel-cipher").toFile()
+        val reading = CountDownLatch(1)
+        val stopped = CountDownLatch(1)
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val source = object : InputStream() {
+                override fun read(): Int {
+                    reading.countDown()
+                    try { while (!chain.call().isCanceled()) Thread.sleep(10) }
+                    finally { stopped.countDown() }
+                    throw IOException("cancelled")
+                }
+            }.source().buffer()
+            val body = object : ResponseBody() {
+                override fun contentType(): MediaType? = null
+                override fun contentLength() = -1L
+                override fun source(): BufferedSource = source
+            }
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                .code(200).message("test").header("Content-Type", "application/octet-stream")
+                .body(body).build()
+        }.build()
+        val worker = launch(Dispatchers.IO) {
+            com.example.core.media.VerifiedCipherDownload.download(
+                "https://local.invalid/cipher", 100000L, "0".repeat(64), dir, client)
+        }
+        try {
+            assertTrue(reading.await(5, TimeUnit.SECONDS))
+            worker.cancelAndJoin()
+            assertTrue(stopped.await(5, TimeUnit.SECONDS))
+            assertTrue(dir.listFiles()!!.isEmpty())
+        } finally { worker.cancelAndJoin(); dir.deleteRecursively() }
+    }
+
 }

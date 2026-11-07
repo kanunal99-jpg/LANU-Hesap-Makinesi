@@ -39,6 +39,8 @@ class DurableDraftAndQueueIsolationTest {
     private val actions = mutableListOf<String>()
     private var sendFailure: Int? = null
     private var badMessage: String? = null
+    private var syncFailure = false
+    private val readBatches = mutableListOf<List<String>>()
     private val store = object : MessagingIdentityStore {
         override fun read() = own
         override fun save(identity: MessagingIdentity) { own = identity }
@@ -47,6 +49,7 @@ class DurableDraftAndQueueIsolationTest {
         override val configured = true
         override suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject): JSONObject {
             actions += action
+            if (action == "sync" && syncFailure) throw java.io.IOException("offline")
             return when (action) {
                 "register" -> JSONObject().put("code", own.code).put("nonce", own.nonce)
                 "sync" -> JSONObject().put("contacts", JSONArray().put(JSONObject()
@@ -58,7 +61,10 @@ class DurableDraftAndQueueIsolationTest {
                         throw RelayException(sendFailure!!, "test error", 60000L)
                     JSONObject().put("status", "SENT")
                 }
-                "ack" -> JSONObject()
+                "ack" -> JSONObject().also {
+                    val ids = data.getJSONArray("readIds")
+                    readBatches += (0 until ids.length()).map { ids.getString(it) }
+                }
                 else -> error("Unexpected action $action")
             }
         }
@@ -187,4 +193,66 @@ class DurableDraftAndQueueIsolationTest {
         repository().synchronize()
         assertEquals("SENT", db.messageDao().getMessage(id)!!.status)
     }
+    @Test fun `idle sync never delays first new message and call preparation never drains outbox`() = runBlocking {
+        repo.synchronize()
+        val id = repo.sendMessage(conversation, "immediate after idle")
+        repo.prepareCalling()
+        assertEquals("PENDING", db.messageDao().getMessage(id)!!.status)
+        assertFalse(actions.contains("send"))
+        repo.synchronize()
+        assertEquals("SENT", db.messageDao().getMessage(id)!!.status)
+    }
+
+    @Test fun `registration is reused briefly but failure expiry and clock rollback force revalidation`() = runBlocking {
+        repeat(4) { repo.synchronize(); now += 2500L }
+        assertEquals(0, actions.count { it == "register" })
+        now += 30000L
+        repo.synchronize()
+        assertEquals(1, actions.count { it == "register" })
+        now -= 1000L
+        repo.synchronize()
+        assertEquals(2, actions.count { it == "register" })
+        syncFailure = true
+        assertTrue(runCatching { repo.synchronize() }.isFailure)
+        syncFailure = false
+        repo.synchronize()
+        assertEquals(3, actions.count { it == "register" })
+    }
+
+    @Test fun `active chat merges old and new reads into a single deduplicated acknowledgement`() = runBlocking {
+        val old = UUID.randomUUID().toString()
+        db.messageDao().insertMessage(MessageEntity(old, conversation, peer.id, "Friend",
+            PeerMessageCrypto.encrypt(peer, own.id, own.publicKey, old, "old"), status = "DELIVERED"))
+        val fresh = UUID.randomUUID().toString()
+        inbound = JSONArray().put(JSONObject().put("id", UUID.randomUUID().toString()).put("message", JSONObject()
+            .put("id", fresh).put("senderId", peer.id).put("recipientId", own.id).put("revision", 1)
+            .put("createdAt", now).put("status", "SENT").put("content",
+                PeerMessageCrypto.encrypt(peer, own.id, own.publicKey, fresh, "fresh"))))
+        repo.synchronize(conversation)
+        assertEquals(1, actions.count { it == "ack" })
+        assertEquals(setOf(old, fresh), readBatches.single().toSet())
+        assertEquals(2, readBatches.single().size)
+    }
+
+    @Test fun `rapid repeated sync cannot exceed existing send batch limit`() = runBlocking {
+        val ids = (1..8).map { repo.sendMessage(conversation, "queued $it") }
+        repeat(4) { repo.synchronize(); now += 1000L }
+        assertEquals(5, actions.count { it == "send" })
+        assertEquals(3, ids.count { db.messageDao().getMessage(it)!!.status == "PENDING" })
+        now += 2000L
+        repo.synchronize()
+        assertEquals(8, actions.count { it == "send" })
+    }
+
+    @Test fun `read acknowledgement remains within server limit for long unopened histories`() = runBlocking {
+        repeat(205) { n ->
+            db.messageDao().insertMessage(MessageEntity(UUID.randomUUID().toString(), conversation,
+                peer.id, "Friend", "retained-ciphertext", timestamp = n.toLong(), status = "DELIVERED"))
+        }
+        repo.synchronize(conversation)
+        assertEquals(1, readBatches.size)
+        assertEquals(200, readBatches.single().size)
+        assertEquals(205, db.messageDao().countMessages())
+    }
+
 }
