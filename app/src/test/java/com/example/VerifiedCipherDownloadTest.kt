@@ -111,4 +111,23 @@ class VerifiedCipherDownloadTest {
             assertTrue(dir.listFiles()!!.isEmpty())
         } finally { dir.deleteRecursively() }
     }
+    @Test fun localFileWriteFailureDoesNotTriggerNetworkRetries() = runBlocking {
+        val dir = Files.createTempDirectory("cipher-disk-test").toFile()
+        var requests = 0
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            requests++
+            // A local filesystem error is distinct from a broken download.
+            val target = dir.listFiles()!!.single()
+            check(target.delete()); check(target.mkdir())
+            response(chain.request(), 200, bytes)
+        }.build()
+        try {
+            assertTrue(runCatching {
+                VerifiedCipherDownload.download("https://local.invalid/cipher", bytes.size.toLong(), hash(bytes), dir, client)
+            }.exceptionOrNull() is java.io.IOException)
+            assertEquals(1, requests)
+            assertTrue(dir.listFiles()!!.isEmpty())
+        } finally { dir.deleteRecursively() }
+    }
+
 }

@@ -16,6 +16,7 @@ import java.io.IOException
 import java.io.InterruptedIOException
 import java.net.ProtocolException
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.net.ssl.SSLException
 
 /** Bounded Range recovery for an immutable, hash-bound encrypted object. */
@@ -43,9 +44,10 @@ internal object VerifiedCipherDownload {
                         .header("Accept-Encoding", "identity")
                         .apply { if (offset > 0) header("Range", "bytes=$offset-") }
                         .get().build()
+                    val networkFailure = AtomicBoolean(false)
                     try {
                         val transferContext = currentCoroutineContext()
-                        CancellableHttp.withResponse(request, client) { response ->
+                        CancellableHttp.withResponse(request, client, onNetworkFailure = { networkFailure.set(true) }) { response ->
                             require(response.code == 200 || (offset > 0 && response.code == 206)) {
                                 "Güvenli medya indirilemedi."
                             }
@@ -67,7 +69,8 @@ internal object VerifiedCipherDownload {
                                 var stalls = 0
                                 while (true) {
                                     transferContext.ensureActive()
-                                    val n = input.read(buffer)
+                                    val n = try { input.read(buffer) }
+                                    catch (e: IOException) { networkFailure.set(true); throw e }
                                     if (n < 0) break
                                     if (n == 0) {
                                         require(++stalls < 3) { "Dosya aktarımı durdu." }
@@ -78,7 +81,10 @@ internal object VerifiedCipherDownload {
                                     output.write(buffer, 0, n)
                                     total += n
                                 }
-                                if (total != expectedBytes) throw IOException("Şifreli dosya eksik alındı.")
+                                if (total != expectedBytes) {
+                                    networkFailure.set(true)
+                                    throw IOException("Şifreli dosya eksik alındı.")
+                                }
                                 output.fd.sync()
                             }
                         }
@@ -87,7 +93,7 @@ internal object VerifiedCipherDownload {
                     } catch (e: IOException) {
                         currentCoroutineContext().ensureActive()
                         // Trust/protocol/interruption errors are never retried.
-                        if (attempt == 2 || e is SSLException || e is ProtocolException ||
+                        if (!networkFailure.get() || attempt == 2 || e is SSLException || e is ProtocolException ||
                             (e is InterruptedIOException && e !is java.net.SocketTimeoutException)) throw e
                         delay(250L * (attempt + 1))
                     }

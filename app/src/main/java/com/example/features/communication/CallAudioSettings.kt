@@ -7,6 +7,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import com.example.core.calls.CallAudioPreference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -26,7 +28,9 @@ internal fun CallAudioSettings() {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Yazılım ses işleme", modifier = Modifier.weight(1f))
             Switch(checked = enabled, enabled = !saving,
-                modifier = Modifier.testTag("private_software_audio"),
+                modifier = Modifier.testTag("private_software_audio").semantics {
+                    contentDescription = "Yazılım gürültü ve yankı azaltma"
+                },
                 onCheckedChange = { selected ->
                     saving = true
                     scope.launch {
