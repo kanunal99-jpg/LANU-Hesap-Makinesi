@@ -251,6 +251,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     private fun concealPrivateAreaIfLocked() {
         if (::securityViewModel.isInitialized && securityViewModel.isLocked.value &&
             navigationBackstack.lastOrNull()?.let { isSecureScreen(it) } == true) {
+            largeMediaOwner?.cancel()
             navigationBackstack.clear()
             navigationBackstack.add(Screen.Calculator)
         }
@@ -351,9 +352,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                     .setOnCancelListener { if (result.isActive) result.resume(false) }
                     .create()
                 dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-                result.invokeOnCancellation {
-                    lifecycleScope.launch(Dispatchers.Main.immediate) { dialog.dismiss() }
-                }
+                result.invokeOnCancellation { runOnUiThread { dialog.dismiss() } }
                 dialog.show()
             }
             if (!confirmed || !mediaChatAllowed(chatId)) return@launchLargeMedia
@@ -708,6 +707,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                 // Security Observer: When locked while user is on secure screens (Chat, Call, etc.), redirect back
                 LaunchedEffect(isLocked) {
                     if (isLocked) {
+                        largeMediaOwner?.cancel()
                         val currentScreen = navigationBackstack.lastOrNull()
                         if (currentScreen != null && isSecureScreen(currentScreen)) {
                             navigationBackstack.clear()
@@ -864,6 +864,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     }
 
     private fun handleLockOnScreenOff() {
+        largeMediaOwner?.cancel()
         // Screen-off must always override the temporary picker convenience.
         screenOffDuringPicker = true
         pickerBackgroundLockExempted = false
