@@ -30,7 +30,7 @@ jobs:
         run: |
           rustup toolchain install 1.90.0 --profile minimal
           rustup target add --toolchain 1.90.0 aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
-          "${ANDROID_HOME:?}/cmdline-tools/latest/bin/sdkmanager" 'ndk;28.0.13004108' 
+          "${ANDROID_HOME:?}/cmdline-tools/latest/bin/sdkmanager" 'ndk;28.0.13004108'
       - uses: actions/cache@v4
         with:
           path: |
