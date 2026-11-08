@@ -28,6 +28,18 @@ class RatchetTransactionStoreRuntimeTest {
         for (name in listOf(id,keyOwner)) for(suffix in listOf("", ".bak", ".new"))
             java.io.File(context.noBackupFilesDir,"lanu-ratchet-v1/$name.journal$suffix").delete()
     }
+    @Test fun danglingSymlinkCannotRedirectDurableCiphertext() {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        val id=owner();val journal=RatchetFileJournal(context.noBackupFilesDir,id)
+        val outside=java.io.File(context.noBackupFilesDir,"lanu-test-uncreated-"+UUID.randomUUID())
+        val link=java.io.File(context.noBackupFilesDir,"lanu-ratchet-v1/$id.journal")
+        try {
+            android.system.Os.symlink(outside.absolutePath,link.absolutePath)
+            assertFalse(link.exists()) // A dangling link fooled an exists-only guard.
+            assertTrue(runCatching {journal.write("synthetic-ciphertext")}.isFailure)
+            assertFalse(outside.exists())
+        } finally {link.delete();outside.delete()}
+    }
     @Test fun keystoreReopenRoleBindingAndMissingKeyDoNotRegenerate() {
         val context=ApplicationProvider.getApplicationContext<Context>(); val id=owner()
         try {

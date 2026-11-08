@@ -27,7 +27,7 @@ internal class RatchetFileJournal(noBackupRoot: File, ownerId: String) : Ratchet
         check(directory.absoluteFile == directory.canonicalFile && directory.canonicalFile.parentFile == root)
         for (suffix in listOf("", ".bak", ".new")) {
             val candidate = File(file.baseFile.absolutePath + suffix)
-            check(!candidate.exists() || candidate.isFile && candidate.absoluteFile == candidate.canonicalFile)
+            check(candidate.absoluteFile == candidate.canonicalFile && (!candidate.exists() || candidate.isFile))
         }
     }
     override fun read(): String? {
