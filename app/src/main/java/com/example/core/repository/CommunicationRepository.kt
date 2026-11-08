@@ -108,7 +108,13 @@ class CommunicationRepository(
     }
     private suspend fun refreshRatchets(own:MessagingIdentity) {
         val coordinator=ratchet ?: return
-        coordinator.recoverExisting(own)
+        val unavailable=coordinator.recoverExisting(own)
+        for(peerId in unavailable) {
+            val conversation=UserCodes.conversationId(own.id,peerId)
+            val old=_ratchetStatuses.value[conversation]
+            _ratchetStatuses.value=_ratchetStatuses.value+(conversation to RatchetStatus(old?.renewalPending ?: false,true,
+                old?.retiredIncoming ?: 0,old?.retiredOutgoing ?: 0))
+        }
         // Recover an already-consented renewal after a lost HTTP response.
         val renewalRows=if(clock()>=nextRatchetRenewalCheckAt) settingsDao.getRatchetRenewals() else emptyList()
         if(renewalRows.isNotEmpty()) nextRatchetRenewalCheckAt=clock()+30_000L
@@ -140,7 +146,7 @@ class CommunicationRepository(
                     val pending=state.optJSONObject("pending")
                     if(pending!=null) verifyPendingRenewal(own,peer,remoteEpoch,pending)
                     val local=settingsDao.getSettingValue("lanu_dr_pin_$peerId")
-                    val status=RatchetStatus(pending!=null,local!=null && local!=remoteEpoch,
+                    val status=RatchetStatus(pending!=null,peerId in unavailable || (local!=null && local!=remoteEpoch),
                         state.getLong("retiredIncoming"),state.getLong("retiredOutgoing"))
                     _ratchetStatuses.value=_ratchetStatuses.value+(UserCodes.conversationId(own.id,peerId) to status)
                 } catch(e:CancellationException) {throw e}

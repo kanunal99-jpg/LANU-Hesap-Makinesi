@@ -70,6 +70,7 @@ class RatchetRootRegistryRuntimeTest {
             file.writeBytes(bytes)
             KeyStore.getInstance("AndroidKeyStore").apply {load(null);deleteEntry("lanu_ratchet_wrap_v1_${manifest.namespace}")}
             assertTrue(runCatching {RatchetCoordinator(f.context,f.db).session(f.own,f.peer.id,explicitCreate=true)}.isFailure)
+            assertEquals(setOf(f.peer.id),RatchetCoordinator(f.context,f.db).recoverExisting(f.own))
             assertEquals(before,f.db.settingsDao().getSettingValue(manifest.stateKey))
             assertEquals(encoded,f.db.settingsDao().getSettingValue(RatchetRootRegistry.pointerKey(f.peer.id)))
         }

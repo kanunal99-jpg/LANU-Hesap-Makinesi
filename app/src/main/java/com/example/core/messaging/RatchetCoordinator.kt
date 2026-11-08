@@ -83,13 +83,15 @@ class RatchetCoordinator(private val context:Context,private val database:AppDat
     internal suspend fun repairInitial(identity:MessagingIdentity,peer:String):RatchetSessionService=withContext(Dispatchers.IO) { mutex.withLock {
         freshInitial(identity,peer,repair=true)
     } }
-    internal suspend fun recoverExisting(identity:MessagingIdentity) {
+    internal suspend fun recoverExisting(identity:MessagingIdentity):Set<String> {
+        val unavailable=mutableSetOf<String>()
         for(row in database.settingsDao().getRatchetPublicBundles()) {
             val peer=row.key.removePrefix("lanu_dr_public_bundle_")
             try {session(identity,peer)}
             catch(error:CancellationException) {throw error}
-            catch(_:Exception) { /* A damaged peer cannot block other inboxes; no key/downgrade fallback. */ }
+            catch(_:Exception) {unavailable.add(peer) /* Never block unrelated inboxes or replace missing keys. */ }
         }
+        return unavailable
     }
     /** Candidate is journaled in a NEW namespace, separate from the active root. */
     internal suspend fun prepareRenewal(own:MessagingIdentity,peer:String,resetId:String,previous:String):JSONObject=withContext(Dispatchers.IO) { mutex.withLock {
