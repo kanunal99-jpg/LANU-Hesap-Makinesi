@@ -1,0 +1,22 @@
+[package]
+name = "lanu-ratchet"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90"
+publish = false
+
+[lib]
+name = "lanu_ratchet"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+vodozemac = { version = "=0.11.2", default-features = false, features = ["experimental-session-config"] }
+jni = "=0.21.1"
+serde_json = "=1.0.151"
+zeroize = "=1.9.0"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "symbols"
+panic = "unwind"
