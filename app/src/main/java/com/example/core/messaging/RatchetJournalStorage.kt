@@ -27,7 +27,14 @@ internal class RatchetFileJournal(noBackupRoot: File, ownerId: String) : Ratchet
         check(directory.absoluteFile == directory.canonicalFile && directory.canonicalFile.parentFile == root)
         for (suffix in listOf("", ".bak", ".new")) {
             val candidate = File(file.baseFile.absolutePath + suffix)
-            check(candidate.absoluteFile == candidate.canonicalFile && (!candidate.exists() || candidate.isFile))
+            val metadata=try { Os.lstat(candidate.absolutePath) }
+            catch(error:android.system.ErrnoException) {
+                if(error.errno==OsConstants.ENOENT) null else throw error
+            }
+            // canonicalFile can preserve the spelling of a dangling symlink.
+            // lstat observes the directory entry without following its target.
+            check(candidate.absoluteFile==candidate.canonicalFile &&
+                (metadata==null || OsConstants.S_ISREG(metadata.st_mode)))
         }
     }
     override fun read(): String? {

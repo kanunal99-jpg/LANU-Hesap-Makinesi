@@ -61,6 +61,8 @@ class ScientificCalculatorViewModelTest {
         override suspend fun insertSetting(setting: SettingsEntity) {}
         override suspend fun deleteSetting(key: String) {}
         override suspend fun hasIdentityBoundSettings(): Boolean = false
+        override suspend fun hasRatchetSettings(): Boolean = false
+        override suspend fun getRatchetPublicBundles(): List<SettingsEntity> = emptyList()
     }
 
     private lateinit var repository: CalculatorRepository
