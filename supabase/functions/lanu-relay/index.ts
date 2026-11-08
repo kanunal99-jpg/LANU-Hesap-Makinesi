@@ -61,7 +61,10 @@ Deno.serve(async (request: Request) => {
     // Enabling large file transfers requires a separately reviewed, explicit
     // deployment flag. Existing LANU users and their Room/E2EE keys are not
     // automatically migrated. A signed URL is NEVER stored in the chat.
-    const privateMediaEnabled = Deno.env.get('LANU_PRIVATE_MEDIA_ENABLED') === 'true';
+    // Preserve deployed v14's OFF state in this communication-only rollout,
+    // even if a dormant environment flag exists. Separate reviewed activation
+    // must explicitly change this gate after private-media acceptance.
+    const privateMediaEnabled = false;
     const result = await createRelay(new RestStore(url, key), Date.now,
       { calls: true, publishWake: createWakePublisher(url, key), callWakeEnabled: Boolean(sendCallWake), sendCallWake,
         messageWakeEnabled: Boolean(sendMessageWake), sendMessageWake,
