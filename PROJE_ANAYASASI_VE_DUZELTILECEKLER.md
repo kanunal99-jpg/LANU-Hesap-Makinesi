@@ -1,3 +1,7 @@
+# 08.11.2026 — Üç bileşenli tek geliştirme paketi
+
+Kullanıcı Double Ratchet, kayıpsız SQLCipher ve büyük dosya gönderimini birlikte tamamlayıp kullanıcı APK'sına yayımlamayı istedi. Başlangıç main29317dc, imzalı1140. Hedef üç gerçek uçtan uca özelliktir; ek kütüphane veya kapalı bayrak tamamlanma sayılmaz. Hesap makinesi, isteğe bağlı PIN, kimlik, mesaj geçmişi ve signer korunur; ücretli servis açılmaz. Özel kripto primitive'i yazılmaz; desteklenen motor/lisans/ABI doğrulanır. Canlı veritabanı dönüşümü otomatik yapılmaz; geri açılmış bağımsız yedek ve veri-kayıpsız yeniden başlatma kapıları gerekir. Bağımsız inceleme ve gerçek iki cihaz kanıtı otomatik CI ile varmış gösterilmez. Tek dal/paket üzerinde son HEAD CI, ayrı main CI, imzalı OTA ve public APK read-back takip edilir. Bu kapsam kaydıdır; üç özellik tamamlandı veya yayınlandı kanıtı değildir.
+
 # PROJE ANAYASASI — 15.10.2026
 
 ## 07.11.2026 — Altı alanın sağlamlaştırılması ve tam puan hedefi
