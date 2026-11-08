@@ -52,6 +52,9 @@ object FullDataBackup {
             val rows = JSONArray()
             db.query("SELECT " + columns.joinToString(",") { "`$it`" } + " FROM `$table` ORDER BY `${columns.first()}`").use { cursor ->
                 while (cursor.moveToNext()) {
+                    // A portable restore MUST NOT resurrect a consumed ratchet state.
+                    // Public pins and immutable pending wire copies remain portable.
+                    if (table == "app_settings" && cursor.getString(0) == RatchetTransactionStore.STATE_KEY) continue
                     require(++count <= MAX_ROWS) { "Yedekteki kayıt sayısı sınırı aşıldı." }
                     val row = row(cursor)
                     estimatedBytes += row.toString().toByteArray(Charsets.UTF_8).size
@@ -278,6 +281,9 @@ object FullDataBackup {
             for (i in 0 until rows.length()) {
                 require(++count <= MAX_ROWS)
                 val row = rows.getJSONArray(i)
+                require(table != "app_settings" || row.optString(0) != RatchetTransactionStore.STATE_KEY) {
+                    "Cihaza bağlı güvenli oturum durumu taşınabilir yedekten yüklenemez."
+                }
                 require(row.length() == columns.size && !row.isNull(0) && ids.add(row.get(0).toString()))
                 for (n in 0 until row.length()) {
                     val value = row.get(n)

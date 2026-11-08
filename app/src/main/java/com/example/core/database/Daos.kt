@@ -78,6 +78,7 @@ interface SettingsDao {
             OR `key` GLOB 'lanu_draft_*'
             OR `key` GLOB 'lanu_retry_after_*'
             OR `key` GLOB 'lanu_message_revision_*'
+            OR `key` GLOB 'lanu_dr_*'
         )
     """)
     suspend fun hasIdentityBoundSettings(): Boolean

@@ -147,7 +147,8 @@ internal class RatchetTransactionStore(
         return result
     }
     private fun allowedSetting(key: String): Boolean =
-        key == "lanu_dr_public_bundle_v1" || key.matches(Regex("lanu_dr_pin_[a-f0-9]{64}")) ||
+        key.matches(Regex("lanu_dr_public_bundle_[a-f0-9]{64}")) ||
+            key.matches(Regex("lanu_dr_seen_[a-f0-9-]{36}")) || key.matches(Regex("lanu_dr_pin_[a-f0-9]{64}")) ||
             key.matches(Regex("lanu_dr_wire_[a-f0-9-]{36}")) ||
             key.matches(Regex("lanu_message_revision_[a-f0-9-]{36}"))
 
