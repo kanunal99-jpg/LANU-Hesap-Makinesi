@@ -18,7 +18,7 @@ import java.io.IOException
  */
 internal object PrivateMediaDocumentPreparer {
     private val permitted = setOf(
-        "application/pdf", "text/plain",
+        "application/pdf", "text/plain", "video/mp4",
         PrivateOfficeDocumentPreflight.DOCX_MIME,
         PrivateOfficeDocumentPreflight.XLSX_MIME,
         PrivateOfficeDocumentPreflight.PPTX_MIME
@@ -36,12 +36,13 @@ internal object PrivateMediaDocumentPreparer {
         return directory
     }
 
-    suspend fun encryptDocument(context: Context, uri: Uri): PrivateMediaCrypto.EncryptedFile {
+    suspend fun encryptDocument(context: Context, uri: Uri, userApprovedOriginalVideo: Boolean = false): PrivateMediaCrypto.EncryptedFile {
         var prepared: PrivateMediaCrypto.EncryptedFile? = null
         try { return withContext(Dispatchers.IO) {
             val mime = context.contentResolver.getType(uri)?.lowercase()
                 ?: throw IllegalArgumentException("Dosya türü okunamadı.")
-            require(mime in permitted) { "Yalnız PDF, TXT, DOCX, XLSX ve PPTX paylaşılabilir." }
+            require(mime in permitted) { "Yalnız PDF, TXT, DOCX, XLSX, PPTX ve MP4 paylaşılabilir." }
+            require(mime != "video/mp4" || userApprovedOriginalVideo) { "Video metaverisi için açık onay gerekiyor." }
             val dir = privateDirectory(context)
             val stage = File.createTempFile("lanu-staged-", ".private", dir)
             try {
@@ -54,6 +55,7 @@ internal object PrivateMediaDocumentPreparer {
                         FileInputStream(stage), mime
                     ).use { /* Validate PDF bytes and release provider stream. */ }
                 }
+                if(mime=="video/mp4") PrivateMp4Preflight.validate(stage,userApprovedOriginalVideo)
                 prepared = if (PrivateOfficeDocumentPreflight.isOfficeMime(mime)) {
                     PrivateMediaCrypto.encryptOfficeDocumentToPrivateFile(stage, mime, dir)
                 } else {

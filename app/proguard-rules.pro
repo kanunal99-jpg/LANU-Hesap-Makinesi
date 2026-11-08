@@ -114,3 +114,18 @@
 -keep class androidx.paging.PagingSource** { *; }
 -keep class androidx.paging.PagingState { *; }
 -keep class androidx.paging.PagingConfig { *; }
+
+# JNI exports bind the exact production class/method and the release probe.
+-keep class com.example.core.messaging.OlmRatchetNative { *; }
+
+
+# These exact ABIs are linked by the separate real-ratchet AndroidTest APK.
+# Retain state/journal/Keystore/session probes under R8 as well as debug.
+-keep class com.example.core.messaging.Ratchet** { *; }
+-keep class com.example.core.repository.CommunicationRepository { *; }
+-keep interface com.example.core.messaging.MessagingIdentityStore { *; }
+-keep interface com.example.core.messaging.MessagingRelay { *; }
+
+# The separate release AndroidTest APK reads these status getters. R8 may
+# otherwise inline/remove them when the private UI feature flag is closed.
+-keep class com.example.core.repository.CommunicationRepository$RatchetStatus { *; }

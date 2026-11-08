@@ -78,9 +78,19 @@ interface SettingsDao {
             OR `key` GLOB 'lanu_draft_*'
             OR `key` GLOB 'lanu_retry_after_*'
             OR `key` GLOB 'lanu_message_revision_*'
+            OR `key` GLOB 'lanu_dr_*'
         )
     """)
     suspend fun hasIdentityBoundSettings(): Boolean
+
+    @Query("SELECT EXISTS(SELECT 1 FROM app_settings WHERE `key` GLOB 'lanu_dr_*')")
+    suspend fun hasRatchetSettings(): Boolean
+
+    @Query("SELECT * FROM app_settings WHERE `key` GLOB 'lanu_dr_public_bundle_*' ORDER BY `key` LIMIT 64")
+    suspend fun getRatchetPublicBundles(): List<SettingsEntity>
+
+    @Query("SELECT * FROM app_settings WHERE `key` GLOB 'lanu_dr_reset_*' ORDER BY `key` LIMIT 64")
+    suspend fun getRatchetRenewals(): List<SettingsEntity>
 
     @Transaction
     suspend fun persistPinGuard(failures: Int, until: Long, strike: Int) {
@@ -131,7 +141,7 @@ interface MessageDao {
     @Query("SELECT COUNT(*) FROM messages")
     suspend fun countMessages(): Int
 
-    @Query("SELECT COUNT(*) FROM messages WHERE content LIKE 'lanu2:%'")
+    @Query("SELECT COUNT(*) FROM messages WHERE content LIKE 'lanu2:%' OR content LIKE 'lanu3-local:%'")
     suspend fun countModernEncryptedMessages(): Int
 
     // The relay submits queued messages in bounded batches. Keep durable rows
@@ -139,8 +149,12 @@ interface MessageDao {
     @Query("""
         SELECT messages.* FROM messages
         LEFT JOIN app_settings retry ON retry.`key` = 'lanu_retry_after_' || messages.id
+        LEFT JOIN app_settings wire_epoch ON wire_epoch.`key` = 'lanu_dr_wire_epoch_' || messages.id
+        LEFT JOIN app_settings active_epoch ON active_epoch.`key` = 'lanu_dr_epoch_' || messages.conversationId
         WHERE status IN ('PENDING', 'WAITING')
           AND COALESCE(CAST(retry.value AS INTEGER), 0) <= :now
+          AND ((wire_epoch.value IS NULL AND active_epoch.value IS NULL AND messages.content NOT LIKE 'lanu3-local:%')
+            OR (wire_epoch.value IS NOT NULL AND wire_epoch.value=active_epoch.value))
         ORDER BY timestamp ASC, id ASC LIMIT :limit
     """)
     suspend fun getPendingMessages(now: Long = System.currentTimeMillis(), limit: Int = 200): List<MessageEntity>

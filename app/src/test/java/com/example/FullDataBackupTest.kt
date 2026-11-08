@@ -87,6 +87,22 @@ class FullDataBackupTest {
         } finally { source.close(); target.close() }
     }
 
+    @Test fun `portable backup excludes consumed ratchet state but preserves pins and exact wire retries`() = runBlocking {
+        val source=db(); val target=db()
+        try {
+            val identity=Store();populate(source,identity)
+            source.settingsDao().insertSetting(SettingsEntity("lanu_dr_private_state_v1","DEVICE_ONLY_STATE"))
+            source.settingsDao().insertSetting(SettingsEntity("lanu_dr_pin_fixture","PINNED_PROTOCOL"))
+            source.settingsDao().insertSetting(SettingsEntity("lanu_dr_wire_fixture","IMMUTABLE_WIRE"))
+            val archive=repo(source,identity).exportFullBackup(password)
+            repo(target,Store()).restoreFullBackup(archive,password)
+            assertNull(target.settingsDao().getSettingValue("lanu_dr_private_state_v1"))
+            assertEquals("PINNED_PROTOCOL",target.settingsDao().getSettingValue("lanu_dr_pin_fixture"))
+            assertEquals("IMMUTABLE_WIRE",target.settingsDao().getSettingValue("lanu_dr_wire_fixture"))
+            assertEquals("DEVICE_ONLY_STATE",source.settingsDao().getSettingValue("lanu_dr_private_state_v1"))
+        } finally { source.close();target.close() }
+    }
+
     @Test fun `wrong password tampering and attacker chosen KDF cost never modify existing data`() = runBlocking {
         val source = db(); val target = db()
         try {
@@ -140,6 +156,9 @@ class FullDataBackupTest {
             populate(source, original)
             val backup = repo(source, original).exportFullBackup(password)
             for (marker in listOf(
+                "lanu_dr_pin_fixture",
+                "lanu_dr_wire_fixture",
+                "lanu_dr_private_state_v1",
                 "lanu_remote_registered",
                 "lanu_full_restore_identity",
                 "lanu_peer_conv_fixture",

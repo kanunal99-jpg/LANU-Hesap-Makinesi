@@ -1,3 +1,4 @@
+import { ratchetTranscript, ratchetResetTranscript } from './ratchet-bundle.mjs';
 import { FcmUnregisteredTokenError } from './call-wake-fcm.mjs';
 import { authorizePrivateMediaGrant } from './media-grants.mjs';
 // Shared by the deployed edge function and the local protocol/security tests.
@@ -268,12 +269,56 @@ export function createRelay(store, clock = Date.now, options = {}) {
         insist(hex64.test(data.peerId ?? ''), 400, 'Geçersiz kişi.');
         await store.removeContact(owner, data.peerId); return { removed: true };
       }
+      case 'ratchetState': {
+        insist(options.ratchet===true && typeof store.ratchetState==='function',503,'Güvenli oturum sunucusu etkin değil.');
+        insist(Object.keys(data).join(',')==='peerId' && hex64.test(data.peerId??'') && data.peerId!==owner,400,'Geçersiz kişi.');
+        insist(await store.mutual(owner,data.peerId),409,'Karşılıklı kişi kaydı gerekiyor.');
+        return await store.ratchetState(owner,data.peerId);
+      }
+      case 'cancelRatchetUpgrade': {
+        insist(options.ratchet===true && typeof store.cancelRatchetUpgrade==='function',503,'Güvenli oturum sunucusu etkin değil.');
+        insist(Object.keys(data).join(',')==='peerId' && hex64.test(data.peerId??'') && data.peerId!==owner,400,'Geçersiz kişi.');
+        return await store.cancelRatchetUpgrade(owner,data.peerId);
+      }
+      case 'cancelRatchetRenewal': {
+        insist(options.ratchet===true && typeof store.cancelRatchetRenewal==='function',503,'Güvenli oturum sunucusu etkin değil.');
+        insist(Object.keys(data).sort().join(',')==='peerId,resetId' && hex64.test(data.peerId??'') && uuid.test(data.resetId??'') && data.peerId!==owner,400,'Geçersiz oturum yenileme.');
+        return await store.cancelRatchetRenewal(owner,data.peerId,data.resetId);
+      }
+      case 'renewRatchet': {
+        insist(options.ratchet===true && typeof store.renewRatchet==='function',503,'Güvenli oturum sunucusu etkin değil.');
+        insist(Object.keys(data).sort().join(',')==='bundle,peerId,previousEpoch,proof,resetId' &&
+          typeof data.proof==='string' && data.proof.length>=80 && data.proof.length<=100,400,'Geçersiz oturum yenileme.');
+        let transcript;
+        try {transcript=ratchetResetTranscript(owner,data.peerId,data.resetId,data.previousEpoch,data.bundle);}
+        catch {throw new RelayError(400,'Geçersiz oturum yenileme paketi.');}
+        insist(await verify(publicKey,ratchetTranscript(data.bundle),data.bundle.signature) &&
+          await verify(publicKey,transcript,data.proof),401,'Oturum yenileme imzası doğrulanamadı.');
+        insist(await store.mutual(owner,data.peerId),409,'Karşılıklı kişi kaydı gerekiyor.');
+        return await store.renewRatchet(owner,data.peerId,data.resetId,data.previousEpoch,data.bundle,data.proof);
+      }
+      case 'publishRatchetBundle': {
+        insist(options.ratchet === true && typeof store.publishRatchetBundle === 'function',503,'Güvenli oturum yükseltmesi henüz etkin değil.');
+        insist(Object.keys(data).sort().join(',') === 'bundle,peerId' && hex64.test(data.peerId ?? '') && data.peerId !== owner,400,'Geçersiz güvenli oturum isteği.');
+        let transcript;
+        try { transcript=ratchetTranscript(data.bundle); } catch { throw new RelayError(400,'Geçersiz güvenli oturum paketi.'); }
+        insist(data.bundle.owner===owner && data.bundle.peer===data.peerId && await verify(publicKey,transcript,data.bundle.signature),401,'Güvenli oturum imzası doğrulanamadı.');
+        insist(await store.mutual(owner,data.peerId),409,'Karşılıklı kişi kaydı gerekiyor.');
+        return await store.publishRatchetBundle(owner,data.peerId,data.bundle);
+      }
       case 'send': {
         insist(uuid.test(data.messageId ?? '') && hex64.test(data.peerId ?? '') && data.peerId !== owner && ciphertext(data.content), 400, 'Geçersiz şifreli mesaj.');
         insist(await store.mutual(owner, data.peerId), 409, 'Yazışmak için karşı tarafın da kodunuzu kaydetmesi gerekir.');
+        const protocolVersion=data.protocolVersion ?? 1;
+        insist(protocolVersion===1 || protocolVersion===3,400,'Geçersiz mesaj protokolü.');
+        if(protocolVersion===3) {
+          insist(options.ratchet===true,503,'Güvenli oturum yükseltmesi henüz etkin değil.');
+          insist(hex64.test(data.ratchetEpoch??''),400,'Güvenli oturum nesli eksik.');
+        } else insist(data.ratchetEpoch===undefined || data.ratchetEpoch===null,400,'Geçersiz eski protokol.');
         const existing = await store.message(data.messageId);
+        if(existing) insist((existing.protocolVersion ?? 1)===protocolVersion && (existing.ratchetEpoch??null)===(data.ratchetEpoch??null),409,'Mesaj protokolü değiştirilemez.');
         if (existing) insist(existing.senderId === owner && existing.recipientId === data.peerId && existing.content === data.content, 409, 'Mesaj kimliği farklı içerikle kullanılmış.');
-        const message = existing ?? await store.send({ id: data.messageId, senderId: owner, recipientId: data.peerId, content: data.content });
+        const message = existing ?? await store.send({ id: data.messageId, senderId: owner, recipientId: data.peerId, content: data.content, protocolVersion, ratchetEpoch: data.ratchetEpoch ?? null });
         insist(message.senderId === owner && message.recipientId === data.peerId && message.content === data.content, 409, 'Mesaj kimliği çakıştı.');
         // Never dispatch before the encrypted message is durable and validated.
         // Old relays/clients remain compatible. A wake is not a delivery ACK.
@@ -420,7 +465,7 @@ export function createRelay(store, clock = Date.now, options = {}) {
         const mediaAware = data.mediaVersion === 1 &&
           await store.mediaVersion(owner) === 1;
         const [contacts, events, calls] = await Promise.all([
-          store.contacts(owner), store.events(owner, mediaAware ? 1 : 0),
+          store.contacts(owner), store.events(owner, mediaAware ? 1 : 0, options.ratchet === true && data.ratchetVersion === 3 ? 3 : 1),
           includeCalls ? store.callPoll(owner) : Promise.resolve(null)
         ]);
         const result = { contacts, events };
@@ -438,6 +483,7 @@ export function createRelay(store, clock = Date.now, options = {}) {
         insist(message && (message.senderId === owner || message.recipientId === owner), 404, 'Mesaj bulunamadı.');
         if (action !== 'react') insist(message.senderId === owner, 403, 'Bu işlem yalnızca kendi mesajınızda yapılabilir.');
         insist(!message.deleted, 409, 'Mesaj silinmiş.');
+        if (action === 'edit') insist((message.protocolVersion ?? 1) === 1,409,'Bu güvenli mesaj için yeni mesaj gönderin.');
         if (action === 'edit') insist(ciphertext(data.content), 400, 'Geçersiz şifreli mesaj.');
         if (action === 'react') insist(typeof data.reaction === 'string' && data.reaction.length <= 16, 400, 'Geçersiz tepki.');
         await store.updateMessage(data.messageId, action === 'delete' ? { deleted: true } : action === 'edit' ? { content: data.content } : { reaction: data.reaction });
@@ -569,16 +615,34 @@ export class RestStore {
     const edges = await this.query('lanu_contacts?owner_id=eq.' + owner);
     return Promise.all(edges.map(async edge => ({ ...await this.identity(edge.peer_id), codeAtAdd: edge.code_at_add, mutual: await this.mutual(owner, edge.peer_id) })));
   }
-  mapMessage(row) { return row ? { id: row.id, senderId: row.sender_id, recipientId: row.recipient_id, content: row.content, createdAt: Date.parse(row.created_at), status: row.read_at ? 'READ' : row.delivered_at ? 'DELIVERED' : 'SENT', deleted: row.deleted, reaction: row.reaction ?? '', revision: row.revision } : null; }
+  mapMessage(row) { return row ? { id: row.id, senderId: row.sender_id, recipientId: row.recipient_id, content: row.content, createdAt: Date.parse(row.created_at), status: row.read_at ? 'READ' : row.delivered_at ? 'DELIVERED' : 'SENT', deleted: row.deleted, reaction: row.reaction ?? '', revision: row.revision, protocolVersion: row.protocol_version ?? 1, ratchetEpoch: row.ratchet_epoch ?? null } : null; }
   async message(id) { return this.mapMessage((await this.query('lanu_messages?id=eq.' + id + '&limit=1'))[0]); }
   async send(value) {
-    await this.query('lanu_messages?on_conflict=id', 'POST', { id: value.id, sender_id: value.senderId, recipient_id: value.recipientId, content: value.content }, 'resolution=ignore-duplicates');
+    if(value.protocolVersion===3) {
+      const result=await this.query('rpc/lanu_ratchet_send','POST',{
+        p_owner:value.senderId,p_peer:value.recipientId,p_message:value.id,p_content:value.content,p_epoch:value.ratchetEpoch
+      });
+      insist(result?.accepted===true && result.message,409,'Güvenli oturum değişmiş; kayıtlar korunarak yenileme bekleniyor.');
+      return this.mapMessage(result.message);
+    }
+    await this.query('lanu_messages?on_conflict=id', 'POST', { id: value.id, sender_id: value.senderId, recipient_id: value.recipientId, content: value.content, protocol_version: value.protocolVersion ?? 1, ratchet_epoch: value.ratchetEpoch ?? null }, 'resolution=ignore-duplicates');
     return this.message(value.id);
   }
-  async events(owner, mediaVersion = 0) {
+  async ratchetState(owner,peer) {return this.query('rpc/lanu_ratchet_state','POST',{p_owner:owner,p_peer:peer});}
+  async cancelRatchetUpgrade(owner,peer) {return this.query('rpc/lanu_ratchet_cancel_initial','POST',{p_owner:owner,p_peer:peer});}
+  async cancelRatchetRenewal(owner,peer,id) {
+    return this.query('rpc/lanu_ratchet_cancel_renewal','POST',{p_owner:owner,p_peer:peer,p_reset:id});
+  }
+  async renewRatchet(owner,peer,id,previous,bundle,proof) {
+    return this.query('rpc/lanu_ratchet_renew','POST',{p_owner:owner,p_peer:peer,p_reset:id,p_previous:previous,p_bundle:bundle,p_proof:proof});
+  }
+  async publishRatchetBundle(owner,peer,bundle) {
+    return await this.query('rpc/lanu_ratchet_publish','POST',{p_owner:owner,p_peer:peer,p_bundle:bundle});
+  }
+  async events(owner, mediaVersion = 0, ratchetVersion = 1) {
     // The deployed SQL RPC filters private_media for legacy clients BEFORE
     // generating event snapshots. Do not fetch all events and filter client-side.
-    const rows = await this.query('rpc/lanu_media_aware_events', 'POST',
+    const rows = await this.query(ratchetVersion===3 ? 'rpc/lanu_ratchet_aware_events' : 'rpc/lanu_media_aware_events', 'POST',
       { p_owner: owner, p_media_version: mediaVersion === 1 ? 1 : 0 });
     return rows.map(row => ({ id: row.id, message: row.snapshot }));
   }

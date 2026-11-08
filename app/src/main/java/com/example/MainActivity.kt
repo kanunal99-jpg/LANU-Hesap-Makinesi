@@ -331,7 +331,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     private val largeDocumentPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         val chatId = takePendingPickerChat()
         if (chatId != null && uri != null) confirmLargeSend(chatId) {
-            PrivateMediaDocumentPreparer.encryptDocument(this@MainActivity, uri)
+            PrivateMediaDocumentPreparer.encryptDocument(this@MainActivity, uri, userApprovedOriginalVideo = true)
         }
     }
     private val largePhotoPicker = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
@@ -346,7 +346,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             val confirmed = kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { result ->
                 val dialog = android.app.AlertDialog.Builder(this@MainActivity)
                     .setTitle("Güvenli dosya gönder")
-                    .setMessage("Seçtiğiniz dosya şifrelenip yalnız doğrulanmış kişiye gönderilecek. Belge en fazla 40 MB olabilir. Gönderilsin mi?")
+                    .setMessage("Seçtiğiniz dosya şifrelenip yalnız doğrulanmış kişiye gönderilecek. Dosya en fazla 40 MiB (42 MB) olabilir. Video ve belgeler konum, cihaz veya yazar bilgisi içerebilir; bu metaveriler korunur. Gönderilsin mi?")
                     .setNegativeButton("Vazgeç") { _, _ -> if (result.isActive) result.resume(false) }
                     .setPositiveButton("Şifreli gönder") { _, _ -> if (result.isActive) result.resume(true) }
                     .setOnCancelListener { if (result.isActive) result.resume(false) }
@@ -357,18 +357,33 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             }
             if (!confirmed || !mediaChatAllowed(chatId)) return@launchLargeMedia
             var prepared: PrivateMediaCrypto.EncryptedFile? = null
+            val operation=kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]!!
+            val progress=android.app.AlertDialog.Builder(this@MainActivity)
+                .setTitle("Güvenli dosya aktarımı").setMessage("Dosya hazırlanıyor ve şifreleniyor…")
+                .setNegativeButton("İptal") { _,_ -> operation.cancel() }
+                .setOnCancelListener { operation.cancel() }.create()
+            progress.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            progress.show()
             try {
                 prepared = prepare()
                 kotlinx.coroutines.currentCoroutineContext().ensureActive()
                 if (!mediaChatAllowed(chatId)) return@launchLargeMedia
                 val repo = (application as LanuApplication).container.communicationRepository
                 repo.sendLargeAttachment(chatId, prepared,
-                    PrivateMediaDocumentPreparer.privateDirectory(this@MainActivity))
+                    PrivateMediaDocumentPreparer.privateDirectory(this@MainActivity)) { sent,total ->
+                    runOnUiThread {
+                        if(operation.isActive && mediaChatAllowed(chatId) && progress.isShowing) {
+                            val percent=if(total>0) ((sent*100)/total).coerceIn(0,100) else 0
+                            progress.setMessage(if(sent==total) "Sunucu dosya bütünlüğünü doğruluyor…" else "Şifreli dosya yükleniyor: %$percent")
+                        }
+                    }
+                }
                 prepared = null
                 commViewModel.refresh()
                 if (mediaChatAllowed(chatId)) Toast.makeText(this@MainActivity,
                     "Şifreli dosya gönderime alındı.", Toast.LENGTH_SHORT).show()
             } finally {
+                progress.dismiss()
                 prepared?.destroyKey()
                 prepared?.ciphertextFile?.delete()
             }
@@ -467,7 +482,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                 "camera" -> cameraPreviewPicker.launch(null)
                 "document" -> documentPicker.launch(arrayOf("application/pdf", "text/plain"))
                 "largeDocument" -> largeDocumentPicker.launch(arrayOf(
-                    "application/pdf", "text/plain",
+                    "application/pdf", "text/plain", "video/mp4",
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     "application/vnd.openxmlformats-officedocument.presentationml.presentation"

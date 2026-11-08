@@ -20,6 +20,8 @@ ksp {
 
 android {
   namespace = "com.example"
+  sourceSets.getByName("main").assets.srcDir(rootProject.file("build/ratchet/assets"))
+  sourceSets.getByName("main").jniLibs.srcDir(rootProject.file("build/ratchet/jniLibs"))
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
@@ -34,6 +36,8 @@ android {
     // Never surface a large-media option unless a separately approved,
     // production-verified server rollout explicitly enables this APK build.
     // Missing, malformed, or untrusted values always mean feature OFF.
+    buildConfigField("boolean", "LANU_RATCHET_UI_ENABLED",
+      if (providers.environmentVariable("LANU_RATCHET_UI_ENABLED").orNull == "true") "true" else "false")
     buildConfigField("boolean", "LANU_PRIVATE_MEDIA_UI_ENABLED",
       if (providers.environmentVariable("LANU_PRIVATE_MEDIA_UI_ENABLED").orNull == "true") "true" else "false")
     buildConfigField("String", "LANU_RELAY_URL", "\"${providers.environmentVariable("LANU_RELAY_URL").orNull ?: "https://talhknjcjaijqiqwdyhf.supabase.co/functions/v1/lanu-relay"}\"")
@@ -210,3 +214,30 @@ dependencies {
   "ksp"(libs.moshi.kotlin.codegen)
 }
 
+
+// Build scripts/CI supply exactly the four version-pinned native ABIs. Never
+// publish a feature-looking APK with its cryptographic engine absent.
+abstract class VerifyRatchetNative : DefaultTask() {
+  @get:InputFiles
+  @get:PathSensitive(PathSensitivity.RELATIVE)
+  abstract val libraries: ConfigurableFileCollection
+
+  @get:InputFile
+  @get:PathSensitive(PathSensitivity.RELATIVE)
+  abstract val notices: RegularFileProperty
+
+  @TaskAction
+  fun verify() {
+    check(notices.get().asFile.isFile) { "Pinned native dependency notices must be bundled" }
+    check(libraries.files.size == 4 && libraries.files.all { it.isFile }) {
+      "Run scripts/build_ratchet_native.sh before building LANU: all four ratchet ABIs are required"
+    }
+  }
+}
+val verifyRatchetNative by tasks.registering(VerifyRatchetNative::class) {
+  notices.set(rootProject.layout.projectDirectory.file("build/ratchet/assets/ratchet-licenses/THIRD_PARTY_NOTICES.txt"))
+  libraries.from(listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86").map {
+    rootProject.file("build/ratchet/jniLibs/$it/liblanu_ratchet.so")
+  })
+}
+tasks.named("preBuild").configure { dependsOn(verifyRatchetNative) }

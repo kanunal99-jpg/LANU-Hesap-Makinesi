@@ -60,7 +60,7 @@ fun InlineMediaComposer(
             )
             if (BuildConfig.LANU_PRIVATE_MEDIA_UI_ENABLED) {
                 DropdownMenuItem(
-                    text = { Text("Şifreli büyük belge (en fazla 40 MB)") },
+                    text = { Text("Şifreli belge / MP4 (40 MiB)") },
                     leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null) },
                     onClick = { menu = false; onLargeDocument() }
                 )

@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""Package the actual license/copyright notices of the Cargo.lock dependency graph."""
+import json
+from pathlib import Path
+import re
+import subprocess
+
+root = Path(__file__).resolve().parents[1]
+metadata = json.loads(subprocess.check_output([
+    'cargo', 'metadata', '--locked', '--format-version', '1', '--manifest-path',
+    str(root / 'native/ratchet/Cargo.toml')], text=True))
+output = root / 'build/ratchet/assets/ratchet-licenses'
+output.mkdir(parents=True, exist_ok=True)
+index = ['LANU Olm Double Ratchet native engine',
+         'Pinned dependency notices. No Signal protocol interoperability claim.', '']
+for package in sorted(metadata['packages'], key=lambda x: (x['name'], x['version'])):
+    if package['name'] == 'lanu-ratchet':
+        continue
+    name = package['name'] + '-' + package['version']
+    assert re.fullmatch(r'[A-Za-z0-9_.+-]+', name)
+    directory = Path(package['manifest_path']).parent
+    notices = []
+    for path in directory.rglob('*'):
+        relative = path.relative_to(directory)
+        if len(relative.parts) <= 3 and path.is_file() and re.match(r'^(LICENSE|LICENCE|COPYING|COPYRIGHT|NOTICE)([._-]|$)', path.name, re.I):
+            assert path.resolve().is_relative_to(directory.resolve())
+            notices.append(path)
+    if package.get('license_file'):
+        path = directory / package['license_file']
+        assert path.resolve().is_relative_to(directory.resolve()) and path.is_file()
+        if path not in notices:
+            notices.append(path)
+    # Some published workspace proc-macro crates declare Apache-2.0 but
+    # omit their parent's license file. Select that explicitly permitted
+    # alternative and include the exact standard text already in this repo.
+    use_apache = not notices and package.get('license') in (
+        'Apache-2.0', 'MIT OR Apache-2.0', 'Apache-2.0 OR MIT', 'MIT OR Apache-2.0 OR LGPL-2.1-or-later')
+    assert notices or use_apache, f'Missing source license/copyright notices: {name}'
+    index.extend([name, f'SPDX: {package.get("license") or "See bundled license"}',
+                  f'Source: {package.get("repository") or package.get("source") or "crates.io"}'])
+    destination = output / name
+    destination.mkdir(exist_ok=True)
+    if use_apache:
+        (destination / 'LICENSE-APACHE-2.0').write_bytes((root / 'native/ratchet/LICENSE-vodozemac').read_bytes())
+        index.extend(['  Selected license: Apache-2.0', f'  Authors: {", ".join(package.get("authors", []))}',
+                      f'  {name}/LICENSE-APACHE-2.0'])
+    for path in sorted(notices):
+        filename = '__'.join(path.relative_to(directory).parts)
+        (destination / filename).write_bytes(path.read_bytes())
+        index.append(f'  {name}/{filename}')
+    index.append('')
+# The statically linked Rust standard library also has its own notices.
+sysroot = Path(subprocess.check_output(['rustc', '--print', 'sysroot'], text=True).strip())
+rust_docs = sysroot / 'share/doc/rust'
+assert (rust_docs / 'COPYRIGHT-library.html').is_file(), 'Missing pinned Rust std copyright notices'
+std_output = output / 'rust-std-1.90.0'
+std_output.mkdir(exist_ok=True)
+for source in [rust_docs / 'COPYRIGHT-library.html', *sorted((rust_docs / 'licenses').glob('*.txt'))]:
+    target = std_output / source.relative_to(rust_docs)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(source.read_bytes())
+index.extend(['Rust standard library 1.90.0', '  rust-std-1.90.0/COPYRIGHT-library.html', '  rust-std-1.90.0/licenses/', ''])
+(output / 'THIRD_PARTY_NOTICES.txt').write_text('\n'.join(index) + '\n', encoding='utf-8')
+print(f'PASS: bundled source license/copyright notices for {len(metadata["packages"])-1} pinned dependencies')
