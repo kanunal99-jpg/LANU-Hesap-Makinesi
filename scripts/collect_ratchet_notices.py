@@ -30,11 +30,20 @@ for package in sorted(metadata['packages'], key=lambda x: (x['name'], x['version
         assert path.resolve().is_relative_to(directory.resolve()) and path.is_file()
         if path not in notices:
             notices.append(path)
-    assert notices, f'Missing source license/copyright notices: {name}'
+    # Some published workspace proc-macro crates declare Apache-2.0 but
+    # omit their parent's license file. Select that explicitly permitted
+    # alternative and include the exact standard text already in this repo.
+    use_apache = not notices and package.get('license') in (
+        'Apache-2.0', 'MIT OR Apache-2.0', 'Apache-2.0 OR MIT', 'MIT OR Apache-2.0 OR LGPL-2.1-or-later')
+    assert notices or use_apache, f'Missing source license/copyright notices: {name}'
     index.extend([name, f'SPDX: {package.get("license") or "See bundled license"}',
                   f'Source: {package.get("repository") or package.get("source") or "crates.io"}'])
     destination = output / name
     destination.mkdir(exist_ok=True)
+    if use_apache:
+        (destination / 'LICENSE-APACHE-2.0').write_bytes((root / 'native/ratchet/LICENSE-vodozemac').read_bytes())
+        index.extend(['  Selected license: Apache-2.0', f'  Authors: {", ".join(package.get("authors", []))}',
+                      f'  {name}/LICENSE-APACHE-2.0'])
     for path in sorted(notices):
         filename = '__'.join(path.relative_to(directory).parts)
         (destination / filename).write_bytes(path.read_bytes())

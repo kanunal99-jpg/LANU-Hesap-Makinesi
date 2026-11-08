@@ -6,7 +6,7 @@ import android.util.AtomicFile
 import java.io.File
 import java.io.IOException
 
-/** Only ciphertext is accepted by this file layer; no Room or user file deletion. */
+/** Stores encrypted state/key journals or identity-signed public root selectors; never deletes Room/user files. */
 internal interface RatchetJournalStorage {
     fun read(): String?
     fun write(ciphertext: String)

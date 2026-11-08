@@ -222,14 +222,20 @@ abstract class VerifyRatchetNative : DefaultTask() {
   @get:PathSensitive(PathSensitivity.RELATIVE)
   abstract val libraries: ConfigurableFileCollection
 
+  @get:InputFile
+  @get:PathSensitive(PathSensitivity.RELATIVE)
+  abstract val notices: RegularFileProperty
+
   @TaskAction
   fun verify() {
+    check(notices.get().asFile.isFile) { "Pinned native dependency notices must be bundled" }
     check(libraries.files.size == 4 && libraries.files.all { it.isFile }) {
       "Run scripts/build_ratchet_native.sh before building LANU: all four ratchet ABIs are required"
     }
   }
 }
 val verifyRatchetNative by tasks.registering(VerifyRatchetNative::class) {
+  notices.set(rootProject.layout.projectDirectory.file("build/ratchet/assets/ratchet-licenses/THIRD_PARTY_NOTICES.txt"))
   libraries.from(listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86").map {
     rootProject.file("build/ratchet/jniLibs/$it/liblanu_ratchet.so")
   })
