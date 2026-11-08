@@ -33,7 +33,7 @@ class RatchetRepositoryRuntimeTest {
         val sends=mutableListOf<String>()
         var loseFirst=true
         private fun peer(own:MessagingIdentity)=users.single {it.id!=own.id}
-        private fun public(user:MessagingIdentity)=JSONObject().put("id",user.id).put("code",user.code)
+        private fun publicPeer(user:MessagingIdentity)=JSONObject().put("id",user.id).put("code",user.code)
             .put("publicKey",user.publicKey).put("nonce",user.nonce).put("mutual",true)
         private fun emit(message:JSONObject) {
             for(user in users) events[UUID.randomUUID().toString()]=user.id to JSONObject(message.toString())
@@ -47,7 +47,7 @@ class RatchetRepositoryRuntimeTest {
                     if(loseFirst && pair.second.getString("senderId")==identity.id) continue
                     list.put(JSONObject().put("id",id).put("message",pair.second))
                 }
-                JSONObject().put("contacts",JSONArray().put(public(peer(identity)))).put("events",list)
+                JSONObject().put("contacts",JSONArray().put(publicPeer(peer(identity)))).put("events",list)
             }
             "publishRatchetBundle" -> {
                 val other=peer(identity)
