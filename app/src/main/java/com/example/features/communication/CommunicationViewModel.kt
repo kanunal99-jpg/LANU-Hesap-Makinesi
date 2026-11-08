@@ -23,6 +23,8 @@ class CommunicationViewModel(
     private val repository: CommunicationRepository,
     private val deliveryCoordinator: DeliveryCoordinator? = null
 ) : ViewModel() {
+    val favoriteCodes = repository.favoriteCodes
+    fun toggleFavorite(code: String) = operation { repository.toggleFavorite(code) }
     val contacts = repository.contacts
     val conversations = repository.conversations
     val callLogs = repository.callLogs
@@ -121,10 +123,12 @@ class CommunicationViewModel(
     private val _networkState = MutableStateFlow(if (repository.relayConfigured) NetworkState.OFFLINE else NetworkState.UNCONFIGURED)
     val networkState = _networkState.asStateFlow()
     private var messagesCollectorJob: Job? = null
+    private var realtimeReady = false
     private val foregroundSync by lazy {
-        ForegroundSyncSession(viewModelScope, repository.foregroundNetworkChanges,
+        ForegroundSyncSession(viewModelScope, merge(repository.foregroundNetworkChanges, repository.realtimeChanges.map { hint -> realtimeReady = hint != "closed"; Unit }),
             { _activeConversation.value != null },
-            clockMillis = { android.os.SystemClock.elapsedRealtime() }, synchronize = ::synchronize)
+            clockMillis = { android.os.SystemClock.elapsedRealtime() },
+            minimumInterval = { if (realtimeReady) 1000L else ForegroundSyncPump.MIN_INTERVAL_MILLIS }, synchronize = ::synchronize)
     }
 
     private fun operation(block: suspend () -> Unit) {
@@ -380,6 +384,9 @@ class CommunicationViewModel(
                 val messageId = repository.sendMessage(conversation.id, text)
                 onQueued()
                 requestOutboxDrain()
+                try { repository.sendQueuedForeground() }
+                catch (e: CancellationException) { throw e }
+                catch (_: Exception) { /* Durable queue and foreground/background retry retain ownership. */ }
                 // The timer is *only* a local hide, never remote deletion.
                 if (isSelfDestruct) viewModelScope.launch {
                     try {

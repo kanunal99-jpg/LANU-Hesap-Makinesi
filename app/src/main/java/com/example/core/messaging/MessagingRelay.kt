@@ -70,6 +70,7 @@ internal object RelayHttpResponseGate {
 }
 
 interface MessagingRelay {
+    fun realtimeEvents(identity: MessagingIdentity): kotlinx.coroutines.flow.Flow<String> = kotlinx.coroutines.flow.emptyFlow()
     val configured: Boolean
     suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject = JSONObject()): JSONObject
 }
@@ -85,6 +86,8 @@ internal object RelayRequestDeadlinePolicy {
 }
 
 class HttpMessagingRelay(private val endpoint: String) : MessagingRelay {
+    private val wake by lazy { RealtimeWake(endpoint) }
+    override fun realtimeEvents(identity: MessagingIdentity) = wake.events(identity)
     override val configured: Boolean get() = endpoint.startsWith("https://")
     private val client = OkHttpClient.Builder().connectTimeout(12, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS)
         .callTimeout(35, TimeUnit.SECONDS)

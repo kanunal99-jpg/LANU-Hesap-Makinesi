@@ -55,6 +55,9 @@ interface UserProfileDao {
 
 @Dao
 interface SettingsDao {
+    @Query("SELECT * FROM app_settings WHERE `key` GLOB 'lanu_favorite_*'")
+    fun getFavoriteSettings(): Flow<List<SettingsEntity>>
+
     @Query("SELECT value FROM app_settings WHERE `key` = :key")
     suspend fun getSettingValue(key: String): String?
 

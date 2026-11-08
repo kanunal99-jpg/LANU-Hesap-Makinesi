@@ -65,6 +65,11 @@ class NativeCallViewModel(
         // Only accept one authenticated ANSWER for each locally generated OFFER.
         // A unique replayed ANSWER after CONNECTED must not re-enter stable SDP.
         var awaitingAnswer = false
+        var trickleReady = false
+        val localCandidates = ArrayDeque<String>()
+        val remoteCandidates = ArrayDeque<String>()
+        var candidateJob: Job? = null
+        var candidateBatches = 0
     }
     private var session: Session? = null
     private var foreground = false
@@ -122,6 +127,7 @@ class NativeCallViewModel(
     private var receiving: Job? = null
     // Foreground preparation can suspend on the relay; cancel it on exit so
     // a late response cannot race later call-queue owners or private-area UI.
+    private var realtimePoll: Job? = null
     private var preparation: Job? = null
     private var activePoll: Job? = null
     private var pipeline: Job? = null
@@ -164,12 +170,29 @@ class NativeCallViewModel(
         }
     }
 
+    fun setRealtimeVisible(visible: Boolean) {
+        realtimePoll?.cancel(); realtimePoll = null
+        if (!visible || !foreground) return
+        realtimePoll?.cancel()
+        realtimePoll = viewModelScope.launch {
+            repository.realtimeChanges.collect { hint ->
+                if (hint != "message" && foreground) {
+                    try { repository.pollCallSignals() }
+                    catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { /* Active/idle HTTP fallback remains available. */ }
+                    delay(300L)
+                }
+            }
+        }
+    }
+
     fun deactivate() {
         foreground = false
         pendingHostRelease?.cancel()
         com.example.core.calls.CallWakePolicy.privateAreaVisible = false
         repository.setCallingForeground(false)
         repository.setCallInProgress(false)
+        realtimePoll?.cancel(); realtimePoll = null
         receiving?.cancel(); receiving = null
         preparation?.cancel(); preparation = null
         starting?.cancel()
@@ -283,8 +306,10 @@ class NativeCallViewModel(
                     val engine = createEngine(current)
                     _media.value = engine
                     startConfirmedMedia(current, engine)
+                    current.localCandidates.clear(); current.candidateBatches = 0
                     val offerSdp = engine.offer()
                     if (session !== current || !foreground) return@guarded
+                    current.trickleReady = false
                     current.awaitingAnswer = true
                     send(current, CallSignalKind.OFFER, offerSdp)
                 }
@@ -306,11 +331,16 @@ class NativeCallViewModel(
                     val engine = _media.value ?: createEngine(current).also {
                         _media.value = it; startConfirmedMedia(current, it)
                     }
+                    current.localCandidates.clear(); current.candidateBatches = 0
+                    current.trickleReady = false
                     val answerSdp = engine.answer(s.sdp)
                     // Native SDP creation can finish after the private area
                     // closed. A stale callback must not signal a dead call.
                     if (session !== current || !foreground) return@guarded
                     send(current, CallSignalKind.ANSWER, answerSdp)
+                    current.trickleReady = TrickleIcePolicy.supported(s.sdp)
+                    flushCandidates(current)
+                    drainRemoteCandidates(current, engine)
                 }
             }
             CallSignalKind.ANSWER -> if (current.outgoing && current.awaitingAnswer &&
@@ -319,7 +349,19 @@ class NativeCallViewModel(
                 // Claim the one outstanding answer slot synchronously on the UI
                 // dispatcher. An extra ANSWER with a fresh signal UUID is ignored.
                 current.awaitingAnswer = false
-                pipeline = guarded(current) { _media.value?.remoteAnswer(s.sdp) }
+                pipeline = guarded(current) {
+                    val engine = _media.value ?: return@guarded
+                    engine.remoteAnswer(s.sdp)
+                    current.trickleReady = TrickleIcePolicy.supported(s.sdp)
+                    flushCandidates(current)
+                    drainRemoteCandidates(current, engine)
+                }
+            }
+            CallSignalKind.CANDIDATES -> {
+                if (_state.value.phase !in setOf(NativeCallPhase.CONNECTING, NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING)) return
+                val candidates = TrickleIcePolicy.decode(s.sdp)
+                for (candidate in candidates) if (current.remoteCandidates.size < 32) current.remoteCandidates.add(candidate.toString())
+                if (current.trickleReady) guarded(current) { _media.value?.let { drainRemoteCandidates(current, it) } }
             }
             CallSignalKind.REJECT -> finish("Karşı taraf aramayı reddetti.", notify = false)
             CallSignalKind.BUSY -> finish("Karşı taraf başka bir aramada.", notify = false)
@@ -379,7 +421,32 @@ class NativeCallViewModel(
                     scheduleIceRecovery(current, current.reconnectGeneration, true)
                 }
             }
-        } }, { message -> viewModelScope.launch { if (session === current) fail(message) } })
+        } }, { message -> viewModelScope.launch { if (session === current) fail(message) } }).also { engine ->
+        engine.candidateListener { candidate -> viewModelScope.launch {
+            if (session !== current || !foreground) return@launch
+            if (current.localCandidates.size < 32) current.localCandidates.add(candidate)
+            flushCandidates(current)
+        } }
+    }
+
+    private fun flushCandidates(current: Session) {
+        if (!current.trickleReady || current.candidateJob?.isActive == true || current.candidateBatches >= 4) return
+        current.candidateJob = guarded(current) {
+            delay(150L)
+            while (session === current && foreground && current.trickleReady && current.localCandidates.isNotEmpty() && current.candidateBatches < 4) {
+                val batch = org.json.JSONArray()
+                repeat(minOf(4, current.localCandidates.size)) { batch.put(org.json.JSONObject(current.localCandidates.removeFirst())) }
+                current.candidateBatches++
+                send(current, CallSignalKind.CANDIDATES, batch.toString())
+                delay(200L)
+            }
+        }
+    }
+    private suspend fun drainRemoteCandidates(current: Session, engine: CallMediaSession) {
+        while (session === current && foreground && current.trickleReady && current.remoteCandidates.isNotEmpty()) {
+            engine.remoteCandidate(current.remoteCandidates.removeFirst())
+        }
+    }
 
     private fun scheduleIceRecovery(current: Session, generation: Long, iceFailed: Boolean) {
         val job = guarded(current) {
@@ -390,6 +457,8 @@ class NativeCallViewModel(
             val engine = _media.value ?: return@guarded
             if (!current.reconnectBudget.claim()) return@guarded
             current.reconnectOfferStarted = true
+            current.trickleReady = false
+            current.localCandidates.clear(); current.candidateBatches = 0
             val offerSdp = engine.offer(restart = true)
             // SDP creation may finish after natural RTP recovery, cancellation
             // or a subsequent disconnect. Never signal a stale restart.

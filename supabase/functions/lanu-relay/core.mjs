@@ -106,6 +106,11 @@ const MEDIA_MAX_CIPHER_BYTES = 41953280;
  * client cannot activate uploads or metadata reservations by guessing actions.
  */
 export function createRelay(store, clock = Date.now, options = {}) {
+  function dispatchRealtime(owner, kind) {
+    if (typeof options.publishWake !== 'function') return;
+    const task = Promise.resolve().then(() => options.publishWake(owner, kind)).catch(() => {});
+    if (typeof options.scheduleMessageWake === 'function') options.scheduleMessageWake(task);
+  }
   return async envelope => {
     insist(envelope && typeof envelope.payload === 'string' && envelope.payload.length <= 70000 && typeof envelope.signature === 'string', 400, 'Geçersiz istek.');
     let input;
@@ -126,6 +131,10 @@ export function createRelay(store, clock = Date.now, options = {}) {
     insist(identity, 401, 'Kimlik bulunamadı.');
     insist(await store.consumeNonce(owner, requestId, clock()), 409, 'Bu istek daha önce işlendi.');
     switch (action) {
+      case 'realtimeOpen': {
+        insist(options.realtimeEnabled === true && Object.keys(data).length === 0, 503, 'Anlık bağlantı kullanılamıyor.');
+        return { owner, version: 1 };
+      }
       case 'callSync': {
         insist(options.calls === true, 503, 'Arama sunucusu henüz etkin değil.');
         return { version: 1, signals: await store.callPoll(owner) };
@@ -202,6 +211,7 @@ export function createRelay(store, clock = Date.now, options = {}) {
             }
           }
         }
+        dispatchRealtime(data.peerId, 'call');
         return { accepted: true };
       }
       case 'callAck': {
@@ -303,6 +313,7 @@ export function createRelay(store, clock = Date.now, options = {}) {
             options.scheduleMessageWake(task);
           else await task; // deterministic local/Node protocol tests
         }
+        dispatchRealtime(data.peerId, 'message');
         return { status: message.status };
       }
       case 'reservePrivateMedia': {

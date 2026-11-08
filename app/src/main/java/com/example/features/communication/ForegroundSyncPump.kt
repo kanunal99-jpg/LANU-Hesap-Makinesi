@@ -14,6 +14,7 @@ internal object ForegroundSyncPump {
     suspend fun run(
         requests: ReceiveChannel<Unit>,
         activeChat: () -> Boolean,
+        minimumInterval: () -> Long = { MIN_INTERVAL_MILLIS },
         synchronize: suspend () -> Attempt
     ) {
         var failures = 0
@@ -29,10 +30,10 @@ internal object ForegroundSyncPump {
                 delay(result.retryAfterMillis.coerceIn(5000L, 120000L))
                 continue
             }
-            delay(MIN_INTERVAL_MILLIS)
+            delay(minimumInterval().coerceIn(1000L, MIN_INTERVAL_MILLIS))
             val interval = if (result.successful) ForegroundSyncPolicy.intervalMillis(activeChat())
                 else minOf(60_000L, 5000L * (1 shl failures))
-            val remaining = (interval - MIN_INTERVAL_MILLIS).coerceAtLeast(0L)
+            val remaining = (interval - minimumInterval().coerceIn(1000L, MIN_INTERVAL_MILLIS)).coerceAtLeast(0L)
             if (remaining > 0) withTimeoutOrNull(remaining) { requests.receive() }
         }
     }

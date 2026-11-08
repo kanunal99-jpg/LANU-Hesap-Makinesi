@@ -60,6 +60,7 @@ fun CommunicationScreen(
     securityViewModel: SecurityViewModel,
     onNavigateToChat: (String) -> Unit,
     onNavigateToCalculator: () -> Unit,
+    onQuickCall: (String, Boolean) -> Unit = { _, _ -> },
     backupBusy: Boolean = false,
     pendingFullRestore: Boolean = false,
     backupMessage: String? = null,
@@ -77,6 +78,8 @@ fun CommunicationScreen(
     val error by viewModel.errorMessage.collectAsState()
     var tab by remember { mutableIntStateOf(0) }
     LaunchedEffect(pendingFullRestore) { if (pendingFullRestore) tab = 2 }
+    var showQr by remember { mutableStateOf(false) }
+    var importedCode by remember { mutableStateOf("") }
     var showAdd by remember { mutableStateOf(false) }
     var showDelivery by remember { mutableStateOf(false) }
     // Silent UI policy for contacts, chats, and settings.
@@ -96,6 +99,7 @@ fun CommunicationScreen(
                     CommunicationViewModel.NetworkState.RECONNECTING -> "Bağlanıyor…"
                 }, fontSize = 11.sp)
             } }, actions = {
+                IconButton(onClick = { showQr = true }) { Icon(Icons.Default.QrCode, "Kişi QR kodu") }
                 IconButton(onClick = { showDelivery = true }) { Icon(Icons.Default.CloudSync, "Teslimat merkezi") }
                 IconButton(onClick = { viewModel.refresh() }) { Icon(Icons.Default.Refresh, "Yenile") }
                 IconButton(onClick = onNavigateToCalculator) { Icon(Icons.Default.Calculate, "Kilitle ve dön") }
@@ -127,7 +131,10 @@ fun CommunicationScreen(
                 Text("Kimliğiniz hazırlanıyor. Açılamazsa yeniden deneyin.", Modifier.padding(16.dp))
                 TextButton(onClick = { viewModel.checkRegistration() }) { Text("Yeniden dene") }
             } else {
-                if (tab < 2) IdentityCodeCard(code, name)
+                if (tab < 2) {
+                    IdentityCodeCard(code, name)
+                    QuickContacts(viewModel, onNavigateToChat, onQuickCall)
+                }
                 Box(Modifier.weight(1f)) {
                     when (tab) {
                         0 -> ChatsTab(viewModel, vibrate, onNavigateToChat)
@@ -145,19 +152,22 @@ fun CommunicationScreen(
             DeliveryCenter(onForegroundRefresh = { viewModel.refresh() }, modifier = Modifier.fillMaxHeight(0.9f))
         }
     }
+    if (showQr) ContactQrDialog(code, { showQr = false }) { imported ->
+        importedCode = imported; showQr = false; showAdd = true
+    }
     if (showAdd) {
         var alias by remember { mutableStateOf("") }
-        var otherCode by remember { mutableStateOf("") }
+        var otherCode by remember { mutableStateOf(importedCode) }
         var validation by remember { mutableStateOf<String?>(null) }
         AlertDialog(onDismissRequest = { showAdd = false }, title = { Text("Kodla kişi ekle") }, text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Karşı tarafın LANU kodunu kaydedin. Yazışmak için onun da sizin kodunuzu kaydetmesi gerekir.")
                 OutlinedTextField(alias, { alias = it.take(60) }, label = { Text("Kişiye vereceğiniz ad") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("contact_name_input"))
-                OutlinedTextField(otherCode, { otherCode = it.take(40) }, label = { Text("LANU kullanıcı kodu") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("contact_code_input"))
+                OutlinedTextField(otherCode, { otherCode = it.take(256) }, label = { Text("LANU kullanıcı kodu") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("contact_code_input"))
                 validation?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         }, confirmButton = { Button(onClick = {
-            val normalized = UserCodes.normalize(otherCode)
+            val normalized = runCatching { ContactInvitation.decode(otherCode) }.getOrDefault("")
             when {
                 normalized.isBlank() -> validation = "LANU-XXXX-XXXX-XXXX-XXXX-XXXX biçiminde bir kod girin."
                 normalized == code -> validation = "Kendi kodunuzu ekleyemezsiniz."
@@ -510,6 +520,7 @@ fun ContactsTab(
     onNavigateToChat: (String) -> Unit
 ) {
     val contactList by viewModel.contacts.collectAsState(initial = emptyList())
+    val favorites by viewModel.favoriteCodes.collectAsState(initial = emptySet())
 
     if (contactList.isEmpty()) {
         Box(
@@ -528,7 +539,7 @@ fun ContactsTab(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            items(contactList) { contact ->
+            items(contactList.sortedByDescending { it.phoneNumber in favorites }) { contact ->
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -584,6 +595,9 @@ fun ContactsTab(
                             )
                         }
 
+                        IconButton(onClick = { viewModel.toggleFavorite(contact.phoneNumber) }) {
+                            Icon(if (contact.phoneNumber in favorites) Icons.Default.Star else Icons.Default.StarBorder, "Hızlı kişiyi değiştir")
+                        }
                         IconButton(
                             onClick = {
                                 triggerVibration()
@@ -654,6 +668,7 @@ fun SettingsTab(
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         IdentityCodeCard(code, name)
+        TurnServerSettings()
         Text("Kodunuz uygulama yeniden açıldığında değişmez. Yalnızca siz yeni kod oluşturmayı seçerseniz değiştirilir.", fontSize = 12.sp)
         OutlinedButton(onClick = { showName = true }, modifier = Modifier.fillMaxWidth()) { Text("Görünen adı düzenle") }
         OutlinedButton(onClick = { showRotate = true }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("change_user_code")) { Text("Kullanıcı kodumu değiştir") }
@@ -954,3 +969,24 @@ fun CallLogCard(
     }
 }
 
+
+@Composable
+private fun QuickContacts(viewModel: CommunicationViewModel, onChat: (String) -> Unit, onCall: (String, Boolean) -> Unit) {
+    val contacts by viewModel.contacts.collectAsState(initial = emptyList())
+    val favorites by viewModel.favoriteCodes.collectAsState(initial = emptySet())
+    val conversations by viewModel.conversations.collectAsState(initial = emptyList())
+    val recent = conversations.sortedByDescending { it.lastMessageTime }.map { it.partnerPhone }
+    val quick = contacts.filter { !it.isBlocked && (it.phoneNumber in favorites || it.phoneNumber in recent) }
+        .sortedWith(compareByDescending<ContactEntity> { it.phoneNumber in favorites }.thenBy { recent.indexOf(it.phoneNumber).let { index -> if (index < 0) Int.MAX_VALUE else index } }).take(2)
+    if (quick.isNotEmpty()) Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp)) {
+        Text("Hızlı iletişim", style = MaterialTheme.typography.labelLarge)
+        quick.forEach { contact ->
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(contact.name, Modifier.weight(1f), maxLines = 1)
+                IconButton(onClick = { viewModel.startChat(contact.phoneNumber, contact.name, onChat) }) { Icon(Icons.Default.Chat, "Sohbet aç") }
+                IconButton(onClick = { viewModel.startChat(contact.phoneNumber, contact.name) { onCall(it, false) } }) { Icon(Icons.Default.Call, "Sesli ara") }
+                IconButton(onClick = { viewModel.startChat(contact.phoneNumber, contact.name) { onCall(it, true) } }) { Icon(Icons.Default.Videocam, "Görüntülü ara") }
+            }
+        }
+    }
+}

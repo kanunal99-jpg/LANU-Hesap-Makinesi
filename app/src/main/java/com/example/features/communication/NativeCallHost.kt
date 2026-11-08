@@ -71,6 +71,10 @@ fun NativeCallHost(
         model.attachHost()
         onStopOrDispose { confirm = null; model.detachHost() }
     }
+    DisposableEffect(model, revealPeerName) {
+        model.setRealtimeVisible(revealPeerName)
+        onDispose { model.setRealtimeVisible(false) }
+    }
     // A delayed chat action must not reopen a private outgoing-call dialog
     // over the public calculator after screen-off or PIN lock. Consume any
     // stale request without authorizing media or disclosing the conversation.

@@ -17,6 +17,7 @@ internal class ForegroundSyncSession(
     private val networkChanges: Flow<Unit>,
     private val activeChat: () -> Boolean,
     private val clockMillis: () -> Long = { System.nanoTime() / 1_000_000L },
+    private val minimumInterval: () -> Long = { ForegroundSyncPump.MIN_INTERVAL_MILLIS },
     private val synchronize: suspend () -> ForegroundSyncPump.Attempt
 ) {
     private val owners = mutableSetOf<String>()
@@ -41,15 +42,15 @@ internal class ForegroundSyncSession(
                             // Periodic fallback survives unavailable callback services.
                         }.collect { epoch.trySend(Unit) }
                     }
-                    ForegroundSyncPump.run(epoch, activeChat) {
+                    ForegroundSyncPump.run(epoch, activeChat, minimumInterval) {
                         val wait = nextAllowedAt?.let { (it - clockMillis()).coerceIn(0L, 120000L) } ?: 0L
                         if (wait > 0) delay(wait)
-                        nextAllowedAt = clockMillis() + ForegroundSyncPump.MIN_INTERVAL_MILLIS
+                        nextAllowedAt = clockMillis() + minimumInterval()
                         val result = synchronize()
                         val cooldown = if (result.retryAfterMillis > 0)
                             result.retryAfterMillis.coerceIn(5000L, 120000L)
                             else ForegroundSyncPump.MIN_INTERVAL_MILLIS
-                        nextAllowedAt = clockMillis() + cooldown
+                        nextAllowedAt = clockMillis() + if (result.retryAfterMillis > 0) cooldown else minimumInterval()
                         result
                     }
                 }

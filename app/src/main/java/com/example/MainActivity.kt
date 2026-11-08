@@ -820,6 +820,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                             is Screen.Communication -> {
                                 CommunicationScreen(
                                     viewModel = commViewModel,
+                                    onQuickCall = { id, video -> pendingCall = id to video },
                                     securityViewModel = securityViewModel,
                                     onNavigateToChat = { chatId ->
                                         navigateTo(Screen.ChatDetail(chatId))
