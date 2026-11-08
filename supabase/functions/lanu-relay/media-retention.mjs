@@ -13,7 +13,9 @@ const BUCKET = 'lanu-private-media-v1';
 // Keep a separate five-minute allowance for clock skew and in-flight writes.
 // A resumable upload URL can outlive its original signed grant (up to24h).
 // Keep ciphertext/quota until BOTH capability lifetimes have elapsed.
-const SIGNED_UPLOAD_TTL_MS = 24 * 60 * 60 * 1000;
+// A token issued immediately before expiry can CREATE a TUS resource up to2h
+// later; that resource can then survive another24h. Add lifetimes, not max.
+const SIGNED_UPLOAD_TTL_MS = (2 + 24) * 60 * 60 * 1000;
 const CLOCK_SKEW_GRACE_MS = 5 * 60 * 1000;
 export function mediaCleanupCutoff(nowMs) {
   const grace = SIGNED_UPLOAD_TTL_MS + CLOCK_SKEW_GRACE_MS;
