@@ -114,3 +114,6 @@
 -keep class androidx.paging.PagingSource** { *; }
 -keep class androidx.paging.PagingState { *; }
 -keep class androidx.paging.PagingConfig { *; }
+
+# JNI exports bind the exact production class/method and the release probe.
+-keep class com.example.core.messaging.OlmRatchetNative { *; }

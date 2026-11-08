@@ -44,7 +44,7 @@ case "$(basename "$3")" in
   *) name=com.aistudio.lanucalc.kxwzqm ;;
 esac
 case "$(basename "$3")" in
-  old*) version=828 ;;
+  old*) version=1140 ;;
   *) version=1200 ;;
 esac
 echo "package: name='$name' versionCode='$version' versionName='1.2.0'"
@@ -71,7 +71,7 @@ printf 'Signer #1 certificate SHA-256 digest: %s\n' "$digest"
                                BAD_APK=bad_apk, GOOD_DIGEST=good, BAD_DIGEST=bad)
                     proc = subprocess.run(
                         ["bash", str(ROOT / "scripts/ci_ota_upgrade_acceptance.sh"),
-                         *(str(x) for x in artifacts), "828", "1200"],
+                         *(str(x) for x in artifacts), "1140", "1200"],
                         env=env, capture_output=True, text=True, check=False)
                     output = proc.stdout + proc.stderr
                     self.assertNotEqual(0, proc.returncode)
@@ -101,7 +101,7 @@ case "$(basename "$3")" in
   *) name=com.aistudio.lanucalc.kxwzqm ;;
 esac
 case "$(basename "$3")" in
-  old*) version=828 ;;
+  old*) version=1140 ;;
   *) version=1200 ;;
 esac
 echo "package: name='$name' versionCode='$version' versionName='1.2.0'"
@@ -136,7 +136,7 @@ fi
                        MOCK_ADB_LOG=str(adb_log))
             proc = subprocess.run(
                 ["bash", str(ROOT / "scripts/ci_ota_upgrade_acceptance.sh"),
-                 *(str(x) for x in artifacts), "828", "1200"],
+                 *(str(x) for x in artifacts), "1140", "1200"],
                 env=env, capture_output=True, text=True, check=False)
             output = proc.stdout + proc.stderr
             self.assertNotEqual(0, proc.returncode)
@@ -152,7 +152,7 @@ fi
 
     def test_publish_requires_main_only_signed_upgrade_acceptance(self):
         workflow = (ROOT / ".github/workflows/android.yml").read_text()
-        self.assertIn("    needs: [build-and-test, android-runtime-acceptance, ota-upgrade-acceptance]", workflow)
+        self.assertIn("    needs: [build-and-test, android-runtime-acceptance, ratchet-minimum-acceptance, ota-upgrade-acceptance]", workflow)
         self.assertIn("  ota-upgrade-acceptance:", workflow)
         self.assertIn("github.event_name == 'push'", workflow)
         self.assertIn("scripts/ci_prepare_android_image.sh", workflow)
@@ -173,7 +173,7 @@ fi
         self.assertIn("decryptLegacyCompatibleCipher(", source)
         self.assertNotIn("EncryptedMessagingIdentityStore(context, null)", source)
         self.assertNotIn("EncryptedMessagingIdentityStore(context)", source)
-        # Published v828 R8 inlines UserCodes.create(), so OTA seed must not link it.
+        # Historical v828 R8 inlined UserCodes.create(), so OTA seed must not link it.
         self.assertIn("makeLegacyCompatibleIdentity()", source)
         self.assertNotIn("val identity = UserCodes.create()", source)
         for checkpoint in ("prefs-empty", "identity-store-created", "identity-store-empty",

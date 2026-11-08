@@ -20,6 +20,7 @@ ksp {
 
 android {
   namespace = "com.example"
+  sourceSets.getByName("main").jniLibs.srcDir(rootProject.file("build/ratchet/jniLibs"))
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
@@ -210,3 +211,16 @@ dependencies {
   "ksp"(libs.moshi.kotlin.codegen)
 }
 
+
+// Build scripts/CI supply exactly the four version-pinned native ABIs. Never
+// publish a feature-looking APK with its cryptographic engine absent.
+val verifyRatchetNative by tasks.registering {
+  doLast {
+    for (abi in listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")) {
+      check(rootProject.file("build/ratchet/jniLibs/$abi/liblanu_ratchet.so").isFile) {
+        "Run scripts/build_ratchet_native.sh before building LANU: missing ratchet ABI $abi"
+      }
+    }
+  }
+}
+tasks.named("preBuild").configure { dependsOn(verifyRatchetNative) }
