@@ -102,7 +102,7 @@ object PrivateMediaKeyEnvelope {
      */
     internal fun openAuthenticatedPayload(plain: String): OpenedMediaKey {
         require(plain.length in 1..MAX_JSON_CHARS) { "Medya anahtar zarfı çok büyük." }
-        val json = JSONObject(plain)
+        val json = com.example.core.messaging.RatchetProtocol.parse(plain, MAX_JSON_CHARS)
         val keys = mutableSetOf<String>()
         val it = json.keys()
         while (it.hasNext()) keys += it.next()
