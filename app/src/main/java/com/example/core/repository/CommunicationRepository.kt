@@ -41,7 +41,8 @@ class CommunicationRepository(
     private val relay: MessagingRelay,
     private val database: AppDatabase,
     private val clock: () -> Long = System::currentTimeMillis,
-    val foregroundNetworkChanges: Flow<Unit> = emptyFlow()
+    val foregroundNetworkChanges: Flow<Unit> = emptyFlow(),
+    private val ratchet: RatchetCoordinator? = null
 ) {
     val contacts = contactDao.getAllContacts().map { list -> list.filter { UserCodes.normalize(it.phoneNumber).isNotBlank() } }
     val conversations = conversationDao.getAllConversations()
@@ -77,6 +78,41 @@ class CommunicationRepository(
     }
 
     suspend fun prepareCalling() { synchronize(requireExistingIdentity = true, drainOutbox = false) }
+
+    /** Explicit opt-in: both legacy inboxes/outboxes drain before the server pins v3. */
+    suspend fun enableRatchet(conversationId:String):Boolean=syncMutex.withLock {
+        synchronizeLocked(conversationId,true,true)
+        draftMutex.withLock {
+            val own=loadIdentity(allowCreate=false)
+            val peer=peerForConversation(conversationId) ?: error("Kişi kimliği bulunamadı.")
+            check(PeerConversationBindingPolicy.matches(own.id,conversationId,peer.getString("id"),
+                peer.getString("publicKey"),peer.getString("code"),peer.getString("nonce")))
+            val engine=checkNotNull(ratchet) { "Güvenli oturum motoru bulunamadı." }.session(own,explicitCreate=true)
+            publishRatchet(own,peer,engine.prepare(own,peer.getString("id")))
+        }
+    }
+    private suspend fun publishRatchet(own:MessagingIdentity,peer:JSONObject,bundle:JSONObject):Boolean {
+        val result=relay.request(own,"publishRatchetBundle",JSONObject().put("peerId",peer.getString("id")).put("bundle",bundle))
+        check(result.optBoolean("accepted")) { "Eski mesajların iki uçta teslimi bekleniyor; oturum paketi ve taslaklar korundu." }
+        if(!result.optBoolean("ready")) return false
+        checkNotNull(ratchet).session(own).pin(own,peer.getString("id"),peer.getString("publicKey"),result.getJSONObject("peerBundle"))
+        return true
+    }
+    private suspend fun refreshRatchets(own:MessagingIdentity) {
+        val coordinator=ratchet ?: return
+        coordinator.recoverExisting(own)
+        for(setting in settingsDao.getRatchetPublicBundles()) {
+            val peerId=setting.key.removePrefix("lanu_dr_public_bundle_")
+            if(settingsDao.getSettingValue("lanu_dr_pin_$peerId")!=null) continue
+            val peer=settingsDao.getSettingValue("lanu_peer_id_$peerId")?.let(::JSONObject) ?: continue
+            if(settingsDao.getSettingValue(RatchetTransactionStore.STATE_KEY)==null) continue
+            draftMutex.withLock {
+                try { publishRatchet(own,peer,RatchetProtocol.parse(setting.value,2048)) }
+                catch(e:CancellationException) {throw e}
+                catch(_:Exception) { /* No downgrade/pin; the old inbox must still drain. */ }
+            }
+        }
+    }
 
     /**
      * #224: Owner-signed, read-only STAGING readiness check. Never creates an
@@ -596,7 +632,8 @@ class CommunicationRepository(
     private fun messageForDisplay(message: MessageEntity, conversationId: String,
         own: MessagingIdentity, peer: JSONObject?): MessageEntity {
         val plain = try {
-            if (message.content.startsWith("lanu2:") && peer != null) PeerMessageCrypto.decrypt(own, peer.getString("id"), peer.getString("publicKey"), message.id, message.senderPhone, message.content)
+            if (message.content.startsWith("lanu3-local:")) RatchetSessionService.history(own,message.id,message.content)
+            else if (message.content.startsWith("lanu2:") && peer != null) PeerMessageCrypto.decrypt(own, peer.getString("id"), peer.getString("publicKey"), message.id, message.senderPhone, message.content)
             else if (!message.content.startsWith("lanu2:")) CryptoUtils.decrypt(message.content, conversationId)
             else "Mesaj anahtarı bulunamadı"
         } catch (e: CancellationException) { throw e }
@@ -728,6 +765,13 @@ class CommunicationRepository(
                     latest.getString("publicKey") == publicKey) {
                     "Sohbet kimliği değişti; dosya mesajı gönderilmedi."
                 }
+                if(settingsDao.getSettingValue("lanu_dr_pin_$peerId")!=null) {
+                    val payload=PeerMessageCrypto.decrypt(own,peerId,publicKey,id,own.id,messageCipher)
+                    checkNotNull(ratchet).session(own).queue(own,peerId,publicKey,id,conversationId,payload,clock())
+                } else {
+                    check(settingsDao.getSettingValue("lanu_dr_public_bundle_$peerId")==null) {
+                        "Güvenli oturum yükseltilirken dosya mesajı gönderilmedi."
+                    }
                 database.withTransaction {
                     messageDao.insertMessage(MessageEntity(id, conversationId, own.id,
                         userProfileDao.getUserProfile()?.displayName ?: "Ben",
@@ -737,6 +781,7 @@ class CommunicationRepository(
                             lastMessageText = "Şifreli dosya",
                             lastMessageTime = clock()))
                     }
+                }
                 }
             }
             return id
@@ -773,7 +818,8 @@ class CommunicationRepository(
             "Gönderen kimliği değişti."
         }
         val plaintext = withContext(Dispatchers.Default) {
-            PeerMessageCrypto.decrypt(own, peer.getString("id"),
+            if(message.content.startsWith("lanu3-local:")) RatchetSessionService.history(own,messageId,message.content)
+            else PeerMessageCrypto.decrypt(own, peer.getString("id"),
                 peer.getString("publicKey"), messageId, message.senderPhone,
                 message.content)
         }
@@ -841,6 +887,14 @@ class CommunicationRepository(
             "Sohbetin kişi kimliği doğrulanamadı. Mesaj oluşturulmadı."
         }
         val id = UUID.randomUUID().toString()
+        val peerId=peer.getString("id")
+        if(settingsDao.getSettingValue("lanu_dr_pin_$peerId")!=null) {
+            checkNotNull(ratchet).session(own).queue(own,peerId,peer.getString("publicKey"),id,conversationId,plaintext,clock())
+            return@withLock id
+        }
+        check(settingsDao.getSettingValue("lanu_dr_public_bundle_$peerId")==null) {
+            "Güvenli oturumun karşılıklı yükseltilmesi bekleniyor; taslağınız korunuyor."
+        }
         val encrypted = withContext(Dispatchers.Default) {
             PeerMessageCrypto.encrypt(own, peer.getString("id"), peer.getString("publicKey"), id, plaintext)
         }
@@ -867,6 +921,7 @@ class CommunicationRepository(
     private suspend fun synchronizeLocked(activeConversationId: String?, requireExistingIdentity: Boolean, drainOutbox: Boolean) {
         if (clock() < nextSyncAt) throw RelayException(429, "Bağlantı kısa süre bekletiliyor. Mesajlarınız korunuyor.", nextSyncAt - clock())
         val own = registerRemote(requireExistingIdentity = requireExistingIdentity, allowLease = true)
+        refreshRatchets(own)
         // Automatic, explicitly versioned capability upgrade only for THIS
         // new client; older APKs never advertise mediaVersion=1.
         // Legacy relay 400/503 responses cannot break ordinary message sync.
@@ -884,6 +939,7 @@ class CommunicationRepository(
         val response = relay.request(own, "sync", JSONObject().apply {
             if (callingForeground) put("callVersion", CallSignaling.VERSION)
             if (privateMediaCapable) put("mediaVersion", 1)
+            if (ratchet!=null) put("ratchetVersion",3)
         })
         val peers = response.getJSONArray("contacts")
         for (i in 0 until peers.length()) savePeer(peers.getJSONObject(i), peers.getJSONObject(i).optString("codeAtAdd"))
@@ -910,6 +966,16 @@ class CommunicationRepository(
             // The original thread may have been deleted before this event was downloaded.
             // A messageId tombstone only protects messages that were already on disk.
             val threadDeleted = settingsDao.getSettingValue("lanu_hidden_conv_$convId") == "true"
+            val protocol=message.optInt("protocolVersion",1)
+            if(protocol==3) {
+                try { acceptRatchetEvent(own,peerId,convId,message,threadDeleted,activeConversationId) }
+                catch(e:CancellationException) {throw e}
+                catch(_:Exception) {rejectedIds.add(id);read.remove(id);continue}
+                ack.put(event.getString("id"))
+                if(senderId!=own.id && activeConversationId==convId && !message.optBoolean("deleted") && !threadDeleted) read.add(id)
+                continue
+            }
+            if(protocol!=1) {rejectedIds.add(id);continue}
             // Message, unread count and replay revision are one durable unit.
             // A crash before commit must not leave a message without its unread badge.
             try { database.withTransaction {
@@ -923,6 +989,9 @@ class CommunicationRepository(
                         // Never persist or acknowledge an unreadable/tampered encrypted message.
                         // The relay cannot authenticate E2EE ciphertext; only the recipient can.
                         try {
+                            check(settingsDao.getSettingValue("lanu_dr_pin_$peerId")==null || messageDao.getMessage(id)!=null) {
+                                "Pinlenmiş güvenli oturum eski protokole düşürülemez."
+                            }
                             PeerMessageCrypto.decrypt(own, peerId, peer.getString("publicKey"), id, senderId, message.getString("content"))
                         } catch (e: CancellationException) { throw e }
                         catch (e: Exception) {
@@ -973,6 +1042,47 @@ class CommunicationRepository(
         if (rejectedIds.isNotEmpty()) throw RejectedCiphertext()
     }
 
+    private suspend fun acceptRatchetEvent(own:MessagingIdentity,peerId:String,conversation:String,
+        message:JSONObject,threadDeleted:Boolean,activeConversation:String?) {
+        val id=message.getString("id");val revision=message.getLong("revision")
+        require(revision>0 && message.getString("status") in setOf("SENT","DELIVERED","READ"))
+        val previous=settingsDao.getSettingValue("lanu_message_revision_$id")?.toLongOrNull() ?: 0L
+        if(revision<=previous) return
+        val sender=message.getString("senderId")
+        require((sender==own.id && message.getString("recipientId")==peerId) ||
+            (sender==peerId && message.getString("recipientId")==own.id))
+        val wire=message.getString("content")
+        val seen=settingsDao.getSettingValue("lanu_dr_seen_$id")
+        val hidden=settingsDao.getSettingValue("lanu_hidden_$id")=="true"
+        if(seen!=null) {
+            check(seen==RatchetTransactionStore.digest(wire)) { "Güvenli mesaj şifreli içeriği değiştirilmiş." }
+            database.withTransaction {
+                val current=messageDao.getMessage(id)
+                if(message.optBoolean("deleted") || hidden || threadDeleted) messageDao.deleteMessage(id)
+                else if(current!=null) {
+                    check(current.conversationId==conversation && current.senderPhone==sender && current.content.startsWith("lanu3-local:"))
+                    messageDao.insertMessage(current.copy(status=message.getString("status"),
+                        reaction=message.optString("reaction").ifBlank {null}))
+                }
+                settingsDao.insertSetting(SettingsEntity("lanu_message_revision_$id",revision.toString()))
+            }
+            return
+        }
+        check(sender!=own.id && settingsDao.getSettingValue("lanu_dr_pin_$peerId")!=null)
+        val peer=settingsDao.getSettingValue("lanu_peer_id_$peerId")?.let(::JSONObject) ?: error("Kişi doğrulanamadı.")
+        check(PeerConversationBindingPolicy.matches(own.id,conversation,peerId,peer.getString("publicKey"),peer.getString("code"),peer.getString("nonce")))
+        val retain=!message.optBoolean("deleted") && !hidden && !threadDeleted
+        if(retain) database.withTransaction {
+            settingsDao.insertSetting(SettingsEntity("lanu_peer_conv_$conversation",peer.toString()))
+            if(conversationDao.getConversationById(conversation)==null) {
+                val contact=contactDao.getContactByPhone(peer.getString("code"))
+                conversationDao.insertConversation(ConversationEntity(conversation,peer.getString("code"),contact?.name ?: peer.getString("code")))
+            }
+        }
+        checkNotNull(ratchet).session(own).receive(own,peerId,peer.getString("publicKey"),id,wire,
+            message.getLong("createdAt"),revision,message.getString("status"),activeConversation!=conversation,retain)
+    }
+
     private class RejectedCiphertext(cause: Exception? = null) :
         SecurityException("Şifreli mesaj doğrulanamadı. Teslim/okundu onayı gönderilmedi.", cause)
 
@@ -1017,7 +1127,12 @@ class CommunicationRepository(
             }
             nextSendAt = clock() + 5000L
             try {
-                val result = relay.request(own, "send", JSONObject().put("messageId", message.id).put("peerId", peer.getString("id")).put("content", message.content))
+                val modern=message.content.startsWith("lanu3-local:")
+                val wire=if(modern) checkNotNull(settingsDao.getSettingValue("lanu_dr_wire_${message.id}")) {
+                    "Güvenli mesajın değişmez gönderim kopyası bulunamadı."
+                } else message.content
+                val result = relay.request(own, "send", JSONObject().put("messageId", message.id).put("peerId", peer.getString("id"))
+                    .put("content", wire).apply { if(modern) put("protocolVersion",3) })
                 // HTTP 200 alone does not prove durable acceptance. Require the
                 // exact authenticated relay receipt; otherwise retain ciphertext
                 // and message UUID for idempotent retry after a lost/invalid ACK.
@@ -1099,6 +1214,9 @@ class CommunicationRepository(
         require(newText.isNotBlank() && newText.length <= 8000)
         val own = ensureIdentity()
         val peer = peerForConversation(conversationId) ?: error("Kişi bulunamadı")
+        val message=messageDao.getMessage(messageId) ?: error("Mesaj bulunamadı.")
+        check(message.conversationId==conversationId && message.senderPhone==own.id)
+        check(!message.content.startsWith("lanu3-local:")) { "Bu güvenli mesaj için yeni mesaj gönderin." }
         val encrypted = PeerMessageCrypto.encrypt(own, peer.getString("id"), peer.getString("publicKey"), messageId, newText)
         relay.request(registerRemote(), "edit", JSONObject().put("messageId", messageId).put("content", encrypted))
     }

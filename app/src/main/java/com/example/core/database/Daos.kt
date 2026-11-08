@@ -83,6 +83,12 @@ interface SettingsDao {
     """)
     suspend fun hasIdentityBoundSettings(): Boolean
 
+    @Query("SELECT EXISTS(SELECT 1 FROM app_settings WHERE `key` GLOB 'lanu_dr_*')")
+    suspend fun hasRatchetSettings(): Boolean
+
+    @Query("SELECT * FROM app_settings WHERE `key` GLOB 'lanu_dr_public_bundle_*' ORDER BY `key` LIMIT 64")
+    suspend fun getRatchetPublicBundles(): List<SettingsEntity>
+
     @Transaction
     suspend fun persistPinGuard(failures: Int, until: Long, strike: Int) {
         // The deadline and its escalation tier must commit or roll back together.

@@ -29,6 +29,7 @@ object ApplicationModule {
     @Provides @Singleton fun events(@ApplicationContext context: Context) = SecurityEventTracker(context)
     @Provides @Singleton fun communication(@ApplicationContext context: Context, db: AppDatabase, identity: MessagingIdentityStore, relay: MessagingRelay) = CommunicationRepository(
         db.contactDao(), db.conversationDao(), db.messageDao(), db.settingsDao(), db.userProfileDao(), db.callLogDao(), identity, relay, db,
-        foregroundNetworkChanges = com.example.core.network.AndroidNetworkRecovery.changes(context)
+        foregroundNetworkChanges = com.example.core.network.AndroidNetworkRecovery.changes(context),
+        ratchet = com.example.core.messaging.RatchetCoordinator(context,db)
     )
 }

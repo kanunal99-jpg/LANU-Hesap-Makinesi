@@ -256,6 +256,17 @@ class CommunicationViewModel(
         repository.registerUser("", name)
         _userName.value = name.trim().take(60)
     }
+    fun enableRatchet(expectedConversation:String) {
+        if(_busy.value || _activeConversation.value?.id!=expectedConversation) return
+        _busy.value=true
+        operation {
+            try {
+                val ready=repository.enableRatchet(expectedConversation)
+                _errorMessage.value=if(ready) "Double Ratchet oturumu etkin. Eski sürüme sessiz geçiş yapılmaz."
+                    else "Paketiniz kaydedildi. Karşı tarafın da aynı yükseltmeyi başlatması bekleniyor."
+            } finally {_busy.value=false}
+        }
+    }
     fun rotateCode() {
         if (_busy.value) return
         _busy.value = true

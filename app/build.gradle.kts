@@ -35,6 +35,8 @@ android {
     // Never surface a large-media option unless a separately approved,
     // production-verified server rollout explicitly enables this APK build.
     // Missing, malformed, or untrusted values always mean feature OFF.
+    buildConfigField("boolean", "LANU_RATCHET_UI_ENABLED",
+      if (providers.environmentVariable("LANU_RATCHET_UI_ENABLED").orNull == "true") "true" else "false")
     buildConfigField("boolean", "LANU_PRIVATE_MEDIA_UI_ENABLED",
       if (providers.environmentVariable("LANU_PRIVATE_MEDIA_UI_ENABLED").orNull == "true") "true" else "false")
     buildConfigField("String", "LANU_RELAY_URL", "\"${providers.environmentVariable("LANU_RELAY_URL").orNull ?: "https://talhknjcjaijqiqwdyhf.supabase.co/functions/v1/lanu-relay"}\"")

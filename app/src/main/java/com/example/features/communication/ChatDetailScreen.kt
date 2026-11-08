@@ -75,6 +75,7 @@ fun ChatDetailScreen(
     val textInput by viewModel.draftText.collectAsState()
     var isSelfDestructEnabled by remember(conversationId) { mutableStateOf(false) }
     var showClearConfirmation by remember(conversationId) { mutableStateOf(false) }
+    var showRatchetConfirmation by remember(conversationId) { mutableStateOf(false) }
     // Silent UI policy: no sound or haptic feedback for chat actions.
     val triggerVibration: () -> Unit = {}
 
@@ -116,6 +117,16 @@ fun ChatDetailScreen(
         )
     }
 
+    if(showRatchetConfirmation && com.example.BuildConfig.LANU_RATCHET_UI_ENABLED) {
+        AlertDialog(onDismissRequest={showRatchetConfirmation=false},
+            title={Text("Güvenli oturumu yükselt")},
+            text={Text("İki tarafın da güncel sürümde bu işlemi başlatması gerekir. Bekleyen mesajlar korunur. Sonrasında eski sürümle yeni mesaj gönderilemez. Yeni cihazda açık oturum yenilemesi gerekir.")},
+            confirmButton={TextButton(onClick={
+                showRatchetConfirmation=false
+                if(activeConversation?.id==conversationId) viewModel.enableRatchet(conversationId)
+            }) {Text("Double Ratchet'i başlat")}},
+            dismissButton={TextButton(onClick={showRatchetConfirmation=false}) {Text("Vazgeç")}})
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -186,6 +197,11 @@ fun ChatDetailScreen(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false }
                     ) {
+                        if(com.example.BuildConfig.LANU_RATCHET_UI_ENABLED) {
+                            DropdownMenuItem(text={Text("Double Ratchet oturumunu yükselt")},
+                                onClick={showMenu=false;showRatchetConfirmation=true},
+                                modifier=Modifier.testTag("private_ratchet_upgrade"))
+                        }
                         if (retryableFailedIds.isNotEmpty()) {
                             DropdownMenuItem(
                                 text = { Text("Gönderilemeyenleri yeniden dene (${retryableFailedIds.size})") },

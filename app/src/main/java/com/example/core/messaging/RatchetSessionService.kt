@@ -75,7 +75,7 @@ internal class RatchetSessionService(
         }
     }
     suspend fun receive(own:MessagingIdentity,peer:String,peerKey:String,id:String,wire:String,at:Long,
-        revision:Long,status:String,unread:Boolean):String {
+        revision:Long,status:String,unread:Boolean,retain:Boolean=true):String {
         require(UserCodes.id(peerKey)==peer && revision>0)
         val outer=PeerMessageCrypto.decrypt(own,peer,peerKey,id,peer,wire)
         require(outer.startsWith("LANU-DR3:"))
@@ -104,9 +104,9 @@ internal class RatchetSessionService(
             if(opened.has("account")) entry.put("account",opened.getString("account"))
             val conversation=UserCodes.conversationId(own.id,peer)
             val row=MessageEntity(id,conversation,peer,"LANU",archive(own,id,text),timestamp=at,status=status)
-            RatchetTransactionStore.Change(state.toString(),row,settings=mapOf("lanu_dr_seen_$id" to RatchetTransactionStore.digest(wire),
+            RatchetTransactionStore.Change(state.toString(),if(retain)row else null,settings=mapOf("lanu_dr_seen_$id" to RatchetTransactionStore.digest(wire),
                 "lanu_message_revision_$id" to revision.toString()),
-                preview=RatchetTransactionStore.Preview("Şifreli mesaj",at,unread)) to text
+                preview=if(retain) RatchetTransactionStore.Preview("Şifreli mesaj",at,unread) else null) to text
         }
     }
     companion object {
