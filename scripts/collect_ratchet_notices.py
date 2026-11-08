@@ -49,5 +49,16 @@ for package in sorted(metadata['packages'], key=lambda x: (x['name'], x['version
         (destination / filename).write_bytes(path.read_bytes())
         index.append(f'  {name}/{filename}')
     index.append('')
+# The statically linked Rust standard library also has its own notices.
+sysroot = Path(subprocess.check_output(['rustc', '--print', 'sysroot'], text=True).strip())
+rust_docs = sysroot / 'share/doc/rust'
+assert (rust_docs / 'COPYRIGHT-library.html').is_file(), 'Missing pinned Rust std copyright notices'
+std_output = output / 'rust-std-1.90.0'
+std_output.mkdir(exist_ok=True)
+for source in [rust_docs / 'COPYRIGHT-library.html', *sorted((rust_docs / 'licenses').glob('*.txt'))]:
+    target = std_output / source.relative_to(rust_docs)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(source.read_bytes())
+index.extend(['Rust standard library 1.90.0', '  rust-std-1.90.0/COPYRIGHT-library.html', '  rust-std-1.90.0/licenses/', ''])
 (output / 'THIRD_PARTY_NOTICES.txt').write_text('\n'.join(index) + '\n', encoding='utf-8')
 print(f'PASS: bundled source license/copyright notices for {len(metadata["packages"])-1} pinned dependencies')

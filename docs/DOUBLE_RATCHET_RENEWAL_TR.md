@@ -27,3 +27,21 @@ Eski nesildeki alınmamış iletiler yeni neslin önünde bekletilmez ve alınm�
 Yerelde gerçek Rust motorunun dört testi, gerçek Java JNI çift yönlü değişimi ve JNI→imzalı relay→şifreli zarf→teslim→iki sahipli yenileme smoke testi geçti. Postgres testleri eski verinin korunmasını, aynı turun iki onayını, yanlış nesil / UUID değişimini, iptal sınırını ve RLS yetkilerini kapsıyor. Android testleri üç yazım sınırındaki kesintiyi, Room rollback'ini, kayıp seçici/Keystore'u, 210 eski kuyruğun yeni iletiyi engellememesini ve kayıp yenileme yanıtından sonra gerçek repository değişimini kapsar. Android testinin yazılması, çalıştığı kanıtı değildir; son HEAD CI sonucu ayrıca kontrol edilir.
 
 Yayın için son HEAD API23/API34/debug/R8 testleri, ayrı main CI, mevcut imzalı1140'tan OTA veri koruma testi ve public APK SHA/signer geri okuması gerekir. Canlı relay ve imzalı APK etkinleştirmesi ayrıca doğrulanmalıdır. Bağımsız entegrasyon/kripto incelemesi ve iki fiziksel telefonda birlikte çalışma kabulü bu otomatik testlerin yerine geçmez; elde edilmemiş kanıt tamamlandı olarak işaretlenmez. SQLCipher canlı dönüşümü ve büyük dosya canlı teslimi bu belgenin bitmiş özelliği değildir.
+
+## Bağımsız incelemeye teslim
+
+İnceleme `RatchetProtocol`, `RatchetCoordinator`, `RatchetRootRegistry`, `RatchetTransactionStore`, JNI sınırı ve iki additive migration'ı birlikte kapsamalı. Özellikle eski tur imzasının yeni tura taşınamaması, yerel geçmişin uzun ömürlü kimliğe bağlı kalması, selector/journal kesintileri, restore sonrasında anahtar üretmeme, aynı UUID'nin değişmezliği ve eski neslin yanlış teslim onayı almaması değerlendirilmelidir. Kütüphane motorunun incelemesi bu yeni entegrasyonun incelemesi sayılmaz.
+
+Fiziksel kabulde A55 ve ikinci ayrı Android cihazda, ayrı test kimlikleriyle şu senaryolar kaydedilmeli: karşılıklı ilk yükseltme; Wi-Fi/mobil ağ geçişinde çift yönlü teslim; eşzamanlı ilk gönderim; tek onaydan sonra vazgeçme; uygulama kapanırken kayıp yanıt; yeni cihaz/anahtar kaybından sonra aynı turun iki onayı; eski alınmamış mesajların açık yeniden gönderimi; eski geçmiş ve daha yeni taslağın korunması. Gerçek kullanıcı verisini silerek veya stable APK'yı kaldırarak test yapılmaz. PR'nin geçici sertifikalı APK'sı, kurulu stable uygulamanın üstüne güncelleme olarak sunulmaz.
+
+Yerel doğrulama komutları:
+
+```sh
+cargo test --locked --manifest-path native/ratchet/Cargo.toml
+cargo build --locked --release --manifest-path native/ratchet/Cargo.toml
+node server/smoke/ratchet_end_to_end.mjs
+npm test --prefix server
+python -m unittest discover -s scripts -p 'test_*.py'
+```
+
+08.11.2026: `214de364` için CI run42475188990'da gerçek API23'te 14 test ve native dört ABI/JNI job'ı geçti. Birim/Robolectric/lint adımları da geçti. Bu kayıt sonraki HEAD, API34/R8, üretim relay, main/OTA veya public APK kabulü değildir. PR #357 inceleme listesi boş; bağımsız entegrasyon onayı henüz yok.
