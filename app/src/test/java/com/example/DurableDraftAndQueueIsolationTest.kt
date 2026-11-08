@@ -126,6 +126,7 @@ class DurableDraftAndQueueIsolationTest {
         assertThrows(IllegalArgumentException::class.java) { runBlocking { repo.toggleFavorite("invalid") } }
         db.contactDao().insertContact(ContactEntity(peer.code, "Friend", isBlocked = true))
         assertThrows(IllegalArgumentException::class.java) { runBlocking { repo.toggleFavorite(peer.code) } }
+        Unit
     }
 
 

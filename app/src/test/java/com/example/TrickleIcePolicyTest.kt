@@ -6,8 +6,11 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import android.app.Application
 
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28], application = Application::class)
 class TrickleIcePolicyTest {
     @Test fun oldOfferRemainsCompleteAndCapabilityRequiresExactAttribute() {
         val sdp = "v=0\r\na=ice-ufrag:abcd1234\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=candidate:1 1 udp 1 192.0.2.1 1234 typ host\r\n"
