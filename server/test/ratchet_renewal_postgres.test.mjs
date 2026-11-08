@@ -48,6 +48,11 @@ test('both owners must approve the SAME reset and old ciphertext survives while 
   const events=(await db.query('select * from public.lanu_ratchet_aware_events($1,0)',[B])).rows;
   assert.deepEqual(events.map(e=>e.snapshot.id),[fresh],'old generation is filtered BEFORE limit and is not falsely ACKed');
   assert.equal((await db.query('select acked from public.lanu_events where owner_id=$1 and message_id=$2',[B,old])).rows[0].acked,false);
+  // A restored sender can have NO local hash/history for old self-echoes.
+  // Those unknown rows must not poison all future incoming conversations.
+  const restoredOwnerEvents=(await db.query('select * from public.lanu_ratchet_aware_events($1,0)',[A])).rows;
+  assert.deepEqual(restoredOwnerEvents.map(e=>e.snapshot.id),[fresh],'old self-echoes after an older backup must also be filtered BEFORE limit');
+  assert.equal((await db.query('select acked from public.lanu_events where owner_id=$1 and message_id=$2',[A,old])).rows[0].acked,false);
   await assert.rejects(db.query('update public.lanu_messages set ratchet_epoch=$1 where id=$2',[epoch,fresh]));
   for(const role of ['anon','authenticated']) {
    assert.equal((await db.query("select has_table_privilege($1,'public.lanu_ratchet_renewals','select,insert,update,delete') as allowed",[role])).rows[0].allowed,false);
@@ -89,5 +94,19 @@ test('atomic send receipts stay idempotent across renewal and cannot replace a g
   assert.equal((await db.query('select public.lanu_ratchet_cancel_renewal($1,$2,$3) c',[A,B,round2])).rows[0].c.cancelled,true);
   assert.equal((await db.query('select public.lanu_ratchet_cancel_renewal($1,$2,$3) c',[A,B,round2])).rows[0].c.cancelled,true);
   assert.equal((await renew(B,A,round2,next.state.epoch,bundle(B,A))).accepted,false);
+ } finally {await db.close();}
+});
+
+test('an older restored sender cannot be starved by 210 unknown self-echoes from a retired generation',async()=>{
+ const f=await fixture();const {db,epoch,renew}=f;
+ try {
+  await db.query("insert into public.lanu_messages(id,sender_id,recipient_id,content,protocol_version,ratchet_epoch) select gen_random_uuid(),$1,$2,$3,3,$4 from generate_series(1,210)",[A,B,'lanu2:'+'C'.repeat(40),epoch]);
+  const round=randomUUID();await renew(A,B,round,epoch,bundle(A,B));
+  const changed=await renew(B,A,round,epoch,bundle(B,A));
+  const incoming=randomUUID();
+  await db.query('insert into public.lanu_messages(id,sender_id,recipient_id,content,protocol_version,ratchet_epoch) values($1,$2,$3,$4,3,$5)',[incoming,B,A,'lanu2:'+'D'.repeat(40),changed.state.epoch]);
+  const events=(await db.query('select * from public.lanu_ratchet_aware_events($1,0)',[A])).rows;
+  assert.deepEqual(events.map(e=>e.snapshot.id),[incoming]);
+  assert.equal(Number((await db.query('select count(*) n from public.lanu_events where owner_id=$1 and not acked',[A])).rows[0].n),211,'filtered old events are preserved, never forged as delivered');
  } finally {await db.close();}
 });

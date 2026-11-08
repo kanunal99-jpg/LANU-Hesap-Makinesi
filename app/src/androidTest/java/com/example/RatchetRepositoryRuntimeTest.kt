@@ -55,7 +55,7 @@ class RatchetRepositoryRuntimeTest {
                 val list=JSONArray()
                 for((id,pair) in events) {
                     if(pair.first!=identity.id) continue
-                    if(pair.second.getString("recipientId")==identity.id && pair.second.optInt("protocolVersion")==3 &&
+                    if(pair.second.optInt("protocolVersion")==3 &&
                         pair.second.getString("ratchetEpoch")!=state(identity).getString("epoch")) continue
                     if(loseFirst && pair.second.getString("senderId")==identity.id) continue
                     list.put(JSONObject().put("id",id).put("message",pair.second))

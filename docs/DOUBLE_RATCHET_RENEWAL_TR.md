@@ -17,7 +17,7 @@ Eski nesildeki alınmamış iletiler yeni neslin önünde bekletilmez ve alınm�
 - Motor sabitlenmiş `vodozemac 0.11.2` Olm Double Ratchet, tam MAC yapılandırmasıdır. Signal protokolüyle birlikte çalışabilirlik iddiası yoktur.
 - Her eş için ayrı rastgele cihaz kökü ve ayrı şifreli durum/journal vardır. Kimlik imzalı `noBackup` seçici, Room işaretçisine geçişten önce fsync ile yazılır; Room işlemi sonrasında tamamlanır. Her kesinti sınırı tekrar açılırken doğrulanır.
 - Etkin nesil ve gönderim nesli Room içinde ayrı saklanır. Sunucu ve istemci yeni iletiyi aynı nesle bağlar. Eski UUID farklı şifreli içerikle veya nesille tekrar kullanılamaz. Yeniden deneme eski şifreli baytları kullanır.
-- Sunucu gönderim ve yenilemesi aynı eş kilidini kullanır. Eski nesil olayları gelen kutusu LIMIT'inden önce süzülür; eski gönderim kuyruğu da Room LIMIT'inden önce süzülür.
+- Sunucu gönderim ve yenilemesi aynı eş kilidini kullanır. Eski nesil olayları, eski yedekte yerel özeti bulunmayan kendi gönderim yankıları dahil, gelen kutusu LIMIT'inden önce süzülür; eski gönderim kuyruğu da Room LIMIT'inden önce süzülür.
 - Taşınabilir yedekler hiçbir `lanu_dr_private_state_*` kaydını içermez. Public paketler, pinler, seçim bilgileri ve değişmez gönderim kopyaları korunur. Başka cihazda eski ratchet durumu canlandırılmaz; açık iki taraflı yenileme gerekir.
 - Yerel okunabilir geçmiş ayrıca mevcut kimliğe şifrelenir. Ağdaki ratchet iletilerinin özellikleri, bu kalıcı arşive cihaz/kimlik ele geçirilmesine karşı ileri gizlilik sağlamaz. Tam cihaz gizliliği veya geçmişin ileri gizliliği iddiası yoktur.
 - APK, sabitlenmiş Cargo.lock grafiğinin 102 bağımlılığının lisans/telif bildirimlerini varlık dosyalarında içerir. Bu, bağımsız hukuk veya kriptografi incelemesi değildir.
@@ -45,3 +45,5 @@ python -m unittest discover -s scripts -p 'test_*.py'
 ```
 
 08.11.2026: `214de364` için CI run42475188990'da gerçek API23'te 14 test ve native dört ABI/JNI job'ı geçti. Birim/Robolectric/lint adımları da geçti. Bu kayıt sonraki HEAD, API34/R8, üretim relay, main/OTA veya public APK kabulü değildir. PR #357 inceleme listesi boş; bağımsız entegrasyon onayı henüz yok.
+
+Aynı214de364 HEAD'in dört PR job'ı daha sonra tamamen başarılı oldu: API23'te14, API34 debug'da36 ve API34 R8 release'de36 test. OTA/publish bir PR olduğu için SKIPPED kaldı. Son adversarial kontrolde eski bir yedeğe dönen göndericide yerel özeti bulunmayan, eski nesle ait kendi gönderim yankılarının LIMIT'i doldurabildiği ek durum tespit edildi: yeni test önce hata verdi; filtre her iki yöndeki eski nesle genişletilince geçti. 210 eski yankı önünde yeni gelen ileti regresyonu eklendi. Bu takip değişikliğinin son HEAD CI'sı ayrıca doğrulanmalıdır.

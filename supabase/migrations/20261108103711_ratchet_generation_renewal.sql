@@ -174,7 +174,7 @@ language sql security invoker set search_path='' as $$
   select e.id,e.snapshot||jsonb_build_object('protocolVersion',m.protocol_version,'ratchetEpoch',m.ratchet_epoch)
   from public.lanu_events e join public.lanu_messages m on m.id=e.message_id
   where e.owner_id=p_owner and not e.acked and (p_media_version=1 or not m.private_media) and
-    (m.protocol_version=1 or m.sender_id=p_owner or
+    (m.protocol_version=1 or
       m.ratchet_epoch=public.lanu_ratchet_pair_epoch(m.sender_id,m.recipient_id))
   order by e.created_at,e.id limit 200;
 $$;
