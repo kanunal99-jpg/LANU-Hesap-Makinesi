@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { cleanExpiredPrivateMedia } from '../../supabase/functions/lanu-relay/media-retention.mjs';
 
 const now=Date.now(), first='a'.repeat(32), second='b'.repeat(32);
-const expired=new Date(now-8_000_000).toISOString();
+const expired=new Date(now-90_000_000).toISOString();
 function fixture(changed={}) {
   const rows=[
     {file_id:first,state:'ready',expires_at:expired},
@@ -79,4 +79,10 @@ test('oversized batch and invalid service-only adapter are refused before deleti
    store:oversized.store,storage:oversized.storage,nowMs:now,limit:10
  }));
  assert.equal(oversized.remove.length,0);
+});
+
+test('a 23-hour-old expired reservation is not purged while TUS URL may remain valid',async()=>{
+ const f=fixture({rows:[{file_id:first,state:'pending',expires_at:new Date(now-23*60*60*1000).toISOString()}]});
+ assert.deepEqual(await cleanExpiredPrivateMedia({store:f.store,storage:f.storage,nowMs:now}),{scanned:1,purged:0,refused:1});
+ assert.equal(f.remove.length,0);assert.equal(f.changedRows.length,0);
 });

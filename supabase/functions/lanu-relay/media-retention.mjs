@@ -8,11 +8,12 @@
 const FILE = /^[a-f0-9]{32}$/;
 const MAX_BATCH = 25;
 const BUCKET = 'lanu-private-media-v1';
-// Signed Supabase upload capabilities may remain valid for two hours after
-// issuance, even when our media reservation has expired. A premature purge
+// Signed upload/TUS capabilities may outlive the reservation expiry. A premature purge
 // could be followed by a late PUT, leaving an orphaned Storage object.
 // Keep a separate five-minute allowance for clock skew and in-flight writes.
-const SIGNED_UPLOAD_TTL_MS = 2 * 60 * 60 * 1000;
+// A resumable upload URL can outlive its original signed grant (up to24h).
+// Keep ciphertext/quota until BOTH capability lifetimes have elapsed.
+const SIGNED_UPLOAD_TTL_MS = 24 * 60 * 60 * 1000;
 const CLOCK_SKEW_GRACE_MS = 5 * 60 * 1000;
 export function mediaCleanupCutoff(nowMs) {
   const grace = SIGNED_UPLOAD_TTL_MS + CLOCK_SKEW_GRACE_MS;

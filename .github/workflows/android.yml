@@ -49,7 +49,7 @@ jobs:
   build-and-test:
     name: Build APK and Run Tests
     needs: [ratchet-native]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     env:
       LANU_VERSION_CODE: ${{ github.run_number }}
 
@@ -493,7 +493,7 @@ jobs:
           arch: x86_64
           profile: Nexus 5
           disable-animations: true
-          script: ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.OlmRatchetNativeRuntimeTest,com.example.RatchetTransactionStoreRuntimeTest,com.example.RatchetSessionServiceRuntimeTest --no-daemon --stacktrace
+          script: ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.OlmRatchetNativeRuntimeTest,com.example.RatchetTransactionStoreRuntimeTest,com.example.RatchetSessionServiceRuntimeTest,com.example.VerifiedSqlCipherStageRuntimeTest --no-daemon --stacktrace
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -670,7 +670,7 @@ jobs:
     name: Publish verified APK
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     needs: [build-and-test, android-runtime-acceptance, ratchet-minimum-acceptance, ota-upgrade-acceptance]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     env:

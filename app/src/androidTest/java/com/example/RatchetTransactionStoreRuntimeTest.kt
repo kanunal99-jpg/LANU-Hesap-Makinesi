@@ -83,7 +83,7 @@ class RatchetTransactionStoreRuntimeTest {
                 RatchetTransactionStore.Change(((old?.toInt() ?: 0)+1).toString()) to Unit
             } } }.forEach { it.await() } }
             first.transact { old -> assertEquals("20",old); RatchetTransactionStore.Change("21") to Unit }
-            db.withTransaction { assertTrue(runCatching { first.transact { error("must never execute") } }.isFailure) }
+            db.withTransaction { assertTrue(runCatching { first.transact<Unit> { error("must never execute") } }.isFailure) }
             first.recover()
         } finally { secrets.close(); db.close(); cleanup(context,id) }
     }

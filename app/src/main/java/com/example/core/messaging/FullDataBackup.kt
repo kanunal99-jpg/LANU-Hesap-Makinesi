@@ -39,7 +39,13 @@ object FullDataBackup {
         fun displayName(): String = rows("user_profiles").optJSONArray(0)?.optString(1)?.take(60) ?: "LANU Kullanıcısı"
     }
 
-    fun capture(db: SupportSQLiteDatabase, identity: MessagingIdentity): JSONObject {
+    fun capture(db: SupportSQLiteDatabase, identity: MessagingIdentity): JSONObject = captureSnapshot(db,identity,false)
+
+    /** Device-to-device backup never uses this; only a same-device encrypted DB copy. */
+    internal fun captureDeviceSnapshot(db: SupportSQLiteDatabase, identity: MessagingIdentity): Opened =
+        Opened(identity,captureSnapshot(db,identity,true))
+
+    private fun captureSnapshot(db: SupportSQLiteDatabase, identity: MessagingIdentity, includeDeviceState: Boolean): JSONObject {
         require(UserCodes.isConsistentIdentity(identity)) { "Kimlik doğrulanamadı; mevcut kayıtlar korunuyor." }
         // Explicit user-requested backup only, in a Room read transaction:
         // never seal/export a partially corrupted SQLite snapshot as a trusted
@@ -54,7 +60,7 @@ object FullDataBackup {
                 while (cursor.moveToNext()) {
                     // A portable restore MUST NOT resurrect a consumed ratchet state.
                     // Public pins and immutable pending wire copies remain portable.
-                    if (table == "app_settings" && cursor.getString(0) == RatchetTransactionStore.STATE_KEY) continue
+                    if (!includeDeviceState && table == "app_settings" && cursor.getString(0) == RatchetTransactionStore.STATE_KEY) continue
                     require(++count <= MAX_ROWS) { "Yedekteki kayıt sayısı sınırı aşıldı." }
                     val row = row(cursor)
                     estimatedBytes += row.toString().toByteArray(Charsets.UTF_8).size
@@ -71,6 +77,10 @@ object FullDataBackup {
     }
 
     fun seal(payload: JSONObject, password: String): ByteArray {
+        val settings=payload.getJSONObject("tables").getJSONArray("app_settings")
+        require((0 until settings.length()).none { settings.getJSONArray(it).getString(0)==RatchetTransactionStore.STATE_KEY }) {
+            "Cihaza bağlı güvenli oturum durumu dışa aktarılamaz."
+        }
         require(password.length in 12..256) { "Yedek parolası 12–256 karakter olmalıdır." }
         val plain = payload.toString().toByteArray(Charsets.UTF_8)
         require(plain.size <= MAX_BYTES) { "Tam yedek 32 MiB sınırını aşıyor." }

@@ -640,7 +640,8 @@ class CommunicationRepository(
     suspend fun sendLargeAttachment(
         conversationId: String,
         prepared: PrivateMediaCrypto.EncryptedFile,
-        privateDirectory: File
+        privateDirectory: File,
+        onProgress: (Long,Long) -> Unit = { _, _ -> }
     ): String {
         try {
             check(BuildConfig.LANU_PRIVATE_MEDIA_UI_ENABLED) {
@@ -687,8 +688,18 @@ class CommunicationRepository(
             // may recover that lost-ACK case.
             var uploadError: java.io.IOException? = null
             try {
-                PrivateMediaTransferHttp.uploadCiphertext(grant.getString("url"),
-                    manifest.fileId, prepared.ciphertextFile, manifest, privateDirectory)
+                val signedUrl=grant.getString("url")
+                val token=java.net.URI(signedUrl).rawQuery.removePrefix("token=")
+                try {
+                    com.example.core.media.PrivateMediaStorageClient(BuildConfig.LANU_RELAY_URL).upload(
+                        prepared.ciphertextFile,manifest.fileId,reservation.cipherBytes,signedUrl,token,onProgress)
+                } catch (_: com.example.core.media.PrivateMediaStorageClient.TusUnavailable) {
+                    // Only unsupported CREATE may fall back. An uncertain PATCH
+                    // is recovered by HEAD / relay SHA, never a blind second PUT.
+                    PrivateMediaTransferHttp.uploadCiphertext(signedUrl,
+                        manifest.fileId,prepared.ciphertextFile,manifest,privateDirectory)
+                    onProgress(reservation.cipherBytes,reservation.cipherBytes)
+                }
             } catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (e: java.io.IOException) { uploadError = e }
             val accepted = try {

@@ -159,9 +159,12 @@ internal class PrivateMediaStorageClient(
      * write without querying its committed offset first. Existing object paths
      * cannot be overwritten (no x-upsert header).
      */
+    internal class TusUnavailable : IOException("Parçalı yükleme bu sunucuda kullanılamıyor.")
+
     suspend fun upload(
         encrypted: File, fileId: String, expectedBytes: Long,
-        signedUrl: String, signedToken: String
+        signedUrl: String, signedToken: String,
+        onProgress: (Long,Long) -> Unit = { _, _ -> }
     ) = withContext(Dispatchers.IO) {
         val base = authorizedBase(signedUrl, fileId, upload = true)
         val token = validatedToken(signedUrl, signedToken)
@@ -179,10 +182,12 @@ internal class PrivateMediaStorageClient(
             .header("x-signature", token)
             .post(ByteArray(0).toRequestBody()).build()
         val location = PrivateMediaTransferHttp.withCancellableResponse(create, client = transportClient, process = { response ->
+            if (response.code in listOf(404,405,501)) throw TusUnavailable()
             if (response.code != 201) throw IOException("Güvenli dosya yüklemesi başlatılamadı.")
             response.header("Location") ?: throw IOException("Dosya yükleme adresi bulunamadı.")
         })
         val tusUrl = locationForTus(base, location)
+        onProgress(0,expectedBytes)
         RandomAccessFile(encrypted, "r").use { file ->
             var offset = 0L
             var failures = 0
@@ -209,6 +214,7 @@ internal class PrivateMediaStorageClient(
                             require(next == offset + amount) { "Yükleme sırası geçersiz." }
                             offset = next
                             failures = 0
+                            onProgress(offset,expectedBytes)
                         })
                     } catch (error: IOException) {
                         if (++failures > MAX_RETRIES) throw error
@@ -224,6 +230,7 @@ internal class PrivateMediaStorageClient(
                             if (!validRecoveryOffset(offset, amount, serverOffset, expectedBytes))
                                 throw IOException("Yükleme konumu doğrulanmış parçanın dışına çıktı.")
                             offset = serverOffset
+                            onProgress(offset,expectedBytes)
                         })
                     }
                 } finally { part.fill(0) }
