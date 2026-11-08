@@ -125,3 +125,7 @@
 -keep class com.example.core.repository.CommunicationRepository { *; }
 -keep interface com.example.core.messaging.MessagingIdentityStore { *; }
 -keep interface com.example.core.messaging.MessagingRelay { *; }
+
+# The separate release AndroidTest APK reads these status getters. R8 may
+# otherwise inline/remove them when the private UI feature flag is closed.
+-keep class com.example.core.repository.CommunicationRepository$RatchetStatus { *; }
