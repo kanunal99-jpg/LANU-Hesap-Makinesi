@@ -8,6 +8,7 @@ import com.example.core.messaging.*
 import com.example.core.repository.CommunicationRepository
 import com.example.features.communication.CommunicationViewModel
 import androidx.paging.testing.asSnapshot
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.Dispatchers
@@ -86,6 +87,47 @@ class DurableDraftAndQueueIsolationTest {
         actions.clear()
     }
     @After fun close() { db.close() }
+
+    @Test fun `foreground fast lane sends immutable queued content without a receive pass`() = runBlocking {
+        val first = repo.sendMessage(conversation, "first")
+        now++
+        val second = repo.sendMessage(conversation, "second")
+        val cipher = db.messageDao().getMessage(first)!!.content
+        actions.clear()
+        repo.sendQueuedForeground()
+        assertFalse(actions.contains("sync"))
+        assertEquals(2, actions.count { it == "send" })
+        assertEquals("SENT", db.messageDao().getMessage(first)!!.status)
+        assertEquals("SENT", db.messageDao().getMessage(second)!!.status)
+        assertEquals(cipher, db.messageDao().getMessage(first)!!.content)
+    }
+
+    @Test fun `foreground fast lane respects quota cooldown and preserves ciphertext for retry`() = runBlocking {
+        val id = repo.sendMessage(conversation, "retain while throttled")
+        val cipher = db.messageDao().getMessage(id)!!.content
+        sendFailure = 429
+        repo.sendQueuedForeground()
+        actions.clear(); now += 1000L
+        repo.sendQueuedForeground()
+        assertTrue(actions.isEmpty())
+        assertEquals(cipher, db.messageDao().getMessage(id)!!.content)
+        assertEquals("PENDING", db.messageDao().getMessage(id)!!.status)
+        now += 60000L; sendFailure = null
+        repo.sendQueuedForeground()
+        assertEquals("SENT", db.messageDao().getMessage(id)!!.status)
+    }
+
+    @Test fun `favorite is durable and rejects invalid or blocked contact codes`() = runBlocking {
+        db.contactDao().insertContact(ContactEntity(peer.code, "Friend"))
+        repo.toggleFavorite(peer.code)
+        assertEquals(setOf(peer.code), repository().favoriteCodes.first())
+        repo.toggleFavorite(peer.code)
+        assertTrue(repo.favoriteCodes.first().isEmpty())
+        assertThrows(IllegalArgumentException::class.java) { runBlocking { repo.toggleFavorite("invalid") } }
+        db.contactDao().insertContact(ContactEntity(peer.code, "Friend", isBlocked = true))
+        assertThrows(IllegalArgumentException::class.java) { runBlocking { repo.toggleFavorite(peer.code) } }
+    }
+
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test fun `private thread exit cancels pending load without canceling newer thread`() = runTest {

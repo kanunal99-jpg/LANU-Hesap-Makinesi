@@ -285,8 +285,10 @@ export function createRelay(store, clock = Date.now, options = {}) {
       }
       case 'send': {
         insist(uuid.test(data.messageId ?? '') && hex64.test(data.peerId ?? '') && data.peerId !== owner && ciphertext(data.content), 400, 'Geçersiz şifreli mesaj.');
-        insist(await store.mutual(owner, data.peerId), 409, 'Yazışmak için karşı tarafın da kodunuzu kaydetmesi gerekir.');
-        const existing = await store.message(data.messageId);
+        const [mutual, existing] = await Promise.all([
+          store.mutual(owner, data.peerId), store.message(data.messageId)
+        ]);
+        insist(mutual, 409, 'Yazışmak için karşı tarafın da kodunuzu kaydetmesi gerekir.');
         if (existing) insist(existing.senderId === owner && existing.recipientId === data.peerId && existing.content === data.content, 409, 'Mesaj kimliği farklı içerikle kullanılmış.');
         const message = existing ?? await store.send({ id: data.messageId, senderId: owner, recipientId: data.peerId, content: data.content });
         insist(message.senderId === owner && message.recipientId === data.peerId && message.content === data.content, 409, 'Mesaj kimliği çakıştı.');
@@ -588,8 +590,12 @@ export class RestStore {
   mapMessage(row) { return row ? { id: row.id, senderId: row.sender_id, recipientId: row.recipient_id, content: row.content, createdAt: Date.parse(row.created_at), status: row.read_at ? 'READ' : row.delivered_at ? 'DELIVERED' : 'SENT', deleted: row.deleted, reaction: row.reaction ?? '', revision: row.revision } : null; }
   async message(id) { return this.mapMessage((await this.query('lanu_messages?id=eq.' + id + '&limit=1'))[0]); }
   async send(value) {
-    await this.query('lanu_messages?on_conflict=id', 'POST', { id: value.id, sender_id: value.senderId, recipient_id: value.recipientId, content: value.content }, 'resolution=ignore-duplicates');
-    return this.message(value.id);
+    const rows = await this.query('lanu_messages?on_conflict=id', 'POST', { id: value.id, sender_id: value.senderId, recipient_id: value.recipientId, content: value.content }, 'resolution=ignore-duplicates,return=representation');
+    // The committed insert row removes one sequential REST roundtrip. A
+    // concurrent duplicate or legacy no-representation response still reads
+    // the authoritative row and is checked by the relay before any receipt.
+    return Array.isArray(rows) && rows.length === 1
+      ? this.mapMessage(rows[0]) : this.message(value.id);
   }
   async events(owner, mediaVersion = 0) {
     // The deployed SQL RPC filters private_media for legacy clients BEFORE

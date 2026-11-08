@@ -20,7 +20,8 @@ for (const user of [alice,bob]) await request(user,'register',{publicKey:user.pu
 await request(alice,'addContact',{code:bob.code}); await request(bob,'addContact',{code:alice.code});
 const socket = new WebSocket(endpoint.replace(/^https:/,'wss:'), { agent: proxyAgent, headers: { 'X-Lanu-Authorization': JSON.stringify(envelope(bob,'realtimeOpen')) }, handshakeTimeout: 20000 });
 const received = [];
-socket.on('message', value => { received.push(JSON.parse(value.toString())); });
+let lastMessageAt = 0;
+socket.on('message', value => { const event=JSON.parse(value.toString()); received.push(event); if(event.changed==='message') lastMessageAt=performance.now(); });
 async function until(predicate, label) {
   const deadline = Date.now()+22000;
   while (!predicate()) { if (Date.now()>deadline) throw Error(label+' timed out'); await new Promise(r=>setTimeout(r,50)); }
@@ -33,8 +34,20 @@ try {
   const id=randomUUID(), started=performance.now();
   await request(alice,'send',{messageId:id,peerId:bob.id,content:encrypted(alice,bob,id,'synthetic realtime acceptance')});
   await until(()=>received.some(v=>v.changed==='message'), 'Cross-instance message wake');
-  const wakeMillis=Math.round(performance.now()-started);
+  const wakeMillis=Math.round(lastMessageAt-started);
   const sync=await request(bob,'sync');
   assert.ok(sync.events.some(v=>v.message.id===id), 'Durable message remains available after wake');
-  console.log(JSON.stringify({signedChannel:true,opaqueCrossInstanceWake:true,durableHttpFallback:true,wakeMillis,physicalAndroidAcceptance:false}));
+  await request(alice,'callSync'); await request(bob,'callSync');
+  const signalId=randomUUID(), callId=randomUUID();
+  await request(alice,'callSend',{id:signalId,callId,peerId:bob.id,content:encrypted(alice,bob,signalId,'synthetic encrypted signal')});
+  await until(()=>received.some(v=>v.changed==='call'),'Call wake');
+  const calls=await request(bob,'callSync');
+  assert.ok(calls.signals.some(v=>v.id===signalId));
+  await request(bob,'callAck',{ids:[signalId]});
+  for (let pass=0;pass<2;pass++) for (const user of [bob,alice]) {
+    const pending=await request(user,'sync');
+    if(pending.events.length) await request(user,'ack',{eventIds:pending.events.map(v=>v.id),readIds:[]});
+  }
+  await request(alice,'removeContact',{peerId:bob.id}); await request(bob,'removeContact',{peerId:alice.id});
+  console.log(JSON.stringify({signedChannel:true,opaqueCrossInstanceWake:true,callWake:true,durableHttpFallback:true,wakeMillis,physicalAndroidAcceptance:false}));
 } finally { socket.close(); proxyAgent?.destroy(); }

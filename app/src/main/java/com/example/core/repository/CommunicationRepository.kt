@@ -507,6 +507,7 @@ class CommunicationRepository(
             relay.request(registerRemote(), "removeContact", JSONObject().put("peerId", peer.getString("id")))
         }
         contactDao.deleteContact(code)
+        settingsDao.deleteSetting("lanu_favorite_$code")
         settingsDao.deleteSetting("lanu_peer_code_$code")
     }
     suspend fun lookupContactByPhone(code: String) = contactDao.getContactByPhone(UserCodes.normalize(code))

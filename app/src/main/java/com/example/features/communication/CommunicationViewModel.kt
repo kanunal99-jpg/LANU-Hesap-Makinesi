@@ -227,12 +227,38 @@ class CommunicationViewModel(
         _userName.value = repository.getUserProfile().second ?: "LANU Kullanıcısı"
         _isRegistered.value = true
     }
+    private val visibleOwners = mutableSetOf<String>()
+    private var foregroundSendJob: Job? = null
+    private var foregroundSendRequested = false
+    private fun requestForegroundSend() {
+        if (visibleOwners.isEmpty()) return
+        foregroundSendRequested = true
+        if (foregroundSendJob?.isActive == true) return
+        foregroundSendJob = viewModelScope.launch {
+            while (visibleOwners.isNotEmpty() && foregroundSendRequested) {
+                foregroundSendRequested = false
+                try { repository.sendQueuedForeground() }
+                catch (e: CancellationException) { throw e }
+                catch (_: Exception) { /* Durable Room queue retains all ciphertext for fallback. */ }
+                if (foregroundSendRequested) delay(1000L)
+            }
+        }
+    }
     fun startSync(owner: String) {
         if (owner.isBlank()) return
         checkRegistration()
+        visibleOwners.add(owner)
         foregroundSync.start(owner)
     }
-    fun stopSync(owner: String) { foregroundSync.stop(owner) }
+    fun stopSync(owner: String) {
+        visibleOwners.remove(owner)
+        foregroundSync.stop(owner)
+        if (visibleOwners.isEmpty()) {
+            foregroundSendRequested = false
+            foregroundSendJob?.cancel(); foregroundSendJob = null
+            realtimeReady = false
+        }
+    }
     private suspend fun synchronize(): ForegroundSyncPump.Attempt {
         if (repository.relayConfigured && _networkState.value != NetworkState.ONLINE) {
             _networkState.value = NetworkState.RECONNECTING
@@ -384,9 +410,7 @@ class CommunicationViewModel(
                 val messageId = repository.sendMessage(conversation.id, text)
                 onQueued()
                 requestOutboxDrain()
-                try { repository.sendQueuedForeground() }
-                catch (e: CancellationException) { throw e }
-                catch (_: Exception) { /* Durable queue and foreground/background retry retain ownership. */ }
+                requestForegroundSend()
                 // The timer is *only* a local hide, never remote deletion.
                 if (isSelfDestruct) viewModelScope.launch {
                     try {

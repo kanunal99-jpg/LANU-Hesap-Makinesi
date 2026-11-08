@@ -1,6 +1,8 @@
 package com.example.features.communication
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -28,7 +30,7 @@ fun TurnServerSettings() {
     if (expanded) AlertDialog(onDismissRequest = { if (!busy) { password = ""; expanded = false } },
         properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
         title = { Text("TURN bağlantı yedeği") }, text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Yalnız sahip olduğunuz veya kullanmaya yetkili olduğunuz sunucuyu girin. Uygulama sunucu satın almaz. Aktarma trafiği sağlayıcınızın kotasına tabi olabilir. Ayarı kaydetmek bağlantı testi değildir.")
                 OutlinedTextField(url, { url = it.take(300) }, label = { Text("turns:sunucu:443?transport=tcp") }, singleLine = true)
                 OutlinedTextField(username, { username = it.take(256) }, label = { Text("Kullanıcı adı") }, singleLine = true)

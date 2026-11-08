@@ -82,6 +82,7 @@ class NativeCallEngine(
     private var tricklePeer = false
     override fun candidateListener(listener: (String) -> Unit) { candidateCallback = listener }
     override suspend fun remoteCandidate(candidate: String): Unit = withContext(dispatcher) {
+        if (closing.get()) return@withContext
         val value = org.json.JSONObject(candidate)
         TrickleIcePolicy.validate(value)
         val pc = connection ?: return@withContext
@@ -500,11 +501,20 @@ class NativeCallEngine(
     }
     private val observer = object : EmptyPeerObserver() {
         override fun onIceCandidate(candidate: IceCandidate) {
+            if (closing.get()) return
             lastCandidateAt = android.os.SystemClock.elapsedRealtime()
-            val value = org.json.JSONObject().put("mid", candidate.sdpMid ?: "0")
-                .put("index", candidate.sdpMLineIndex).put("candidate", candidate.sdp)
-                .put("ufrag", TrickleIcePolicy.ufrag(connection?.localDescription?.description.orEmpty()))
-            if (runCatching { TrickleIcePolicy.validate(value) }.isSuccess) candidateCallback?.invoke(value.toString())
+            // Native reads are serialized with disposal, never performed on a
+            // late signaling callback after the peer has been released.
+            scope.launch {
+                if (closing.get()) return@launch
+                val currentUfrag = TrickleIcePolicy.ufrag(connection?.localDescription?.description.orEmpty())
+                val advertisedUfrag = Regex("(?:^| )ufrag ([^ ]+)").find(candidate.sdp)?.groupValues?.get(1)
+                if (advertisedUfrag != null && advertisedUfrag != currentUfrag) return@launch
+                val value = org.json.JSONObject().put("mid", candidate.sdpMid ?: "0")
+                    .put("index", candidate.sdpMLineIndex).put("candidate", candidate.sdp)
+                    .put("ufrag", currentUfrag)
+                if (runCatching { TrickleIcePolicy.validate(value) }.isSuccess) candidateCallback?.invoke(value.toString())
+            }
         }
         override fun onConnectionChange(state: PeerConnection.PeerConnectionState) {
             if (closing.get()) return
@@ -534,6 +544,7 @@ class NativeCallEngine(
     /** Immediate mute, then release camera, renderers, codecs and audio off the UI thread. */
     override fun close() {
         if (!closing.compareAndSet(false, true)) return
+        candidateCallback = null
         cameraSwitchGate.invalidate()
         runCatching { localAudio?.setEnabled(false) }; runCatching { localVideo?.setEnabled(false) }
         scope.launch {
