@@ -87,7 +87,7 @@ class NativeCallEngine(
         val pc = connection ?: return@withContext
         // Reject candidates from an old ICE epoch, including late restart callbacks.
         if (value.getString("ufrag") != TrickleIcePolicy.ufrag(pc.remoteDescription?.description.orEmpty())) return@withContext
-        check(pc.addIceCandidate(IceCandidate(value.getString("mid"), value.getInt("index"), value.getString("candidate")))
+        check(pc.addIceCandidate(IceCandidate(value.getString("mid"), value.getInt("index"), value.getString("candidate"))))
     }
     private var renderers: CallVideoRendererBindings? = null
 
@@ -274,7 +274,7 @@ class NativeCallEngine(
         val sdp = createSdp { pc.createOffer(it, constraints) }
         setPreferredLocalSdp(pc, sdp)
         if (!tricklePeer) awaitIce(pc)
-        checkNotNull(pc.localDescription).description
+        TrickleIcePolicy.advertise(checkNotNull(pc.localDescription).description)
     }
 
     override suspend fun answer(remote: String): String = withContext(dispatcher) {
@@ -285,7 +285,7 @@ class NativeCallEngine(
         val sdp = createSdp { pc.createAnswer(it, MediaConstraints()) }
         setPreferredLocalSdp(pc, sdp)
         if (!tricklePeer) awaitIce(pc)
-        checkNotNull(pc.localDescription).description
+        TrickleIcePolicy.advertise(checkNotNull(pc.localDescription).description)
     }
 
     override suspend fun remoteAnswer(remote: String) = withContext(dispatcher) {
@@ -298,17 +298,16 @@ class NativeCallEngine(
      * offer/answer unchanged. DTX is intentionally not forced on working audio.
      */
     private suspend fun setPreferredLocalSdp(pc: PeerConnection, original: SessionDescription) {
-        val advertised = SessionDescription(original.type, TrickleIcePolicy.advertise(original.description))
-        val preferredText = OpusSdpPolicy.preferReceiveFec(advertised.description)
+        val preferredText = OpusSdpPolicy.preferReceiveFec(original.description)
         if (preferredText == original.description) {
-            setSdp { pc.setLocalDescription(it, advertised) }
+            setSdp { pc.setLocalDescription(it, original) }
             return
         }
         val preferred = SessionDescription(original.type, preferredText)
         try {
             setSdp { pc.setLocalDescription(it, preferred) }
         } catch (_: IllegalStateException) {
-            setSdp { pc.setLocalDescription(it, advertised) }
+            setSdp { pc.setLocalDescription(it, original) }
         }
     }
 

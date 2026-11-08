@@ -176,7 +176,7 @@ class NativeCallViewModel(
         realtimePoll?.cancel()
         realtimePoll = viewModelScope.launch {
             repository.realtimeChanges.collect { hint ->
-                if (hint != "message" && foreground) {
+                if (hint in setOf("call", "ready") && foreground) {
                     try { repository.pollCallSignals() }
                     catch (e: CancellationException) { throw e }
                     catch (_: Exception) { /* Active/idle HTTP fallback remains available. */ }

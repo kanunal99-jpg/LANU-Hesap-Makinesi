@@ -39,6 +39,7 @@ Deno.serve(async (request: Request) => {
       const input = JSON.parse(envelope.payload);
       if (input.action !== 'realtimeOpen') throw new Error('Invalid action');
       const result = await createRelay(new RestStore(url, key), Date.now, { realtimeEnabled: true })(envelope);
+      if (!("owner" in result) || typeof result.owner !== "string") throw new Error("Unauthorized");
       const { socket, response } = Deno.upgradeWebSocket(request);
       const bridge = bridgeWake(socket, result.owner, url, key);
       EdgeRuntime.waitUntil(bridge.done);

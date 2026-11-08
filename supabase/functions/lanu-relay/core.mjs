@@ -199,6 +199,7 @@ export function createRelay(store, clock = Date.now, options = {}) {
         // If FCM fails, the accepted encrypted invite remains on relay.
         if (awake && result.created && typeof result.wake_token === 'string' &&
           typeof options.sendCallWake === 'function') {
+          const dispatch = async () => {
           try { await options.sendCallWake(result.wake_token, clock()); }
           catch (error) {
             // FCM explicitly declared this old device token unregistered.
@@ -210,6 +211,10 @@ export function createRelay(store, clock = Date.now, options = {}) {
               catch { /* Encrypted INVITE remains accepted and retained. */ }
             }
           }
+          };
+          const task = dispatch();
+          if (typeof options.scheduleMessageWake === 'function') options.scheduleMessageWake(task);
+          else await task;
         }
         dispatchRealtime(data.peerId, 'call');
         return { accepted: true };

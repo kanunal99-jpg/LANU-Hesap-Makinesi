@@ -33,6 +33,7 @@ class RealtimeWake(private val endpoint: String) {
             }
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) { webSocket.cancel(); close() }
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { response?.close(); close() }
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, null); close() }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { close() }
         })
         awaitClose { socket.cancel() }

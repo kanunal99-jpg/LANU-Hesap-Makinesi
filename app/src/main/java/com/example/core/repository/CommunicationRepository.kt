@@ -76,6 +76,7 @@ class CommunicationRepository(
     val identity: StateFlow<MessagingIdentity?> = _identity.asStateFlow()
     val relayConfigured get() = relay.configured
     val realtimeChanges: Flow<String> = flow {
+        if (!relay.realtimeAvailable) return@flow
         while (true) {
             try { relay.realtimeEvents(loadIdentity(allowCreate = false)).collect { emit(it) } }
             catch (e: CancellationException) { throw e }
