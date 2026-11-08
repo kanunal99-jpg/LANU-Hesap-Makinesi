@@ -57,6 +57,7 @@ class ScientificCalculatorViewModelTest {
     }
 
     private val fakeSettingsDao = object : SettingsDao {
+        override fun getFavoriteSettings() = kotlinx.coroutines.flow.flowOf(emptyList<SettingsEntity>())
         override suspend fun getSettingValue(key: String): String? = "16"
         override suspend fun insertSetting(setting: SettingsEntity) {}
         override suspend fun deleteSetting(key: String) {}

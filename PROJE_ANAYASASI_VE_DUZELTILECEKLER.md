@@ -1,5 +1,9 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 08.11.2026 — Kullanıcı onaylı tek toplu iletişim hızlandırma yayını
+
+Kullanıcı incelemedeki sırayı onayladı ve tek oturumda kullanıcı APK yayını istedi: kimlik doğrulamalı WebSocket olay bildirimi, geriye uyumlu Trickle ICE, kalıcı kuyruğu koruyan öncelikli gönderim, QR/onaylı davet, güvenli alan içi hızlı kişiler ve kimlikli TURN yedeği değerlendirmesi. Mevcut giriş/PIN, hesap makinesi, kimlik, Room, geçmiş ve signer korunur. WebSocket yalnız yetkili görünür oturumda; kesilirse mevcut HTTP polling devralır. Eski APK ile görüşme devam eder. QR/davet yalnız açık kişi onayıdır; dış Intent veya kilit atlama eklenmez. TURN için ücretsiz/açık kaynak yazılım, işletim maliyeti ve gerçek sunucu erişilebilirliği ayrı doğrulanır; ödeme veya bilinmeyen genel TURN servisi açılmaz. İki fiziksel cihaz gecikme/kalite kabulü yoksa hedefler başarı olarak raporlanmaz. Bu kayıt uygulama/yayın kanıtı değildir.
+
 ## 07.11.2026 — Altı alanın sağlamlaştırılması ve tam puan hedefi
 
 Kullanıcı gizlilik, mesajlaşma, sesli/görüntülü görüşme, gürültü-yankı azaltma ve yayın/güncelleme alanlarını birlikte güçlendirip kullanıcı APK'sına yayımlamayı istedi. Başlangıç main `875f68c`, imzalı sürüm `1123`, geçici teknik puan `75/100`. Hedef tam puandır; hedef beyanı fiziksel iki cihaz, gerçek ses/video, güvenli kurtarma veya gecikme kabul kanıtı değildir. Hesap makinesi, mevcut giriş/PIN, kimlik/veri ve signer korunur; ücretli servis açılmaz. Kod ve testle kapatılabilen eksikler uygulanır, kalan fiziksel/bağımsız kurtarma kapıları somut kaydedilir. Son HEAD CI → main CI → imzalı veri koruyan OTA → public APK/SHA/signer doğrulaması zorunludur. Kanıtsız puan yükseltilmez.

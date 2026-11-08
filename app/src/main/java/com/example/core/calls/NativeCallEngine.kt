@@ -29,6 +29,8 @@ interface CallMediaSession {
     suspend fun camera(value: Boolean)
     fun switchCamera()
     fun close()
+    fun candidateListener(listener: (String) -> Unit) {}
+    suspend fun remoteCandidate(candidate: String) {}
 }
 
 class NativeCallEngine(
@@ -76,6 +78,18 @@ class NativeCallEngine(
     private val remoteStatsGate = RemoteCallStatsGate()
     private var videoStatsEpoch: Long? = null
     @Volatile private var lastCandidateAt = 0L
+    @Volatile private var candidateCallback: ((String) -> Unit)? = null
+    private var tricklePeer = false
+    override fun candidateListener(listener: (String) -> Unit) { candidateCallback = listener }
+    override suspend fun remoteCandidate(candidate: String): Unit = withContext(dispatcher) {
+        if (closing.get()) return@withContext
+        val value = org.json.JSONObject(candidate)
+        TrickleIcePolicy.validate(value)
+        val pc = connection ?: return@withContext
+        // Reject candidates from an old ICE epoch, including late restart callbacks.
+        if (value.getString("ufrag") != TrickleIcePolicy.ufrag(pc.remoteDescription?.description.orEmpty())) return@withContext
+        check(pc.addIceCandidate(IceCandidate(value.getString("mid"), value.getInt("index"), value.getString("candidate"))))
+    }
     private var renderers: CallVideoRendererBindings? = null
 
     override suspend fun start(video: Boolean): Unit = withContext(dispatcher) {
@@ -126,7 +140,9 @@ class NativeCallEngine(
         val config = PeerConnection.RTCConfiguration(
             CallIceServerPolicy.stunUrls.map {
                 PeerConnection.IceServer.builder(it).createIceServer()
-            }
+            } + listOfNotNull(runCatching { CallTurnConfig(context).read() }.getOrNull()?.let {
+                PeerConnection.IceServer.builder(it.url).setUsername(it.username).setPassword(it.credential).createIceServer()
+            })
         ).apply { sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN }
         connection = checkNotNull(factory!!.createPeerConnection(config, observer)) { "Bağlantı motoru açılamadı." }
         val audioConstraints = MediaConstraints().apply {
@@ -258,21 +274,23 @@ class NativeCallEngine(
         val constraints = MediaConstraints().apply { if (restart) mandatory.add(MediaConstraints.KeyValuePair("IceRestart", "true")) }
         val sdp = createSdp { pc.createOffer(it, constraints) }
         setPreferredLocalSdp(pc, sdp)
-        awaitIce(pc)
-        checkNotNull(pc.localDescription).description
+        if (!tricklePeer) awaitIce(pc)
+        TrickleIcePolicy.advertise(checkNotNull(pc.localDescription).description)
     }
 
     override suspend fun answer(remote: String): String = withContext(dispatcher) {
         val pc = checkNotNull(connection)
+        tricklePeer = TrickleIcePolicy.supported(remote)
         setSdp { pc.setRemoteDescription(it, SessionDescription(SessionDescription.Type.OFFER, remote)) }
         lastCandidateAt = 0L
         val sdp = createSdp { pc.createAnswer(it, MediaConstraints()) }
         setPreferredLocalSdp(pc, sdp)
-        awaitIce(pc)
-        checkNotNull(pc.localDescription).description
+        if (!tricklePeer) awaitIce(pc)
+        TrickleIcePolicy.advertise(checkNotNull(pc.localDescription).description)
     }
 
     override suspend fun remoteAnswer(remote: String) = withContext(dispatcher) {
+        tricklePeer = TrickleIcePolicy.supported(remote)
         setSdp { connection!!.setRemoteDescription(it, SessionDescription(SessionDescription.Type.ANSWER, remote)) }
     }
     /**
@@ -482,7 +500,22 @@ class NativeCallEngine(
         }
     }
     private val observer = object : EmptyPeerObserver() {
-        override fun onIceCandidate(candidate: IceCandidate) { lastCandidateAt = android.os.SystemClock.elapsedRealtime() }
+        override fun onIceCandidate(candidate: IceCandidate) {
+            if (closing.get()) return
+            lastCandidateAt = android.os.SystemClock.elapsedRealtime()
+            // Native reads are serialized with disposal, never performed on a
+            // late signaling callback after the peer has been released.
+            scope.launch {
+                if (closing.get()) return@launch
+                val currentUfrag = TrickleIcePolicy.ufrag(connection?.localDescription?.description.orEmpty())
+                val advertisedUfrag = Regex("(?:^| )ufrag ([^ ]+)").find(candidate.sdp)?.groupValues?.get(1)
+                if (advertisedUfrag != null && advertisedUfrag != currentUfrag) return@launch
+                val value = org.json.JSONObject().put("mid", candidate.sdpMid ?: "0")
+                    .put("index", candidate.sdpMLineIndex).put("candidate", candidate.sdp)
+                    .put("ufrag", currentUfrag)
+                if (runCatching { TrickleIcePolicy.validate(value) }.isSuccess) candidateCallback?.invoke(value.toString())
+            }
+        }
         override fun onConnectionChange(state: PeerConnection.PeerConnectionState) {
             if (closing.get()) return
             // Only fresh inbound AND outbound RTP after this transport epoch
@@ -511,6 +544,7 @@ class NativeCallEngine(
     /** Immediate mute, then release camera, renderers, codecs and audio off the UI thread. */
     override fun close() {
         if (!closing.compareAndSet(false, true)) return
+        candidateCallback = null
         cameraSwitchGate.invalidate()
         runCatching { localAudio?.setEnabled(false) }; runCatching { localVideo?.setEnabled(false) }
         scope.launch {

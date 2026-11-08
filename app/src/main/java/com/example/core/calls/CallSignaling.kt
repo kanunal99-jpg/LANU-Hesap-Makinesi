@@ -3,7 +3,7 @@ package com.example.core.calls
 import org.json.JSONObject
 import java.util.UUID
 
-enum class CallSignalKind { INVITE, ACCEPT, REJECT, BUSY, OFFER, ANSWER, END }
+enum class CallSignalKind { INVITE, ACCEPT, REJECT, BUSY, OFFER, ANSWER, END, CANDIDATES }
 
 /** Sensitive SDP stays only in RAM and inside authenticated peer ciphertext. */
 class CallSignal(
@@ -70,7 +70,8 @@ object CallSignaling {
             require(s.sdp.length in 1..MAX_SDP && s.sdp.toByteArray(Charsets.UTF_8).size <= MAX_SDP)
             require(!s.sdp.contains('\u0000') && s.sdp.startsWith("v=0") &&
                 s.sdp.contains("a=fingerprint:sha-256 ") && s.sdp.contains("m=audio "))
-        } else require(s.sdp.isEmpty())
+        } else if (s.kind == CallSignalKind.CANDIDATES) TrickleIcePolicy.decode(s.sdp)
+        else require(s.sdp.isEmpty())
     }
 }
 

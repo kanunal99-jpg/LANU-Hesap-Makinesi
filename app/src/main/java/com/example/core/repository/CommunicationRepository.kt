@@ -44,6 +44,17 @@ class CommunicationRepository(
     val foregroundNetworkChanges: Flow<Unit> = emptyFlow()
 ) {
     val contacts = contactDao.getAllContacts().map { list -> list.filter { UserCodes.normalize(it.phoneNumber).isNotBlank() } }
+    val favoriteCodes = settingsDao.getFavoriteSettings().map { rows ->
+        rows.filter { it.key.startsWith("lanu_favorite_") && it.value == "true" }
+            .map { it.key.removePrefix("lanu_favorite_") }.toSet()
+    }
+    suspend fun toggleFavorite(code: String) {
+        val normalized = UserCodes.normalize(code)
+        require(normalized.isNotBlank() && contactDao.getContactByPhone(normalized)?.isBlocked == false)
+        val key = "lanu_favorite_$normalized"
+        if (settingsDao.getSettingValue(key) == "true") settingsDao.deleteSetting(key)
+        else settingsDao.insertSetting(SettingsEntity(key, "true"))
+    }
     val conversations = conversationDao.getAllConversations()
     val callLogs = callLogDao.getAllCallLogs()
     private val identityMutex = Mutex()
@@ -64,6 +75,18 @@ class CommunicationRepository(
     private val _identity = MutableStateFlow<MessagingIdentity?>(null)
     val identity: StateFlow<MessagingIdentity?> = _identity.asStateFlow()
     val relayConfigured get() = relay.configured
+    val realtimeChanges: Flow<String> = flow {
+        if (!relay.realtimeAvailable) return@flow
+        while (true) {
+            try { relay.realtimeEvents(loadIdentity(allowCreate = false)).collect { emit(it) } }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* Existing HTTP polling remains authoritative. */ }
+            emit("closed")
+            delay(5000L)
+        }
+    }.shareIn(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO),
+        SharingStarted.WhileSubscribed(stopTimeoutMillis = 0), replay = 0)
+
     @Volatile private var callingForeground = false
     @Volatile private var callInProgress = false
     fun setCallInProgress(active: Boolean) { callInProgress = active }
@@ -484,6 +507,7 @@ class CommunicationRepository(
             relay.request(registerRemote(), "removeContact", JSONObject().put("peerId", peer.getString("id")))
         }
         contactDao.deleteContact(code)
+        settingsDao.deleteSetting("lanu_favorite_$code")
         settingsDao.deleteSetting("lanu_peer_code_$code")
     }
     suspend fun lookupContactByPhone(code: String) = contactDao.getContactByPhone(UserCodes.normalize(code))
@@ -845,6 +869,14 @@ class CommunicationRepository(
         id
     }
 
+    suspend fun sendQueuedForeground() = syncMutex.withLock {
+        if (clock() < nextSyncAt || clock() < nextForegroundSendAt) return@withLock
+        nextForegroundSendAt = clock() + 1000L
+        val own = registerRemote(allowLease = true)
+        drainPendingOutbox(own, resolveContacts = false)
+    }
+    private var nextForegroundSendAt = 0L
+
     suspend fun synchronize(activeConversationId: String? = null, requireExistingIdentity: Boolean = false, drainOutbox: Boolean = true) = syncMutex.withLock {
         try { synchronizeLocked(activeConversationId, requireExistingIdentity, drainOutbox) }
         catch (e: Exception) {
@@ -965,9 +997,9 @@ class CommunicationRepository(
     private class RejectedCiphertext(cause: Exception? = null) :
         SecurityException("Şifreli mesaj doğrulanamadı. Teslim/okundu onayı gönderilmedi.", cause)
 
-    private suspend fun drainPendingOutbox(own: MessagingIdentity) {
+    private suspend fun drainPendingOutbox(own: MessagingIdentity, resolveContacts: Boolean = true) {
         var contactRequests = 0
-        for (contact in contacts.first()) {
+        for (contact in if (resolveContacts) contacts.first() else emptyList()) {
             if (callInProgress) break // Keep nonce/request budget for live call control.
             if (savedPeer(contact.phoneNumber) != null) continue
             val retryKey = "lanu_contact_retry_${contact.phoneNumber}"

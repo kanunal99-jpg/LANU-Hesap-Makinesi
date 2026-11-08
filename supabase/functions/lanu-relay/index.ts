@@ -1,3 +1,4 @@
+import { createWakePublisher, bridgeWake } from './realtime-wake.mjs';
 import { createRelay, RestStore, RelayError, readBoundedRequest } from './core.mjs';
 import { createFcmWakeSender } from './call-wake-fcm.mjs';
 import { createPrivateMediaStorage } from './media-storage.mjs';
@@ -28,6 +29,23 @@ declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 console.info('LANU call notification sender: ' + (sendCallWake ? 'configured' : 'not_configured'));
 console.info('LANU FCM credentials shape: ' + serviceAccountStatus(fcmCredentials));
 Deno.serve(async (request: Request) => {
+  if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+    try {
+      const url = Deno.env.get('SUPABASE_URL');
+      const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+      const raw = request.headers.get('X-Lanu-Authorization') ?? '';
+      if (!url || !key || raw.length > 4096) throw new Error('Unavailable');
+      const envelope = JSON.parse(raw);
+      const input = JSON.parse(envelope.payload);
+      if (input.action !== 'realtimeOpen') throw new Error('Invalid action');
+      const result = await createRelay(new RestStore(url, key), Date.now, { realtimeEnabled: true })(envelope);
+      if (!("owner" in result) || typeof result.owner !== "string") throw new Error("Unauthorized");
+      const { socket, response } = Deno.upgradeWebSocket(request);
+      const bridge = bridgeWake(socket, result.owner, url, key);
+      EdgeRuntime.waitUntil(bridge.done);
+      return response;
+    } catch { return new Response('Unavailable', { status: 403 }); }
+  }
   if (request.method !== 'POST') return new Response(JSON.stringify({ error: 'Yalnızca POST desteklenir.' }), { status: 405, headers });
   try {
     // Reject excess bytes while streaming, never after request.text() buffers the full body.
@@ -43,9 +61,12 @@ Deno.serve(async (request: Request) => {
     // Enabling large file transfers requires a separately reviewed, explicit
     // deployment flag. Existing LANU users and their Room/E2EE keys are not
     // automatically migrated. A signed URL is NEVER stored in the chat.
-    const privateMediaEnabled = Deno.env.get('LANU_PRIVATE_MEDIA_ENABLED') === 'true';
+    // Preserve deployed v14's OFF state in this communication-only rollout,
+    // even if a dormant environment flag exists. Separate reviewed activation
+    // must explicitly change this gate after private-media acceptance.
+    const privateMediaEnabled = false;
     const result = await createRelay(new RestStore(url, key), Date.now,
-      { calls: true, callWakeEnabled: Boolean(sendCallWake), sendCallWake,
+      { calls: true, publishWake: createWakePublisher(url, key), callWakeEnabled: Boolean(sendCallWake), sendCallWake,
         messageWakeEnabled: Boolean(sendMessageWake), sendMessageWake,
         scheduleMessageWake: (task: Promise<unknown>) => EdgeRuntime.waitUntil(task),
         privateMediaReservation: privateMediaEnabled,

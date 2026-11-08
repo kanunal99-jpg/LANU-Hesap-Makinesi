@@ -106,6 +106,11 @@ const MEDIA_MAX_CIPHER_BYTES = 41953280;
  * client cannot activate uploads or metadata reservations by guessing actions.
  */
 export function createRelay(store, clock = Date.now, options = {}) {
+  function dispatchRealtime(owner, kind) {
+    if (typeof options.publishWake !== 'function') return;
+    const task = Promise.resolve().then(() => options.publishWake(owner, kind)).catch(() => {});
+    if (typeof options.scheduleMessageWake === 'function') options.scheduleMessageWake(task);
+  }
   return async envelope => {
     insist(envelope && typeof envelope.payload === 'string' && envelope.payload.length <= 70000 && typeof envelope.signature === 'string', 400, 'Geçersiz istek.');
     let input;
@@ -126,6 +131,10 @@ export function createRelay(store, clock = Date.now, options = {}) {
     insist(identity, 401, 'Kimlik bulunamadı.');
     insist(await store.consumeNonce(owner, requestId, clock()), 409, 'Bu istek daha önce işlendi.');
     switch (action) {
+      case 'realtimeOpen': {
+        insist(options.realtimeEnabled === true && Object.keys(data).length === 0, 503, 'Anlık bağlantı kullanılamıyor.');
+        return { owner, version: 1 };
+      }
       case 'callSync': {
         insist(options.calls === true, 503, 'Arama sunucusu henüz etkin değil.');
         return { version: 1, signals: await store.callPoll(owner) };
@@ -190,6 +199,7 @@ export function createRelay(store, clock = Date.now, options = {}) {
         // If FCM fails, the accepted encrypted invite remains on relay.
         if (awake && result.created && typeof result.wake_token === 'string' &&
           typeof options.sendCallWake === 'function') {
+          const dispatch = async () => {
           try { await options.sendCallWake(result.wake_token, clock()); }
           catch (error) {
             // FCM explicitly declared this old device token unregistered.
@@ -201,7 +211,12 @@ export function createRelay(store, clock = Date.now, options = {}) {
               catch { /* Encrypted INVITE remains accepted and retained. */ }
             }
           }
+          };
+          const task = dispatch();
+          if (typeof options.scheduleMessageWake === 'function') options.scheduleMessageWake(task);
+          else await task;
         }
+        dispatchRealtime(data.peerId, 'call');
         return { accepted: true };
       }
       case 'callAck': {
@@ -270,8 +285,10 @@ export function createRelay(store, clock = Date.now, options = {}) {
       }
       case 'send': {
         insist(uuid.test(data.messageId ?? '') && hex64.test(data.peerId ?? '') && data.peerId !== owner && ciphertext(data.content), 400, 'Geçersiz şifreli mesaj.');
-        insist(await store.mutual(owner, data.peerId), 409, 'Yazışmak için karşı tarafın da kodunuzu kaydetmesi gerekir.');
-        const existing = await store.message(data.messageId);
+        const [mutual, existing] = await Promise.all([
+          store.mutual(owner, data.peerId), store.message(data.messageId)
+        ]);
+        insist(mutual, 409, 'Yazışmak için karşı tarafın da kodunuzu kaydetmesi gerekir.');
         if (existing) insist(existing.senderId === owner && existing.recipientId === data.peerId && existing.content === data.content, 409, 'Mesaj kimliği farklı içerikle kullanılmış.');
         const message = existing ?? await store.send({ id: data.messageId, senderId: owner, recipientId: data.peerId, content: data.content });
         insist(message.senderId === owner && message.recipientId === data.peerId && message.content === data.content, 409, 'Mesaj kimliği çakıştı.');
@@ -303,6 +320,7 @@ export function createRelay(store, clock = Date.now, options = {}) {
             options.scheduleMessageWake(task);
           else await task; // deterministic local/Node protocol tests
         }
+        dispatchRealtime(data.peerId, 'message');
         return { status: message.status };
       }
       case 'reservePrivateMedia': {
@@ -572,8 +590,12 @@ export class RestStore {
   mapMessage(row) { return row ? { id: row.id, senderId: row.sender_id, recipientId: row.recipient_id, content: row.content, createdAt: Date.parse(row.created_at), status: row.read_at ? 'READ' : row.delivered_at ? 'DELIVERED' : 'SENT', deleted: row.deleted, reaction: row.reaction ?? '', revision: row.revision } : null; }
   async message(id) { return this.mapMessage((await this.query('lanu_messages?id=eq.' + id + '&limit=1'))[0]); }
   async send(value) {
-    await this.query('lanu_messages?on_conflict=id', 'POST', { id: value.id, sender_id: value.senderId, recipient_id: value.recipientId, content: value.content }, 'resolution=ignore-duplicates');
-    return this.message(value.id);
+    const rows = await this.query('lanu_messages?on_conflict=id', 'POST', { id: value.id, sender_id: value.senderId, recipient_id: value.recipientId, content: value.content }, 'resolution=ignore-duplicates,return=representation');
+    // The committed insert row removes one sequential REST roundtrip. A
+    // concurrent duplicate or legacy no-representation response still reads
+    // the authoritative row and is checked by the relay before any receipt.
+    return Array.isArray(rows) && rows.length === 1
+      ? this.mapMessage(rows[0]) : this.message(value.id);
   }
   async events(owner, mediaVersion = 0) {
     // The deployed SQL RPC filters private_media for legacy clients BEFORE

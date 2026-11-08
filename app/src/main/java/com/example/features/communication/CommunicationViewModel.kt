@@ -23,6 +23,8 @@ class CommunicationViewModel(
     private val repository: CommunicationRepository,
     private val deliveryCoordinator: DeliveryCoordinator? = null
 ) : ViewModel() {
+    val favoriteCodes = repository.favoriteCodes
+    fun toggleFavorite(code: String) = operation { repository.toggleFavorite(code) }
     val contacts = repository.contacts
     val conversations = repository.conversations
     val callLogs = repository.callLogs
@@ -121,10 +123,12 @@ class CommunicationViewModel(
     private val _networkState = MutableStateFlow(if (repository.relayConfigured) NetworkState.OFFLINE else NetworkState.UNCONFIGURED)
     val networkState = _networkState.asStateFlow()
     private var messagesCollectorJob: Job? = null
+    private var realtimeReady = false
     private val foregroundSync by lazy {
-        ForegroundSyncSession(viewModelScope, repository.foregroundNetworkChanges,
+        ForegroundSyncSession(viewModelScope, merge(repository.foregroundNetworkChanges, repository.realtimeChanges.map { hint -> realtimeReady = hint != "closed"; Unit }),
             { _activeConversation.value != null },
-            clockMillis = { android.os.SystemClock.elapsedRealtime() }, synchronize = ::synchronize)
+            clockMillis = { android.os.SystemClock.elapsedRealtime() },
+            minimumInterval = { if (realtimeReady) 1000L else ForegroundSyncPump.MIN_INTERVAL_MILLIS }, synchronize = ::synchronize)
     }
 
     private fun operation(block: suspend () -> Unit) {
@@ -223,12 +227,38 @@ class CommunicationViewModel(
         _userName.value = repository.getUserProfile().second ?: "LANU Kullanıcısı"
         _isRegistered.value = true
     }
+    private val visibleOwners = mutableSetOf<String>()
+    private var foregroundSendJob: Job? = null
+    private var foregroundSendRequested = false
+    private fun requestForegroundSend() {
+        if (visibleOwners.isEmpty()) return
+        foregroundSendRequested = true
+        if (foregroundSendJob?.isActive == true) return
+        foregroundSendJob = viewModelScope.launch {
+            while (visibleOwners.isNotEmpty() && foregroundSendRequested) {
+                foregroundSendRequested = false
+                try { repository.sendQueuedForeground() }
+                catch (e: CancellationException) { throw e }
+                catch (_: Exception) { /* Durable Room queue retains all ciphertext for fallback. */ }
+                if (foregroundSendRequested) delay(1000L)
+            }
+        }
+    }
     fun startSync(owner: String) {
         if (owner.isBlank()) return
         checkRegistration()
+        visibleOwners.add(owner)
         foregroundSync.start(owner)
     }
-    fun stopSync(owner: String) { foregroundSync.stop(owner) }
+    fun stopSync(owner: String) {
+        visibleOwners.remove(owner)
+        foregroundSync.stop(owner)
+        if (visibleOwners.isEmpty()) {
+            foregroundSendRequested = false
+            foregroundSendJob?.cancel(); foregroundSendJob = null
+            realtimeReady = false
+        }
+    }
     private suspend fun synchronize(): ForegroundSyncPump.Attempt {
         if (repository.relayConfigured && _networkState.value != NetworkState.ONLINE) {
             _networkState.value = NetworkState.RECONNECTING
@@ -380,6 +410,7 @@ class CommunicationViewModel(
                 val messageId = repository.sendMessage(conversation.id, text)
                 onQueued()
                 requestOutboxDrain()
+                requestForegroundSend()
                 // The timer is *only* a local hide, never remote deletion.
                 if (isSelfDestruct) viewModelScope.launch {
                     try {
