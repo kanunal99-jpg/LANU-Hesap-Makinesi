@@ -153,7 +153,7 @@ interface MessageDao {
         LEFT JOIN app_settings active_epoch ON active_epoch.`key` = 'lanu_dr_epoch_' || messages.conversationId
         WHERE status IN ('PENDING', 'WAITING')
           AND COALESCE(CAST(retry.value AS INTEGER), 0) <= :now
-          AND ((wire_epoch.value IS NULL AND messages.content NOT LIKE 'lanu3-local:%')
+          AND ((wire_epoch.value IS NULL AND active_epoch.value IS NULL AND messages.content NOT LIKE 'lanu3-local:%')
             OR (wire_epoch.value IS NOT NULL AND wire_epoch.value=active_epoch.value))
         ORDER BY timestamp ASC, id ASC LIMIT :limit
     """)

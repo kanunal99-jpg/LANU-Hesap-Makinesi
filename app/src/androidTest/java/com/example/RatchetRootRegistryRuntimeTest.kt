@@ -54,7 +54,15 @@ class RatchetRootRegistryRuntimeTest {
             assertEquals(bundle.toString(),f.db.settingsDao().getSettingValue("lanu_dr_public_bundle_${f.peer.id}"))
             f.db.settingsDao().deleteSetting(RatchetRootRegistry.pointerKey(f.peer.id))
             assertTrue(runCatching {RatchetRootRegistry(f.context,f.db).current(f.own,f.peer.id)}.isFailure)
-            assertNotNull(f.db.settingsDao().getSettingValue(manifest.stateKey))
+            val oldCipher=f.db.settingsDao().getSettingValue(manifest.stateKey)
+            assertNotNull(oldCipher)
+            val selector=File(f.context.noBackupFilesDir,"lanu-ratchet-v1/${RatchetRootRegistry.recordId(f.own.id,f.peer.id)}.journal")
+            selector.writeText("damaged public selector")
+            assertTrue(runCatching {RatchetRootRegistry(f.context,f.db).current(f.own,f.peer.id)}.isFailure)
+            val (fresh,freshBundle)=f.stage()
+            RatchetRootRegistry(f.context,f.db).select(f.own,fresh,freshBundle,null,explicitRecovery=true)
+            assertEquals(fresh.encoded,RatchetRootRegistry(f.context,f.db).current(f.own,f.peer.id)!!.encoded)
+            assertEquals(oldCipher,f.db.settingsDao().getSettingValue(manifest.stateKey))
         }
     }
     @Test fun missingAnchorAndMissingKeystoreNeverCreateReplacementOrEraseHistory()=runBlocking {
@@ -85,6 +93,9 @@ class RatchetRootRegistryRuntimeTest {
                 f.db.messageDao().insertMessage(MessageEntity(id,conversation,f.own.id,"fixture","lanu3-local:fixture",timestamp=n.toLong(),status="WAITING"))
                 f.db.settingsDao().insertSetting(SettingsEntity("lanu_dr_wire_epoch_$id","a".repeat(64)))
             }
+            repeat(20) {n ->
+                f.db.messageDao().insertMessage(MessageEntity(UUID.randomUUID().toString(),conversation,f.own.id,"fixture","lanu2:legacyfixture",timestamp=n.toLong(),status="WAITING"))
+            }
             val fresh=UUID.randomUUID().toString()
             f.db.messageDao().insertMessage(MessageEntity(fresh,conversation,f.own.id,"fixture","lanu3-local:fixture",timestamp=999,status="PENDING"))
             f.db.settingsDao().insertSetting(SettingsEntity("lanu_dr_wire_epoch_$fresh",active))
@@ -96,7 +107,7 @@ class RatchetRootRegistryRuntimeTest {
             val settings=(0 until rows.length()).associate {rows.getJSONArray(it).getString(0) to rows.getJSONArray(it).getString(1)}
             assertFalse(settings.keys.any {it.startsWith("lanu_dr_private_state_")})
             assertEquals(active,settings["lanu_dr_wire_epoch_$fresh"])
-            assertEquals(211,f.db.messageDao().countModernEncryptedMessages())
+            assertEquals(231,f.db.messageDao().countModernEncryptedMessages())
         }
     }
 }

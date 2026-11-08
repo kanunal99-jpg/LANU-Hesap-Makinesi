@@ -42,7 +42,8 @@ class CommunicationRepository(
     private val database: AppDatabase,
     private val clock: () -> Long = System::currentTimeMillis,
     val foregroundNetworkChanges: Flow<Unit> = emptyFlow(),
-    private val ratchet: RatchetCoordinator? = null
+    private val ratchet: RatchetCoordinator? = null,
+    private val ratchetAdmissionEnabled:Boolean = BuildConfig.LANU_RATCHET_UI_ENABLED
 ) {
     val contacts = contactDao.getAllContacts().map { list -> list.filter { UserCodes.normalize(it.phoneNumber).isNotBlank() } }
     val conversations = conversationDao.getAllConversations()
@@ -65,6 +66,7 @@ class CommunicationRepository(
     private var nextRatchetRenewalCheckAt = 0L
     private var nextRatchetStatusCheckAt = 0L
     private var ratchetStatusOffset=0
+    private val legacyRatchetCheckedAt=mutableMapOf<String,Long>()
     data class RatchetStatus(val renewalPending:Boolean,val needsRecovery:Boolean,val retiredIncoming:Long,val retiredOutgoing:Long)
     private val _ratchetStatuses=MutableStateFlow<Map<String,RatchetStatus>>(emptyMap())
     val ratchetStatuses:StateFlow<Map<String,RatchetStatus>> = _ratchetStatuses.asStateFlow()
@@ -269,10 +271,12 @@ class CommunicationRepository(
             val ids=withContext(Dispatchers.IO) {
                 database.openHelper.writableDatabase.query("""
                     SELECT m.id FROM messages m
-                    JOIN app_settings w ON w.`key`='lanu_dr_wire_epoch_'||m.id
+                    LEFT JOIN app_settings w ON w.`key`='lanu_dr_wire_epoch_'||m.id
                     LEFT JOIN app_settings r ON r.`key`='lanu_dr_resend_'||m.id
-                    WHERE m.conversationId=? AND m.senderPhone=? AND m.content LIKE 'lanu3-local:%'
-                    AND m.status IN ('PENDING','SENDING','WAITING','SENT','FAILED') AND w.value<>? AND r.value IS NULL
+                    WHERE m.conversationId=? AND m.senderPhone=? AND r.value IS NULL AND (
+                      (m.content LIKE 'lanu3-local:%' AND w.value<>? AND m.status IN ('PENDING','SENDING','WAITING','SENT','FAILED'))
+                      OR (m.content LIKE 'lanu2:%' AND w.value IS NULL AND m.status IN ('PENDING','SENDING','WAITING','FAILED'))
+                    )
                     ORDER BY m.timestamp,m.id LIMIT 20
                 """.trimIndent(),arrayOf(conversation,own.id,epoch)).use {cursor ->
                     buildList {while(cursor.moveToNext()) add(cursor.getString(0))}
@@ -281,7 +285,8 @@ class CommunicationRepository(
             val service=coordinator.session(own,id)
             for(old in ids) {
                 val message=checkNotNull(messageDao.getMessage(old))
-                val text=RatchetSessionService.history(own,old,message.content)
+                val text=if(message.content.startsWith("lanu3-local:")) RatchetSessionService.history(own,old,message.content)
+                    else PeerMessageCrypto.decrypt(own,id,peer.getString("publicKey"),old,own.id,message.content)
                 service.queue(own,id,peer.getString("publicKey"),UUID.randomUUID().toString(),conversation,text,clock(),resendOf=old)
             }
             ids.size
@@ -1066,6 +1071,11 @@ class CommunicationRepository(
         }
         val id = UUID.randomUUID().toString()
         val peerId=peer.getString("id")
+        val requiredEpoch=settingsDao.getSettingValue("lanu_dr_epoch_$conversationId")
+        val localPin=settingsDao.getSettingValue("lanu_dr_pin_$peerId")
+        if(requiredEpoch!=null || localPin!=null) check(localPin!=null && localPin==requiredEpoch) {
+            "Bu sohbetin güvenli oturumu bu cihazda yenilenmeli; taslağınız korunuyor."
+        }
         check(ratchet?.candidate(peerId)==null && _ratchetStatuses.value[conversationId]?.let { !it.renewalPending && !it.needsRecovery }!=false) {
             "Oturum yenilemesi gerekiyor veya eş onayı bekleniyor; taslağınız korunuyor."
         }
@@ -1276,6 +1286,33 @@ class CommunicationRepository(
     private class RejectedCiphertext(cause: Exception? = null) :
         SecurityException("Şifreli mesaj doğrulanamadı. Teslim/okundu onayı gönderilmedi.", cause)
 
+    /** Offline legacy drafts can predate a server-side upgrade on another device.
+     * Before network delivery, learn a signed active pair and hold old ciphertext;
+     * do not consume or silently re-encrypt it. Closed feature builds do no lookup. */
+    private suspend fun admitLegacyOutbox(own:MessagingIdentity,peer:JSONObject,message:MessageEntity):Boolean {
+        if(settingsDao.getSettingValue("lanu_dr_epoch_${message.conversationId}")!=null ||
+            settingsDao.getSettingValue("lanu_dr_pin_${peer.getString("id")}")!=null) return false
+        if(!ratchetAdmissionEnabled || ratchet==null) return true
+        val peerId=peer.getString("id");val last=legacyRatchetCheckedAt[peerId]
+        if(last!=null && clock()-last in 0L until 30_000L) return true
+        val state=relay.request(own,"ratchetState",JSONObject().put("peerId",peerId))
+        if(state.getBoolean("ready")) {
+            val epoch=RatchetProtocol.verifyCurrentPair(own,peerId,peer.getString("publicKey"),state)
+            database.withTransaction {
+                settingsDao.insertSetting(SettingsEntity("lanu_dr_epoch_${message.conversationId}",epoch))
+                settingsDao.insertSetting(SettingsEntity("lanu_dr_public_bundle_$peerId",state.getJSONObject("ownBundle").toString()))
+                messageDao.updateMessageStatus(message.id,"WAITING")
+            }
+            _ratchetStatuses.value=_ratchetStatuses.value+(message.conversationId to RatchetStatus(
+                state.optJSONObject("pending")!=null,true,state.getLong("retiredIncoming"),state.getLong("retiredOutgoing")+1))
+            return false
+        }
+        check(!state.getBoolean("hasProtectedHistory")) { "Önceden korumalı oturum bilgisi eksik; mesaj korundu." }
+        if(legacyRatchetCheckedAt.size>=128) legacyRatchetCheckedAt.clear()
+        legacyRatchetCheckedAt[peerId]=clock()
+        return true
+    }
+
     private suspend fun drainPendingOutbox(own: MessagingIdentity) {
         var contactRequests = 0
         for (contact in contacts.first()) {
@@ -1318,6 +1355,7 @@ class CommunicationRepository(
             nextSendAt = clock() + 5000L
             try {
                 val modern=message.content.startsWith("lanu3-local:")
+                if(!modern && !admitLegacyOutbox(own,peer,message)) continue
                 val wire=if(modern) checkNotNull(settingsDao.getSettingValue("lanu_dr_wire_${message.id}")) {
                     "Güvenli mesajın değişmez gönderim kopyası bulunamadı."
                 } else message.content

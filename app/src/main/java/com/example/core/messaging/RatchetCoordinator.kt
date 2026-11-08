@@ -66,7 +66,7 @@ class RatchetCoordinator(private val context:Context,private val database:AppDat
         val exists=database.settingsDao().getSettingValue(manifest.stateKey)!=null
         val loaded=load(own,manifest,create=!exists)
         val bundle=loaded.service.prepare(own,peer,persistPublic=false)
-        registry.select(own,manifest,bundle,null,allowMissingAnchor=repair)
+        registry.select(own,manifest,bundle,null,explicitRecovery=repair)
         return loaded.service
     }
     internal suspend fun session(identity:MessagingIdentity,peer:String,explicitCreate:Boolean=false):RatchetSessionService=withContext(Dispatchers.IO) { mutex.withLock {
@@ -126,7 +126,7 @@ class RatchetCoordinator(private val context:Context,private val database:AppDat
         val manifest=RatchetRootRegistry.parse(own,peer,saved.getString("manifest"))
         val loaded=load(own,manifest)
         loaded.service.pin(own,peer,peerKey,remote,persistPin=false)
-        registry.select(own,manifest,local,epoch,allowMissingAnchor=true)
+        registry.select(own,manifest,local,epoch,explicitRecovery=true)
         // Only a completed switch can clear the public request. Old private
         // state rows, old journals, wrapping keys and pending ciphertext stay intact.
         database.settingsDao().deleteSetting(RatchetRootRegistry.resetKey(peer))

@@ -88,17 +88,26 @@ internal class RatchetRootRegistry(private val context:Context,private val datab
         check(stored==value(selected,"current")) { "Cihaz oturumu geri sarılmış; kayıtlar korundu." }
         return stored?.let {parse(own,peer,it)}
     }
-    /** Explicit initial activation or independently two-owner-approved renewal only. */
+    /** Explicit initial activation or independently two-owner-approved renewal only.
+     * Recovery may replace a stale/missing Room selector with a NEW namespace;
+     * it never selects the formerly consumed namespace to bypass rollback. */
     suspend fun select(own:MessagingIdentity,target:Manifest,bundle:JSONObject,epoch:String?,
-        allowMissingAnchor:Boolean=false,checkpoint:(Checkpoint)->Unit={}) {
+        explicitRecovery:Boolean=false,checkpoint:(Checkpoint)->Unit={}) {
         require(target.owner==own.id)
         RatchetProtocol.verify(bundle,own.id,target.peer,own.publicKey)
         validateTarget(own,target)
-        val existing=read(own,target.peer)
+        val existing=try {read(own,target.peer)} catch(error:Exception) {
+            // Only the independently approved recovery path may replace a
+            // damaged PUBLIC selector, and only with a different namespace.
+            // Ordinary startup/current() still rejects it without changes.
+            if(!explicitRecovery) throw error
+            null
+        }
         val stored=database.settingsDao().getSettingValue(pointerKey(target.peer))
         val previousPending=existing?.optJSONObject("pending")
         check(stored==existing?.let {value(it,"current")} || stored==previousPending?.getString("target") ||
-            (allowMissingAnchor && existing==null && stored!=null)) {
+            (explicitRecovery && target.encoded!=stored && target.encoded!=existing?.let {value(it,"current")} &&
+                target.encoded!=previousPending?.getString("target"))) {
             "Cihaz oturum seçicisi doğrulanamadı."
         }
         stored?.let { parse(own,target.peer,it) }
@@ -143,9 +152,9 @@ internal class RatchetRootRegistry(private val context:Context,private val datab
             database.openHelper.writableDatabase.execSQL("""
                 UPDATE messages SET status='WAITING'
                 WHERE conversationId=? AND senderPhone=? AND status IN ('PENDING','SENDING','WAITING')
-                AND content LIKE 'lanu3-local:%' AND id NOT IN (
+                AND (content LIKE 'lanu2:%' OR (content LIKE 'lanu3-local:%' AND id NOT IN (
                   SELECT substr(`key`,length('lanu_dr_wire_epoch_')+1) FROM app_settings WHERE `key` GLOB 'lanu_dr_wire_epoch_*' AND value=?
-                )
+                )))
             """.trimIndent(),arrayOf(conversation,own.id,epoch))
         } else check(dao.getSettingValue("lanu_dr_pin_$peer")==null)
         dao.insertSetting(SettingsEntity("lanu_dr_public_bundle_$peer",bundle.toString()))

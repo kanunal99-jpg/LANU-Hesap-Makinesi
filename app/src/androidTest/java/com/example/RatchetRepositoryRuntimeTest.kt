@@ -126,7 +126,7 @@ class RatchetRepositoryRuntimeTest {
     private class Endpoint(val context:Context,val own:MessagingIdentity,val relay:Relay,val clock:()->Long):AutoCloseable {
         val db=Room.inMemoryDatabaseBuilder(context,AppDatabase::class.java).build()
         val repository=CommunicationRepository(db.contactDao(),db.conversationDao(),db.messageDao(),db.settingsDao(),
-            db.userProfileDao(),db.callLogDao(),Identity(own),relay,db,clock,ratchet=RatchetCoordinator(context,db))
+            db.userProfileDao(),db.callLogDao(),Identity(own),relay,db,clock,ratchet=RatchetCoordinator(context,db),ratchetAdmissionEnabled=true)
         fun privateStateKey(peer:String):String=runBlocking {
             RatchetRootRegistry.parse(own,peer,db.settingsDao().getSettingValue(RatchetRootRegistry.pointerKey(peer))!!).stateKey
         }
@@ -209,9 +209,16 @@ class RatchetRepositoryRuntimeTest {
             a.repository.enableRatchet(conversation);b.repository.enableRatchet(conversation);a.repository.enableRatchet(conversation)
             val old=a.repository.sendMessage(conversation,"old undelivered fixture")
             val oldWire=a.db.settingsDao().getSettingValue("lanu_dr_wire_$old")
+            val legacyId=UUID.randomUUID().toString()
+            val legacyCipher=PeerMessageCrypto.encrypt(first,second.id,second.publicKey,legacyId,"legacy offline fixture")
+            a.db.messageDao().insertMessage(MessageEntity(legacyId,conversation,first.id,"fixture",legacyCipher,timestamp=1,status="PENDING"))
             val oldStateKey=a.privateStateKey(second.id)
             val oldState=a.db.settingsDao().getSettingValue(oldStateKey)
             val oldEpoch=a.db.settingsDao().getSettingValue("lanu_dr_pin_${second.id}")
+            // A restored Room snapshot may lack the pointer although noBackup
+            // still remembers the old selection. Only a fresh, two-owner
+            // approved namespace may repair that mismatch.
+            a.db.settingsDao().deleteSetting(RatchetRootRegistry.pointerKey(second.id))
             assertFalse(a.repository.confirmRatchetRecovery(a.repository.ratchetRecoveryOffer(conversation)))
             assertEquals(oldEpoch,a.db.settingsDao().getSettingValue("lanu_dr_pin_${second.id}"))
             assertTrue(runCatching {a.repository.sendMessage(conversation,"blocked while renewing")}.isFailure)
@@ -226,12 +233,50 @@ class RatchetRepositoryRuntimeTest {
             assertEquals(oldWire,a.db.settingsDao().getSettingValue("lanu_dr_wire_$old"))
             assertEquals("WAITING",a.db.messageDao().getMessage(old)!!.status)
             assertEquals("old undelivered fixture",RatchetSessionService.history(first,old,a.db.messageDao().getMessage(old)!!.content))
-            assertEquals(1,a.repository.resendRetiredRatchet(conversation))
+            assertEquals("WAITING",a.db.messageDao().getMessage(legacyId)!!.status)
+            assertEquals(legacyCipher,a.db.messageDao().getMessage(legacyId)!!.content)
+            assertEquals(2,a.repository.resendRetiredRatchet(conversation))
             assertEquals(0,a.repository.resendRetiredRatchet(conversation))
             now+=31_000;a.repository.synchronize(conversation);b.repository.synchronize(conversation)
             val received=b.repository.getMessages(conversation).first()
             assertTrue(received.any {it.content=="old undelivered fixture"})
+            assertTrue(received.any {it.content=="legacy offline fixture"})
             assertNull(b.db.messageDao().getMessage(old))
+        }}
+    }
+
+    @Test fun identityOnlyRestoreHoldsLegacyOfflineCipherWithoutDowngradeAndKeepsDraft()=runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        val first=UserCodes.create();val second=UserCodes.create()
+        val relay=Relay(listOf(first,second)).apply {loseFirst=false};var now=System.currentTimeMillis()
+        Endpoint(context,first,relay){now}.use {a -> Endpoint(context,second,relay){now}.use {b ->
+            val conversation=UserCodes.conversationId(first.id,second.id)
+            for((local,remote) in listOf(a to second,b to first)) {
+                local.repository.ensureIdentity()
+                local.db.conversationDao().insertConversation(ConversationEntity(conversation,remote.code,"fixture"))
+                local.repository.synchronize(conversation)
+            }
+            a.repository.enableRatchet(conversation);b.repository.enableRatchet(conversation);a.repository.enableRatchet(conversation)
+            // Separate Room snapshot has identity only: no old pin/private root.
+            Endpoint(context,first,relay){now}.use {restored ->
+                restored.repository.ensureIdentity()
+                restored.db.conversationDao().insertConversation(ConversationEntity(conversation,second.code,"fixture"))
+                restored.repository.synchronize(conversation)
+                val id=restored.repository.sendMessage(conversation,"offline legacy fixture")
+                val cipher=restored.db.messageDao().getMessage(id)!!.content
+                assertTrue(cipher.startsWith("lanu2:"))
+                now+=31_000;restored.repository.synchronize(conversation)
+                assertTrue(relay.messages.isEmpty())
+                assertEquals(cipher,restored.db.messageDao().getMessage(id)!!.content)
+                assertEquals("WAITING",restored.db.messageDao().getMessage(id)!!.status)
+                assertTrue(restored.repository.ratchetStatuses.value[conversation]!!.needsRecovery)
+                assertNotNull(restored.db.settingsDao().getSettingValue("lanu_dr_epoch_$conversation"))
+                restored.repository.saveDraft(conversation,"keep this newer draft")
+                assertTrue(runCatching {restored.repository.sendMessage(conversation,"keep this newer draft")}.isFailure)
+                assertEquals("keep this newer draft",restored.repository.loadDraft(conversation))
+                assertTrue(restored.db.messageDao().getPendingMessages(now=now).isEmpty())
+                assertNull(restored.db.settingsDao().getSettingValue("lanu_dr_pin_${second.id}"))
+            }
         }}
     }
 

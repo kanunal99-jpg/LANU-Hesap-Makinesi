@@ -56,7 +56,10 @@ internal class RatchetSessionService(
                 require(runCatching {java.util.UUID.fromString(resendOf).toString()==resendOf}.getOrDefault(false))
                 check(database.settingsDao().getSettingValue("lanu_dr_resend_$resendOf")==null) { "Bu ileti zaten yeniden gönderildi." }
                 val old=checkNotNull(database.messageDao().getMessage(resendOf))
-                check(old.senderPhone==own.id && old.conversationId==conversation && old.content.startsWith("lanu3-local:"))
+                check(old.senderPhone==own.id && old.conversationId==conversation)
+                val original=if(old.content.startsWith("lanu3-local:")) history(own,resendOf,old.content)
+                    else PeerMessageCrypto.decrypt(own,peer,peerKey,resendOf,own.id,old.content)
+                check(original==text) { "Yeniden gönderim özgün içerikle eşleşmiyor." }
             }
             val state=root(raw,own);val entry=entry(state,peer);val sessions=entry.getJSONObject("sessions")
             val inner=JSONObject().put("version",3).put("epoch",epoch(entry)).put("id",id)
