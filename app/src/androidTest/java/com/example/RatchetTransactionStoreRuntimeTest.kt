@@ -66,13 +66,18 @@ class RatchetTransactionStoreRuntimeTest {
                 val conversation="b".repeat(64); val messageId=UUID.randomUUID().toString()
                 db.conversationDao().insertConversation(ConversationEntity(conversation,"fixture","fixture",lastMessageTime=0))
                 val journal=RatchetFileJournal(context.noBackupFilesDir,id)
+                val draftKey="lanu_draft_$conversation"
+                db.settingsDao().insertSetting(SettingsEntity(draftKey,"old-encrypted-draft"))
                 val store=RatchetTransactionStore(db,journal,secrets) { if(it==failure) error("synthetic crash") }
                 val row=MessageEntity(messageId,conversation,"a".repeat(64),"fixture","lanu3-local:fixture",timestamp=1,status="PENDING")
                 assertTrue(runCatching { store.transact { RatchetTransactionStore.Change("state-1",row,
                     settings=mapOf("lanu_dr_wire_$messageId" to "exact-ciphertext"),
-                    preview=RatchetTransactionStore.Preview("Şifreli mesaj",1,true)) to Unit } }.isFailure)
+                    preview=RatchetTransactionStore.Preview("Şifreli mesaj",1,true),
+                    draftToClear=draftKey to RatchetTransactionStore.digest("old-encrypted-draft")) to Unit } }.isFailure)
+                db.settingsDao().insertSetting(SettingsEntity(draftKey,"new-encrypted-draft"))
                 val reopened=RatchetTransactionStore(db,journal,secrets)
                 reopened.recover(); reopened.recover()
+                assertEquals("new-encrypted-draft",db.settingsDao().getSettingValue(draftKey))
                 assertEquals(row,db.messageDao().getMessage(messageId))
                 assertEquals(1,db.conversationDao().getConversationById(conversation)!!.unreadCount)
                 assertEquals("exact-ciphertext",db.settingsDao().getSettingValue("lanu_dr_wire_$messageId"))

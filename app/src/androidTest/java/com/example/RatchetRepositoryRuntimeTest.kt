@@ -114,12 +114,16 @@ class RatchetRepositoryRuntimeTest {
             assertFalse(a.repository.enableRatchet(conversation))
             assertTrue(b.repository.enableRatchet(conversation))
             assertTrue(a.repository.enableRatchet(conversation))
+            a.repository.saveDraft(conversation,"repository ratchet fixture")
             val id=a.repository.sendMessage(conversation,"repository ratchet fixture")
+            assertNull(a.db.settingsDao().getSettingValue("lanu_draft_$conversation"))
+            a.repository.saveDraft(conversation,"a newer unsent draft")
             val before=a.db.settingsDao().getSettingValue(RatchetTransactionStore.STATE_KEY)
             a.repository.synchronize();now+=20000
             // A lost response is recovered from the sender's authenticated echo;
             // it must not ratchet again or create another message ID.
             a.repository.synchronize();b.repository.synchronize(conversation);a.repository.synchronize()
+            assertEquals("a newer unsent draft",a.repository.loadDraft(conversation))
             assertEquals(1,relay.messages.size)
             assertTrue(relay.sends.isNotEmpty());assertTrue(relay.sends.all {it==relay.sends.first()})
             assertEquals(before,a.db.settingsDao().getSettingValue(RatchetTransactionStore.STATE_KEY))

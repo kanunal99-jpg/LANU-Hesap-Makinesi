@@ -892,8 +892,13 @@ class CommunicationRepository(
         }
         val id = UUID.randomUUID().toString()
         val peerId=peer.getString("id")
+        val savedDraft = settingsDao.getSettingValue("lanu_draft_$conversationId")
+        val clearDraft = savedDraft != null && !InlineMediaCodec.isAttachment(plaintext) && runCatching {
+            PeerMessageCrypto.decrypt(own, own.id, own.publicKey, draftMessageId(conversationId), own.id, savedDraft) == plaintext
+        }.getOrDefault(false)
         if(settingsDao.getSettingValue("lanu_dr_pin_$peerId")!=null) {
-            checkNotNull(ratchet).session(own).queue(own,peerId,peer.getString("publicKey"),id,conversationId,plaintext,clock())
+            val clear=if(clearDraft) "lanu_draft_$conversationId" to RatchetTransactionStore.digest(savedDraft!!) else null
+            checkNotNull(ratchet).session(own).queue(own,peerId,peer.getString("publicKey"),id,conversationId,plaintext,clock(),clear)
             return@withLock id
         }
         check(settingsDao.getSettingValue("lanu_dr_public_bundle_$peerId")==null) {
@@ -902,10 +907,6 @@ class CommunicationRepository(
         val encrypted = withContext(Dispatchers.Default) {
             PeerMessageCrypto.encrypt(own, peer.getString("id"), peer.getString("publicKey"), id, plaintext)
         }
-        val savedDraft = settingsDao.getSettingValue("lanu_draft_$conversationId")
-        val clearDraft = savedDraft != null && !InlineMediaCodec.isAttachment(plaintext) && runCatching {
-            PeerMessageCrypto.decrypt(own, own.id, own.publicKey, draftMessageId(conversationId), own.id, savedDraft) == plaintext
-        }.getOrDefault(false)
         database.withTransaction {
             messageDao.insertMessage(MessageEntity(id, conversationId, own.id, userProfileDao.getUserProfile()?.displayName ?: "Ben", encrypted, status = "PENDING"))
             conversationDao.getConversationById(conversationId)?.let { conversationDao.insertConversation(it.copy(lastMessageText = "Şifreli mesaj", lastMessageTime = clock())) }

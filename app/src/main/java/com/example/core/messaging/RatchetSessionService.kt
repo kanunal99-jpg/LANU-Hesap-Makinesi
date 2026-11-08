@@ -48,7 +48,7 @@ internal class RatchetSessionService(
     private fun epoch(entry:JSONObject)=RatchetProtocol.epoch(entry.getJSONObject("local"),entry.getJSONObject("remote"))
     private fun archive(own:MessagingIdentity,id:String,text:String)="lanu3-local:"+
         PeerMessageCrypto.encrypt(own,own.id,own.publicKey,"dr-history:$id",text)
-    suspend fun queue(own:MessagingIdentity,peer:String,peerKey:String,id:String,conversation:String,text:String,at:Long):String {
+    suspend fun queue(own:MessagingIdentity,peer:String,peerKey:String,id:String,conversation:String,text:String,at:Long,draftToClear:Pair<String,String>?=null):String {
         require(UserCodes.id(peerKey)==peer && UserCodes.conversationId(own.id,peer)==conversation)
         require(text.isNotBlank() && text.toByteArray(Charsets.UTF_8).size<=27000) { "Mesaj güvenli aktarım sınırını aşıyor; büyük dosya seçeneğini kullanın." }
         return store.transact { raw ->
@@ -71,7 +71,7 @@ internal class RatchetSessionService(
             val row=MessageEntity(id,conversation,own.id,"Ben",archive(own,id,text),timestamp=at,status="PENDING")
             RatchetTransactionStore.Change(state.toString(),row,settings=mapOf("lanu_dr_wire_$id" to wire,
                 "lanu_dr_seen_$id" to RatchetTransactionStore.digest(wire)),
-                preview=RatchetTransactionStore.Preview("Şifreli mesaj",at)) to wire
+                preview=RatchetTransactionStore.Preview("Şifreli mesaj",at),draftToClear=draftToClear) to wire
         }
     }
     suspend fun receive(own:MessagingIdentity,peer:String,peerKey:String,id:String,wire:String,at:Long,

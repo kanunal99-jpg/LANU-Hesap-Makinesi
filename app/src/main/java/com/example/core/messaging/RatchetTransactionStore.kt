@@ -23,7 +23,7 @@ internal class RatchetTransactionStore(
     enum class Checkpoint { PREPARED, ROOM_COMMITTED, FINALIZED }
     class Change(val state: String, val message: MessageEntity? = null,
         val previousMessageDigest: String? = null, val settings: Map<String,String> = emptyMap(),
-        val preview: Preview? = null) {
+        val preview: Preview? = null, val draftToClear: Pair<String,String>? = null) {
         override fun toString() = "RatchetChange(redacted)"
     }
     class Preview(val text: String, val at: Long, val unreadIncrement: Boolean = false) {
@@ -128,6 +128,10 @@ internal class RatchetTransactionStore(
         }
         val result = JSONObject().put("state",state).put("settings",settings)
         change.previousMessageDigest?.let { require(HEX.matches(it)); result.put("previous",it) }
+        change.draftToClear?.let { (key,expected) ->
+            require(change.message!=null && key=="lanu_draft_${change.message.conversationId}" && HEX.matches(expected))
+            result.put("draft",JSONObject().put("key",key).put("expected",expected))
+        }
         change.preview?.let { preview ->
             require(change.message != null && preview.text.length <= 512 && preview.at >= 0)
             result.put("preview",JSONObject().put("text",preview.text).put("at",preview.at)
@@ -186,6 +190,14 @@ internal class RatchetTransactionStore(
             }
         }
         for (key in settings.keys()) database.settingsDao().insertSetting(SettingsEntity(key,settings.getString(key)))
+        pending.optJSONObject("draft")?.let { draft ->
+            val key=draft.getString("key");val expected=draft.getString("expected")
+            check(key=="lanu_draft_${pending.getJSONObject("message").getString("conversation")}" && HEX.matches(expected))
+            val current=database.settingsDao().getSettingValue(key)
+            // A user may have typed a NEW draft after an interrupted prepare.
+            // Recovery must never delete that newer input.
+            if(current!=null && digest(current)==expected) database.settingsDao().deleteSetting(key)
+        }
         database.settingsDao().insertSetting(SettingsEntity(STATE_KEY,state))
     }
 }
