@@ -20,6 +20,7 @@ ksp {
 
 android {
   namespace = "com.example"
+  sourceSets.getByName("main").assets.srcDir(rootProject.file("build/ratchet/assets"))
   sourceSets.getByName("main").jniLibs.srcDir(rootProject.file("build/ratchet/jniLibs"))
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 

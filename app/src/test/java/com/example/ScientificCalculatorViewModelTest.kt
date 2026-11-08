@@ -63,6 +63,7 @@ class ScientificCalculatorViewModelTest {
         override suspend fun hasIdentityBoundSettings(): Boolean = false
         override suspend fun hasRatchetSettings(): Boolean = false
         override suspend fun getRatchetPublicBundles(): List<SettingsEntity> = emptyList()
+        override suspend fun getRatchetRenewals(): List<SettingsEntity> = emptyList()
     }
 
     private lateinit var repository: CalculatorRepository

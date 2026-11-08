@@ -64,7 +64,7 @@ class RatchetRepositoryRuntimeTest {
                 else {
                     val row=JSONObject().put("id",id).put("senderId",identity.id).put("recipientId",peer(identity).id)
                         .put("content",wire).put("createdAt",1L).put("revision",1L).put("status","SENT")
-                        .put("deleted",false).put("reaction","").put("protocolVersion",3)
+                        .put("deleted",false).put("reaction","").put("protocolVersion",3).put("ratchetEpoch",data.getString("ratchetEpoch"))
                     messages[id]=row;emit(row)
                 }
                 if(loseFirst) {loseFirst=false;throw IOException("synthetic lost acknowledgement")}

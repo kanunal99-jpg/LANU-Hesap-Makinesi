@@ -72,7 +72,7 @@ internal class RatchetSecrets private constructor(
                 check(create && !exists && journal.read() == null) { "Güvenli oturum anahtarı eksik; yeni anahtar üretilmedi." }
                 val key=KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES,"AndroidKeyStore").run {
                     init(KeyGenParameterSpec.Builder(alias,KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
-                        .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                        .setKeySize(256).setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                         .setRandomizedEncryptionRequired(true).build()); generateKey()
                 }
                 val material=ByteArray(64).also(SecureRandom()::nextBytes)

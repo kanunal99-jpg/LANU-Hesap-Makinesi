@@ -47,6 +47,40 @@ internal object RatchetProtocol {
         val ordered=listOf(first,second).sortedBy { it.getString("owner") }
         return RatchetTransactionStore.digest("LANU-OLM2-PAIR-v1\n"+ordered.joinToString("\n") { transcript(it) })
     }
+    fun verifySignature(publicKey:String,payload:String,signature:String) {
+        require(publicKey.length in 64..256 && payload.length<=32768 && signature.length in 80..100)
+        val key=KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(UserCodes.decode(publicKey)))
+        require(Signature.getInstance("SHA256withECDSA").run {
+            initVerify(key);update(payload.toByteArray(Charsets.UTF_8));verify(UserCodes.decode(signature))
+        }) { "Oturum kaydının kimlik imzası doğrulanamadı." }
+    }
+    fun resetTranscript(owner:String,peer:String,id:String,previous:String,bundle:JSONObject):String {
+        require(hash.matches(owner) && hash.matches(peer) && owner!=peer && uuid.matches(id) && hash.matches(previous) &&
+            bundle.getString("owner")==owner && bundle.getString("peer")==peer)
+        return "LANU-OLM2-RESET-v1\n"+listOf(owner,peer,id,previous,transcript(bundle)).joinToString("\n")
+    }
+    fun verifyCurrentPair(own:MessagingIdentity,peer:String,peerKey:String,state:JSONObject):String {
+        check(state.getBoolean("ready")) { "Önce iki tarafın ilk oturumu oluşturulmalı." }
+        val local=state.getJSONObject("ownBundle");val remote=state.getJSONObject("peerBundle")
+        verify(local,own.id,peer,own.publicKey);verify(remote,peer,own.id,peerKey)
+        val epoch=epoch(local,remote)
+        check(epoch==state.getString("epoch")) { "Sunucu oturum nesli doğrulanamadı." }
+        return epoch
+    }
+    fun verifyRenewal(own:MessagingIdentity,peer:String,peerKey:String,receipt:JSONObject):Pair<JSONObject,JSONObject> {
+        require(receipt.getString("state")=="active")
+        val id=receipt.getString("id");val previous=receipt.getString("previous_epoch")
+        require(setOf(receipt.getString("first_id"),receipt.getString("second_id"))==setOf(own.id,peer))
+        val votes=receipt.getJSONObject("votes")
+        require(votes.keys().asSequence().toSet()==setOf(own.id,peer))
+        val local=votes.getJSONObject(own.id);val remote=votes.getJSONObject(peer)
+        val lb=local.getJSONObject("bundle");val rb=remote.getJSONObject("bundle")
+        verify(lb,own.id,peer,own.publicKey);verify(rb,peer,own.id,peerKey)
+        verifySignature(own.publicKey,resetTranscript(own.id,peer,id,previous,lb),local.getString("proof"))
+        verifySignature(peerKey,resetTranscript(peer,own.id,id,previous,rb),remote.getString("proof"))
+        require(epoch(lb,rb)==receipt.getString("new_epoch"))
+        return lb to rb
+    }
     /** Bound JSON depth BEFORE JSONObject recursion on untrusted text. */
     fun parse(value:String,maxBytes:Int=65536):JSONObject {
         require(value.length<=maxBytes && value.toByteArray(Charsets.UTF_8).size<=maxBytes)

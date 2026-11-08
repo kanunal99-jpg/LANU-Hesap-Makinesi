@@ -10,6 +10,7 @@ compiler="$lanu_ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
 export RUSTUP_TOOLCHAIN=1.90.0
 cargo test --locked --manifest-path native/ratchet/Cargo.toml
 cargo build --locked --release --manifest-path native/ratchet/Cargo.toml
+python3 scripts/collect_ratchet_notices.py
 java --source 17 native/ratchet/tests/java/com/example/core/messaging/OlmRatchetNative.java \
   "$root/native/ratchet/target/release/liblanu_ratchet.so"
 mkdir -p build/ratchet/host

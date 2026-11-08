@@ -493,7 +493,7 @@ jobs:
           arch: x86_64
           profile: Nexus 5
           disable-animations: true
-          script: ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.OlmRatchetNativeRuntimeTest,com.example.RatchetTransactionStoreRuntimeTest,com.example.RatchetSessionServiceRuntimeTest,com.example.VerifiedSqlCipherStageRuntimeTest --no-daemon --stacktrace
+          script: ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.OlmRatchetNativeRuntimeTest,com.example.RatchetTransactionStoreRuntimeTest,com.example.RatchetSessionServiceRuntimeTest,com.example.RatchetRootRegistryRuntimeTest,com.example.RatchetRepositoryRuntimeTest,com.example.VerifiedSqlCipherStageRuntimeTest --no-daemon --stacktrace
       - uses: actions/upload-artifact@v4
         if: always()
         with:

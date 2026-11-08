@@ -16,3 +16,19 @@ export function ratchetTranscript(bundle) {
   }
   return 'LANU-OLM2-BUNDLE-v1\n'+['owner','peer','generation','identity','oneTime'].map(k=>bundle[k]).join('\n');
 }
+
+const HEX=/^[a-f0-9]{64}$/;
+const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
+export function ratchetResetTranscript(owner,peer,resetId,previousEpoch,bundle) {
+  if(!HEX.test(owner??'') || !HEX.test(peer??'') || owner===peer ||
+     !UUID.test(resetId??'') || !HEX.test(previousEpoch??'') ||
+     bundle?.owner!==owner || bundle?.peer!==peer) throw new Error('Invalid session renewal');
+  return 'LANU-OLM2-RESET-v1\n'+[owner,peer,resetId,previousEpoch,ratchetTranscript(bundle)].join('\n');
+}
+export async function ratchetEpoch(first,second) {
+  if(first?.owner!==second?.peer || first?.peer!==second?.owner) throw new Error('Invalid pair');
+  const ordered=[first,second].sort((a,b)=>a.owner.localeCompare(b.owner));
+  const text='LANU-OLM2-PAIR-v1\n'+ordered.map(ratchetTranscript).join('\n');
+  return [...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text)))]
+    .map(v=>v.toString(16).padStart(2,'0')).join('');
+}

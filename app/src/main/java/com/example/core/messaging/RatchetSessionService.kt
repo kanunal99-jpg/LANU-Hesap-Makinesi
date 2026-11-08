@@ -18,7 +18,7 @@ internal class RatchetSessionService(
             check(it.getInt("version")==1 && it.getString("owner")==own.id && it.getJSONObject("peers").length()<=64)
         }
     }
-    suspend fun prepare(own:MessagingIdentity,peer:String):JSONObject=store.transact { raw ->
+    suspend fun prepare(own:MessagingIdentity,peer:String,persistPublic:Boolean=true):JSONObject=store.transact { raw ->
         val state=root(raw,own); val peers=state.getJSONObject("peers")
         var entry=peers.optJSONObject(peer)
         if(entry==null) {
@@ -29,9 +29,9 @@ internal class RatchetSessionService(
             peers.put(peer,entry)
         }
         val publicBundle=entry.getJSONObject("local")
-        RatchetTransactionStore.Change(state.toString(),settings=mapOf("lanu_dr_public_bundle_$peer" to publicBundle.toString())) to JSONObject(publicBundle.toString())
+        RatchetTransactionStore.Change(state.toString(),settings=if(persistPublic) mapOf("lanu_dr_public_bundle_$peer" to publicBundle.toString()) else emptyMap()) to JSONObject(publicBundle.toString())
     }
-    suspend fun pin(own:MessagingIdentity,peer:String,peerKey:String,bundle:JSONObject) {
+    suspend fun pin(own:MessagingIdentity,peer:String,peerKey:String,bundle:JSONObject,persistPin:Boolean=true) {
         RatchetProtocol.verify(bundle,peer,own.id,peerKey)
         store.transact { raw ->
             val state=root(raw,own);val entry=state.getJSONObject("peers").getJSONObject(peer)
@@ -41,17 +41,23 @@ internal class RatchetSessionService(
             }
             entry.put("remote",JSONObject(bundle.toString()))
             val epoch=RatchetProtocol.epoch(entry.getJSONObject("local"),bundle)
-            RatchetTransactionStore.Change(state.toString(),settings=mapOf("lanu_dr_pin_$peer" to epoch)) to Unit
+            RatchetTransactionStore.Change(state.toString(),settings=if(persistPin) mapOf("lanu_dr_pin_$peer" to epoch, "lanu_dr_epoch_${UserCodes.conversationId(own.id,peer)}" to epoch) else emptyMap()) to Unit
         }
     }
     private fun entry(state:JSONObject,peer:String)=state.getJSONObject("peers").getJSONObject(peer).also { check(it.has("remote")) }
     private fun epoch(entry:JSONObject)=RatchetProtocol.epoch(entry.getJSONObject("local"),entry.getJSONObject("remote"))
     private fun archive(own:MessagingIdentity,id:String,text:String)="lanu3-local:"+
         PeerMessageCrypto.encrypt(own,own.id,own.publicKey,"dr-history:$id",text)
-    suspend fun queue(own:MessagingIdentity,peer:String,peerKey:String,id:String,conversation:String,text:String,at:Long,draftToClear:Pair<String,String>?=null):String {
+    suspend fun queue(own:MessagingIdentity,peer:String,peerKey:String,id:String,conversation:String,text:String,at:Long,draftToClear:Pair<String,String>?=null,resendOf:String?=null):String {
         require(UserCodes.id(peerKey)==peer && UserCodes.conversationId(own.id,peer)==conversation)
         require(text.isNotBlank() && text.toByteArray(Charsets.UTF_8).size<=27000) { "Mesaj güvenli aktarım sınırını aşıyor; büyük dosya seçeneğini kullanın." }
         return store.transact { raw ->
+            if(resendOf!=null) {
+                require(runCatching {java.util.UUID.fromString(resendOf).toString()==resendOf}.getOrDefault(false))
+                check(database.settingsDao().getSettingValue("lanu_dr_resend_$resendOf")==null) { "Bu ileti zaten yeniden gönderildi." }
+                val old=checkNotNull(database.messageDao().getMessage(resendOf))
+                check(old.senderPhone==own.id && old.conversationId==conversation && old.content.startsWith("lanu3-local:"))
+            }
             val state=root(raw,own);val entry=entry(state,peer);val sessions=entry.getJSONObject("sessions")
             val inner=JSONObject().put("version",3).put("epoch",epoch(entry)).put("id",id)
                 .put("from",own.id).put("to",peer).put("text",text).toString()
@@ -70,7 +76,9 @@ internal class RatchetSessionService(
             val wire=PeerMessageCrypto.encrypt(own,peer,peerKey,id,frame)
             val row=MessageEntity(id,conversation,own.id,"Ben",archive(own,id,text),timestamp=at,status="PENDING")
             RatchetTransactionStore.Change(state.toString(),row,settings=mapOf("lanu_dr_wire_$id" to wire,
-                "lanu_dr_seen_$id" to RatchetTransactionStore.digest(wire)),
+                "lanu_dr_seen_$id" to RatchetTransactionStore.digest(wire),
+                "lanu_dr_wire_epoch_$id" to epoch(entry)) +
+                (if(resendOf!=null) mapOf("lanu_dr_resend_$resendOf" to id) else emptyMap()),
                 preview=RatchetTransactionStore.Preview("Şifreli mesaj",at),draftToClear=draftToClear) to wire
         }
     }

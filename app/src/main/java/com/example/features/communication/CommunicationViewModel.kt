@@ -256,6 +256,43 @@ class CommunicationViewModel(
         repository.registerUser("", name)
         _userName.value = name.trim().take(60)
     }
+    private val _ratchetRecovery=MutableStateFlow<CommunicationRepository.RatchetRecoveryOffer?>(null)
+    val ratchetRecovery=_ratchetRecovery.asStateFlow()
+    fun dismissRatchetRecovery() { _ratchetRecovery.value=null }
+    fun inspectRatchetRecovery(expectedConversation:String) {
+        if(_busy.value || _activeConversation.value?.id!=expectedConversation) return
+        _busy.value=true
+        operation {try {
+            val offer=repository.ratchetRecoveryOffer(expectedConversation)
+            if(_activeConversation.value?.id==expectedConversation) _ratchetRecovery.value=offer
+        } finally {_busy.value=false}}
+    }
+    fun confirmRatchetRecovery(offer:CommunicationRepository.RatchetRecoveryOffer) {
+        if(_busy.value || _activeConversation.value?.id!=offer.conversation || _ratchetRecovery.value!=offer) return
+        _ratchetRecovery.value=null;_busy.value=true
+        operation {try {
+            val ready=repository.confirmRatchetRecovery(offer)
+            _errorMessage.value=if(ready) "Yeni güvenli oturum etkin. Eski geçmiş ve gönderim kopyaları korundu."
+                else "Onayınız kaydedildi. Karşı tarafın aynı yenilemeyi onaylaması gerekiyor."
+        } finally {_busy.value=false}}
+    }
+    fun cancelRatchetRequest(expected:String) {
+        if(_busy.value || _activeConversation.value?.id!=expected) return
+        _busy.value=true
+        operation {try {
+            repository.cancelRatchetRequest(expected)
+            _errorMessage.value="Bekleyen kendi isteğiniz iptal edildi. Geçmiş ve anahtar dosyaları korundu."
+        } finally {_busy.value=false}}
+    }
+    fun resendRetiredRatchet(expected:String) {
+        if(_busy.value || _activeConversation.value?.id!=expected) return
+        _busy.value=true
+        operation {try {
+            val count=repository.resendRetiredRatchet(expected)
+            _errorMessage.value="$count eski oturum iletisi yeni ileti olarak kuyruğa alındı."
+            refresh()
+        } finally {_busy.value=false}}
+    }
     fun enableRatchet(expectedConversation:String) {
         if(_busy.value || _activeConversation.value?.id!=expectedConversation) return
         _busy.value=true

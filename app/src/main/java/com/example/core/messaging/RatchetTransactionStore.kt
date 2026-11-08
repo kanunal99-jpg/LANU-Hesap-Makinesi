@@ -18,6 +18,7 @@ internal class RatchetTransactionStore(
     private val database: AppDatabase,
     private val journal: RatchetJournalStorage,
     private val box: RatchetBox,
+    private val stateKey: String = STATE_KEY,
     private val checkpoint: (Checkpoint) -> Unit = {}
 ) {
     enum class Checkpoint { PREPARED, ROOM_COMMITTED, FINALIZED }
@@ -29,10 +30,12 @@ internal class RatchetTransactionStore(
     class Preview(val text: String, val at: Long, val unreadIncrement: Boolean = false) {
         override fun toString() = "RatchetPreview(redacted)"
     }
+    init { require(stateKey == STATE_KEY || stateKey.matches(Regex("lanu_dr_private_state_[a-f0-9]{64}"))) }
     private val mutex = synchronized(locks) { locks.getOrPut(database) { Mutex() } }
     companion object {
         private val locks = WeakHashMap<AppDatabase, Mutex>()
         const val STATE_KEY = "lanu_dr_private_state_v1"
+        fun isPrivateSetting(key: String) = key.startsWith("lanu_dr_private_state_")
         private val HEX = Regex("[a-f0-9]{64}")
         fun digest(value: String): String = MessageDigest.getInstance("SHA-256")
             .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
@@ -68,7 +71,7 @@ internal class RatchetTransactionStore(
     }
     private suspend fun recoverLocked() {
         database.withTransaction {
-            val state = database.settingsDao().getSettingValue(STATE_KEY)
+            val state = database.settingsDao().getSettingValue(stateKey)
             val saved = readAnchor(state)
             val pending = saved.optJSONObject("pending")
             if (pending == null) {
@@ -83,7 +86,7 @@ internal class RatchetTransactionStore(
             if (now == nullable(saved,"current")) apply(pending)
         }
         // Re-read after COMMIT; never finalize a rolled-back transaction.
-        val current = database.settingsDao().getSettingValue(STATE_KEY)
+        val current = database.settingsDao().getSettingValue(stateKey)
         val saved = readAnchor(current)
         val pending = saved.optJSONObject("pending") ?: return
         check(currentDigest(current) == digest(pending.getString("state")))
@@ -97,7 +100,7 @@ internal class RatchetTransactionStore(
             requireOwnTransaction()
             recoverLocked()
             val result = database.withTransaction {
-                val before = database.settingsDao().getSettingValue(STATE_KEY)
+                val before = database.settingsDao().getSettingValue(stateKey)
                 val saved = readAnchor(before)
                 check(!saved.has("pending") && currentDigest(before) == nullable(saved,"current"))
                 val (change, output) = transition(before?.let { box.open("state",it) })
@@ -154,6 +157,9 @@ internal class RatchetTransactionStore(
         key.matches(Regex("lanu_dr_public_bundle_[a-f0-9]{64}")) ||
             key.matches(Regex("lanu_dr_seen_[a-f0-9-]{36}")) || key.matches(Regex("lanu_dr_pin_[a-f0-9]{64}")) ||
             key.matches(Regex("lanu_dr_wire_[a-f0-9-]{36}")) ||
+            key.matches(Regex("lanu_dr_wire_epoch_[a-f0-9-]{36}")) ||
+            key.matches(Regex("lanu_dr_epoch_[a-f0-9]{64}")) ||
+            key.matches(Regex("lanu_dr_resend_[a-f0-9-]{36}")) ||
             key.matches(Regex("lanu_message_revision_[a-f0-9-]{36}"))
 
     private suspend fun apply(pending: JSONObject) {
@@ -198,6 +204,6 @@ internal class RatchetTransactionStore(
             // Recovery must never delete that newer input.
             if(current!=null && digest(current)==expected) database.settingsDao().deleteSetting(key)
         }
-        database.settingsDao().insertSetting(SettingsEntity(STATE_KEY,state))
+        database.settingsDao().insertSetting(SettingsEntity(stateKey,state))
     }
 }

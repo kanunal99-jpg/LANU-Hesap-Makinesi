@@ -62,6 +62,7 @@ class CommunicationRepository(
     @Volatile private var registeredAt = Long.MIN_VALUE
     private var privateMediaCapable = false
     private var nextPrivateMediaCapabilityCheckAt = 0L
+    private var nextRatchetRenewalCheckAt = 0L
     private val _identity = MutableStateFlow<MessagingIdentity?>(null)
     val identity: StateFlow<MessagingIdentity?> = _identity.asStateFlow()
     val relayConfigured get() = relay.configured
@@ -87,30 +88,166 @@ class CommunicationRepository(
             val peer=peerForConversation(conversationId) ?: error("Kişi kimliği bulunamadı.")
             check(PeerConversationBindingPolicy.matches(own.id,conversationId,peer.getString("id"),
                 peer.getString("publicKey"),peer.getString("code"),peer.getString("nonce")))
-            val engine=checkNotNull(ratchet) { "Güvenli oturum motoru bulunamadı." }.session(own,explicitCreate=true)
+            requireLegacyQueueDrained(conversationId)
+            val engine=checkNotNull(ratchet) { "Güvenli oturum motoru bulunamadı." }.session(own,peer.getString("id"),explicitCreate=true)
             publishRatchet(own,peer,engine.prepare(own,peer.getString("id")))
         }
     }
     private suspend fun publishRatchet(own:MessagingIdentity,peer:JSONObject,bundle:JSONObject):Boolean {
+        requireLegacyQueueDrained(UserCodes.conversationId(own.id,peer.getString("id")))
         val result=relay.request(own,"publishRatchetBundle",JSONObject().put("peerId",peer.getString("id")).put("bundle",bundle))
         check(result.optBoolean("accepted")) { "Eski mesajların iki uçta teslimi bekleniyor; oturum paketi ve taslaklar korundu." }
         if(!result.optBoolean("ready")) return false
-        checkNotNull(ratchet).session(own).pin(own,peer.getString("id"),peer.getString("publicKey"),result.getJSONObject("peerBundle"))
+        checkNotNull(ratchet).session(own,peer.getString("id")).pin(own,peer.getString("id"),peer.getString("publicKey"),result.getJSONObject("peerBundle"))
         return true
     }
     private suspend fun refreshRatchets(own:MessagingIdentity) {
         val coordinator=ratchet ?: return
         coordinator.recoverExisting(own)
+        // Recover an already-consented renewal after a lost HTTP response.
+        val renewalRows=if(clock()>=nextRatchetRenewalCheckAt) settingsDao.getRatchetRenewals() else emptyList()
+        if(renewalRows.isNotEmpty()) nextRatchetRenewalCheckAt=clock()+30_000L
+        for(row in renewalRows) {
+            val peerId=row.key.removePrefix("lanu_dr_reset_")
+            val peer=settingsDao.getSettingValue("lanu_peer_id_$peerId")?.let(::JSONObject) ?: continue
+            try {
+                val state=relay.request(own,"ratchetState",JSONObject().put("peerId",peerId))
+                state.optJSONObject("completed")?.let {receipt ->
+                    draftMutex.withLock {coordinator.finishRenewal(own,peerId,peer.getString("publicKey"),receipt,state)}
+                }
+            } catch(e:CancellationException) {throw e}
+            catch(_:Exception) { /* Preserve candidate and old root for an explicit retry. */ }
+        }
         for(setting in settingsDao.getRatchetPublicBundles()) {
             val peerId=setting.key.removePrefix("lanu_dr_public_bundle_")
             if(settingsDao.getSettingValue("lanu_dr_pin_$peerId")!=null) continue
             val peer=settingsDao.getSettingValue("lanu_peer_id_$peerId")?.let(::JSONObject) ?: continue
-            if(settingsDao.getSettingValue(RatchetTransactionStore.STATE_KEY)==null) continue
             draftMutex.withLock {
                 try { publishRatchet(own,peer,RatchetProtocol.parse(setting.value,2048)) }
                 catch(e:CancellationException) {throw e}
                 catch(_:Exception) { /* No downgrade/pin; the old inbox must still drain. */ }
             }
+        }
+    }
+
+    private suspend fun requireLegacyQueueDrained(conversation:String)=withContext(Dispatchers.IO) {
+        check(!database.openHelper.writableDatabase.query(
+            "SELECT 1 FROM messages WHERE conversationId=? AND status IN ('PENDING','SENDING','WAITING') AND content NOT LIKE 'lanu3-local:%' LIMIT 1",
+            arrayOf(conversation)).use {it.moveToFirst()}) {
+            "Önce bekleyen eski mesajlar teslim edilmeli. Hiçbir mesaj silinmedi."
+        }
+    }
+
+    data class RatchetRecoveryOffer(val conversation:String,val peer:String,val previous:String?,val round:String,
+        val initial:Boolean,val incoming:Long,val outgoing:Long)
+
+    /** Read-only offer. A later confirmation rechecks exactly this generation/round. */
+    suspend fun ratchetRecoveryOffer(conversation:String):RatchetRecoveryOffer=syncMutex.withLock {
+        val own=registerRemote(requireExistingIdentity=true,allowLease=true)
+        val peer=peerForConversation(conversation) ?: error("Kişi bulunamadı.")
+        val id=peer.getString("id")
+        check(PeerConversationBindingPolicy.matches(own.id,conversation,id,peer.getString("publicKey"),peer.getString("code"),peer.getString("nonce")))
+        val state=relay.request(own,"ratchetState",JSONObject().put("peerId",id))
+        val previous=if(state.getBoolean("ready")) RatchetProtocol.verifyCurrentPair(own,id,peer.getString("publicKey"),state) else null
+        if(previous==null) check(!state.getBoolean("hasProtectedHistory")) { "Etkin oturum bilgisi eksik; veriler korundu." }
+        val pending=state.optJSONObject("pending")
+        if(pending!=null) verifyPendingRenewal(own,peer,previous,pending)
+        RatchetRecoveryOffer(conversation,id,previous,pending?.getString("id") ?: UUID.randomUUID().toString(),previous==null,
+            state.getLong("retiredIncoming"),state.getLong("retiredOutgoing"))
+    }
+    private fun verifyPendingRenewal(own:MessagingIdentity,peer:JSONObject,previous:String?,pending:JSONObject) {
+        val id=peer.getString("id")
+        check(previous!=null && pending.getString("state")=="pending" && pending.getString("previous_epoch")==previous &&
+            setOf(pending.getString("first_id"),pending.getString("second_id"))==setOf(own.id,id))
+        val votes=pending.getJSONObject("votes")
+        check(votes.length() in 1..2)
+        for(owner in votes.keys()) {
+            check(owner==own.id || owner==id)
+            val other=if(owner==own.id) id else own.id
+            val key=if(owner==own.id) own.publicKey else peer.getString("publicKey")
+            val vote=votes.getJSONObject(owner);val bundle=vote.getJSONObject("bundle")
+            RatchetProtocol.verify(bundle,owner,other,key)
+            RatchetProtocol.verifySignature(key,RatchetProtocol.resetTranscript(owner,other,pending.getString("id"),previous,bundle),vote.getString("proof"))
+        }
+    }
+    suspend fun confirmRatchetRecovery(offer:RatchetRecoveryOffer):Boolean=syncMutex.withLock {
+        draftMutex.withLock confirm@ {
+            val own=registerRemote(requireExistingIdentity=true,allowLease=true)
+            val peer=peerForConversation(offer.conversation) ?: error("Kişi bulunamadı.")
+            check(peer.getString("id")==offer.peer && UserCodes.conversationId(own.id,offer.peer)==offer.conversation)
+            val state=relay.request(own,"ratchetState",JSONObject().put("peerId",offer.peer))
+            val coordinator=checkNotNull(ratchet)
+            if(offer.initial) {
+                check(!state.getBoolean("ready") && !state.getBoolean("hasProtectedHistory")) { "Oturum değişmiş; önce durumu yeniden kontrol edin." }
+                requireLegacyQueueDrained(offer.conversation)
+                val cancelled=relay.request(own,"cancelRatchetUpgrade",JSONObject().put("peerId",offer.peer))
+                check(cancelled.getBoolean("cancelled")) { "Oturum etkinleşmiş; iki taraflı yenileme gerekiyor." }
+                val service=coordinator.repairInitial(own,offer.peer)
+                return@confirm publishRatchet(own,peer,service.prepare(own,offer.peer))
+            }
+            check(RatchetProtocol.verifyCurrentPair(own,offer.peer,peer.getString("publicKey"),state)==offer.previous)
+            state.optJSONObject("pending")?.let {
+                verifyPendingRenewal(own,peer,offer.previous,it)
+                check(it.getString("id")==offer.round) { "Başka yenileme var; durumu yeniden kontrol edin." }
+            }
+            val candidate=coordinator.prepareRenewal(own,offer.peer,offer.round,checkNotNull(offer.previous))
+            val result=relay.request(own,"renewRatchet",JSONObject().put("peerId",offer.peer).put("resetId",offer.round)
+                .put("previousEpoch",offer.previous).put("bundle",candidate.getJSONObject("bundle")).put("proof",candidate.getString("proof")))
+            check(result.getBoolean("accepted")) { "Yenileme çakıştı. Mesajlar ve aday anahtar korundu; durumu yeniden kontrol edin." }
+            if(!result.getBoolean("ready")) return@confirm false
+            coordinator.finishRenewal(own,offer.peer,peer.getString("publicKey"),result.getJSONObject("receipt"),result.getJSONObject("state"))
+        }
+    }
+
+    suspend fun cancelRatchetRequest(conversation:String)=syncMutex.withLock {
+        draftMutex.withLock {
+            val own=registerRemote(requireExistingIdentity=true,allowLease=true)
+            val peer=peerForConversation(conversation) ?: error("Kişi bulunamadı.")
+            val id=peer.getString("id");val coordinator=checkNotNull(ratchet)
+            check(UserCodes.conversationId(own.id,id)==conversation)
+            val candidate=coordinator.candidate(id)
+            if(candidate!=null) {
+                val reset=candidate.getString("resetId")
+                val result=relay.request(own,"cancelRatchetRenewal",JSONObject().put("peerId",id).put("resetId",reset))
+                check(result.getBoolean("cancelled")) { "Karşı taraf onaylamış olabilir; önce oturum durumunu kontrol edin." }
+                coordinator.cancelCandidate(id,reset)
+            } else {
+                check(settingsDao.getSettingValue("lanu_dr_pin_$id")==null) { "Etkin güvenli oturum iptal edilemez." }
+                val result=relay.request(own,"cancelRatchetUpgrade",JSONObject().put("peerId",id))
+                check(result.getBoolean("cancelled")) { "Oturum zaten etkin; eski protokole dönülmedi." }
+                settingsDao.deleteSetting("lanu_dr_public_bundle_$id")
+            }
+        }
+    }
+    /** Explicit duplicate-aware resend only; old ciphertext and history stay immutable. */
+    suspend fun resendRetiredRatchet(conversation:String):Int=syncMutex.withLock {
+        draftMutex.withLock {
+            val own=registerRemote(requireExistingIdentity=true,allowLease=true)
+            val peer=peerForConversation(conversation) ?: error("Kişi bulunamadı.")
+            val id=peer.getString("id");val coordinator=checkNotNull(ratchet)
+            check(UserCodes.conversationId(own.id,id)==conversation && coordinator.candidate(id)==null)
+            val state=relay.request(own,"ratchetState",JSONObject().put("peerId",id))
+            val epoch=RatchetProtocol.verifyCurrentPair(own,id,peer.getString("publicKey"),state)
+            check(epoch==settingsDao.getSettingValue("lanu_dr_pin_$id")) { "Önce bu cihazda oturum yenilemesi tamamlanmalı." }
+            val ids=withContext(Dispatchers.IO) {
+                database.openHelper.writableDatabase.query("""
+                    SELECT m.id FROM messages m
+                    JOIN app_settings w ON w.`key`='lanu_dr_wire_epoch_'||m.id
+                    LEFT JOIN app_settings r ON r.`key`='lanu_dr_resend_'||m.id
+                    WHERE m.conversationId=? AND m.senderPhone=? AND m.content LIKE 'lanu3-local:%'
+                    AND m.status IN ('PENDING','SENDING','WAITING','SENT','FAILED') AND w.value<>? AND r.value IS NULL
+                    ORDER BY m.timestamp,m.id LIMIT 20
+                """.trimIndent(),arrayOf(conversation,own.id,epoch)).use {cursor ->
+                    buildList {while(cursor.moveToNext()) add(cursor.getString(0))}
+                }
+            }
+            val service=coordinator.session(own,id)
+            for(old in ids) {
+                val message=checkNotNull(messageDao.getMessage(old))
+                val text=RatchetSessionService.history(own,old,message.content)
+                service.queue(own,id,peer.getString("publicKey"),UUID.randomUUID().toString(),conversation,text,clock(),resendOf=old)
+            }
+            ids.size
         }
     }
 
@@ -771,7 +908,7 @@ class CommunicationRepository(
                 }
                 if(settingsDao.getSettingValue("lanu_dr_pin_$peerId")!=null) {
                     val payload=PeerMessageCrypto.decrypt(own,peerId,publicKey,id,own.id,messageCipher)
-                    checkNotNull(ratchet).session(own).queue(own,peerId,publicKey,id,conversationId,payload,clock())
+                    checkNotNull(ratchet).session(own,peerId).queue(own,peerId,publicKey,id,conversationId,payload,clock())
                 } else {
                     check(settingsDao.getSettingValue("lanu_dr_public_bundle_$peerId")==null) {
                         "Güvenli oturum yükseltilirken dosya mesajı gönderilmedi."
@@ -892,13 +1029,14 @@ class CommunicationRepository(
         }
         val id = UUID.randomUUID().toString()
         val peerId=peer.getString("id")
+        check(ratchet?.candidate(peerId)==null) { "Oturum yenilemesi bekleniyor; taslağınız korunuyor." }
         val savedDraft = settingsDao.getSettingValue("lanu_draft_$conversationId")
         val clearDraft = savedDraft != null && !InlineMediaCodec.isAttachment(plaintext) && runCatching {
             PeerMessageCrypto.decrypt(own, own.id, own.publicKey, draftMessageId(conversationId), own.id, savedDraft) == plaintext
         }.getOrDefault(false)
         if(settingsDao.getSettingValue("lanu_dr_pin_$peerId")!=null) {
             val clear=if(clearDraft) "lanu_draft_$conversationId" to RatchetTransactionStore.digest(savedDraft!!) else null
-            checkNotNull(ratchet).session(own).queue(own,peerId,peer.getString("publicKey"),id,conversationId,plaintext,clock(),clear)
+            checkNotNull(ratchet).session(own,peerId).queue(own,peerId,peer.getString("publicKey"),id,conversationId,plaintext,clock(),clear)
             return@withLock id
         }
         check(settingsDao.getSettingValue("lanu_dr_public_bundle_$peerId")==null) {
@@ -1089,7 +1227,10 @@ class CommunicationRepository(
                 conversationDao.insertConversation(ConversationEntity(conversation,peer.getString("code"),contact?.name ?: peer.getString("code")))
             }
         }
-        checkNotNull(ratchet).session(own).receive(own,peerId,peer.getString("publicKey"),id,wire,
+        check(message.getString("ratchetEpoch")==settingsDao.getSettingValue("lanu_dr_pin_$peerId")) {
+            "Mesaj başka bir oturum nesline ait; teslim onayı gönderilmedi."
+        }
+        checkNotNull(ratchet).session(own,peerId).receive(own,peerId,peer.getString("publicKey"),id,wire,
             message.getLong("createdAt"),revision,message.getString("status"),activeConversation!=conversation,retain)
     }
 
@@ -1142,7 +1283,12 @@ class CommunicationRepository(
                     "Güvenli mesajın değişmez gönderim kopyası bulunamadı."
                 } else message.content
                 val result = relay.request(own, "send", JSONObject().put("messageId", message.id).put("peerId", peer.getString("id"))
-                    .put("content", wire).apply { if(modern) put("protocolVersion",3) })
+                    .put("content", wire).apply { if(modern) {
+                        check(ratchet?.candidate(peer.getString("id"))==null) { "Oturum yenilemesi bekleniyor." }
+                        val epoch=checkNotNull(settingsDao.getSettingValue("lanu_dr_wire_epoch_${message.id}"))
+                        check(epoch==settingsDao.getSettingValue("lanu_dr_pin_${peer.getString("id")}"))
+                        put("protocolVersion",3);put("ratchetEpoch",epoch)
+                    } })
                 // HTTP 200 alone does not prove durable acceptance. Require the
                 // exact authenticated relay receipt; otherwise retain ciphertext
                 // and message UUID for idempotent retry after a lost/invalid ACK.

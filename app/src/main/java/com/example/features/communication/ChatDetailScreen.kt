@@ -65,6 +65,7 @@ fun ChatDetailScreen(
     val failedRetryIds by viewModel.failedRetryIds.collectAsState()
     val userPhone by viewModel.userId.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
+    val ratchetRecovery by viewModel.ratchetRecovery.collectAsState()
     val isSending by viewModel.isSending.collectAsState()
     val preparedMedia by viewModel.preparedInlineMedia.collectAsState()
     val pendingEnvelope = preparedMedia?.takeIf {
@@ -76,6 +77,7 @@ fun ChatDetailScreen(
     var isSelfDestructEnabled by remember(conversationId) { mutableStateOf(false) }
     var showClearConfirmation by remember(conversationId) { mutableStateOf(false) }
     var showRatchetConfirmation by remember(conversationId) { mutableStateOf(false) }
+    var ratchetAction by remember(conversationId) { mutableStateOf<String?>(null) }
     // Silent UI policy: no sound or haptic feedback for chat actions.
     val triggerVibration: () -> Unit = {}
 
@@ -126,6 +128,21 @@ fun ChatDetailScreen(
                 if(activeConversation?.id==conversationId) viewModel.enableRatchet(conversationId)
             }) {Text("Double Ratchet'i başlat")}},
             dismissButton={TextButton(onClick={showRatchetConfirmation=false}) {Text("Vazgeç")}})
+    }
+    ratchetRecovery?.takeIf {it.conversation==conversationId && com.example.BuildConfig.LANU_RATCHET_UI_ENABLED}?.let { offer ->
+        AlertDialog(onDismissRequest={viewModel.dismissRatchetRecovery()},
+            title={Text(if(offer.initial) "İlk oturumu onar" else "Oturumu iki taraflı yenile")},
+            text={Text("Bu cihaz için yeni anahtar oluşturulur. Etkin oturum iki taraf da aynı yenilemeyi onayladığında değişir. Eski geçmiş ve şifreli gönderim kopyaları korunur. Kaybolan anahtarla şifrelenmiş, henüz alınmamış mesajlar açılamaz; gönderenin bunları yeniden göndermesi gerekir. Bekleyen eski oturum iletileri: gelen ${offer.incoming}, giden ${offer.outgoing}.")},
+            confirmButton={TextButton(onClick={viewModel.confirmRatchetRecovery(offer)}) {Text("Yenilemeyi onayla")}},
+            dismissButton={TextButton(onClick={viewModel.dismissRatchetRecovery()}) {Text("Vazgeç")}})
+    }
+    ratchetAction?.let { action ->
+        AlertDialog(onDismissRequest={ratchetAction=null},title={Text(if(action=="resend") "Eski oturum iletilerini yeniden gönder" else "Bekleyen isteğini iptal et")},
+            text={Text(if(action=="resend") "Alıcıya daha önce ulaşmış iletiler tekrar görünebilir. Eski oturumda teslimi doğrulanmamış en fazla 20 ileti yeni kimlikle tekrar gönderilir. Eski kayıtlar korunur."
+                else "Yalnız kendi, henüz etkinleşmemiş isteğiniz iptal edilir. Karşı taraf onaylamışsa iptal reddedilir. Anahtarlar ve mesajlar silinmez.")},
+            confirmButton={TextButton(onClick={ratchetAction=null
+                if(action=="resend") viewModel.resendRetiredRatchet(conversationId) else viewModel.cancelRatchetRequest(conversationId)
+            }) {Text("Onayla")}},dismissButton={TextButton(onClick={ratchetAction=null}) {Text("Vazgeç")}})
     }
     Scaffold(
         topBar = {
@@ -201,6 +218,11 @@ fun ChatDetailScreen(
                             DropdownMenuItem(text={Text("Double Ratchet oturumunu yükselt")},
                                 onClick={showMenu=false;showRatchetConfirmation=true},
                                 modifier=Modifier.testTag("private_ratchet_upgrade"))
+                            DropdownMenuItem(text={Text("Oturum durumunu kontrol et / yenile")},
+                                onClick={showMenu=false;viewModel.inspectRatchetRecovery(conversationId)},
+                                modifier=Modifier.testTag("private_ratchet_recovery"))
+                            DropdownMenuItem(text={Text("Eski oturum iletilerini yeniden gönder")},onClick={showMenu=false;ratchetAction="resend"})
+                            DropdownMenuItem(text={Text("Bekleyen kendi oturum isteğini iptal et")},onClick={showMenu=false;ratchetAction="cancel"})
                         }
                         if (retryableFailedIds.isNotEmpty()) {
                             DropdownMenuItem(

@@ -11,7 +11,7 @@ create table public.lanu_ratchet_bundles (
 create index lanu_ratchet_peer_idx on public.lanu_ratchet_bundles(peer_id,owner_id);
 alter table public.lanu_ratchet_bundles enable row level security;
 revoke all on public.lanu_ratchet_bundles from public,anon,authenticated;
-grant select,insert on public.lanu_ratchet_bundles to service_role;
+grant select,insert,update on public.lanu_ratchet_bundles to service_role;
 
 create function public.lanu_ratchet_publish(p_owner text,p_peer text,p_bundle jsonb) returns jsonb
 language plpgsql security invoker set search_path='' as $$
@@ -30,12 +30,15 @@ begin
     return jsonb_build_object('accepted',false,'reason','mutual_required');
   end if;
   select bundle into old_bundle from public.lanu_ratchet_bundles where owner_id=p_owner and peer_id=p_peer;
-  if old_bundle is not null and old_bundle<>p_bundle then
+  if old_bundle is not null and old_bundle<>p_bundle and (
+    exists(select 1 from public.lanu_ratchet_bundles where owner_id=p_peer and peer_id=p_owner) or
+    exists(select 1 from public.lanu_messages where protocol_version=3 and
+      ((sender_id=p_owner and recipient_id=p_peer) or(sender_id=p_peer and recipient_id=p_owner)))) then
     return jsonb_build_object('accepted',false,'reason','explicit_reset_required');
   end if;
   -- Both old inbox snapshots AND undelivered ciphertext must drain first.
   -- The insert trigger takes this SAME pair lock, closing a v1-send race.
-  if old_bundle is null and (
+  if (old_bundle is null or old_bundle<>p_bundle) and (
     exists(select 1 from public.lanu_messages m where m.protocol_version=1 and not m.deleted and m.delivered_at is null
       and ((m.sender_id=p_owner and m.recipient_id=p_peer) or (m.sender_id=p_peer and m.recipient_id=p_owner)))
     or exists(select 1 from public.lanu_events e join public.lanu_messages m on m.id=e.message_id
@@ -43,7 +46,7 @@ begin
       ((m.sender_id=p_owner and m.recipient_id=p_peer) or (m.sender_id=p_peer and m.recipient_id=p_owner)))
   ) then return jsonb_build_object('accepted',false,'reason','drain_legacy_queue'); end if;
   insert into public.lanu_ratchet_bundles(owner_id,peer_id,bundle) values(p_owner,p_peer,p_bundle)
-    on conflict(owner_id,peer_id) do nothing;
+    on conflict(owner_id,peer_id) do update set bundle=excluded.bundle;
   select bundle into remote_bundle from public.lanu_ratchet_bundles where owner_id=p_peer and peer_id=p_owner;
   return jsonb_build_object('accepted',true,'ready',remote_bundle is not null,'peerBundle',remote_bundle);
 end $$;

@@ -60,7 +60,7 @@ object FullDataBackup {
                 while (cursor.moveToNext()) {
                     // A portable restore MUST NOT resurrect a consumed ratchet state.
                     // Public pins and immutable pending wire copies remain portable.
-                    if (!includeDeviceState && table == "app_settings" && cursor.getString(0) == RatchetTransactionStore.STATE_KEY) continue
+                    if (!includeDeviceState && table == "app_settings" && RatchetTransactionStore.isPrivateSetting(cursor.getString(0))) continue
                     require(++count <= MAX_ROWS) { "Yedekteki kayıt sayısı sınırı aşıldı." }
                     val row = row(cursor)
                     estimatedBytes += row.toString().toByteArray(Charsets.UTF_8).size
@@ -78,7 +78,7 @@ object FullDataBackup {
 
     fun seal(payload: JSONObject, password: String): ByteArray {
         val settings=payload.getJSONObject("tables").getJSONArray("app_settings")
-        require((0 until settings.length()).none { settings.getJSONArray(it).getString(0)==RatchetTransactionStore.STATE_KEY }) {
+        require((0 until settings.length()).none { RatchetTransactionStore.isPrivateSetting(settings.getJSONArray(it).getString(0)) }) {
             "Cihaza bağlı güvenli oturum durumu dışa aktarılamaz."
         }
         require(password.length in 12..256) { "Yedek parolası 12–256 karakter olmalıdır." }
@@ -291,7 +291,7 @@ object FullDataBackup {
             for (i in 0 until rows.length()) {
                 require(++count <= MAX_ROWS)
                 val row = rows.getJSONArray(i)
-                require(table != "app_settings" || row.optString(0) != RatchetTransactionStore.STATE_KEY) {
+                require(table != "app_settings" || !RatchetTransactionStore.isPrivateSetting(row.optString(0))) {
                     "Cihaza bağlı güvenli oturum durumu taşınabilir yedekten yüklenemez."
                 }
                 require(row.length() == columns.size && !row.isNull(0) && ids.add(row.get(0).toString()))
