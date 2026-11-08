@@ -57,6 +57,13 @@ class RatchetSessionServiceRuntimeTest {
                 val reply=b.service.queue(b.own,a.own.id,a.own.publicKey,rid,conversation,"geri $n",n+2L)
                 assertEquals("geri $n",a.service.receive(a.own,b.own.id,b.own.publicKey,rid,reply,n+2L,1,"SENT",true))
             }
+            // Preserve the existing18KiB inline attachment envelope budget
+            // through nested Olm + outer LANU2, rather than shrinking it silently.
+            val attachmentText="x".repeat(25000)
+            val attachmentId=UUID.randomUUID().toString()
+            val attachmentWire=a.service.queue(a.own,b.own.id,b.own.publicKey,attachmentId,conversation,attachmentText,20)
+            assertTrue(attachmentWire.length<=50000)
+            assertEquals(attachmentText,b.service.receive(b.own,a.own.id,a.own.publicKey,attachmentId,attachmentWire,20,1,"SENT",true))
             val oldState=a.db.settingsDao().getSettingValue(RatchetTransactionStore.STATE_KEY)
             val bad=JSONObject(bb.toString()).put("peer",b.own.id)
             assertTrue(runCatching { a.service.pin(a.own,b.own.id,b.own.publicKey,bad) }.isFailure)
@@ -65,7 +72,7 @@ class RatchetSessionServiceRuntimeTest {
             changed.put("signature",UserCodes.sign(b.own,RatchetProtocol.transcript(changed)))
             assertTrue(runCatching { a.service.pin(a.own,b.own.id,b.own.publicKey,changed) }.isFailure)
             assertEquals(oldState,a.db.settingsDao().getSettingValue(RatchetTransactionStore.STATE_KEY))
-            assertEquals(9,b.db.conversationDao().getConversationById(conversation)!!.unreadCount)
+            assertEquals(10,b.db.conversationDao().getConversationById(conversation)!!.unreadCount)
         } }
     }
     @Test fun hostileJsonDepthIsRejectedBeforeRecursiveParsing() {

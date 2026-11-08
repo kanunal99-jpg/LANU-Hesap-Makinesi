@@ -50,7 +50,7 @@ internal class RatchetSessionService(
         PeerMessageCrypto.encrypt(own,own.id,own.publicKey,"dr-history:$id",text)
     suspend fun queue(own:MessagingIdentity,peer:String,peerKey:String,id:String,conversation:String,text:String,at:Long):String {
         require(UserCodes.id(peerKey)==peer && UserCodes.conversationId(own.id,peer)==conversation)
-        require(text.isNotBlank() && text.toByteArray(Charsets.UTF_8).size<=20000)
+        require(text.isNotBlank() && text.toByteArray(Charsets.UTF_8).size<=27000) { "Mesaj güvenli aktarım sınırını aşıyor; büyük dosya seçeneğini kullanın." }
         return store.transact { raw ->
             val state=root(raw,own);val entry=entry(state,peer);val sessions=entry.getJSONObject("sessions")
             val inner=JSONObject().put("version",3).put("epoch",epoch(entry)).put("id",id)
@@ -99,7 +99,7 @@ internal class RatchetSessionService(
             check(inner.keys().asSequence().toSet()==setOf("version","epoch","id","from","to","text") &&
                 inner.getInt("version")==3 && inner.getString("epoch")==epoch(entry) &&
                 inner.getString("id")==id && inner.getString("from")==peer && inner.getString("to")==own.id)
-            val text=inner.getString("text");require(text.isNotBlank() && text.toByteArray(Charsets.UTF_8).size<=20000)
+            val text=inner.getString("text");require(text.isNotBlank() && text.toByteArray(Charsets.UTF_8).size<=27000)
             sessions.put(sid,opened.getString("session"))
             if(opened.has("account")) entry.put("account",opened.getString("account"))
             val conversation=UserCodes.conversationId(own.id,peer)
