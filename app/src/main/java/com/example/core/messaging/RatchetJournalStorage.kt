@@ -19,8 +19,8 @@ internal class RatchetFileJournal(noBackupRoot: File, ownerId: String) : Ratchet
     init {
         require(ownerId.matches(Regex("[a-f0-9]{64}")))
         check((directory.isDirectory || directory.mkdirs()) && directory.absoluteFile == directory.canonicalFile && directory.canonicalFile.parentFile == root)
-        val fd = Os.open(root.absolutePath, OsConstants.O_RDONLY or OsConstants.O_DIRECTORY, 0)
-        try { Os.fsync(fd) } finally { Os.close(fd) }
+        val fd = Os.open(root.absolutePath, OsConstants.O_RDONLY, 0)
+        try { check(OsConstants.S_ISDIR(Os.fstat(fd).st_mode)); Os.fsync(fd) } finally { Os.close(fd) }
         file = AtomicFile(File(directory, "$ownerId.journal"))
     }
     private fun validate() {
@@ -59,8 +59,8 @@ internal class RatchetFileJournal(noBackupRoot: File, ownerId: String) : Ratchet
             finished = true
             check(read() == ciphertext)
             // AtomicFile alone does not establish parent-directory durability.
-            val fd = Os.open(directory.absolutePath, OsConstants.O_RDONLY or OsConstants.O_DIRECTORY, 0)
-            try { Os.fsync(fd) } finally { Os.close(fd) }
+            val fd = Os.open(directory.absolutePath, OsConstants.O_RDONLY, 0)
+            try { check(OsConstants.S_ISDIR(Os.fstat(fd).st_mode)); Os.fsync(fd) } finally { Os.close(fd) }
         } catch (error: Exception) {
             if (!finished) file.failWrite(stream)
             throw IOException("Güvenli oturum kalıcı kaydedilemedi.")

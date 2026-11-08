@@ -214,13 +214,21 @@ dependencies {
 
 // Build scripts/CI supply exactly the four version-pinned native ABIs. Never
 // publish a feature-looking APK with its cryptographic engine absent.
-val verifyRatchetNative by tasks.registering {
-  doLast {
-    for (abi in listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")) {
-      check(rootProject.file("build/ratchet/jniLibs/$abi/liblanu_ratchet.so").isFile) {
-        "Run scripts/build_ratchet_native.sh before building LANU: missing ratchet ABI $abi"
-      }
+abstract class VerifyRatchetNative : DefaultTask() {
+  @get:InputFiles
+  @get:PathSensitive(PathSensitivity.RELATIVE)
+  abstract val libraries: ConfigurableFileCollection
+
+  @TaskAction
+  fun verify() {
+    check(libraries.files.size == 4 && libraries.files.all { it.isFile }) {
+      "Run scripts/build_ratchet_native.sh before building LANU: all four ratchet ABIs are required"
     }
   }
+}
+val verifyRatchetNative by tasks.registering(VerifyRatchetNative::class) {
+  libraries.from(listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86").map {
+    rootProject.file("build/ratchet/jniLibs/$it/liblanu_ratchet.so")
+  })
 }
 tasks.named("preBuild").configure { dependsOn(verifyRatchetNative) }
