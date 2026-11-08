@@ -979,7 +979,10 @@ class CommunicationRepository(
                 if(senderId!=own.id && activeConversationId==convId && !message.optBoolean("deleted") && !threadDeleted) read.add(id)
                 continue
             }
-            if(protocol!=1) {rejectedIds.add(id);continue}
+            if(protocol!=1 || settingsDao.getSettingValue("lanu_dr_seen_$id")!=null ||
+                messageDao.getMessage(id)?.content?.startsWith("lanu3-local:")==true) {
+                rejectedIds.add(id);continue
+            }
             // Message, unread count and replay revision are one durable unit.
             // A crash before commit must not leave a message without its unread badge.
             try { database.withTransaction {
@@ -993,7 +996,9 @@ class CommunicationRepository(
                         // Never persist or acknowledge an unreadable/tampered encrypted message.
                         // The relay cannot authenticate E2EE ciphertext; only the recipient can.
                         try {
-                            check(settingsDao.getSettingValue("lanu_dr_pin_$peerId")==null || messageDao.getMessage(id)!=null) {
+                            val stored=messageDao.getMessage(id)
+                            check(settingsDao.getSettingValue("lanu_dr_pin_$peerId")==null ||
+                                (stored?.content?.startsWith("lanu2:")==true && stored.content==message.getString("content"))) {
                                 "Pinlenmiş güvenli oturum eski protokole düşürülemez."
                             }
                             PeerMessageCrypto.decrypt(own, peerId, peer.getString("publicKey"), id, senderId, message.getString("content"))

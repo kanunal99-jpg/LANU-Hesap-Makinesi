@@ -129,8 +129,13 @@ class RatchetRepositoryRuntimeTest {
             val legacy=PeerMessageCrypto.encrypt(second,first.id,first.publicKey,rejected,"forbidden downgrade")
             relay.inject(first.id,JSONObject().put("id",rejected).put("senderId",second.id).put("recipientId",first.id)
                 .put("content",legacy).put("createdAt",2L).put("revision",1L).put("status","SENT").put("deleted",false))
+            val forged=PeerMessageCrypto.encrypt(second,first.id,first.publicKey,id,"attempt to overwrite ratchet archive")
+            relay.inject(first.id,JSONObject().put("id",id).put("senderId",second.id).put("recipientId",first.id)
+                .put("content",forged).put("createdAt",3L).put("revision",99L).put("status","SENT").put("deleted",true))
             now+=20000
             assertTrue(runCatching {a.repository.synchronize(conversation)}.isFailure)
+            assertNotNull(a.db.messageDao().getMessage(id))
+            assertEquals("repository ratchet fixture",a.repository.getMessages(conversation).first().single().content)
             assertNull(a.db.messageDao().getMessage(rejected))
             assertEquals(before,a.db.settingsDao().getSettingValue(RatchetTransactionStore.STATE_KEY))
         } }
