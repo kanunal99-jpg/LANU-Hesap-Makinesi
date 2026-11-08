@@ -95,7 +95,7 @@ class WebRtcNativeAcceptanceTest {
                 val first=gathered(a)
                 stage("offer-candidates-ready")
                 assertTrue(first.contains("a=fingerprint:sha-256 "))
-                set { b.setRemoteDescription(it,SessionDescription(SessionDescription.Type.OFFER,first)) }
+                set { b.setRemoteDescription(it,SessionDescription(SessionDescription.Type.OFFER,com.example.core.calls.TrickleIcePolicy.advertise(first))) }
                 stage("remote-offer-set")
                 val answer=create { b.createAnswer(it,MediaConstraints()) }
                 stage("answer-created")
@@ -103,8 +103,24 @@ class WebRtcNativeAcceptanceTest {
                 stage("local-answer-set")
                 val fullAnswer=gathered(b)
                 stage("answer-candidates-ready")
-                set { a.setRemoteDescription(it,SessionDescription(SessionDescription.Type.ANSWER,fullAnswer)) }
-                stage("remote-answer-set")
+                // Exercise the production capability marker and true incremental
+                // candidates against real native ICE/DTLS/SCTP on both variants.
+                val withoutCandidates = fullAnswer.lineSequence().filterNot {
+                    it.startsWith("a=candidate:") || it.startsWith("a=end-of-candidates")
+                }.joinToString("\r\n", postfix = "\r\n")
+                set { a.setRemoteDescription(it,SessionDescription(SessionDescription.Type.ANSWER,
+                    com.example.core.calls.TrickleIcePolicy.advertise(withoutCandidates))) }
+                val mid = fullAnswer.lineSequence().first { it.startsWith("a=mid:") }.removePrefix("a=mid:").trim()
+                val ufrag = com.example.core.calls.TrickleIcePolicy.ufrag(fullAnswer)
+                val candidates = fullAnswer.lineSequence().filter { it.startsWith("a=candidate:") }.toList()
+                assertTrue(candidates.isNotEmpty())
+                for (line in candidates) {
+                    val candidate = org.json.JSONObject().put("mid", mid).put("index", 0)
+                        .put("ufrag", ufrag).put("candidate", line.removePrefix("a=").trim())
+                    com.example.core.calls.TrickleIcePolicy.validate(candidate)
+                    assertTrue(a.addIceCandidate(IceCandidate(mid, 0, candidate.getString("candidate"))))
+                }
+                stage("remote-trickle-answer-verified")
                 if(channel.state()!=DataChannel.State.OPEN)opened.await()
                 stage("data-channel-open")
                 remoteReady.await()

@@ -518,7 +518,7 @@ class NativeCallViewModel(
                 proofAt != null && now >= proofAt &&
                 now - proofAt <= CALL_MEDIA_PROOF_CALLBACK_MAX_AGE_MS
             val setupSignal = kind in setOf(CallSignalKind.INVITE, CallSignalKind.ACCEPT,
-                CallSignalKind.OFFER, CallSignalKind.ANSWER)
+                CallSignalKind.OFFER, CallSignalKind.ANSWER, CallSignalKind.CANDIDATES)
             if (!activeMedia || !setupSignal ||
                 CallSignalRetryPolicy.delayAfter(e, 1) == null) throw e
         }

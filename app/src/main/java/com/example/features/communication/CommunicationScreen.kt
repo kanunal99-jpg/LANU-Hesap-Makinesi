@@ -163,7 +163,7 @@ fun CommunicationScreen(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Karşı tarafın LANU kodunu kaydedin. Yazışmak için onun da sizin kodunuzu kaydetmesi gerekir.")
                 OutlinedTextField(alias, { alias = it.take(60) }, label = { Text("Kişiye vereceğiniz ad") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("contact_name_input"))
-                OutlinedTextField(otherCode, { otherCode = it.take(256) }, label = { Text("LANU kullanıcı kodu") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("contact_code_input"))
+                OutlinedTextField(otherCode, { otherCode = it.take(256) }, label = { Text("LANU kodu veya kişi daveti") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("contact_code_input"))
                 validation?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         }, confirmButton = { Button(onClick = {
@@ -238,7 +238,7 @@ private fun IdentityCodeCard(code: String, name: String) {
                         try {
                             context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
                                 type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, code)
+                                putExtra(Intent.EXTRA_TEXT, ContactInvitation.encode(code))
                             }, "LANU kodunu paylaş"))
                         } catch (_: Exception) {
                             android.widget.Toast.makeText(
