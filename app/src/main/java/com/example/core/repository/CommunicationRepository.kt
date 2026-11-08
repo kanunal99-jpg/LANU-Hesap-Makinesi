@@ -63,6 +63,11 @@ class CommunicationRepository(
     private var privateMediaCapable = false
     private var nextPrivateMediaCapabilityCheckAt = 0L
     private var nextRatchetRenewalCheckAt = 0L
+    private var nextRatchetStatusCheckAt = 0L
+    private var ratchetStatusOffset=0
+    data class RatchetStatus(val renewalPending:Boolean,val needsRecovery:Boolean,val retiredIncoming:Long,val retiredOutgoing:Long)
+    private val _ratchetStatuses=MutableStateFlow<Map<String,RatchetStatus>>(emptyMap())
+    val ratchetStatuses:StateFlow<Map<String,RatchetStatus>> = _ratchetStatuses.asStateFlow()
     private val _identity = MutableStateFlow<MessagingIdentity?>(null)
     val identity: StateFlow<MessagingIdentity?> = _identity.asStateFlow()
     val relayConfigured get() = relay.configured
@@ -113,12 +118,36 @@ class CommunicationRepository(
             try {
                 val state=relay.request(own,"ratchetState",JSONObject().put("peerId",peerId))
                 state.optJSONObject("completed")?.let {receipt ->
-                    draftMutex.withLock {coordinator.finishRenewal(own,peerId,peer.getString("publicKey"),receipt,state)}
+                    draftMutex.withLock {
+                        if(coordinator.finishRenewal(own,peerId,peer.getString("publicKey"),receipt,state))
+                            _ratchetStatuses.value=_ratchetStatuses.value-UserCodes.conversationId(own.id,peerId)
+                    }
                 }
             } catch(e:CancellationException) {throw e}
             catch(_:Exception) { /* Preserve candidate and old root for an explicit retry. */ }
         }
-        for(setting in settingsDao.getRatchetPublicBundles()) {
+        val publicBundles=settingsDao.getRatchetPublicBundles()
+        if(clock()>=nextRatchetStatusCheckAt && publicBundles.isNotEmpty()) {
+            nextRatchetStatusCheckAt=clock()+30_000L
+            val selected=(publicBundles+publicBundles).drop(ratchetStatusOffset % publicBundles.size).take(minOf(2,publicBundles.size))
+            ratchetStatusOffset=(ratchetStatusOffset+selected.size)%publicBundles.size
+            for(row in selected) {
+                val peerId=row.key.removePrefix("lanu_dr_public_bundle_")
+                val peer=settingsDao.getSettingValue("lanu_peer_id_$peerId")?.let(::JSONObject) ?: continue
+                try {
+                    val state=relay.request(own,"ratchetState",JSONObject().put("peerId",peerId))
+                    val remoteEpoch=if(state.getBoolean("ready")) RatchetProtocol.verifyCurrentPair(own,peerId,peer.getString("publicKey"),state) else null
+                    val pending=state.optJSONObject("pending")
+                    if(pending!=null) verifyPendingRenewal(own,peer,remoteEpoch,pending)
+                    val local=settingsDao.getSettingValue("lanu_dr_pin_$peerId")
+                    val status=RatchetStatus(pending!=null,local!=null && local!=remoteEpoch,
+                        state.getLong("retiredIncoming"),state.getLong("retiredOutgoing"))
+                    _ratchetStatuses.value=_ratchetStatuses.value+(UserCodes.conversationId(own.id,peerId) to status)
+                } catch(e:CancellationException) {throw e}
+                catch(_:Exception) { /* A status lookup cannot unblock/reset any keys. */ }
+            }
+        }
+        for(setting in publicBundles) {
             val peerId=setting.key.removePrefix("lanu_dr_public_bundle_")
             if(settingsDao.getSettingValue("lanu_dr_pin_$peerId")!=null) continue
             val peer=settingsDao.getSettingValue("lanu_peer_id_$peerId")?.let(::JSONObject) ?: continue
@@ -195,7 +224,9 @@ class CommunicationRepository(
                 .put("previousEpoch",offer.previous).put("bundle",candidate.getJSONObject("bundle")).put("proof",candidate.getString("proof")))
             check(result.getBoolean("accepted")) { "Yenileme çakıştı. Mesajlar ve aday anahtar korundu; durumu yeniden kontrol edin." }
             if(!result.getBoolean("ready")) return@confirm false
-            coordinator.finishRenewal(own,offer.peer,peer.getString("publicKey"),result.getJSONObject("receipt"),result.getJSONObject("state"))
+            coordinator.finishRenewal(own,offer.peer,peer.getString("publicKey"),result.getJSONObject("receipt"),result.getJSONObject("state")).also {
+                if(it) _ratchetStatuses.value=_ratchetStatuses.value-offer.conversation
+            }
         }
     }
 
@@ -1029,7 +1060,9 @@ class CommunicationRepository(
         }
         val id = UUID.randomUUID().toString()
         val peerId=peer.getString("id")
-        check(ratchet?.candidate(peerId)==null) { "Oturum yenilemesi bekleniyor; taslağınız korunuyor." }
+        check(ratchet?.candidate(peerId)==null && _ratchetStatuses.value[conversationId]?.let { !it.renewalPending && !it.needsRecovery }!=false) {
+            "Oturum yenilemesi gerekiyor veya eş onayı bekleniyor; taslağınız korunuyor."
+        }
         val savedDraft = settingsDao.getSettingValue("lanu_draft_$conversationId")
         val clearDraft = savedDraft != null && !InlineMediaCodec.isAttachment(plaintext) && runCatching {
             PeerMessageCrypto.decrypt(own, own.id, own.publicKey, draftMessageId(conversationId), own.id, savedDraft) == plaintext

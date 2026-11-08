@@ -66,6 +66,7 @@ fun ChatDetailScreen(
     val userPhone by viewModel.userId.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
     val ratchetRecovery by viewModel.ratchetRecovery.collectAsState()
+    val ratchetStatuses by viewModel.ratchetStatuses.collectAsState()
     val isSending by viewModel.isSending.collectAsState()
     val preparedMedia by viewModel.preparedInlineMedia.collectAsState()
     val pendingEnvelope = preparedMedia?.takeIf {
@@ -275,6 +276,15 @@ fun ChatDetailScreen(
                 .padding(innerPadding)
                 .background(MaterialTheme.colorScheme.background)
         ) {
+            if(com.example.BuildConfig.LANU_RATCHET_UI_ENABLED) ratchetStatuses[conversationId]?.let { status ->
+                if(status.renewalPending || status.needsRecovery || status.retiredIncoming>0 || status.retiredOutgoing>0) {
+                    TextButton(onClick={viewModel.inspectRatchetRecovery(conversationId)},modifier=Modifier.fillMaxWidth()) {
+                        Text(if(status.needsRecovery) "Güvenli oturum yenilemesi gerekiyor — durumu kontrol et"
+                            else if(status.renewalPending) "Güvenli oturum yenilemesi için eş onayı bekleniyor"
+                            else "Eski oturumda teslimi bekleyen iletiler var — durumu kontrol et")
+                    }
+                }
+            }
             // Self destruct banner if enabled
             if (isSelfDestructEnabled) {
                 Surface(

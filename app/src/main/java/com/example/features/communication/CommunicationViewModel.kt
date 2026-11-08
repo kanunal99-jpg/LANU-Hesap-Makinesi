@@ -23,6 +23,7 @@ class CommunicationViewModel(
     private val repository: CommunicationRepository,
     private val deliveryCoordinator: DeliveryCoordinator? = null
 ) : ViewModel() {
+    val ratchetStatuses=repository.ratchetStatuses
     val contacts = repository.contacts
     val conversations = repository.conversations
     val callLogs = repository.callLogs

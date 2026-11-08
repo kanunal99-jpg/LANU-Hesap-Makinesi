@@ -38,6 +38,27 @@ class RatchetCoordinator(private val context:Context,private val database:AppDat
             arrayOf(UserCodes.conversationId(own.id,peer))).use {it.moveToFirst()}) {
             "Mevcut güvenli mesajlar var; iki taraflı yenileme gerekir."
         }
+        // A readable former root already bound to a remote bundle cannot be
+        // treated as a never-active initial setup, even if public Room pins
+        // were rolled back. Missing private material is handled only by an
+        // explicitly two-owner-approved renewal after a ready relay proof.
+        if(repair) {
+            val previous=database.settingsDao().getSettingValue(RatchetRootRegistry.pointerKey(peer))
+            if(previous!=null) {
+                val manifest=RatchetRootRegistry.parse(own,peer,previous)
+                val deviceKeys=java.security.KeyStore.getInstance("AndroidKeyStore").apply {load(null)}
+                if(deviceKeys.containsAlias("lanu_ratchet_wrap_v1_${manifest.namespace}")) {
+                    val old=load(own,manifest)
+                    val cipher=checkNotNull(database.settingsDao().getSettingValue(manifest.stateKey))
+                    val entry=RatchetProtocol.parse(old.keys.open("state",cipher),2*1024*1024).getJSONObject("peers").getJSONObject(peer)
+                    check(!entry.has("remote") && entry.getJSONObject("sessions").length()==0) { "Önceden etkinleşmiş oturum için iki taraflı yenileme gerekir." }
+                }
+                // An explicitly confirmed, server-proven UNUSED initial setup
+                // may get a new namespace after Keystore loss. No old bytes/key
+                // alias are replaced; active/history-backed setups failed above.
+
+            }
+        }
         val saved=if(repair)null else database.settingsDao().getSettingValue(RatchetRootRegistry.initialKey(peer))
         val manifest=saved?.let {RatchetRootRegistry.parse(own,peer,it)} ?: RatchetRootRegistry.fresh(own,peer).also {
             setting(RatchetRootRegistry.initialKey(peer),it.encoded)
