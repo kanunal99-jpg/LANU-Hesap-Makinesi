@@ -696,6 +696,10 @@ class CommunicationRepository(
             val verified = verifiedCallPeer(peerId)
                 ?: error("Dosya paylaşımı için karşılıklı kişi kaydı gerekir.")
             check(verified.publicKey == publicKey) { "Alıcının kimliği değişti." }
+            check(settingsDao.getSettingValue("lanu_dr_public_bundle_$peerId")==null ||
+                settingsDao.getSettingValue("lanu_dr_pin_$peerId")!=null) {
+                "Güvenli oturum yükseltilirken dosya göndermek için karşı taraf bekleniyor."
+            }
             val manifest = prepared.manifest
             PrivateMediaCrypto.validate(manifest)
             val reservation = withContext(Dispatchers.IO) {
