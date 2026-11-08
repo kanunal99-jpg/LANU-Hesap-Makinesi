@@ -13,6 +13,8 @@
 # Without these explicit methods, older Android desugaring may attempt an
 # Observer$-CC companion that is not present in the release APK (CI #412).
 -keep class com.example.core.calls.EmptyPeerObserver { *; }
+# The release APK native acceptance exchanges bounded incremental ICE candidates.
+-keep class com.example.core.calls.TrickleIcePolicy { *; }
 # The release instrumentation APK invokes our retained production EGL entry
 # point rather than independently linking an incompatible static-interface
 # desugaring bridge for EglBase.create() on minSdk 23.
