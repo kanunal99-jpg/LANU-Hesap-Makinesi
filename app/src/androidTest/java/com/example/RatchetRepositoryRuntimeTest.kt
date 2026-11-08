@@ -274,7 +274,7 @@ class RatchetRepositoryRuntimeTest {
                 restored.repository.saveDraft(conversation,"keep this newer draft")
                 assertTrue(runCatching {restored.repository.sendMessage(conversation,"keep this newer draft")}.isFailure)
                 assertEquals("keep this newer draft",restored.repository.loadDraft(conversation))
-                assertTrue(restored.db.messageDao().getPendingMessages(now=now).isEmpty())
+                assertTrue(restored.db.messageDao().getPendingMessages(now=now,limit=200).isEmpty())
                 assertNull(restored.db.settingsDao().getSettingValue("lanu_dr_pin_${second.id}"))
             }
         }}
