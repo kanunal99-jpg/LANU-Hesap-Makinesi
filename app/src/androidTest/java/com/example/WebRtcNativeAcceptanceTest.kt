@@ -143,4 +143,24 @@ class WebRtcNativeAcceptanceTest {
             }
         }
     }
+    @Test fun unavailableAuthorizedTurnProbeTimesOutAndReleasesNativePeersWithoutMedia() = runBlocking {
+        val context=InstrumentationRegistry.getInstrumentation().targetContext
+        // Closed loopback discard port: no public host, account, microphone or camera.
+        repeat(2) {
+            assertFalse(com.example.core.calls.TurnAllocationProbe.run(context,
+                com.example.core.calls.CallTurnConfig.Value("turn:127.0.0.1:9?transport=udp", "synthetic", "synthetic"), 3_000L))
+        }
+    }
+
+    @Test fun ownerCanCancelTurnAllocationWithoutWaitingForFullDeadline() = runBlocking {
+        val context=InstrumentationRegistry.getInstrumentation().targetContext
+        val job=launch {
+            com.example.core.calls.TurnAllocationProbe.run(context,
+                com.example.core.calls.CallTurnConfig.Value("turn:127.0.0.1:9?transport=udp", "synthetic", "synthetic"))
+        }
+        delay(300L)
+        withTimeout(5_000L) { job.cancelAndJoin() }
+        assertTrue(job.isCompleted)
+    }
+
 }

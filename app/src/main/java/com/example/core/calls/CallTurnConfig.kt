@@ -6,6 +6,7 @@ import androidx.security.crypto.MasterKey
 
 /** Optional user-operated relay. No shared/public credentials, account creation or billing. */
 class CallTurnConfig(context: Context) {
+    @androidx.annotation.Keep
     class Value(val url: String, val username: String, val credential: String) {
         override fun toString() = "TurnConfig(redacted)"
     }

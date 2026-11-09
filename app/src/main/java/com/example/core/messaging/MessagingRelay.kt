@@ -104,6 +104,16 @@ class HttpMessagingRelay(private val endpoint: String) : MessagingRelay {
         .build()
     override suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject): JSONObject = withContext(Dispatchers.IO) {
         if (!configured) throw RelayException(0, "Mesajlaşma sunucusu henüz bağlanmadı. Mesaj gönderilmedi.")
+        val metricStage = when (action) {
+            "send" -> com.example.core.diagnostics.PrivateConnectionMetrics.Stage.MESSAGE_SEND
+            "sync" -> com.example.core.diagnostics.PrivateConnectionMetrics.Stage.SYNC
+            "callSend", "callSync", "callAck" -> com.example.core.diagnostics.PrivateConnectionMetrics.Stage.CALL_SIGNAL
+            else -> null
+        }
+        val metricToken = com.example.core.diagnostics.PrivateConnectionMetrics.token()
+        val metricStart = android.os.SystemClock.elapsedRealtime()
+        var metricSuccess = false
+        try {
         budget.awaitPermit(identity.id, action)
         val payload = JSONObject().put("action", action).put("identityId", identity.id).put("ts", System.currentTimeMillis())
             .put("requestId", UUID.randomUUID().toString()).put("data", data).toString()
@@ -139,7 +149,12 @@ class HttpMessagingRelay(private val endpoint: String) : MessagingRelay {
                 throw RelayException(response.code, "Bağlantı tamamlanamadı. Mesajlarınız korunuyor.")
             }
             PrivateRelayHealth.record(PrivateRelayHealth.Outcome.SUCCESS)
+            metricSuccess = true
             value
+        }
+        } finally {
+            if (metricStage != null) com.example.core.diagnostics.PrivateConnectionMetrics.record(
+                metricStage, metricToken, metricStart, android.os.SystemClock.elapsedRealtime(), metricSuccess)
         }
     }
 }
