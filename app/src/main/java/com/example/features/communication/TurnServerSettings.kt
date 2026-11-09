@@ -40,9 +40,10 @@ fun TurnServerSettings() {
                 OutlinedTextField(username, { username = it.take(256) }, label = { Text("Kullanıcı adı") }, singleLine = true)
                 OutlinedTextField(password, { password = it.take(512) }, label = { Text("Parola") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
                 TextButton(enabled = !busy, onClick = {
+                    if (busy) return@TextButton
                     probing = true
                     message = "Aktarma tahsisi deneniyor; en fazla 12 saniye."
-                    probeJob = scope.launch {
+                    probeJob = scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
                     busy = true
                     var attempted = false
                     val token = PrivateConnectionMetrics.token()
