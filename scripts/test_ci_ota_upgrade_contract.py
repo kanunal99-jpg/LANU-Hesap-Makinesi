@@ -157,8 +157,19 @@ fi
         self.assertIn("github.event_name == 'push'", workflow)
         self.assertIn("scripts/ci_prepare_android_image.sh", workflow)
         self.assertIn("scripts/ci_ota_upgrade_acceptance.sh", workflow)
-        self.assertIn("Checkout pinned previous release source", workflow)
+        self.assertIn("Checkout verified OTA baseline source", workflow)
         self.assertIn("Compile baseline instrumentation against the actual previous release ABI", workflow)
+        self.assertIn("baseline: [legacy-828, previous-stable]", workflow)
+        self.assertIn("select_ota_baseline.py", workflow)
+        self.assertIn("steps.baseline.outputs.sha", workflow)
+        self.assertIn("steps.baseline.outputs.tag", workflow)
+        self.assertIn("steps.baseline.outputs.version", workflow)
+        self.assertIn("previous release tag moved; ota release blocked", workflow.lower())
+        # The historical oldest baseline remains a separate real-emulator gate,
+        # while the most recent published signed APK is no longer hard-coded.
+        self.assertIn('tag="v1.2.0-signed.828"', workflow)
+        self.assertNotIn('tag="v1.2.0-signed.1202"', workflow)
+        self.assertIn("fail-fast: false", workflow)
 
     def test_probe_is_explicit_emulator_only_and_checks_real_record_continuity(self):
         source = (ROOT / "app/src/androidTest/java/com/example/RoomActualOtaUpgradeTest.kt").read_text()

@@ -181,6 +181,7 @@ jobs:
           bash -n scripts/ci_prepare_android_image.sh
           bash -n scripts/ci_ota_upgrade_acceptance.sh
           python3 -m unittest discover -s scripts -p 'test_ci_ota_upgrade_contract.py'
+          python3 -m unittest discover -s scripts -p 'test_select_ota_baseline.py'
 
       - name: Run Android Lint
         run: ./gradlew :app:lintDebug --no-daemon --stacktrace
@@ -426,21 +427,74 @@ jobs:
 
 
   ota-upgrade-acceptance:
-    name: Real Signed APK OTA Preservation (API 34 emulator)
+    name: Real Signed APK OTA Preservation (API 34 emulator; ${{ matrix.baseline }})
+    # Run both oldest supported stable and *actual latest* signed upgrade.
+    # Two isolated emulators: no app uninstall, data clearing or fake upgrade.
     # Main only: PRs never gain the production signing key.
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     needs: [build-and-test]
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        baseline: [legacy-828, previous-stable]
     env:
       LANU_VERSION_CODE: ${{ github.run_number }}
     steps:
       - name: Checkout verified source
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
-      - name: Checkout pinned previous release source for ABI-matched seed test
+      - name: Select signed OTA baseline (oldest supported and most recent)
+        id: baseline
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OTA_BASELINE_MODE: ${{ matrix.baseline }}
+        run: |
+          set -euo pipefail
+          if [ "$OTA_BASELINE_MODE" = "legacy-828" ]; then
+            tag="v1.2.0-signed.828"
+            version=828
+            sha="dc307da8b082c32edee9fffccabedb99df2cb6d0"
+          elif [ "$OTA_BASELINE_MODE" = "previous-stable" ]; then
+            # Do not use /releases/latest: every signed LANU release is marked
+            # prerelease; that endpoint returns 404. Check all released assets.
+            mapfile -t candidate < <(
+              gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+                python3 scripts/select_ota_baseline.py "$LANU_VERSION_CODE"
+            )
+            if [ "${#candidate[@]}" -ne 3 ]; then
+              echo "::error::No complete previous signed release found"; exit 1
+            fi
+            tag="${candidate[0]}"; version="${candidate[1]}"; sha="${candidate[2]}"
+            # Reject a replaced or foreign tag before building ANY previous
+            # source. Both refs must remain inside this project's main history.
+            tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq '.object.sha')"
+            if [ "$tag_sha" != "$sha" ]; then
+              echo "::error::Previous release tag moved; OTA release blocked"; exit 1
+            fi
+            comparison="$(gh api "repos/$GITHUB_REPOSITORY/compare/$sha...$GITHUB_SHA" --jq '.status')"
+            if [ "$comparison" != "ahead" ]; then
+              echo "::error::Previous release not ancestor of candidate"; exit 1
+            fi
+          else
+            echo "::error::Unknown OTA baseline mode"; exit 1
+          fi
+          if ! [[ "$tag" =~ ^v1\.2\.0-signed\.[0-9]+$ &&
+                  "$version" =~ ^[0-9]+$ &&
+                  "$sha" =~ ^[a-f0-9]{40}$ ]] || (( version >= LANU_VERSION_CODE )); then
+            echo "::error::Unsafe OTA baseline"; exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout verified OTA baseline source for ABI-matched seed test
         uses: actions/checkout@v5
         with:
-          ref: dc307da8b082c32edee9fffccabedb99df2cb6d0
+          ref: ${{ steps.baseline.outputs.sha }}
           path: baseline-src
           persist-credentials: false
 
@@ -510,7 +564,7 @@ jobs:
           (
             cd baseline-src
             bash "$GITHUB_WORKSPACE/scripts/ci_prepare_gradle.sh"
-            LANU_VERSION_CODE=828 ./gradlew -PlanuDeviceBuildType=release \
+            LANU_VERSION_CODE=${{ steps.baseline.outputs.version }} ./gradlew -PlanuDeviceBuildType=release \
               :app:assembleReleaseAndroidTest --no-daemon --stacktrace
           )
           mapfile -t previous_tests < <(find baseline-src/app/build/outputs/apk/androidTest \
@@ -539,7 +593,7 @@ jobs:
           set -euo pipefail
           baseline="$RUNNER_TEMP/lanu-ota-baseline"
           mkdir -p "$baseline"
-          tag="v1.2.0-signed.828"
+          tag="${{ steps.baseline.outputs.tag }}"
           for asset in app-debug.apk app-debug.apk.sha256 app-debug.apk.signer.txt; do
             python3 scripts/download_public_release_asset.py \
               "$GITHUB_REPOSITORY" "$tag" "$asset" "$baseline/$asset"
@@ -578,7 +632,7 @@ jobs:
           # Emulator Runner invokes each YAML script line independently;
           # use ONE actual Bash command, not shell-continuation lines.
           script: |
-            bash scripts/ci_ota_upgrade_acceptance.sh "$RUNNER_TEMP/lanu-ota-baseline/app-debug.apk" "$RUNNER_TEMP/lanu-ota-new.apk" "$RUNNER_TEMP/lanu-ota-baseline-instrumentation.apk" "$RUNNER_TEMP/lanu-ota-new-instrumentation.apk" 828 "$LANU_VERSION_CODE"
+            bash scripts/ci_ota_upgrade_acceptance.sh "$RUNNER_TEMP/lanu-ota-baseline/app-debug.apk" "$RUNNER_TEMP/lanu-ota-new.apk" "$RUNNER_TEMP/lanu-ota-baseline-instrumentation.apk" "$RUNNER_TEMP/lanu-ota-new-instrumentation.apk" "${{ steps.baseline.outputs.version }}" "$LANU_VERSION_CODE"
 
   publish:
     name: Publish verified APK
