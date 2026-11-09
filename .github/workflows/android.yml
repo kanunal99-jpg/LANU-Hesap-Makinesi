@@ -91,7 +91,7 @@ jobs:
       - name: Generate Gradle Wrapper when repository wrapper is missing
         run: |
           if [ ! -f ./gradlew ]; then
-            gradle wrapper --gradle-version 9.3.1 --distribution-type bin
+            for wrapper_attempt in 1 2 3; do gradle wrapper --gradle-version 9.3.1 --distribution-type bin && break; [ "$wrapper_attempt" -lt 3 ] || exit 1; sleep 5; done
           fi
           chmod +x ./gradlew
           ./gradlew --version
@@ -375,7 +375,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ ! -f ./gradlew ]; then
-            gradle wrapper --gradle-version 9.3.1 --distribution-type bin
+            for wrapper_attempt in 1 2 3; do gradle wrapper --gradle-version 9.3.1 --distribution-type bin && break; [ "$wrapper_attempt" -lt 3 ] || exit 1; sleep 5; done
           fi
           chmod +x ./gradlew
           keytool -genkeypair -v \
@@ -480,7 +480,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -f ./gradlew ]; then gradle wrapper --gradle-version 9.3.1 --distribution-type bin; fi
+          if [ ! -f ./gradlew ]; then for wrapper_attempt in 1 2 3; do gradle wrapper --gradle-version 9.3.1 --distribution-type bin && break; [ "$wrapper_attempt" -lt 3 ] || exit 1; sleep 5; done; fi
           chmod +x ./gradlew
           ./gradlew -PlanuDeviceBuildType=release :app:assembleReleaseAndroidTest --no-daemon --stacktrace
           mapfile -t tests < <(find app/build/outputs/apk/androidTest -type f -name '*androidTest*.apk')
@@ -504,7 +504,7 @@ jobs:
             baseline-src/app/src/androidTest/java/com/example/RoomActualOtaUpgradeTest.kt
           (
             cd baseline-src
-            if [ ! -f ./gradlew ]; then gradle wrapper --gradle-version 9.3.1 --distribution-type bin; fi
+            if [ ! -f ./gradlew ]; then for wrapper_attempt in 1 2 3; do gradle wrapper --gradle-version 9.3.1 --distribution-type bin && break; [ "$wrapper_attempt" -lt 3 ] || exit 1; sleep 5; done; fi
             chmod +x ./gradlew
             LANU_VERSION_CODE=828 ./gradlew -PlanuDeviceBuildType=release \
               :app:assembleReleaseAndroidTest --no-daemon --stacktrace
