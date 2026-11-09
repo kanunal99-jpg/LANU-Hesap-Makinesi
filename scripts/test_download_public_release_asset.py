@@ -71,5 +71,41 @@ class DownloadTests(unittest.TestCase):
             module.download(REPO,TAG,NAME,self.dest,self.runner([(0,oversized),(0,self.metadata()),(0,oversized)]))
         self.assertEqual(self.dest.read_bytes(),b"previous")
 
+
+class WrapperFallbackTests(unittest.TestCase):
+    def test_real_workflow_commands_use_bounded_official_host_fallback(self):
+        import os
+        workflow=(Path(__file__).resolve().parent.parent/".github/workflows/android.yml").read_text()
+        import re
+        commands=re.findall(r"for wrapper_host in services.gradle.org downloads.gradle.org;.*?done; done",workflow)
+        self.assertEqual(len(commands),4)
+        self.assertEqual(len(set(commands)),1)
+        command=commands[0]
+        self.assertNotIn("--no-validate-url",command)
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            log=root/"calls"
+            gradle=root/"gradle"
+            gradle.write_text("""#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$LOG"
+if [ "$MODE" = "primary" ]; then exit 0; fi
+if [ "$MODE" = "fallback" ] && [[ "$*" == *https://downloads.gradle.org/* ]]; then exit 0; fi
+exit 1
+""")
+            sleep=root/"sleep"
+            sleep.write_text(chr(10).join(["#!/usr/bin/env bash", "exit 0", ""]))
+            for file in (gradle,sleep):
+                file.chmod(0o755)
+            for mode,count,ok in [("primary",1,True),("fallback",3,True),("failed",4,False)]:
+                with self.subTest(mode=mode):
+                    log.write_text("")
+                    env=dict(os.environ,PATH=str(root)+os.pathsep+os.environ["PATH"],LOG=str(log),MODE=mode)
+                    result=subprocess.run(["bash","-c",command],env=env,capture_output=True,timeout=20)
+                    self.assertEqual(result.returncode==0,ok)
+                    lines=log.read_text().splitlines()
+                    self.assertEqual(len(lines),count)
+                    self.assertTrue(all("--gradle-version 9.3.1" in line for line in lines))
+                    self.assertTrue(all("--gradle-distribution-url https://" in line for line in lines))
+
 if __name__=="__main__":
     unittest.main()
