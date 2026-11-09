@@ -132,3 +132,11 @@ test('ninety-second lifetime closes healthy channels and rate-limit failures are
   await assert.rejects(createWakePublisher('https://example.com','key',async()=>{calls++;return new Response('{}',{status:429,headers:{'Retry-After':'60'}});},async()=>{})('a'.repeat(64),'message'));
   assert.equal(calls,1);
 });
+
+test('broken response cleanup cannot turn an authorization rejection into a retry', async () => {
+  let attempts=0;
+  const publish=createWakePublisher('https://example.com','key',async()=>{
+    attempts++;return {ok:false,status:403,body:{cancel:async()=>{throw Error('stream closed');}}};
+  },async()=>{});
+  await assert.rejects(publish('a'.repeat(64),'call'));assert.equal(attempts,1);
+});

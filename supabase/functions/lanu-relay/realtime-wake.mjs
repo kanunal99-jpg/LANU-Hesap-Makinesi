@@ -14,9 +14,10 @@ export function createWakePublisher(url, key, fetcher = fetch, pause = ms => new
           method: 'POST', headers: { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
           body, signal: AbortSignal.timeout(4000)
         });
-        await response.body?.cancel();
-        if (response.ok) return;
         retry = response.status === 408 || response.status >= 500;
+        // Cleanup failures must never reclassify an auth/quota rejection as retryable.
+        try { await response.body?.cancel(); } catch { /* status remains authoritative */ }
+        if (response.ok) return;
       } catch { retry = true; }
       // At most one retry; no auth retry, sensitive diagnostics or critical-path wait.
       if (!retry || attempt === 1) throw new Error('Wake unavailable');
