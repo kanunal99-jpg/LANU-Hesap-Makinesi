@@ -23,6 +23,10 @@ case "${1:-}" in
     cat > "$root/turnserver.conf" <<CONF
 listening-ip=127.0.0.1
 relay-ip=127.0.0.1
+# Android emulator reaches the runner loopback via its special 10.0.2.2 alias.
+# Advertise that alias for relayed ICE candidates; keep all actual sockets on
+# host loopback (no production or external listener).
+external-ip=10.0.2.2/127.0.0.1
 listening-port=3478
 min-port=49160
 max-port=49220
