@@ -39,6 +39,9 @@ jobs:
       - name: Verify relay protocol and Postgres security
         run: npm ci --prefix server && npm test --prefix server
 
+      - name: Test anonymous release download fallback
+        run: python3 scripts/test_download_public_release_asset.py
+
       - name: Verify protected Firebase client config installer
         run: python3 -m unittest discover -s scripts -p 'test_install_firebase_client_config.py'
 
@@ -85,12 +88,9 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Generate Gradle Wrapper when repository wrapper is missing
+      - name: Verify pinned installed Gradle and prepare CI launcher
         run: |
-          if [ ! -f ./gradlew ]; then
-            gradle wrapper --gradle-version 9.3.1 --distribution-type bin
-          fi
-          chmod +x ./gradlew
+          bash scripts/ci_prepare_gradle.sh
           ./gradlew --version
 
       - name: Cache Gradle Packages
@@ -371,10 +371,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -f ./gradlew ]; then
-            gradle wrapper --gradle-version 9.3.1 --distribution-type bin
-          fi
-          chmod +x ./gradlew
+          bash scripts/ci_prepare_gradle.sh
           keytool -genkeypair -v \
             -keystore ./debug.keystore \
             -storepass android \
@@ -477,8 +474,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -f ./gradlew ]; then gradle wrapper --gradle-version 9.3.1 --distribution-type bin; fi
-          chmod +x ./gradlew
+          bash scripts/ci_prepare_gradle.sh
           ./gradlew -PlanuDeviceBuildType=release :app:assembleReleaseAndroidTest --no-daemon --stacktrace
           mapfile -t tests < <(find app/build/outputs/apk/androidTest -type f -name '*androidTest*.apk')
           if [ "${#tests[@]}" -ne 1 ]; then
@@ -501,8 +497,7 @@ jobs:
             baseline-src/app/src/androidTest/java/com/example/RoomActualOtaUpgradeTest.kt
           (
             cd baseline-src
-            if [ ! -f ./gradlew ]; then gradle wrapper --gradle-version 9.3.1 --distribution-type bin; fi
-            chmod +x ./gradlew
+            bash "$GITHUB_WORKSPACE/scripts/ci_prepare_gradle.sh"
             LANU_VERSION_CODE=828 ./gradlew -PlanuDeviceBuildType=release \
               :app:assembleReleaseAndroidTest --no-daemon --stacktrace
           )
@@ -534,10 +529,8 @@ jobs:
           mkdir -p "$baseline"
           tag="v1.2.0-signed.828"
           for asset in app-debug.apk app-debug.apk.sha256 app-debug.apk.signer.txt; do
-            curl --silent --show-error --fail --location --retry 4 --retry-all-errors \
-              --proto '=https' --proto-redir '=https' --max-time 240 \
-              "https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/$asset" \
-              --output "$baseline/$asset"
+            python3 scripts/download_public_release_asset.py \
+              "$GITHUB_REPOSITORY" "$tag" "$asset" "$baseline/$asset"
           done
           (cd "$baseline" && sha256sum -c app-debug.apk.sha256)
           new="$RUNNER_TEMP/lanu-ota-current"
@@ -706,17 +699,14 @@ jobs:
           else
             TAGS=("v1.0.0-debug.${{ github.run_number }}")
           fi
-          # Require anonymous public read-back and byte-for-byte equality
+          # Require anonymous public URL/API read-back and byte-for-byte equality
           # for BOTH the backwards-compatible OTA tag and the new release.
           for TAG in "${TAGS[@]}"; do
             dir="$RUNNER_TEMP/lanu-public-download/$TAG"
             mkdir -p "$dir"
             for file in app-debug.apk app-debug.apk.sha256 app-debug.apk.signer.txt; do
-              curl --silent --show-error --fail --location --retry 4 \
-                --retry-all-errors --retry-delay 2 --max-time 180 \
-                --proto '=https' --proto-redir '=https' \
-                "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$file" \
-                --output "$dir/$file"
+              python3 scripts/download_public_release_asset.py \
+                "$GITHUB_REPOSITORY" "$TAG" "$file" "$dir/$file"
             done
             python3 scripts/verify_published_apk.py "$dir" "$RUNNER_TEMP/lanu-verified" "$SIGNING_MODE"
             echo "Publicly downloadable APK verified for $TAG"
