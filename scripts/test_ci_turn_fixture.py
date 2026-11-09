@@ -24,7 +24,7 @@ class TurnFixtureContract(unittest.TestCase):
         self.assertIn('bash scripts/ci_connected_runtime.sh debug',workflow)
         self.assertIn('bash scripts/ci_connected_runtime.sh release',release)
         self.assertIn('if: always()\n        run: bash scripts/ci_turn_fixture.sh stop',workflow)
-        for marker in ('listening-ip=127.0.0.1','relay-ip=127.0.0.1','lt-cred-mech','no-cli','no-tls','no-dtls','max-allocate-lifetime=120'):
+        for marker in ('listening-ip=127.0.0.1','relay-ip=127.0.0.1','external-ip=10.0.2.2/127.0.0.1','lt-cred-mech','no-cli','no-tls','no-dtls','max-allocate-lifetime=120'):
             self.assertIn(marker,fixture)
         self.assertNotIn('no-auth',fixture)
         self.assertNotIn('assumeTrue',native)
