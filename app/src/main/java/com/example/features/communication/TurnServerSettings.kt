@@ -28,6 +28,8 @@ fun TurnServerSettings() {
     var password by remember { mutableStateOf("") }
     var message by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var probeJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var probing by remember { mutableStateOf(false) }
     OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) { Text("İsteğe bağlı bağlantı aktarma sunucusu") }
     if (expanded) AlertDialog(onDismissRequest = { if (!busy) { password = ""; expanded = false } },
         properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
@@ -37,8 +39,12 @@ fun TurnServerSettings() {
                 OutlinedTextField(url, { url = it.take(300) }, label = { Text("turns:sunucu:443?transport=tcp") }, singleLine = true)
                 OutlinedTextField(username, { username = it.take(256) }, label = { Text("Kullanıcı adı") }, singleLine = true)
                 OutlinedTextField(password, { password = it.take(512) }, label = { Text("Parola") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
-                TextButton(enabled = !busy, onClick = { scope.launch {
+                TextButton(enabled = !busy, onClick = {
+                    probing = true
+                    message = "Aktarma tahsisi deneniyor; en fazla 12 saniye."
+                    probeJob = scope.launch {
                     busy = true
+                    var attempted = false
                     val token = PrivateConnectionMetrics.token()
                     val start = android.os.SystemClock.elapsedRealtime()
                     var success = false
@@ -46,19 +52,24 @@ fun TurnServerSettings() {
                         val saved = withContext(Dispatchers.IO) { CallTurnConfig(context).read() }
                         if (saved == null) message = "Önce kullanmaya yetkili olduğunuz sunucuyu kaydedin."
                         else {
+                            attempted = true
                             success = TurnAllocationProbe.run(context, saved)
                             message = if (success) "Kimlikli TURN aktarma adayı alındı. Mikrofon/kamera açılmadı. Bu, iki cihazlı görüşme veya tüm ağlar için başarı kanıtı değildir."
                                 else "Süre içinde TURN tahsisi doğrulanamadı. Adresi, kimlik bilgilerini ve ağı kontrol edin. Mevcut bağlantı yolu korunuyor."
                         }
-                    } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    } catch (e: kotlinx.coroutines.CancellationException) { message = "Test durduruldu; kayıtlı ayar korundu."; throw e }
                     catch (_: LinkageError) { message = "Bu cihazda bağlantı test motoru açılamadı." }
                     catch (_: Exception) { message = "TURN tahsisi doğrulanamadı; kaydedilmiş ayar değiştirilmedi." }
                     finally {
-                        PrivateConnectionMetrics.record(PrivateConnectionMetrics.Stage.TURN_ALLOCATION, token, start,
+                        if (attempted) PrivateConnectionMetrics.record(PrivateConnectionMetrics.Stage.TURN_ALLOCATION, token, start,
                             android.os.SystemClock.elapsedRealtime(), success)
                         busy = false
+                        probing = false
+                        probeJob = null
                     }
                 } }) { Text("Kaydedilen sunucuyu test et") }
+                if (probing) TextButton(onClick = { probeJob?.cancel() }) { Text("Testi durdur") }
+                if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                 message?.let { Text(it) }
                 TextButton(enabled = !busy, onClick = { scope.launch {
                     busy = true
