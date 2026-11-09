@@ -31,9 +31,11 @@ object TurnAllocationProbe {
                             override fun onIceCandidate(candidate: IceCandidate) {
                                 if (!closed.get() && CallIceGatherPolicy.hasRelayCandidate("a=" + candidate.sdp)) allocated.complete(true)
                             }
-                            override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {
-                                if (!closed.get() && state == PeerConnection.IceGatheringState.COMPLETE) allocated.complete(false)
-                            }
+                            // Some Android emulators/OEMs report COMPLETE with zero
+                            // interfaces before the network monitor discovers Wi-Fi.
+                            // A later onIceCandidate can still validate the relay.
+                            // Only the bounded timeout may return a negative result;
+                            // never complete(false) on transient empty ICE gathering.
                         }))
                         // A local-only data m-line starts ICE; it has no remote description or data send.
                         channel = checkNotNull(peer!!.createDataChannel("allocation-test", DataChannel.Init()))
