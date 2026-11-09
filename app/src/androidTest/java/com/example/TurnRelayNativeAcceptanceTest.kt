@@ -79,6 +79,7 @@ class TurnRelayNativeAcceptanceTest {
         val factory=PeerConnectionFactory.builder().createPeerConnectionFactory()
         var a:PeerConnection?=null; var b:PeerConnection?=null
         var outgoing:DataChannel?=null; var incoming:DataChannel?=null
+        val closing=java.util.concurrent.atomic.AtomicBoolean(false)
         val outgoingOpened=CompletableDeferred<Unit>(); val incomingOpened=CompletableDeferred<Unit>()
         val remoteReady=CompletableDeferred<Unit>()
         val firstCandidates=java.util.Collections.synchronizedList(mutableListOf<IceCandidate>())
@@ -86,8 +87,16 @@ class TurnRelayNativeAcceptanceTest {
         val receivedByA=CompletableDeferred<String>(); val receivedByB=CompletableDeferred<String>()
         fun observer(channel:DataChannel, received:CompletableDeferred<String>, opened:CompletableDeferred<Unit>)=object:DataChannel.Observer {
             override fun onBufferedAmountChange(previous:Long) {}
-            override fun onStateChange() { if(channel.state()==DataChannel.State.OPEN) opened.complete(Unit) }
+            override fun onStateChange() {
+                // Native signaling callbacks can arrive after test teardown.
+                // Never throw across JNI when a channel is already disposed.
+                if (closing.get()) return
+                val isOpen=try { channel.state()==DataChannel.State.OPEN }
+                    catch (_:IllegalStateException) { false }
+                if (isOpen && !closing.get()) opened.complete(Unit)
+            }
             override fun onMessage(buffer:DataChannel.Buffer) {
+                if (closing.get()) return
                 val bytes=ByteArray(buffer.data.remaining()); buffer.data.get(bytes)
                 received.complete(String(bytes,Charsets.UTF_8))
             }
@@ -127,6 +136,9 @@ class TurnRelayNativeAcceptanceTest {
             check(checkNotNull(incoming).send(DataChannel.Buffer(ByteBuffer.wrap("relay-b-to-a".toByteArray()),false)))
             assertEquals("relay-b-to-a",receivedByA.await())
         } finally {
+            closing.set(true)
+            runCatching { outgoing?.unregisterObserver() }
+            runCatching { incoming?.unregisterObserver() }
             try { outgoing?.dispose() }
             finally { try { incoming?.dispose() }
                 finally { try { a?.dispose() }
