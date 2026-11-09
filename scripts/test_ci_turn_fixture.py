@@ -27,6 +27,11 @@ class TurnFixtureContract(unittest.TestCase):
         for marker in ('listening-ip=127.0.0.1','relay-ip=127.0.0.1','external-ip=10.0.2.2/127.0.0.1','lt-cred-mech','no-cli','no-tls','no-dtls','max-allocate-lifetime=120'):
             self.assertIn(marker,fixture)
         self.assertNotIn('no-auth',fixture)
+        # Blocking only the client UDP listener must not kill relay UDP sockets.
+        self.assertNotIn("printf '%s\\\\n' 'no-udp'", fixture)
+        self.assertIn('sudo iptables -I INPUT 1 -i lo -p udp --dport 3479',fixture)
+        self.assertIn('sudo iptables -D INPUT -i lo -p udp --dport 3479',fixture)
+        self.assertIn('lanu-ci-turn-fallback',fixture)
         self.assertNotIn('assumeTrue',native)
         self.assertIn('IceTransportsType.RELAY',native)
         self.assertIn('receivedByA.await()',native); self.assertIn('receivedByB.await()',native)
