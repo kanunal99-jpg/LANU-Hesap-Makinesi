@@ -51,21 +51,20 @@ class TurnRelayNativeAcceptanceTest {
     private suspend fun gathered(peer:PeerConnection, observed:MutableList<IceCandidate>):List<IceCandidate> =
         withTimeout(12_000L) {
             while(true) {
-                if(peer.iceGatheringState()==PeerConnection.IceGatheringState.COMPLETE) {
-                    val candidates=synchronized(observed) { observed.toList() }
-                    val relayCount = candidates.count {
+                // ICE may remain GATHERING while the intentionally blocked UDP
+                // route retransmits. Do not wait for UDP exhaustion after the
+                // authenticated TCP fallback already produced a relay candidate.
+                // We exchange candidates explicitly (trickle); the test still
+                // requires actual bidirectional encrypted packet delivery.
+                val candidates=synchronized(observed) { observed.toList() }
+                if (candidates.isNotEmpty()) {
+                    val relayCount=candidates.count {
                         Regex("(?:^|\\s)typ relay(?:\\s|$)").containsMatchIn(it.sdp)
                     }
-                    // Only candidate counts/types: never SDP, addresses, credentials, or ports.
-                    // Android's network monitor can report no interfaces briefly
-                    // on first ICE gathering, then deliver usable interfaces.
-                    // Never accept an empty gather as a real relay success.
-                    if (candidates.isNotEmpty()) {
-                        check(relayCount == candidates.size) {
-                            "Non-relay candidate observed (total=${candidates.size}, relay=$relayCount)"
-                        }
-                        return@withTimeout candidates
+                    check(relayCount == candidates.size) {
+                        "Non-relay candidate observed (total=${candidates.size}, relay=$relayCount)"
                     }
+                    return@withTimeout candidates
                 }
                 delay(50)
             }
