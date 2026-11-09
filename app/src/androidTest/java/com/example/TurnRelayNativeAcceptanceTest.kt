@@ -53,9 +53,13 @@ class TurnRelayNativeAcceptanceTest {
             while(true) {
                 if(peer.iceGatheringState()==PeerConnection.IceGatheringState.COMPLETE) {
                     val candidates=synchronized(observed) { observed.toList() }
-                    check(candidates.isNotEmpty() && candidates.all {
+                    val relayCount = candidates.count {
                         Regex("(?:^|\\s)typ relay(?:\\s|$)").containsMatchIn(it.sdp)
-                    }) { "Authenticated relay route missing" }
+                    }
+                    // Only candidate counts/types: never SDP, addresses, credentials, or ports.
+                    check(candidates.isNotEmpty() && relayCount == candidates.size) {
+                        "Authenticated relay route missing (total=${candidates.size}, relay=$relayCount)"
+                    }
                     return@withTimeout candidates
                 }
                 delay(50)
