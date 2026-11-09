@@ -74,4 +74,12 @@ class CallIceGatherPolicyTest {
         assertTrue(CallIceGatherPolicy.hasUsableCandidate(properTcp))
     }
 
+    @Test fun configuredRelayIsNotOmittedFromLegacyInitialOffer() {
+        val relay = "v=0\r\na=candidate:3 1 udp 1677734911 203.0.113.6 3478 typ relay raddr 192.168.1.12 rport 5000\r\n"
+        assertFalse(CallIceGatherPolicy.ready(reflexive, PeerConnection.IceGatheringState.GATHERING, 2000, 1000, preferRelay = true))
+        assertTrue(CallIceGatherPolicy.ready(relay, PeerConnection.IceGatheringState.GATHERING, 2000, 1000, preferRelay = true))
+        assertTrue(CallIceGatherPolicy.ready(reflexive, PeerConnection.IceGatheringState.COMPLETE, 2000, 1000, preferRelay = true))
+        assertFalse(CallIceGatherPolicy.hasRelayCandidate("v=0\r\na=note:typ relay\r\n"))
+    }
+
 }

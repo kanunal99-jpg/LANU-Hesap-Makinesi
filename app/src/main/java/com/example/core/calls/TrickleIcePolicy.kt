@@ -10,6 +10,31 @@ object TrickleIcePolicy {
     fun advertise(sdp: String) = if (supported(sdp)) sdp else sdp.trimEnd() + "\r\n$MARKER\r\n"
     fun ufrag(sdp: String) = sdp.lineSequence().firstOrNull { it.startsWith("a=ice-ufrag:") }
         ?.removePrefix("a=ice-ufrag:")?.trim().orEmpty()
+    /** Match both mid and m-line index; use session credentials only as an RFC fallback. */
+    fun candidateUfrag(sdp: String, mid: String, index: Int): String {
+        if (sdp.length > 24000 || index !in 0..8 || mid.length !in 1..64) return ""
+        var sessionUfrag = ""
+        var section = -1
+        var selectedMid = ""
+        var selectedUfrag = ""
+        for (raw in sdp.lineSequence()) {
+            val line = raw.trimEnd()
+            if (line.startsWith("m=")) {
+                if (section == index) break
+                section++
+            } else if (line.startsWith("a=ice-ufrag:")) {
+                if (section < 0) sessionUfrag = line.removePrefix("a=ice-ufrag:")
+                else if (section == index) selectedUfrag = line.removePrefix("a=ice-ufrag:")
+            } else if (section == index && line.startsWith("a=mid:")) selectedMid = line.removePrefix("a=mid:")
+        }
+        if (section != index || selectedMid != mid) return ""
+        return selectedUfrag.ifEmpty { sessionUfrag }
+    }
+    fun matchesEpoch(candidate: JSONObject, remoteSdp: String): Boolean {
+        validate(candidate)
+        return candidate.getString("ufrag") == candidateUfrag(remoteSdp,
+            candidate.getString("mid"), candidate.getInt("index"))
+    }
     fun validate(candidate: JSONObject) {
         require(candidate.keys().asSequence().toSet() == setOf("mid", "index", "candidate", "ufrag"))
         require(candidate.opt("mid") is String && candidate.getString("mid").length in 1..64)

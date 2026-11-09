@@ -77,12 +77,20 @@ class CommunicationRepository(
     val relayConfigured get() = relay.configured
     val realtimeChanges: Flow<String> = flow {
         if (!relay.realtimeAvailable) return@flow
+        var failures = 0
         while (true) {
-            try { relay.realtimeEvents(loadIdentity(allowCreate = false)).collect { emit(it) } }
+            val started = android.os.SystemClock.elapsedRealtime()
+            var ready = false
+            try { relay.realtimeEvents(loadIdentity(allowCreate = false)).collect {
+                if (it == "ready") ready = true
+                emit(it)
+            } }
             catch (e: CancellationException) { throw e }
             catch (_: Exception) { /* Existing HTTP polling remains authoritative. */ }
             emit("closed")
-            delay(5000L)
+            failures = WakeReconnectPolicy.nextFailures(failures, ready,
+                (android.os.SystemClock.elapsedRealtime() - started).coerceAtLeast(0L))
+            delay(WakeReconnectPolicy.delayMillis(failures, kotlin.random.Random.nextInt(1501)))
         }
     }.shareIn(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO),
         SharingStarted.WhileSubscribed(stopTimeoutMillis = 0), replay = 0)

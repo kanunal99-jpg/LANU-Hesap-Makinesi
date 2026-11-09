@@ -80,6 +80,7 @@ class NativeCallEngine(
     @Volatile private var lastCandidateAt = 0L
     @Volatile private var candidateCallback: ((String) -> Unit)? = null
     private var tricklePeer = false
+    private var turnConfigured = false
     override fun candidateListener(listener: (String) -> Unit) { candidateCallback = listener }
     override suspend fun remoteCandidate(candidate: String): Unit = withContext(dispatcher) {
         if (closing.get()) return@withContext
@@ -87,8 +88,11 @@ class NativeCallEngine(
         TrickleIcePolicy.validate(value)
         val pc = connection ?: return@withContext
         // Reject candidates from an old ICE epoch, including late restart callbacks.
-        if (value.getString("ufrag") != TrickleIcePolicy.ufrag(pc.remoteDescription?.description.orEmpty())) return@withContext
-        check(pc.addIceCandidate(IceCandidate(value.getString("mid"), value.getInt("index"), value.getString("candidate"))))
+        if (!TrickleIcePolicy.matchesEpoch(value, pc.remoteDescription?.description.orEmpty())) return@withContext
+        // A valid but unusable optional route must not terminate healthy RTP.
+        // SDP candidates and the existing setup deadline remain authoritative.
+        pc.addIceCandidate(IceCandidate(value.getString("mid"), value.getInt("index"), value.getString("candidate")))
+        Unit
     }
     private var renderers: CallVideoRendererBindings? = null
 
@@ -137,10 +141,12 @@ class NativeCallEngine(
         ensureActive(); check(!closing.get())
         // Separate provider protects STUN discovery from a single provider
         // outage. No TURN credentials, hidden billing or guaranteed NAT relay.
+        val turn = runCatching { CallTurnConfig(context).read() }.getOrNull()
+        turnConfigured = turn != null
         val config = PeerConnection.RTCConfiguration(
             CallIceServerPolicy.stunUrls.map {
                 PeerConnection.IceServer.builder(it).createIceServer()
-            } + listOfNotNull(runCatching { CallTurnConfig(context).read() }.getOrNull()?.let {
+            } + listOfNotNull(turn?.let {
                 PeerConnection.IceServer.builder(it.url).setUsername(it.username).setPassword(it.credential).createIceServer()
             })
         ).apply { sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN }
@@ -325,7 +331,8 @@ class NativeCallEngine(
                     localSdp = pc.localDescription?.description,
                     state = pc.iceGatheringState(),
                     elapsedMs = now - startedAt,
-                    lastCandidateAgoMs = lastAt.takeIf { it > 0L }?.let { now - it }
+                    lastCandidateAgoMs = lastAt.takeIf { it > 0L }?.let { now - it },
+                    preferRelay = turnConfigured
                 )) return@withTimeoutOrNull
                 delay(50)
             }
@@ -507,7 +514,8 @@ class NativeCallEngine(
             // late signaling callback after the peer has been released.
             scope.launch {
                 if (closing.get()) return@launch
-                val currentUfrag = TrickleIcePolicy.ufrag(connection?.localDescription?.description.orEmpty())
+                val currentUfrag = TrickleIcePolicy.candidateUfrag(connection?.localDescription?.description.orEmpty(),
+                    candidate.sdpMid ?: "0", candidate.sdpMLineIndex)
                 val advertisedUfrag = Regex("(?:^| )ufrag ([^ ]+)").find(candidate.sdp)?.groupValues?.get(1)
                 if (advertisedUfrag != null && advertisedUfrag != currentUfrag) return@launch
                 val value = org.json.JSONObject().put("mid", candidate.sdpMid ?: "0")
