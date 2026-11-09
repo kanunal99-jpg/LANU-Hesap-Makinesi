@@ -12,6 +12,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
 import com.example.core.calls.CallTurnConfig
+import com.example.core.calls.TurnAllocationProbe
+import com.example.core.diagnostics.PrivateConnectionMetrics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -35,6 +37,28 @@ fun TurnServerSettings() {
                 OutlinedTextField(url, { url = it.take(300) }, label = { Text("turns:sunucu:443?transport=tcp") }, singleLine = true)
                 OutlinedTextField(username, { username = it.take(256) }, label = { Text("Kullanıcı adı") }, singleLine = true)
                 OutlinedTextField(password, { password = it.take(512) }, label = { Text("Parola") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
+                TextButton(enabled = !busy, onClick = { scope.launch {
+                    busy = true
+                    val token = PrivateConnectionMetrics.token()
+                    val start = android.os.SystemClock.elapsedRealtime()
+                    var success = false
+                    try {
+                        val saved = withContext(Dispatchers.IO) { CallTurnConfig(context).read() }
+                        if (saved == null) message = "Önce kullanmaya yetkili olduğunuz sunucuyu kaydedin."
+                        else {
+                            success = TurnAllocationProbe.run(context, saved)
+                            message = if (success) "Kimlikli TURN aktarma adayı alındı. Mikrofon/kamera açılmadı. Bu, iki cihazlı görüşme veya tüm ağlar için başarı kanıtı değildir."
+                                else "Süre içinde TURN tahsisi doğrulanamadı. Adresi, kimlik bilgilerini ve ağı kontrol edin. Mevcut bağlantı yolu korunuyor."
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (_: LinkageError) { message = "Bu cihazda bağlantı test motoru açılamadı." }
+                    catch (_: Exception) { message = "TURN tahsisi doğrulanamadı; kaydedilmiş ayar değiştirilmedi." }
+                    finally {
+                        PrivateConnectionMetrics.record(PrivateConnectionMetrics.Stage.TURN_ALLOCATION, token, start,
+                            android.os.SystemClock.elapsedRealtime(), success)
+                        busy = false
+                    }
+                } }) { Text("Kaydedilen sunucuyu test et") }
                 message?.let { Text(it) }
                 TextButton(enabled = !busy, onClick = { scope.launch {
                     busy = true

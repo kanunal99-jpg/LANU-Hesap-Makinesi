@@ -47,6 +47,7 @@ class AndroidNetworkRecoveryTest {
         repeat(100) { callback.onCapabilitiesChanged(network, validated) }
         runCurrent(); assertEquals(1, events)
         callback.onLost(network)
+        callback.onAvailable(network)
         callback.onCapabilitiesChanged(network, validated)
         runCurrent(); assertEquals(2, events)
         job.cancelAndJoin()
@@ -67,4 +68,26 @@ class AndroidNetworkRecoveryTest {
         assertTrue(job.isCompleted)
         assertEquals(0, events)
     }
+    @Test fun oldDefaultCallbacksCannotReviveLostOrReplacedRoutes() = runTest {
+        if (android.os.Build.VERSION.SDK_INT < 24) return@runTest
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val before = shadowOf(manager).networkCallbacks.toSet()
+        var events = 0
+        val job = launch { AndroidNetworkRecovery.changes(context).collect { events++ } }
+        runCurrent()
+        val callback = (shadowOf(manager).networkCallbacks.toSet() - before).single()
+        val a = ShadowNetwork.newInstance(801); val b = ShadowNetwork.newInstance(802)
+        val ready = capabilities(NetworkCapabilities.NET_CAPABILITY_INTERNET, NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        callback.onAvailable(a); callback.onCapabilitiesChanged(a, ready); runCurrent()
+        assertEquals(1, events)
+        callback.onAvailable(b); callback.onCapabilitiesChanged(a, ready); runCurrent()
+        assertEquals(1, events)
+        callback.onCapabilitiesChanged(b, ready); runCurrent(); assertEquals(2, events)
+        callback.onLost(a); callback.onCapabilitiesChanged(b, ready); runCurrent(); assertEquals(2, events)
+        callback.onLost(b); callback.onCapabilitiesChanged(b, ready); runCurrent(); assertEquals(2, events)
+        job.cancelAndJoin(); callback.onAvailable(a); callback.onCapabilitiesChanged(a, ready); runCurrent()
+        assertEquals(2, events); assertEquals(before, shadowOf(manager).networkCallbacks.toSet())
+    }
+
 }

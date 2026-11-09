@@ -70,6 +70,10 @@ class NativeCallViewModel(
         val remoteCandidates = ArrayDeque<String>()
         var candidateJob: Job? = null
         var candidateBatches = 0
+        var networkRecovery: Job? = null
+        var measurementStart: Long? = null
+        var measurementToken: Long? = null
+        var measurementStage = com.example.core.diagnostics.PrivateConnectionMetrics.Stage.CALL_SETUP
     }
     private var session: Session? = null
     private var foreground = false
@@ -230,6 +234,7 @@ class NativeCallViewModel(
         if (!permissionGranted) { _notice.value = "Mikrofon/kamera izni verilmedi."; finish("İzin verilmedi.", CallSignalKind.REJECT); return }
         CallWakeNotification.cancel(appContext)
         _state.value = _state.value.copy(phase = NativeCallPhase.CONNECTING)
+        beginMeasurement(current, false)
         deadline(current, 35_000, "Bağlantı kurulamadı; farklı bir ağ deneyin.")
         pipeline = guarded(current) { send(current, CallSignalKind.ACCEPT) }
     }
@@ -301,6 +306,7 @@ class NativeCallViewModel(
         when (s.kind) {
             CallSignalKind.ACCEPT -> if (current.outgoing && _state.value.phase == NativeCallPhase.DIALING) {
                 _state.value = _state.value.copy(phase = NativeCallPhase.CONNECTING)
+                beginMeasurement(current, false)
                 deadline(current, 35_000, "Bağlantı kurulamadı; farklı bir ağ deneyin.")
                 pipeline = guarded(current) {
                     val engine = createEngine(current)
@@ -387,6 +393,7 @@ class NativeCallViewModel(
         { value -> viewModelScope.launch {
             if (session !== current || !foreground) return@launch
             if (value.connected) {
+                endMeasurement(current, true)
                 current.lastConfirmedMediaAtMs = mediaClockMs().takeIf { it >= 0L }
                 current.reconnectGeneration++ // invalidate any short-disconnect grace timer
                 current.recoveryJob?.cancel() // do not restart a recovered call
@@ -400,6 +407,7 @@ class NativeCallViewModel(
                 current.lastConfirmedMediaAtMs = null
                 if (_state.value.phase == NativeCallPhase.CONNECTED && !value.transportConnected) {
                     _state.value = _state.value.copy(phase = NativeCallPhase.RECONNECTING)
+                    beginMeasurement(current, true)
                     val generation = ++current.reconnectGeneration
                     current.reconnectOfferStarted = false
                     current.fastTrackUsed = value.iceFailed
@@ -483,8 +491,35 @@ class NativeCallViewModel(
         job.invokeOnCompletion { workJobs -= job }
         return job
     }
+    private fun beginMeasurement(current: Session, recovery: Boolean) {
+        current.measurementToken = com.example.core.diagnostics.PrivateConnectionMetrics.token()
+        current.measurementStart = mediaClockMs()
+        current.measurementStage = if (recovery) com.example.core.diagnostics.PrivateConnectionMetrics.Stage.CALL_RECOVERY
+            else com.example.core.diagnostics.PrivateConnectionMetrics.Stage.CALL_SETUP
+    }
+    private fun endMeasurement(current: Session, success: Boolean) {
+        current.measurementStart?.let { com.example.core.diagnostics.PrivateConnectionMetrics.record(
+            current.measurementStage, current.measurementToken, it, mediaClockMs(), success) }
+        current.measurementStart = null
+    }
     private fun startActivePoll(current: Session) {
         activePoll?.cancel()
+        current.networkRecovery?.cancel()
+        current.networkRecovery = viewModelScope.launch {
+            var lastHint: Long? = null
+            repository.foregroundNetworkChanges.catch { if (it is CancellationException) throw it }.collect {
+                val now = mediaClockMs()
+                if (session !== current || !foreground) return@collect
+                if (lastHint?.let { now >= it && now - it < 2_000L } == true) return@collect
+                lastHint = now
+                // A validated new route expedites signed signaling, never claims RTP
+                // health or tears down a naturally recovering peer. Existing native
+                // FAILED/grace/restart budgets remain authoritative.
+                try { repository.pollCallSignals() }
+                catch (e: CancellationException) { throw e }
+                catch (_: Exception) { /* Independent two-second HTTP fallback remains. */ }
+            }
+        }
         activePoll = viewModelScope.launch {
             while (isActive && session === current && foreground) {
                 var delayMs = 2000L
@@ -536,6 +571,8 @@ class NativeCallViewModel(
         pruneClosedCalls()
         closedCalls[callKey(current.peer.id, current.id)] = android.os.SystemClock.elapsedRealtime()
         pruneClosedCalls()
+        endMeasurement(current, false)
+        current.networkRecovery?.cancel()
         session = null
         repository.setCallInProgress(false)
         pipeline?.cancel(); starting?.cancel(); activePoll?.cancel(); timeout?.cancel()

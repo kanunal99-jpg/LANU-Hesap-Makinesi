@@ -669,6 +669,7 @@ fun SettingsTab(
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         IdentityCodeCard(code, name)
         TurnServerSettings()
+        PrivateConnectionDiagnostics()
         Text("Kodunuz uygulama yeniden açıldığında değişmez. Yalnızca siz yeni kod oluşturmayı seçerseniz değiştirilir.", fontSize = 12.sp)
         OutlinedButton(onClick = { showName = true }, modifier = Modifier.fillMaxWidth()) { Text("Görünen adı düzenle") }
         OutlinedButton(onClick = { showRotate = true }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("change_user_code")) { Text("Kullanıcı kodumu değiştir") }

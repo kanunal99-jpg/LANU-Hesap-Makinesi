@@ -79,6 +79,8 @@ class NativeCallStateTest {
     private var acceptGate:CompletableDeferred<Unit>?=null
     private var preparationGate:CompletableDeferred<Unit>?=null
     private var preparationEntered:CompletableDeferred<Unit>?=null
+    private val networkHints = MutableSharedFlow<Unit>(extraBufferCapacity=16)
+    private val callSyncRequests = java.util.concurrent.atomic.AtomicInteger(0)
     private var evidenceNowMs = 1_000L
     private var report: ((CallMediaEvidence)->Unit)?=null
     private var mediaFailure: ((String)->Unit)?=null
@@ -105,7 +107,7 @@ class NativeCallStateTest {
                         .put("events",JSONArray().apply { incomingChatEvent?.let { put(it) } })
                         .apply { if(data.optInt("callVersion")==1) put("calls",JSONArray(inbox.toList())) }
                 }
-                "callSync" -> JSONObject().put("version",1).put("signals",JSONArray(inbox.take(24)))
+                "callSync" -> { callSyncRequests.incrementAndGet(); JSONObject().put("version",1).put("signals",JSONArray(inbox.take(24))) }
                 "callAck" -> {
                     if (failCallAck) throw java.io.IOException("simulated call ACK outage")
                     val ids=data.getJSONArray("ids")
@@ -157,7 +159,7 @@ class NativeCallStateTest {
             }
         }
         repo=CommunicationRepository(db.contactDao(),db.conversationDao(),db.messageDao(),db.settingsDao(),db.userProfileDao(),db.callLogDao(),
-            object:MessagingIdentityStore { override fun read()=own;override fun save(identity:MessagingIdentity) { error("No key replacement") } },relay,db)
+            object:MessagingIdentityStore { override fun read()=own;override fun save(identity:MessagingIdentity) { error("No key replacement") } },relay,db, foregroundNetworkChanges=networkHints)
         repo.ensureIdentity()
         repo.synchronize()
         vm=NativeCallViewModel(context,repo, mediaClockMs = { evidenceNowMs }) { evidence,failure ->
@@ -197,6 +199,7 @@ class NativeCallStateTest {
         vm.activate()
     }
     @After fun cleanup() = runBlocking {
+        com.example.core.diagnostics.PrivateConnectionMetrics.setEnabled(false)
         vm.deactivate()
         delay(40)
         db.close();Dispatchers.resetMain()
@@ -1119,6 +1122,37 @@ class NativeCallStateTest {
         assertEquals(CallSignalRetryPolicy.MAX_ATTEMPTS,
             outgoingSendAttempts.count { it.first == offer.id })
         assertEquals(1, closes)
+    }
+
+    @Test fun validatedHandoverRefreshesSignalingWithoutRestartingHealthyMediaAndStopsOnEnd() = runBlocking {
+        val metrics = com.example.core.diagnostics.PrivateConnectionMetrics
+        metrics.setEnabled(true)
+        assertEquals(0, networkHints.subscriptionCount.value)
+        vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
+        val invite=awaitSent(CallSignalKind.INVITE)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,false))
+        awaitSent(CallSignalKind.OFFER)
+        evidenceNowMs=1_123L
+        report!!(CallMediaEvidence(true,8,11));waitPhase(NativeCallPhase.CONNECTED)
+        assertEquals(123L, metrics.summary(com.example.core.diagnostics.PrivateConnectionMetrics.Stage.CALL_SETUP).p50Ms)
+        assertEquals(1, networkHints.subscriptionCount.value)
+        val before=callSyncRequests.get()
+        networkHints.emit(Unit)
+        withTimeout(3000) { while(callSyncRequests.get()<=before) delay(5) }
+        assertEquals(0,iceRestarts)
+        assertEquals(NativeCallPhase.CONNECTED,vm.state.value.phase)
+        val after=callSyncRequests.get()
+        repeat(20) { networkHints.emit(Unit) }
+        mainTestDispatcher.scheduler.runCurrent()
+        assertEquals(after,callSyncRequests.get())
+        report!!(CallMediaEvidence(false,8,11));waitPhase(NativeCallPhase.RECONNECTING)
+        evidenceNowMs=1_350L
+        report!!(CallMediaEvidence(true,12,12));waitPhase(NativeCallPhase.CONNECTED)
+        assertEquals(227L, metrics.summary(com.example.core.diagnostics.PrivateConnectionMetrics.Stage.CALL_RECOVERY).p50Ms)
+        vm.end();waitPhase(NativeCallPhase.ENDED)
+        assertEquals(0, networkHints.subscriptionCount.value)
+        networkHints.emit(Unit)
+        assertEquals(0,iceRestarts)
     }
 
 }

@@ -22,17 +22,20 @@ internal object AndroidNetworkRecovery {
         val lock = Any()
         val validated = mutableSetOf<Network>()
         var closed = false
+        var currentDefault: Network? = null
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 // A default callback stops tracking the previous default;
                 // availability alone still never means validated internet.
-                if (Build.VERSION.SDK_INT >= 24) synchronized(lock) { validated.clear() }
+                if (Build.VERSION.SDK_INT >= 24) synchronized(lock) {
+                    if (!closed) { currentDefault = network; validated.clear() }
+                }
             }
             override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
                 val usable = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
                     capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
                 val changed = synchronized(lock) {
-                    if (closed) false
+                    if (closed || (Build.VERSION.SDK_INT >= 24 && currentDefault != network)) false
                     else if (usable) {
                         val added = validated.add(network)
                         // API23 can report several available networks. Keep the
@@ -46,7 +49,10 @@ internal object AndroidNetworkRecovery {
             }
             override fun onLost(network: Network) {
                 val remainingRoute = synchronized(lock) {
-                    !closed && validated.remove(network) && validated.isNotEmpty()
+                    if (closed) false else {
+                        if (currentDefault == network) currentDefault = null
+                        validated.remove(network) && validated.isNotEmpty()
+                    }
                 }
                 if (remainingRoute) trySend(Unit)
             }
@@ -62,7 +68,7 @@ internal object AndroidNetworkRecovery {
             close()
         }
         awaitClose {
-            synchronized(lock) { closed = true; validated.clear() }
+            synchronized(lock) { closed = true; currentDefault = null; validated.clear() }
             if (attempted) try { manager.unregisterNetworkCallback(callback) }
                 catch (_: RuntimeException) { /* No identifiers or error text logged. */ }
         }
