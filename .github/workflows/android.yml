@@ -88,12 +88,9 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Generate Gradle Wrapper when repository wrapper is missing
+      - name: Verify pinned installed Gradle and prepare CI launcher
         run: |
-          if [ ! -f ./gradlew ]; then
-            for wrapper_host in services.gradle.org downloads.gradle.org; do for wrapper_attempt in 1 2; do gradle wrapper --gradle-version 9.3.1 --distribution-type bin --gradle-distribution-url "https://$wrapper_host/distributions/gradle-9.3.1-bin.zip" && break 2; [ "$wrapper_host/$wrapper_attempt" != "downloads.gradle.org/2" ] || exit 1; sleep 5; done; done
-          fi
-          chmod +x ./gradlew
+          bash scripts/ci_prepare_gradle.sh
           ./gradlew --version
 
       - name: Cache Gradle Packages
@@ -374,10 +371,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -f ./gradlew ]; then
-            for wrapper_host in services.gradle.org downloads.gradle.org; do for wrapper_attempt in 1 2; do gradle wrapper --gradle-version 9.3.1 --distribution-type bin --gradle-distribution-url "https://$wrapper_host/distributions/gradle-9.3.1-bin.zip" && break 2; [ "$wrapper_host/$wrapper_attempt" != "downloads.gradle.org/2" ] || exit 1; sleep 5; done; done
-          fi
-          chmod +x ./gradlew
+          bash scripts/ci_prepare_gradle.sh
           keytool -genkeypair -v \
             -keystore ./debug.keystore \
             -storepass android \
@@ -480,8 +474,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -f ./gradlew ]; then for wrapper_host in services.gradle.org downloads.gradle.org; do for wrapper_attempt in 1 2; do gradle wrapper --gradle-version 9.3.1 --distribution-type bin --gradle-distribution-url "https://$wrapper_host/distributions/gradle-9.3.1-bin.zip" && break 2; [ "$wrapper_host/$wrapper_attempt" != "downloads.gradle.org/2" ] || exit 1; sleep 5; done; done; fi
-          chmod +x ./gradlew
+          bash scripts/ci_prepare_gradle.sh
           ./gradlew -PlanuDeviceBuildType=release :app:assembleReleaseAndroidTest --no-daemon --stacktrace
           mapfile -t tests < <(find app/build/outputs/apk/androidTest -type f -name '*androidTest*.apk')
           if [ "${#tests[@]}" -ne 1 ]; then
@@ -504,8 +497,7 @@ jobs:
             baseline-src/app/src/androidTest/java/com/example/RoomActualOtaUpgradeTest.kt
           (
             cd baseline-src
-            if [ ! -f ./gradlew ]; then for wrapper_host in services.gradle.org downloads.gradle.org; do for wrapper_attempt in 1 2; do gradle wrapper --gradle-version 9.3.1 --distribution-type bin --gradle-distribution-url "https://$wrapper_host/distributions/gradle-9.3.1-bin.zip" && break 2; [ "$wrapper_host/$wrapper_attempt" != "downloads.gradle.org/2" ] || exit 1; sleep 5; done; done; fi
-            chmod +x ./gradlew
+            bash "$GITHUB_WORKSPACE/scripts/ci_prepare_gradle.sh"
             LANU_VERSION_CODE=828 ./gradlew -PlanuDeviceBuildType=release \
               :app:assembleReleaseAndroidTest --no-daemon --stacktrace
           )

@@ -72,40 +72,43 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(self.dest.read_bytes(),b"previous")
 
 
-class WrapperFallbackTests(unittest.TestCase):
-    def test_real_workflow_commands_use_bounded_official_host_fallback(self):
+class PreparedGradleTests(unittest.TestCase):
+    def test_ci_launcher_uses_pinned_install_and_preserves_argument_boundaries(self):
         import os
-        workflow=(Path(__file__).resolve().parent.parent/".github/workflows/android.yml").read_text()
-        import re
-        commands=re.findall(r"for wrapper_host in services.gradle.org downloads.gradle.org;.*?done; done",workflow)
-        self.assertEqual(len(commands),4)
-        self.assertEqual(len(set(commands)),1)
-        command=commands[0]
-        self.assertNotIn("--no-validate-url",command)
+        prepare=Path(__file__).with_name("ci_prepare_gradle.sh").resolve()
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)
-            log=root/"calls"
-            gradle=root/"gradle"
-            gradle.write_text("""#!/usr/bin/env bash
-printf '%s\\n' "$*" >> "$LOG"
-if [ "$MODE" = "primary" ]; then exit 0; fi
-if [ "$MODE" = "fallback" ] && [[ "$*" == *https://downloads.gradle.org/* ]]; then exit 0; fi
-exit 1
+            tools=root/"tools with spaces"
+            tools.mkdir()
+            binary=tools/"gradle"
+            binary.write_text("""#!/usr/bin/env bash
+if [ "$1" = --version ]; then printf '\\nGradle %s\\n' "$VERSION"; exit 0; fi
+printf '%s\\n' "$@" > "$CALLS"
+exit 42
 """)
-            sleep=root/"sleep"
-            sleep.write_text(chr(10).join(["#!/usr/bin/env bash", "exit 0", ""]))
-            for file in (gradle,sleep):
-                file.chmod(0o755)
-            for mode,count,ok in [("primary",1,True),("fallback",3,True),("failed",4,False)]:
-                with self.subTest(mode=mode):
-                    log.write_text("")
-                    env=dict(os.environ,PATH=str(root)+os.pathsep+os.environ["PATH"],LOG=str(log),MODE=mode)
-                    result=subprocess.run(["bash","-c",command],env=env,capture_output=True,timeout=20)
-                    self.assertEqual(result.returncode==0,ok)
-                    lines=log.read_text().splitlines()
-                    self.assertEqual(len(lines),count)
-                    self.assertTrue(all("--gradle-version 9.3.1" in line for line in lines))
-                    self.assertTrue(all("--gradle-distribution-url https://" in line for line in lines))
+            binary.chmod(0o755)
+            env=dict(os.environ,CI="true",VERSION="9.3.1",CALLS=str(root/"calls"),
+                     PATH=str(tools)+os.pathsep+os.environ["PATH"])
+            result=subprocess.run(["bash",str(prepare)],cwd=root,env=env,capture_output=True)
+            self.assertEqual(result.returncode,0,result.stderr)
+            result=subprocess.run(["./gradlew","task with spaces","-Pkey=value"],cwd=root,env=env,capture_output=True)
+            self.assertEqual(result.returncode,42)
+            self.assertEqual((root/"calls").read_text().splitlines(),["task with spaces","-Pkey=value"])
+            launcher=(root/"gradlew").read_bytes()
+            result=subprocess.run(["bash",str(prepare)],cwd=root,env=dict(env,VERSION="8.10"),capture_output=True)
+            self.assertNotEqual(result.returncode,0)
+            self.assertEqual((root/"gradlew").read_bytes(),launcher)
+            (root/"gradlew").unlink()
+            for overrides in [dict(VERSION="8.10"),dict(CI="false")]:
+                result=subprocess.run(["bash",str(prepare)],cwd=root,env=dict(env,**overrides),capture_output=True)
+                self.assertNotEqual(result.returncode,0)
+                self.assertFalse((root/"gradlew").exists())
+    def test_all_jobs_keep_the_same_pinned_gradle_and_ci_launcher(self):
+        workflow=(Path(__file__).resolve().parent.parent/".github/workflows/android.yml").read_text()
+        self.assertEqual(workflow.count("gradle-version: '9.3.1'"),3)
+        self.assertEqual(workflow.count("scripts/ci_prepare_gradle.sh"),4)
+        self.assertNotIn("--no-validate-url",workflow)
+        self.assertNotIn("gradle wrapper --",workflow)
 
 if __name__=="__main__":
     unittest.main()
