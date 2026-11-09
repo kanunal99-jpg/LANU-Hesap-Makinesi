@@ -181,7 +181,7 @@ class NativeCallViewModel(
         realtimePoll = viewModelScope.launch {
             repository.realtimeChanges.collect { hint ->
                 if (hint in setOf("call", "ready") && foreground) {
-                    try { repository.pollCallSignals() }
+                    try { repository.pollCallSignals(requestFollowUp = true) }
                     catch (e: CancellationException) { throw e }
                     catch (_: Exception) { /* Active/idle HTTP fallback remains available. */ }
                     delay(300L)
@@ -515,7 +515,7 @@ class NativeCallViewModel(
                 // A validated new route expedites signed signaling, never claims RTP
                 // health or tears down a naturally recovering peer. Existing native
                 // FAILED/grace/restart budgets remain authoritative.
-                try { repository.pollCallSignals() }
+                try { repository.pollCallSignals(requestFollowUp = true) }
                 catch (e: CancellationException) { throw e }
                 catch (_: Exception) { /* Independent two-second HTTP fallback remains. */ }
             }

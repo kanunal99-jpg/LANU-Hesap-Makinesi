@@ -3,7 +3,7 @@
 # Keep the failure-handling block inside one checked-in Bash script.
 set -Eeuo pipefail
 
-if ./gradlew -PlanuDeviceBuildType=release :app:connectedReleaseAndroidTest --no-daemon --stacktrace; then
+if bash scripts/ci_connected_runtime.sh release; then
   printf '%s\n' 'Release Android instrumentation passed.'
   exit 0
 fi

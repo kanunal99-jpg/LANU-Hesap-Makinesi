@@ -7,7 +7,7 @@ import androidx.security.crypto.MasterKey
 /** Optional user-operated relay. No shared/public credentials, account creation or billing. */
 class CallTurnConfig(context: Context) {
     @androidx.annotation.Keep
-    class Value(val url: String, val username: String, val credential: String) {
+    class Value(val url: String, val username: String, val credential: String, val tryOtherTransport: Boolean = false) {
         override fun toString() = "TurnConfig(redacted)"
     }
     private val prefs by lazy {
@@ -18,14 +18,14 @@ class CallTurnConfig(context: Context) {
     }
     fun read(): Value? {
         val url = prefs.getString("url", null) ?: return null
-        return Value(url, prefs.getString("user", "").orEmpty(), prefs.getString("password", "").orEmpty()).also(::validate)
+        return Value(url, prefs.getString("user", "").orEmpty(), prefs.getString("password", "").orEmpty(), prefs.getBoolean("try_other_transport", false)).also(::validate)
     }
     fun save(value: Value) {
         validate(value)
         check(prefs.edit().putString("url", value.url).putString("user", value.username)
-            .putString("password", value.credential).commit())
+            .putString("password", value.credential).putBoolean("try_other_transport", value.tryOtherTransport).commit())
         val readBack = read()
-        check(readBack?.url == value.url && readBack.username == value.username && readBack.credential == value.credential)
+        check(readBack?.url == value.url && readBack.username == value.username && readBack.credential == value.credential && readBack.tryOtherTransport == value.tryOtherTransport)
     }
     fun clear() { check(prefs.edit().clear().commit()) }
     companion object {

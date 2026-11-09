@@ -25,7 +25,7 @@ object TurnAllocationProbe {
                         NativeCallEngine.initialize(context)
                         factory = PeerConnectionFactory.builder().createPeerConnectionFactory()
                         val config = PeerConnection.RTCConfiguration(listOf(
-                            PeerConnection.IceServer.builder(value.url).setUsername(value.username).setPassword(value.credential).createIceServer()
+                            PeerConnection.IceServer.builder(CallTurnTransportPolicy.urls(value)).setUsername(value.username).setPassword(value.credential).createIceServer()
                         )).apply { iceTransportsType = PeerConnection.IceTransportsType.RELAY }
                         peer = checkNotNull(factory!!.createPeerConnection(config, object : EmptyPeerObserver() {
                             override fun onIceCandidate(candidate: IceCandidate) {

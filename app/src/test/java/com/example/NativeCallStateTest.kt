@@ -81,6 +81,8 @@ class NativeCallStateTest {
     private var preparationEntered:CompletableDeferred<Unit>?=null
     private val networkHints = MutableSharedFlow<Unit>(extraBufferCapacity=16)
     private val callSyncRequests = java.util.concurrent.atomic.AtomicInteger(0)
+    // Deterministic transport clock; real pacing/cooldown is exercised with virtual time in CallPollCoordinatorTest.
+    private val pollClock = java.util.concurrent.atomic.AtomicLong(0)
     private var evidenceNowMs = 1_000L
     private var report: ((CallMediaEvidence)->Unit)?=null
     private var mediaFailure: ((String)->Unit)?=null
@@ -159,7 +161,7 @@ class NativeCallStateTest {
             }
         }
         repo=CommunicationRepository(db.contactDao(),db.conversationDao(),db.messageDao(),db.settingsDao(),db.userProfileDao(),db.callLogDao(),
-            object:MessagingIdentityStore { override fun read()=own;override fun save(identity:MessagingIdentity) { error("No key replacement") } },relay,db, foregroundNetworkChanges=networkHints)
+            object:MessagingIdentityStore { override fun read()=own;override fun save(identity:MessagingIdentity) { error("No key replacement") } },relay,db, foregroundNetworkChanges=networkHints, callPollClockMs={ pollClock.getAndAdd(1_000L) })
         repo.ensureIdentity()
         repo.synchronize()
         vm=NativeCallViewModel(context,repo, mediaClockMs = { evidenceNowMs }) { evidence,failure ->
@@ -1144,7 +1146,7 @@ class NativeCallStateTest {
         val after=callSyncRequests.get()
         repeat(20) { networkHints.emit(Unit) }
         mainTestDispatcher.scheduler.runCurrent()
-        assertEquals(after,callSyncRequests.get())
+        assertTrue("Wake storm must coalesce to at most one follow-up",callSyncRequests.get()<=before+2)
         report!!(CallMediaEvidence(false,8,11));waitPhase(NativeCallPhase.RECONNECTING)
         evidenceNowMs=1_350L
         report!!(CallMediaEvidence(true,12,12));waitPhase(NativeCallPhase.CONNECTED)

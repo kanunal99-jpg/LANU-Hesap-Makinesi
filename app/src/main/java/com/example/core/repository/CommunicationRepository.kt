@@ -41,7 +41,8 @@ class CommunicationRepository(
     private val relay: MessagingRelay,
     private val database: AppDatabase,
     private val clock: () -> Long = System::currentTimeMillis,
-    val foregroundNetworkChanges: Flow<Unit> = emptyFlow()
+    val foregroundNetworkChanges: Flow<Unit> = emptyFlow(),
+    private val callPollClockMs: () -> Long = { android.os.SystemClock.elapsedRealtime() }
 ) {
     val contacts = contactDao.getAllContacts().map { list -> list.filter { UserCodes.normalize(it.phoneNumber).isNotBlank() } }
     val favoriteCodes = settingsDao.getFavoriteSettings().map { rows ->
@@ -260,12 +261,18 @@ class CommunicationRepository(
             JSONObject().put("token", token ?: JSONObject.NULL))
     }
 
-    suspend fun pollCallSignals() {
+    private val callPollCoordinator = CallPollCoordinator(callPollClockMs) {
         check(callingForeground)
         val own = loadIdentity(allowCreate = false)
         val response = relay.request(own, "callSync")
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        check(callingForeground)
         require(response.getInt("version") == CallSignaling.VERSION)
         decodeCallSignals(own, response.getJSONArray("signals"))
+    }
+    suspend fun pollCallSignals(requestFollowUp: Boolean = false) {
+        check(callingForeground)
+        callPollCoordinator.run(requestFollowUp)
     }
 
     private suspend fun decodeCallSignals(own: MessagingIdentity, rows: JSONArray) = callDeliveryMutex.withLock {
