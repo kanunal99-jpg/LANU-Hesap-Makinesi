@@ -164,6 +164,9 @@ jobs:
           bash -n scripts/test_publish_verified_release_retry.sh
           bash scripts/test_publish_verified_release_retry.sh
 
+      - name: Verify isolated TURN acceptance fixture
+        run: python3 scripts/test_ci_turn_fixture.py
+
       - name: Test APK publication and stable signing continuity
         run: |
           python3 -m unittest discover -s scripts -p 'test_verify_published_apk.py'
@@ -390,6 +393,11 @@ jobs:
 
       - name: Preinstall Android 14 system image with bounded corrupt-download retries
         run: bash scripts/ci_prepare_android_image.sh
+      - name: Prepare authenticated loopback-only TURN fixture
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install --yes --no-install-recommends libevent-core-2.1-7 libevent-extra-2.1-7 libevent-openssl-2.1-7 libevent-pthreads-2.1-7 libhiredis0.14 libsqlite3-0 libmysqlclient21 libpq5
+          bash scripts/ci_turn_fixture.sh start
       - name: Exercise Room on an Android 14 runtime
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -399,8 +407,12 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: |
-            ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+            bash scripts/ci_connected_runtime.sh debug
             bash scripts/ci_release_runtime.sh
+
+      - name: Retire authenticated local TURN fixture
+        if: always()
+        run: bash scripts/ci_turn_fixture.sh stop
 
       - name: Upload device-runtime acceptance report
         if: always()

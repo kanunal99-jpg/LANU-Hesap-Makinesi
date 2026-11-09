@@ -147,7 +147,7 @@ class NativeCallEngine(
             CallIceServerPolicy.stunUrls.map {
                 PeerConnection.IceServer.builder(it).createIceServer()
             } + listOfNotNull(turn?.let {
-                PeerConnection.IceServer.builder(it.url).setUsername(it.username).setPassword(it.credential).createIceServer()
+                PeerConnection.IceServer.builder(CallTurnTransportPolicy.urls(it)).setUsername(it.username).setPassword(it.credential).createIceServer()
             })
         ).apply { sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN }
         connection = checkNotNull(factory!!.createPeerConnection(config, observer)) { "Bağlantı motoru açılamadı." }

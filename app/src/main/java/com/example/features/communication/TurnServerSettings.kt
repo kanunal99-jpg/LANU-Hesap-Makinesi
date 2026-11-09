@@ -26,6 +26,7 @@ fun TurnServerSettings() {
     var url by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var tryOtherTransport by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var probeJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
@@ -39,6 +40,11 @@ fun TurnServerSettings() {
                 OutlinedTextField(url, { url = it.take(300) }, label = { Text("turns:sunucu:443?transport=tcp") }, singleLine = true)
                 OutlinedTextField(username, { username = it.take(256) }, label = { Text("Kullanıcı adı") }, singleLine = true)
                 OutlinedTextField(password, { password = it.take(512) }, label = { Text("Parola") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
+                Row {
+                    Switch(checked = tryOtherTransport, enabled = !busy, onCheckedChange = { tryOtherTransport = it })
+                    Text("Aynı sunucu/port için UDP–TCP yedeği", Modifier.padding(8.dp))
+                }
+                Text("Yalnız yetkili sunucunuz her iki taşıma yolunu destekliyorsa açın. TLS'li turns adresi daima TLS/TCP olarak kalır; şifresiz bağlantıya düşürülmez.")
                 TextButton(enabled = !busy, onClick = {
                     if (busy) return@TextButton
                     probing = true
@@ -82,7 +88,7 @@ fun TurnServerSettings() {
             }
         }, confirmButton = { TextButton(enabled = !busy, onClick = { scope.launch {
             busy = true
-            try { withContext(Dispatchers.IO) { CallTurnConfig(context).save(CallTurnConfig.Value(url.trim(), username, password)) }; password = ""; message = "Şifreli kaydedildi. Sonraki aramada denenecek; erişim henüz doğrulanmadı." }
+            try { withContext(Dispatchers.IO) { CallTurnConfig(context).save(CallTurnConfig.Value(url.trim(), username, password, tryOtherTransport)) }; password = ""; message = "Şifreli kaydedildi. Sonraki aramada denenecek; erişim henüz doğrulanmadı." }
             catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (_: Exception) { message = "Adres ve kimlik bilgilerini kontrol edin. Ayar doğrulanamadı." }
             finally { busy = false }

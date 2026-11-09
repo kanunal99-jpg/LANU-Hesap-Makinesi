@@ -25,15 +25,17 @@ object TurnAllocationProbe {
                         NativeCallEngine.initialize(context)
                         factory = PeerConnectionFactory.builder().createPeerConnectionFactory()
                         val config = PeerConnection.RTCConfiguration(listOf(
-                            PeerConnection.IceServer.builder(value.url).setUsername(value.username).setPassword(value.credential).createIceServer()
+                            PeerConnection.IceServer.builder(CallTurnTransportPolicy.urls(value)).setUsername(value.username).setPassword(value.credential).createIceServer()
                         )).apply { iceTransportsType = PeerConnection.IceTransportsType.RELAY }
                         peer = checkNotNull(factory!!.createPeerConnection(config, object : EmptyPeerObserver() {
                             override fun onIceCandidate(candidate: IceCandidate) {
                                 if (!closed.get() && CallIceGatherPolicy.hasRelayCandidate("a=" + candidate.sdp)) allocated.complete(true)
                             }
-                            override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {
-                                if (!closed.get() && state == PeerConnection.IceGatheringState.COMPLETE) allocated.complete(false)
-                            }
+                            // Some Android emulators/OEMs report COMPLETE with zero
+                            // interfaces before the network monitor discovers Wi-Fi.
+                            // A later onIceCandidate can still validate the relay.
+                            // Only the bounded timeout may return a negative result;
+                            // never complete(false) on transient empty ICE gathering.
                         }))
                         // A local-only data m-line starts ICE; it has no remote description or data send.
                         channel = checkNotNull(peer!!.createDataChannel("allocation-test", DataChannel.Init()))
