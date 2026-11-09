@@ -42,18 +42,26 @@ class TurnRelayNativeAcceptanceTest {
         })
         result.await()
     }
-    private suspend fun gathered(peer:PeerConnection):String=withTimeout(12_000L) {
-        while(true) {
-            if(peer.iceGatheringState()==PeerConnection.IceGatheringState.COMPLETE) {
-                val sdp=peer.localDescription?.description.orEmpty()
-                val candidates=sdp.lineSequence().filter { it.startsWith("a=candidate:") }.toList()
-                check(candidates.isNotEmpty() && candidates.all { it.contains(" typ relay") }) { "Authenticated relay route missing" }
-                return@withTimeout sdp
+    /**
+     * Android libwebrtc exposes gathered/trickled candidates through onIceCandidate.
+     * localDescription.description is not required to be rewritten with those
+     * candidates; checking SDP text alone produced false relay failures in CI.
+     * Do not replace a real relay-only ICE allocation with a synthetic candidate.
+     */
+    private suspend fun gathered(peer:PeerConnection, observed:MutableList<IceCandidate>):List<IceCandidate> =
+        withTimeout(12_000L) {
+            while(true) {
+                if(peer.iceGatheringState()==PeerConnection.IceGatheringState.COMPLETE) {
+                    val candidates=synchronized(observed) { observed.toList() }
+                    check(candidates.isNotEmpty() && candidates.all {
+                        Regex("(?:^|\\s)typ relay(?:\\s|$)").containsMatchIn(it.sdp)
+                    }) { "Authenticated relay route missing" }
+                    return@withTimeout candidates
+                }
+                delay(50)
             }
-            delay(50)
+            error("Unreachable")
         }
-        error("Unreachable")
-    }
     private suspend fun roundTrip(transport:String, port:Int=3478, alternate:Boolean=false) = withTimeout(45_000L) {
         val (user,password)=credentials()
         val context=InstrumentationRegistry.getInstrumentation().targetContext
@@ -62,9 +70,12 @@ class TurnRelayNativeAcceptanceTest {
         val factory=PeerConnectionFactory.builder().createPeerConnectionFactory()
         var a:PeerConnection?=null; var b:PeerConnection?=null
         var outgoing:DataChannel?=null; var incoming:DataChannel?=null
-        val opened=CompletableDeferred<Unit>(); val remoteReady=CompletableDeferred<Unit>()
+        val outgoingOpened=CompletableDeferred<Unit>(); val incomingOpened=CompletableDeferred<Unit>()
+        val remoteReady=CompletableDeferred<Unit>()
+        val firstCandidates=java.util.Collections.synchronizedList(mutableListOf<IceCandidate>())
+        val secondCandidates=java.util.Collections.synchronizedList(mutableListOf<IceCandidate>())
         val receivedByA=CompletableDeferred<String>(); val receivedByB=CompletableDeferred<String>()
-        fun observer(channel:DataChannel, received:CompletableDeferred<String>)=object:DataChannel.Observer {
+        fun observer(channel:DataChannel, received:CompletableDeferred<String>, opened:CompletableDeferred<Unit>)=object:DataChannel.Observer {
             override fun onBufferedAmountChange(previous:Long) {}
             override fun onStateChange() { if(channel.state()==DataChannel.State.OPEN) opened.complete(Unit) }
             override fun onMessage(buffer:DataChannel.Buffer) {
@@ -78,25 +89,30 @@ class TurnRelayNativeAcceptanceTest {
                 .setUsername(user).setPassword(password).createIceServer()
         )).apply { iceTransportsType=PeerConnection.IceTransportsType.RELAY; sdpSemantics=PeerConnection.SdpSemantics.UNIFIED_PLAN }
         try {
-            a=checkNotNull(factory.createPeerConnection(config(),object:EmptyPeerObserver() {}))
+            a=checkNotNull(factory.createPeerConnection(config(),object:EmptyPeerObserver() {
+                override fun onIceCandidate(candidate:IceCandidate) { firstCandidates.add(candidate) }
+            }))
             b=checkNotNull(factory.createPeerConnection(config(),object:EmptyPeerObserver() {
+                override fun onIceCandidate(candidate:IceCandidate) { secondCandidates.add(candidate) }
                 override fun onDataChannel(channel:DataChannel) {
-                    incoming=channel; channel.registerObserver(observer(channel,receivedByB)); remoteReady.complete(Unit)
+                    incoming=channel; channel.registerObserver(observer(channel,receivedByB,incomingOpened)); remoteReady.complete(Unit)
                 }
             }))
             val first=checkNotNull(a); val second=checkNotNull(b)
             val channel=checkNotNull(first.createDataChannel("authenticated-relay-test",DataChannel.Init()))
             outgoing=channel
-            channel.registerObserver(observer(channel,receivedByA))
+            channel.registerObserver(observer(channel,receivedByA,outgoingOpened))
             val offer=create { first.createOffer(it,MediaConstraints()) }
             set { first.setLocalDescription(it,offer) }
-            val fullOffer=gathered(first)
-            set { second.setRemoteDescription(it,SessionDescription(SessionDescription.Type.OFFER,fullOffer)) }
+            val offerCandidates=gathered(first,firstCandidates)
+            set { second.setRemoteDescription(it,checkNotNull(first.localDescription)) }
+            offerCandidates.forEach { check(second.addIceCandidate(it)) { "Remote offer ICE candidate rejected" } }
             val answer=create { second.createAnswer(it,MediaConstraints()) }
             set { second.setLocalDescription(it,answer) }
-            val fullAnswer=gathered(second)
-            set { first.setRemoteDescription(it,SessionDescription(SessionDescription.Type.ANSWER,fullAnswer)) }
-            opened.await(); remoteReady.await()
+            val answerCandidates=gathered(second,secondCandidates)
+            set { first.setRemoteDescription(it,checkNotNull(second.localDescription)) }
+            answerCandidates.forEach { check(first.addIceCandidate(it)) { "Remote answer ICE candidate rejected" } }
+            outgoingOpened.await(); remoteReady.await(); incomingOpened.await()
             check(channel.send(DataChannel.Buffer(ByteBuffer.wrap("relay-a-to-b".toByteArray()),false)))
             assertEquals("relay-a-to-b",receivedByB.await())
             check(checkNotNull(incoming).send(DataChannel.Buffer(ByteBuffer.wrap("relay-b-to-a".toByteArray()),false)))
