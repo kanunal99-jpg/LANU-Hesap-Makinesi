@@ -57,10 +57,15 @@ class TurnRelayNativeAcceptanceTest {
                         Regex("(?:^|\\s)typ relay(?:\\s|$)").containsMatchIn(it.sdp)
                     }
                     // Only candidate counts/types: never SDP, addresses, credentials, or ports.
-                    check(candidates.isNotEmpty() && relayCount == candidates.size) {
-                        "Authenticated relay route missing (total=${candidates.size}, relay=$relayCount)"
+                    // Android's network monitor can report no interfaces briefly
+                    // on first ICE gathering, then deliver usable interfaces.
+                    // Never accept an empty gather as a real relay success.
+                    if (candidates.isNotEmpty()) {
+                        check(relayCount == candidates.size) {
+                            "Non-relay candidate observed (total=${candidates.size}, relay=$relayCount)"
+                        }
+                        return@withTimeout candidates
                     }
-                    return@withTimeout candidates
                 }
                 delay(50)
             }
