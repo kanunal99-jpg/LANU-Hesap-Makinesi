@@ -11,9 +11,15 @@ class RelayRequestDeadlinePolicyTest {
         assertEquals(100L, RelayRequestDeadlinePolicy.readTimeoutSeconds("mediaComplete"))
     }
 
+    @Test fun callControlHasShortBoundedRecoveryDeadlines() {
+        for (action in listOf("callSend", "callSync", "callAck")) {
+            assertEquals(12L, RelayRequestDeadlinePolicy.callTimeoutSeconds(action))
+            assertEquals(8L, RelayRequestDeadlinePolicy.readTimeoutSeconds(action))
+        }
+    }
     @Test fun messagingCallsAreUnchangedAndUntrustedActionsCannotExtendDeadline() {
         for (action in listOf(
-            "send", "callSend", "sync", "mediaDownloadGrant", "reservePrivateMedia",
+            "send", "sync", "mediaDownloadGrant", "reservePrivateMedia",
             "enablePrivateMedia", "mediaUploadGrant", "mediaCompleteExtra",
             "", "../mediaComplete", "mediaComplete?no", "MEDIA_COMPLETE"
         )) {

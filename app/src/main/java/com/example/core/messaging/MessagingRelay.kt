@@ -82,34 +82,41 @@ interface MessagingRelay {
  * No user-triggered action can ask for an arbitrary/unbounded timeout.
  */
 internal object RelayRequestDeadlinePolicy {
-    fun callTimeoutSeconds(action: String): Long = if (action == "mediaComplete") 110L else 35L
-    fun readTimeoutSeconds(action: String): Long = if (action == "mediaComplete") 100L else 20L
+    private val controls = setOf("callSend", "callSync", "callAck")
+    fun callTimeoutSeconds(action: String): Long = when { action == "mediaComplete" -> 110L; action in controls -> 12L; else -> 35L }
+    fun readTimeoutSeconds(action: String): Long = when { action == "mediaComplete" -> 100L; action in controls -> 8L; else -> 20L }
 }
 
 class HttpMessagingRelay(private val endpoint: String) : MessagingRelay {
     override val realtimeAvailable = true
-    private val wake by lazy { RealtimeWake(endpoint) }
+    private val budget = RelayRequestBudget { android.os.SystemClock.elapsedRealtime() }
+    private val wake by lazy { RealtimeWake(endpoint) { identity -> budget.awaitPermit(identity.id, "realtimeOpen") } }
     override fun realtimeEvents(identity: MessagingIdentity) = wake.events(identity)
     override val configured: Boolean get() = endpoint.startsWith("https://")
     private val client = OkHttpClient.Builder().connectTimeout(12, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS)
         .callTimeout(35, TimeUnit.SECONDS)
         .followRedirects(false).followSslRedirects(false).build()
+    private val callClient = client.newBuilder().connectTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS).callTimeout(12, TimeUnit.SECONDS).build()
     private val verifiedMediaClient = client.newBuilder()
         .readTimeout(RelayRequestDeadlinePolicy.readTimeoutSeconds("mediaComplete"), TimeUnit.SECONDS)
         .callTimeout(RelayRequestDeadlinePolicy.callTimeoutSeconds("mediaComplete"), TimeUnit.SECONDS)
         .build()
     override suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject): JSONObject = withContext(Dispatchers.IO) {
         if (!configured) throw RelayException(0, "Mesajlaşma sunucusu henüz bağlanmadı. Mesaj gönderilmedi.")
+        budget.awaitPermit(identity.id, action)
         val payload = JSONObject().put("action", action).put("identityId", identity.id).put("ts", System.currentTimeMillis())
             .put("requestId", UUID.randomUUID().toString()).put("data", data).toString()
         val envelope = JSONObject().put("payload", payload).put("signature", UserCodes.sign(identity, payload))
         val request = Request.Builder().url(endpoint).post(envelope.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
         com.example.core.network.CancellableHttp.withResponse(
-            request, if (action == "mediaComplete") verifiedMediaClient else client,
+            request, when (action) { "mediaComplete" -> verifiedMediaClient; "callSend", "callSync", "callAck" -> callClient; else -> client },
             onNetworkFailure = { PrivateRelayHealth.record(PrivateRelayHealth.Outcome.NETWORK) }
         ) { response ->
             // Classify HTTP errors before consuming any untrusted error body.
             // This preserves 401/403/409/429 even when a gateway returns HTML.
+            if (response.code == 429) budget.throttle(identity.id,
+                response.header("Retry-After")?.toLongOrNull()?.coerceIn(5L, 120L)?.times(1000L) ?: 60000L)
             if (!response.isSuccessful) PrivateRelayHealth.recordHttp(response.code)
             val raw = try {
                 RelayHttpResponseGate.readSuccessBody(response.code, response.header("Retry-After")) {

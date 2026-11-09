@@ -24,7 +24,8 @@ internal object CallIceGatherPolicy {
         localSdp: String?,
         state: PeerConnection.IceGatheringState,
         elapsedMs: Long,
-        lastCandidateAgoMs: Long?
+        lastCandidateAgoMs: Long?,
+        preferRelay: Boolean = false
     ): Boolean {
         // Reject impossible clock samples rather than prematurely signaling stale SDP.
         if (elapsedMs < 0 || lastCandidateAgoMs == null ||
@@ -34,13 +35,16 @@ internal object CallIceGatherPolicy {
         // candidate must not start non-trickle signaling prematurely.
         val sdp = localSdp ?: return false
         if (!hasUsableCandidate(sdp)) return false
+        if (preferRelay && !hasRelayCandidate(sdp) && state != PeerConnection.IceGatheringState.COMPLETE) return false
         if (state == PeerConnection.IceGatheringState.COMPLETE &&
             lastCandidateAgoMs >= COMPLETE_QUIET_MS) return true
         if (elapsedMs < FAST_MIN_ELAPSED_MS || lastCandidateAgoMs < FAST_QUIET_MS) return false
         // Fast path still needs a real server-reflexive candidate; complete
         // gathering may use a valid host candidate for local-network calls.
-        return sdp.lineSequence().any { candidateType(it) == "srflx" }
+        return sdp.lineSequence().any { candidateType(it) == "srflx" || (preferRelay && candidateType(it) == "relay") }
     }
+
+    fun hasRelayCandidate(localSdp: String?) = localSdp?.lineSequence()?.any { candidateType(it) == "relay" } == true
 
     /** Used by both early ICE readiness and the eight-second fallback gate. */
     fun hasUsableCandidate(localSdp: String?): Boolean =

@@ -108,7 +108,9 @@ const MEDIA_MAX_CIPHER_BYTES = 41953280;
 export function createRelay(store, clock = Date.now, options = {}) {
   function dispatchRealtime(owner, kind) {
     if (typeof options.publishWake !== 'function') return;
-    const task = Promise.resolve().then(() => options.publishWake(owner, kind)).catch(() => {});
+    const task = Promise.resolve().then(() => options.publishWake(owner, kind)).catch(() => {
+      try { options.onWakeUnavailable?.(); } catch { /* Diagnostics never affect durable delivery. */ }
+    });
     if (typeof options.scheduleMessageWake === 'function') options.scheduleMessageWake(task);
   }
   return async envelope => {

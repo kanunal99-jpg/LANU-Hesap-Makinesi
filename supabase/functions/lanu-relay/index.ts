@@ -66,7 +66,8 @@ Deno.serve(async (request: Request) => {
     // must explicitly change this gate after private-media acceptance.
     const privateMediaEnabled = false;
     const result = await createRelay(new RestStore(url, key), Date.now,
-      { calls: true, publishWake: createWakePublisher(url, key), callWakeEnabled: Boolean(sendCallWake), sendCallWake,
+      { calls: true, publishWake: createWakePublisher(url, key),
+        onWakeUnavailable: () => console.warn('LANU realtime wake unavailable'), callWakeEnabled: Boolean(sendCallWake), sendCallWake,
         messageWakeEnabled: Boolean(sendMessageWake), sendMessageWake,
         scheduleMessageWake: (task: Promise<unknown>) => EdgeRuntime.waitUntil(task),
         privateMediaReservation: privateMediaEnabled,
