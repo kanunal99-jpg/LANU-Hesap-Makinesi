@@ -53,12 +53,18 @@ CONF
     sed -e 's/listening-port=3478/listening-port=3479/' \
         -e 's/min-port=49160/min-port=49300/' -e 's/max-port=49220/max-port=49360/' \
         -e 's@/server.pid@/server-tcp.pid@' "$root/turnserver.conf" > "$root/turnserver-tcp.conf"
-    printf '%s\n' 'no-udp' >> "$root/turnserver-tcp.conf"
+    # Keep UDP relay endpoints available; block only UDP *client* traffic to
+    # port 3479. Unlike "no-udp", this preserves the real relay data path.
+    # The second server still binds to host loopback and uses disposable keys.
     nohup "$root/package/usr/bin/turnserver" -c "$root/turnserver-tcp.conf" > /dev/null 2>&1 < /dev/null &
     echo "$!" > "$root/pid-tcp"
     # No maintainer scripts or system service are installed/started.
     nohup "$root/package/usr/bin/turnserver" -c "$root/turnserver.conf" > /dev/null 2>&1 < /dev/null &
     echo "$!" > "$root/pid"
+    # Only this dedicated CI runner and this one local UDP client port.
+    # The TCP listener stays available for authenticated fallback; the relay
+    # UDP allocation ports remain untouched.
+    sudo iptables -I INPUT 1 -i lo -p udp --dport 3479 -m comment --comment lanu-ci-turn-fallback -j DROP
     for attempt in {1..30}; do
       kill -0 "$(cat "$root/pid-tcp")" 2>/dev/null || { echo 'FAIL: TCP-only TURN fixture stopped'; exit 1; }
       kill -0 "$(cat "$root/pid")" 2>/dev/null || { echo 'FAIL: local TURN fixture stopped'; exit 1; }
@@ -72,6 +78,12 @@ CONF
     echo 'FAIL: local TURN fixture deadline'; exit 1
     ;;
   stop)
+    # Idempotent scoped firewall cleanup; do not alter unrelated rules.
+    if command -v iptables >/dev/null 2>&1; then
+      while sudo iptables -C INPUT -i lo -p udp --dport 3479 -m comment --comment lanu-ci-turn-fallback -j DROP 2>/dev/null; do
+        sudo iptables -D INPUT -i lo -p udp --dport 3479 -m comment --comment lanu-ci-turn-fallback -j DROP
+      done
+    fi
     for pidfile in "$root/pid" "$root/pid-tcp"; do
       if [[ -f "$pidfile" ]]; then
         pid="$(cat "$pidfile")"
