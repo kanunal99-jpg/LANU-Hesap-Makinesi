@@ -164,7 +164,7 @@ fi
         self.assertIn("steps.baseline.outputs.sha", workflow)
         self.assertIn("steps.baseline.outputs.tag", workflow)
         self.assertIn("steps.baseline.outputs.version", workflow)
-        self.assertIn("previous release tag moved; OTA release blocked", workflow.lower())
+        self.assertIn("previous release tag moved; ota release blocked", workflow.lower())
         # The historical oldest baseline remains a separate real-emulator gate,
         # while the most recent published signed APK is no longer hard-coded.
         self.assertIn('tag="v1.2.0-signed.828"', workflow)
