@@ -30,6 +30,13 @@ class NotificationChannelIsolationRegressionTest {
     private val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
     private fun post(id: Int, channel: String) {
+        // Real Android 8+ refuses notification delivery to absent channels.
+        // A foreground service must not depend on whichever wake came first.
+        if (manager.getNotificationChannel(channel) == null) {
+            manager.createNotificationChannel(android.app.NotificationChannel(
+                channel, "LANU bildirimleri", NotificationManager.IMPORTANCE_LOW
+            ))
+        }
         manager.notify(id, NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_lanu_monochrome)
             .setContentTitle("LANU Hesap Makinesi")
