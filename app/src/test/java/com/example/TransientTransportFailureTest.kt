@@ -20,7 +20,11 @@ class TransientTransportFailureTest {
             IllegalArgumentException("malformed envelope"),
             IllegalStateException("closed session"),
             LinkageError("missing OEM module"),
-            OutOfMemoryError("synthetic test marker")
+            OutOfMemoryError("synthetic test marker"),
+            // Unexpected runtime and VM failures cannot masquerade as offline IO.
+            UnsupportedOperationException("OEM API unavailable"),
+            AssertionError("native bridge invariant"),
+            StackOverflowError("synthetic test marker")
         )
         for (cause in causes) {
             val failure = IOException("transport", IOException("wrapped", cause))
