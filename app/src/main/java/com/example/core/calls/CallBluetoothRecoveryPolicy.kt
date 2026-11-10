@@ -9,6 +9,13 @@ import com.example.core.calls.CallAudioRoutePolicy.Route
  */
 internal object CallBluetoothRecoveryPolicy {
     const val MAX_RETRIES = 2
+    // Prevent indefinite OEM/HFP flapping even when a headset briefly
+    // reconnects between failures. An explicit user action may restart
+    // the small retry window, never the total automatic call budget.
+    const val MAX_AUTOMATIC_RETRIES_PER_CALL = 6
+    fun withinCallBudget(attempts: Int): Boolean =
+        attempts in 0 until MAX_AUTOMATIC_RETRIES_PER_CALL
+
     // HFP/LE Audio is asynchronous. Do not hold the UI in a false pending
     // state for thirty seconds when a headset never activates.
     const val BLUETOOTH_CONFIRMATION_TIMEOUT_MS = 9_000L
