@@ -187,6 +187,27 @@ object MessageWakePolicy {
         try { block() } catch (_: SecurityException) { false }
         catch (_: RuntimeException) { false }
         catch (_: LinkageError) { false }
+
+    /**
+     * WorkManager may be unavailable on an OEM device or under storage/boot
+     * restrictions. Its failure must not suppress the independent, opted-in
+     * and neutral Android message alert. The next foreground E2EE sync
+     * remains the fallback, with no new identity or plaintext transport.
+     * No background worker is started when consent or timestamp is invalid.
+     */
+    fun dispatchIndependent(
+        allowSync: Boolean,
+        enqueueSync: () -> Unit,
+        showAlert: () -> Boolean
+    ): Boolean {
+        if (allowSync) {
+            try { enqueueSync() }
+            catch (_: SecurityException) { /* Continue to independent alert. */ }
+            catch (_: RuntimeException) { /* Continue to independent alert. */ }
+            catch (_: LinkageError) { /* OEM binder/library not available. */ }
+        }
+        return safeShow(showAlert)
+    }
 }
 
 /** No private deep link. The normal calculator gate is mandatory on every tap. */
