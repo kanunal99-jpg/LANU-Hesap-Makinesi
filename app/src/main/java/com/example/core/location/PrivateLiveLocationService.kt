@@ -16,6 +16,7 @@ import android.os.*
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.example.LanuApplication
+import com.example.core.notifications.PublicNotificationIds
 import com.example.MainActivity
 import com.example.R
 import kotlinx.coroutines.*
@@ -436,7 +437,7 @@ class PrivateLiveLocationService : Service() {
 
     companion object {
         private const val CHANNEL = "lanu_live_location_v1"
-        private const val NOTIFICATION_ID = 4137
+        internal const val NOTIFICATION_ID = PublicNotificationIds.LIVE_LOCATION
         private const val ACTION_START = "com.aistudio.lanucalc.action.PRIVATE_LOCATION_START"
         private const val ACTION_STOP = "com.aistudio.lanucalc.action.PRIVATE_LOCATION_STOP"
         private const val EXTRA_CONVERSATION = "conversation"

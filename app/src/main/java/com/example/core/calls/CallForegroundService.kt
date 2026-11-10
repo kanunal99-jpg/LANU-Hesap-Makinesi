@@ -10,6 +10,7 @@ import com.example.IncomingCallActivity
 import com.example.LanuApplication
 import com.example.R
 import com.example.core.notifications.PublicNotificationText
+import com.example.core.notifications.PublicNotificationIds
 import com.example.features.communication.NativeCallPhase
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collect
@@ -101,7 +102,9 @@ class CallForegroundService : Service() {
     }
     companion object {
         const val CHANNEL = "lanu_active_call_v1"
-        private const val ONGOING_ID = 8130
+        // MessageWakeNotification keeps legacy ID 8130 so existing message
+        // opt-out semantics survive an OTA without canceling this service.
+        internal const val ONGOING_ID = PublicNotificationIds.ACTIVE_CALL
         private const val EXTRA_VIDEO = "lanu_call_video"
         private const val ACTION_END = "com.aistudio.lanucalc.kxwzqm.action.LANU_CALL_END"
         @Volatile var isRunning: Boolean = false
