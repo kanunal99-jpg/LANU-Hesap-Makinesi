@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Image as ImageIcon
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -32,6 +33,7 @@ fun InlineMediaComposer(
     onDocument: () -> Unit,
     onLargeDocument: () -> Unit = {},
     onLargePhoto: () -> Unit = {},
+    onLocation: () -> Unit = {},
     onCancel: () -> Unit,
     onSend: (String, () -> Unit) -> Unit
 ) {
@@ -57,6 +59,12 @@ fun InlineMediaComposer(
                 text = { Text("Küçük PDF / TXT (18 KB)") },
                 leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null) },
                 onClick = { menu = false; onDocument() }
+            )
+            DropdownMenuItem(
+                text = { Text("Şifreli konum gönder (tek seferlik)") },
+                leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
+                onClick = { menu = false; onLocation() },
+                modifier = Modifier.testTag("private_location_menu")
             )
             if (BuildConfig.LANU_PRIVATE_MEDIA_UI_ENABLED) {
                 DropdownMenuItem(
