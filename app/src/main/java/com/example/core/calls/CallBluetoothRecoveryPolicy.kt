@@ -9,6 +9,34 @@ import com.example.core.calls.CallAudioRoutePolicy.Route
  */
 internal object CallBluetoothRecoveryPolicy {
     const val MAX_RETRIES = 2
+    // HFP/LE Audio is asynchronous. Do not hold the UI in a false pending
+    // state for thirty seconds when a headset never activates.
+    const val BLUETOOTH_CONFIRMATION_TIMEOUT_MS = 9_000L
+    const val ROUTE_WATCHDOG_INTERVAL_MS = 4_000L
+
+    fun confirmationTimeoutMs(route: Route?): Long =
+        if (route == Route.BLUETOOTH_HEADSET) BLUETOOTH_CONFIRMATION_TIMEOUT_MS
+        else CallCommunicationDeviceConfirmationPolicy.CONFIRMATION_TIMEOUT_MS
+
+    fun pendingExpired(startedAtMs: Long, nowMs: Long, route: Route?): Boolean =
+        startedAtMs >= 0L && nowMs >= startedAtMs &&
+            nowMs - startedAtMs >= confirmationTimeoutMs(route)
+
+    /** Only reconcile on an actual state contradiction or topology change.
+     * Healthy media remains on the selected route without reapplying it. */
+    fun shouldReconcile(
+        topologyChanged: Boolean,
+        permissionChanged: Boolean,
+        hasPending: Boolean,
+        pendingStillPreferred: Boolean,
+        pendingConfirmed: Boolean,
+        reportedRouted: Boolean,
+        reportedRouteValid: Boolean
+    ): Boolean =
+        topologyChanged || permissionChanged ||
+            (hasPending && (pendingConfirmed || !pendingStillPreferred)) ||
+            (reportedRouted && !reportedRouteValid)
+
     fun retryDelayMs(completedRetries: Int): Long =
         if (completedRetries == 0) 1_500L else 3_500L
 
