@@ -57,6 +57,7 @@ class PrivateLiveLocationService : Service() {
         var sequence = 0
         var lastQueuedElapsedMs = Long.MIN_VALUE
         var writing = false
+        var pointWriteJob: Job? = null
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -280,7 +281,7 @@ class PrivateLiveLocationService : Service() {
             )
         }.getOrNull() ?: return
         active.writing = true
-        scope.launch {
+        active.pointWriteJob = scope.launch {
             try {
                 if (session !== active || !permissionsGranted(active.precise) ||
                     System.currentTimeMillis() >= active.expiresAtMs) return@launch
@@ -293,6 +294,10 @@ class PrivateLiveLocationService : Service() {
                 )
                 val repo = (application as LanuApplication).container.communicationRepository
                 repo.sendMessage(active.conversationId, payload)
+                // A user STOP/task removal can arrive while encryption or
+                // Room persistence is suspended. Never revive the stopped
+                // state or initiate delivery from a stale callback.
+                if (session !== active || stopInProgress) return@launch
                 active.sequence = next
                 firstFixJob?.cancel()
                 firstFixJob = null
@@ -321,6 +326,9 @@ class PrivateLiveLocationService : Service() {
         if (stopInProgress) return
         stopInProgress = true
         session = null
+        // Cancel any in-flight write before queuing the terminal STOP event.
+        // Cancellation cannot retract points already delivered to the peer.
+        old?.pointWriteJob?.cancel()
         expiryJob?.cancel()
         expiryJob = null
         firstFixJob?.cancel()
