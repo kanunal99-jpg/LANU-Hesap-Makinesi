@@ -40,6 +40,18 @@ import kotlin.math.abs
  * boot receiver, and no background-location permission. The receiver still
  * verifies expiry/freshness, even if a terminal STOP cannot be delivered.
  */
+/**
+ * A stale action from an earlier timed share must not terminate a different
+ * newly consented session. The token is opaque, process-local and carries no
+ * recipient, coordinates, chat content or identity.
+ */
+internal object PrivateLiveLocationStopPolicy {
+    const val MAX_STOP_DELIVERY_MS = 6_000L
+
+    fun matchesCurrent(expected: String?, supplied: String?): Boolean =
+        !expected.isNullOrBlank() && supplied == expected
+}
+
 class PrivateLiveLocationService : Service() {
     data class State(
         val active: Boolean = false,
@@ -48,7 +60,8 @@ class PrivateLiveLocationService : Service() {
         val expiresAtMs: Long = 0L,
         val lastFixAtMs: Long = 0L,
         val pointsSent: Int = 0,
-        val status: String = ""
+        val status: String = "",
+        val stopping: Boolean = false
     )
     private class Session(
         val id: String,
@@ -62,6 +75,10 @@ class PrivateLiveLocationService : Service() {
         var lastQueuedElapsedMs = Long.MIN_VALUE
         var writing = false
         var pointWriteJob: Job? = null
+        var startWriteJob: Job? = null
+        // Distinct from the E2EE session ID; used only for an immutable,
+        // session-specific PendingIntent to this non-exported service.
+        val stopToken: String = UUID.randomUUID().toString()
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -79,7 +96,21 @@ class PrivateLiveLocationService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                // Explicit private-chat control: stop whichever session is
+                // currently active; no recipient or token enters the UI intent.
                 stopSharing("Paylaşım durduruldu", sendEnd = true)
+                return START_NOT_STICKY
+            }
+            ACTION_STOP_NOTIFICATION -> {
+                // An OS notification can outlive its old session while the
+                // next share begins. Never let that old action stop the new
+                // recipient's user-consented session.
+                if (PrivateLiveLocationStopPolicy.matchesCurrent(
+                        session?.stopToken, intent.getStringExtra(EXTRA_STOP_TOKEN))) {
+                    stopSharing("Paylaşım durduruldu", sendEnd = true)
+                } else if (session == null && !stopInProgress) {
+                    stopSelf()
+                }
                 return START_NOT_STICKY
             }
             ACTION_START -> {
@@ -103,7 +134,7 @@ class PrivateLiveLocationService : Service() {
                     precise, start, end, duration)
                 try {
                     createChannel()
-                    val notification = notification()
+                    val notification = notification(fresh.stopToken)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
                         startForeground(NOTIFICATION_ID, notification,
                             ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
@@ -123,7 +154,7 @@ class PrivateLiveLocationService : Service() {
                 // Verify the recipient binding through the existing E2EE
                 // repository BEFORE location capture; the relay receives only
                 // ciphertext and cannot substitute another conversation.
-                scope.launch {
+                fresh.startWriteJob = scope.launch {
                     try {
                         val repo = (application as LanuApplication).container.communicationRepository
                         repo.sendMessage(fresh.conversationId,
@@ -333,6 +364,7 @@ class PrivateLiveLocationService : Service() {
         // Cancel any in-flight write before queuing the terminal STOP event.
         // Cancellation cannot retract points already delivered to the peer.
         old?.pointWriteJob?.cancel()
+        old?.startWriteJob?.cancel()
         expiryJob?.cancel()
         expiryJob = null
         firstFixJob?.cancel()
@@ -345,32 +377,59 @@ class PrivateLiveLocationService : Service() {
             catch (_: RuntimeException) { }
         }
         locationListener = null
-        _state.value = State(status = reason)
+        _state.value = State(status = reason, stopping = old != null)
+        if (old != null) {
+            // Immediate, visible acknowledgment: GPS capture and point writes
+            // are already stopped; remove the action while bounded encrypted
+            // STOP delivery finishes. Do not start a second notification.
+            try {
+                (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+                    .notify(NOTIFICATION_ID, notification(old.stopToken, stopping = true))
+            } catch (_: RuntimeException) {
+                // OEM notification failure cannot undo revocation.
+            } catch (_: LinkageError) {
+                // Vendor notification ABI failure cannot revive tracking.
+            }
+        }
         scope.launch {
-            // Stop is a per-recipient E2EE terminal marker, NOT a remote wipe
-            // of coordinates that the recipient has already received.
-            if (old != null && sendEnd) try {
-                val stoppedAt = System.currentTimeMillis()
-                    .coerceIn(old.startedAtMs, old.expiresAtMs)
-                val payload = PrivateLiveLocationCodec.encode(
-                    PrivateLiveLocationCodec.Event(
-                        PrivateLiveLocationCodec.Kind.STOP, old.id,
-                        (old.sequence + 1).coerceAtMost(
-                            PrivateLiveLocationCodec.MAX_POINTS_PER_SESSION
-                        ), old.startedAtMs, old.expiresAtMs,
-                        stoppedAtMs = stoppedAt
+            try {
+                // A user STOP must never hang indefinitely in the relay/outbox
+                // while Android continues displaying a location FGS. Queue
+                // one authenticated E2EE STOP and perform bounded transport.
+                // Expiry and freshness remain the receiver's fail-closed path.
+                if (old != null && sendEnd)
+                    withTimeout(PrivateLiveLocationStopPolicy.MAX_STOP_DELIVERY_MS) {
+                    val stoppedAt = System.currentTimeMillis()
+                        .coerceIn(old.startedAtMs, old.expiresAtMs)
+                    val payload = PrivateLiveLocationCodec.encode(
+                        PrivateLiveLocationCodec.Event(
+                            PrivateLiveLocationCodec.Kind.STOP, old.id,
+                            (old.sequence + 1).coerceAtMost(
+                                PrivateLiveLocationCodec.MAX_POINTS_PER_SESSION
+                            ), old.startedAtMs, old.expiresAtMs,
+                            stoppedAtMs = stoppedAt
+                        )
                     )
-                )
-                val repo = (application as LanuApplication).container.communicationRepository
-                repo.sendMessage(old.conversationId, payload)
-                runCatching { repo.sendQueuedForeground() }
+                    val repo = (application as LanuApplication).container.communicationRepository
+                    repo.sendMessage(old.conversationId, payload)
+                    try {
+                        repo.sendQueuedForeground()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // The encrypted STOP was already persisted to the
+                        // existing outbox; foreground delivery may retry.
+                    }
+                }
+            } catch (e: TimeoutCancellationException) {
+                // STOP may remain queued or unsent; never resume location.
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                // Network loss may delay STOP; the receiver must rely on the
-                // authenticated expiry and fresh-update test in all cases.
+                // Remote STOP delivery cannot be promised without network.
+            } finally {
+                stopSelf()
             }
-            stopSelf()
         }
     }
 
@@ -387,10 +446,14 @@ class PrivateLiveLocationService : Service() {
                 ))
     }
 
-    private fun notification(): Notification {
-        val stop = PendingIntent.getService(this, 405,
-            Intent(this, PrivateLiveLocationService::class.java).setAction(ACTION_STOP),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    internal fun notification(stopToken: String, stopping: Boolean = false): Notification {
+        val stop = if (!stopping) PendingIntent.getService(this,
+            stopToken.hashCode(),
+            Intent(this, PrivateLiveLocationService::class.java)
+                .setAction(ACTION_STOP_NOTIFICATION)
+                .putExtra(EXTRA_STOP_TOKEN, stopToken),
+            PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        ) else null
         val open = PendingIntent.getActivity(this, 406,
             Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -398,13 +461,18 @@ class PrivateLiveLocationService : Service() {
         return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("LANU")
-            .setContentText("Etkin paylaşım · durdurmak için bildirimi kullanın")
+            // The visible calculator surface must never reveal that the app
+            // contains private chat or location; Android may show shade text.
+            .setContentText(if (stopping) "İşlem sonlandırılıyor"
+                else "Etkin işlem · Durdurmak için bildirimi genişletin")
             .setVisibility(NotificationCompat.VISIBILITY_SECRET)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setContentIntent(open)
-            .addAction(R.mipmap.ic_launcher, "Durdur", stop)
+            .apply {
+                if (stop != null) addAction(R.mipmap.ic_launcher, "Durdur", stop)
+            }
             .build()
     }
 
@@ -431,6 +499,7 @@ class PrivateLiveLocationService : Service() {
         // Keep the user-facing fail-closed reason until the next explicit
         // session; onDestroy must not overwrite it with a generic status.
         if (_state.value.active) _state.value = State(status = "Paylaşım sona erdi")
+        else if (_state.value.stopping) _state.value = _state.value.copy(stopping = false)
         scope.cancel()
         super.onDestroy()
     }
@@ -440,6 +509,9 @@ class PrivateLiveLocationService : Service() {
         internal const val NOTIFICATION_ID = PublicNotificationIds.LIVE_LOCATION
         private const val ACTION_START = "com.aistudio.lanucalc.action.PRIVATE_LOCATION_START"
         private const val ACTION_STOP = "com.aistudio.lanucalc.action.PRIVATE_LOCATION_STOP"
+        internal const val ACTION_STOP_NOTIFICATION =
+            "com.aistudio.lanucalc.action.PRIVATE_LOCATION_NOTIFICATION_STOP"
+        internal const val EXTRA_STOP_TOKEN = "stop_token"
         private const val EXTRA_CONVERSATION = "conversation"
         private const val EXTRA_DURATION = "duration"
         private const val EXTRA_PRECISE = "precise"
@@ -452,7 +524,7 @@ class PrivateLiveLocationService : Service() {
             durationMs: Long, precise: Boolean): Boolean {
             if (conversationId.isBlank() ||
                 durationMs !in PrivateLiveLocationCodec.durations ||
-                _state.value.active) return false
+                _state.value.active || _state.value.stopping) return false
             return try {
                 ContextCompat.startForegroundService(context,
                     Intent(context, PrivateLiveLocationService::class.java)
