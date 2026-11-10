@@ -2,6 +2,7 @@ package com.example.core.calls
 
 import com.example.core.messaging.RelayException
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -18,6 +19,24 @@ internal class CallPollCoordinator(private val clock: () -> Long, private val po
     private var lastNow = 0L
     private var nextStart = 0L
     private var blockedUntil = 0L
+    private var transientBackoffUntil = 0L
+    private var permanentBackoffUntil = 0L
+    private var transientFailures = 0
+    // A failed request on an OLD network must not delay a newly validated path.
+    private var networkEpoch = 0L
+    private val permitChanges = Channel<Unit>(Channel.CONFLATED)
+
+    /** Trigger ONLY for a system-confirmed validated network route change.
+     * Neither 429 Retry-After nor authentication cooldown can be bypassed. */
+    suspend fun validatedNetworkHint() {
+        mutex.withLock {
+            networkEpoch++
+            transientFailures = 0
+            transientBackoffUntil = 0L
+        }
+        permitChanges.trySend(Unit)
+    }
+
     private fun now() = maxOf(lastNow, clock().coerceAtLeast(0L)).also { lastNow = it }
     private fun plus(at: Long, delta: Long) = if (at > Long.MAX_VALUE - delta) Long.MAX_VALUE else at + delta
 
@@ -39,13 +58,20 @@ internal class CallPollCoordinator(private val clock: () -> Long, private val po
                 }
             }
             var result: Outcome = Outcome.OwnerCancelled
+            var attemptNetworkEpoch = -1L
             try {
                 var pass = 0
                 while (true) {
                     awaitPermit()
                     currentCoroutineContext().ensureActive()
+                    attemptNetworkEpoch = mutex.withLock { networkEpoch }
                     poll()
                     val again = mutex.withLock {
+                        // Only a truly successful authenticated poll resets
+                        // network error budgets, not a websocket/wake hint.
+                        transientFailures = 0
+                        transientBackoffUntil = 0L
+                        permanentBackoffUntil = 0L
                         if (pass == 0 && ticket.followUp) {
                             ticket.followUp = false
                             true
@@ -64,8 +90,33 @@ internal class CallPollCoordinator(private val clock: () -> Long, private val po
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                if (error is RelayException && error.status == 429) mutex.withLock {
-                    blockedUntil = maxOf(blockedUntil, plus(now(), error.retryAfterMillis.coerceIn(5_000L, 120_000L)))
+                mutex.withLock {
+                    when {
+                        error is RelayException && error.status == 429 -> {
+                            // Server-declared quota wins over every reconnect
+                            // hint; do not spin additional in-flight polls.
+                            blockedUntil = maxOf(blockedUntil,
+                                plus(now(), error.retryAfterMillis.coerceIn(5_000L, 120_000L)))
+                            transientFailures = 0
+                            transientBackoffUntil = 0L
+                        }
+                        CallPollBackoffPolicy.isPermanentCallControlError(error) -> {
+                            permanentBackoffUntil = maxOf(permanentBackoffUntil,
+                                plus(now(), CallPollBackoffPolicy.PERMANENT_ERROR_COOLDOWN_MS))
+                            transientFailures = 0
+                            transientBackoffUntil = 0L
+                        }
+                        attemptNetworkEpoch == networkEpoch -> {
+                            val pause = CallPollBackoffPolicy.transientDelayMs(
+                                error, transientFailures + 1)
+                            if (pause != null) {
+                                transientFailures = (transientFailures + 1)
+                                    .coerceAtMost(CallPollBackoffPolicy.MAX_TRANSIENT_FAILURES)
+                                transientBackoffUntil = maxOf(transientBackoffUntil,
+                                    plus(now(), pause))
+                            }
+                        }
+                    }
                 }
                 result = Outcome.Failed(error)
                 throw error
@@ -82,11 +133,17 @@ internal class CallPollCoordinator(private val clock: () -> Long, private val po
             currentCoroutineContext().ensureActive()
             val wait = mutex.withLock {
                 val at = now()
-                val until = maxOf(nextStart, blockedUntil)
+                val until = maxOf(nextStart, blockedUntil,
+                    transientBackoffUntil, permanentBackoffUntil)
                 if (until > at) until - at else { nextStart = plus(at, 1_000L); 0L }
             }
             if (wait == 0L) return
-            delay(wait.coerceIn(1L, 120_000L))
+            // A validated network handover can lift TRANSIENT cooldown early
+            // without ever bypassing a server Retry-After or authentication
+            // hold. Channel wakeups are conflated and cancel with the owner.
+            withTimeoutOrNull(wait.coerceIn(1L, 120_000L)) {
+                permitChanges.receive()
+            }
         }
     }
 }

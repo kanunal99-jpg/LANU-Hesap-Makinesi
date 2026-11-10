@@ -42,6 +42,108 @@ class CallPollCoordinatorTest {
         val next=launch { poller.run(true) }; runCurrent(); assertEquals(1,calls)
         advanceTimeBy(1); runCurrent(); next.join(); assertEquals(2,calls)
     }
+    @Test fun repeated503BacksOffWithoutHttpStormAndResetsAfterSuccess() = runTest {
+        var calls = 0
+        val poller = CallPollCoordinator({ testScheduler.currentTime }) {
+            calls++
+            if (calls <= 3) throw RelayException(503, "temporary network failure")
+        }
+        for (attempt in 1..3) {
+            val outcome = async { runCatching { poller.run() }.exceptionOrNull() }
+            runCurrent()
+            val scheduled = when (attempt) { 1 -> 0L; 2 -> 1_000L; else -> 3_000L }
+            if (testScheduler.currentTime < scheduled) {
+                advanceTimeBy(scheduled - testScheduler.currentTime - 1)
+                runCurrent()
+                assertEquals(attempt - 1, calls)
+                advanceTimeBy(1)
+                runCurrent()
+            }
+            assertTrue(outcome.await() is RelayException)
+            assertEquals(attempt, calls)
+        }
+        val recovered = async { poller.run() }
+        runCurrent()
+        advanceTimeBy(3_999); runCurrent()
+        assertEquals(3, calls)
+        advanceTimeBy(1); runCurrent()
+        recovered.await()
+        assertEquals(4, calls)
+        // A successful poll clears stale transport cooldown.
+        advanceTimeBy(1_000)
+        poller.run()
+        assertEquals(5, calls)
+    }
+
+    @Test fun validatedHandoverLiftsOnlyTransientBackoffAfterMinimumCadence() = runTest {
+        var calls = 0
+        val poller = CallPollCoordinator({ testScheduler.currentTime }) {
+            calls++
+            if (calls <= 2) throw RelayException(503, "old network")
+        }
+        try { poller.run(); fail("expected network failure") } catch (_: RelayException) {}
+        advanceTimeBy(1_000)
+        try { poller.run(); fail("expected second network failure") } catch (_: RelayException) {}
+        assertEquals(2, calls)
+        val recovered = async { poller.run() }
+        runCurrent()
+        advanceTimeBy(500); runCurrent()
+        assertEquals(2, calls)
+        poller.validatedNetworkHint()
+        runCurrent()
+        advanceTimeBy(499); runCurrent()
+        assertEquals(2, calls)
+        advanceTimeBy(1); runCurrent()
+        recovered.await()
+        assertEquals(3, calls) // At 2s rather than 3s after validated change.
+    }
+
+    @Test fun validatedNetworkDoesNotBypassServerQuotaOrIdentityCooldown() = runTest {
+        for ((status, deadline) in listOf(429 to 10_000L, 401 to 30_000L)) {
+            var calls = 0
+            val poller = CallPollCoordinator({ testScheduler.currentTime }) {
+                calls++
+                if (calls == 1) throw RelayException(status, "restricted", 10_000L)
+            }
+            try { poller.run(); fail("expected $status") } catch (_: RelayException) {}
+            val waiting = async { poller.run() }
+            runCurrent()
+            advanceTimeBy(1_000); runCurrent()
+            poller.validatedNetworkHint()
+            runCurrent()
+            advanceTimeBy(deadline - 1_001); runCurrent()
+            assertEquals(1, calls)
+            advanceTimeBy(1); runCurrent()
+            waiting.await()
+            assertEquals(2, calls)
+        }
+    }
+
+    @Test fun staleFailureFromPreHandoverNetworkCannotPoisonNewRoute() = runTest {
+        var calls = 0
+        val held = CompletableDeferred<Unit>()
+        val poller = CallPollCoordinator({ testScheduler.currentTime }) {
+            calls++
+            if (calls == 1) {
+                held.await()
+                throw RelayException(503, "old network failed after new route arrived")
+            }
+        }
+        val stale = async { runCatching { poller.run() }.exceptionOrNull() }
+        runCurrent()
+        poller.validatedNetworkHint()
+        held.complete(Unit)
+        runCurrent()
+        assertTrue(stale.await() is RelayException)
+        val fresh = async { poller.run() }
+        runCurrent()
+        advanceTimeBy(999); runCurrent()
+        assertEquals(1, calls)
+        advanceTimeBy(1); runCurrent()
+        fresh.await()
+        assertEquals(2, calls)
+    }
+
     @Test fun failureIsSharedWithoutDuplicatePollAndNextFlightStillWorks() = runTest {
         var calls=0; val hold=CompletableDeferred<Unit>()
         val poller=CallPollCoordinator({ testScheduler.currentTime }) {

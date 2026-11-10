@@ -512,10 +512,13 @@ class NativeCallViewModel(
                 if (session !== current || !foreground) return@collect
                 if (lastHint?.let { now >= it && now - it < 2_000L } == true) return@collect
                 lastHint = now
-                // A validated new route expedites signed signaling, never claims RTP
-                // health or tears down a naturally recovering peer. Existing native
-                // FAILED/grace/restart budgets remain authoritative.
-                try { repository.pollCallSignals(requestFollowUp = true) }
+                // A validated new route lifts only transient HTTP backoff,
+                // letting encrypted signaling rejoin promptly after Wi-Fi/LTE
+                // handover. Quota/auth holds and native RTP evidence still win.
+                try {
+                    repository.validatedCallNetworkChange()
+                    repository.pollCallSignals(requestFollowUp = true)
+                }
                 catch (e: CancellationException) { throw e }
                 catch (_: Exception) { /* Independent two-second HTTP fallback remains. */ }
             }

@@ -275,6 +275,12 @@ class CommunicationRepository(
         callPollCoordinator.run(requestFollowUp)
     }
 
+    /** Only AndroidNetworkRecovery's validated route change may clear
+     * transport backoff. Relay 429 and identity/auth holds remain intact. */
+    suspend fun validatedCallNetworkChange() {
+        if (callingForeground) callPollCoordinator.validatedNetworkHint()
+    }
+
     private suspend fun decodeCallSignals(own: MessagingIdentity, rows: JSONArray) = callDeliveryMutex.withLock {
         require(rows.length() <= 24)
         val ack = JSONArray()
