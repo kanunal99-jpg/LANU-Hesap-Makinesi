@@ -29,8 +29,13 @@ internal object CallBluetoothRecoveryPolicy {
 
     // HFP/LE Audio is asynchronous. Do not hold the UI in a false pending
     // state for thirty seconds when a headset never activates.
-    const val BLUETOOTH_CONFIRMATION_TIMEOUT_MS = 9_000L
+    const val BLUETOOTH_CONFIRMATION_TIMEOUT_MS = 15_000L
     const val ROUTE_WATCHDOG_INTERVAL_MS = 4_000L
+    const val STALE_ROUTE_CONFIRMATION_SAMPLES = 2
+
+    /** One transient/null AudioManager getter must not tear down a live call. */
+    fun confirmedStaleRoute(samples: Int): Boolean =
+        samples >= STALE_ROUTE_CONFIRMATION_SAMPLES
 
     fun confirmationTimeoutMs(route: Route?): Long =
         if (route == Route.BLUETOOTH_HEADSET) BLUETOOTH_CONFIRMATION_TIMEOUT_MS
