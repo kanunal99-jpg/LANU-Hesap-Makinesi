@@ -30,6 +30,25 @@ class PrivateLiveLocationCodecTest {
         assertEquals(Codec.Kind.POINT, Codec.decodeOrNull(Codec.encode(updated()))?.kind)
     }
 
+    @Test fun providerPolicyNeverSilentlyDowngradesUserSelectedPrecision() {
+        assertEquals(Codec.ProviderChoice.GPS, Codec.chooseProvider(
+            precise = true, gpsEnabled = true, networkEnabled = true))
+        assertEquals(Codec.ProviderChoice.GPS, Codec.chooseProvider(
+            precise = true, gpsEnabled = true, networkEnabled = false))
+        // Sensitive: GPS disabled must not reuse network and label it "precise".
+        assertNull(Codec.chooseProvider(
+            precise = true, gpsEnabled = false, networkEnabled = true))
+        assertNull(Codec.chooseProvider(
+            precise = true, gpsEnabled = false, networkEnabled = false))
+        assertEquals(Codec.ProviderChoice.NETWORK, Codec.chooseProvider(
+            precise = false, gpsEnabled = true, networkEnabled = true))
+        assertEquals(Codec.ProviderChoice.NETWORK, Codec.chooseProvider(
+            precise = false, gpsEnabled = false, networkEnabled = true))
+        // With coarse permission only, do not silently fall back to GPS.
+        assertNull(Codec.chooseProvider(
+            precise = false, gpsEnabled = true, networkEnabled = false))
+    }
+
     @Test fun onlyUserAllowedDurationsAndBoundedUpdateCadence() {
         assertEquals(30_000L, Codec.intervalMs(Codec.FIFTEEN_MINUTES_MS))
         assertEquals(60_000L, Codec.intervalMs(Codec.ONE_HOUR_MS))
