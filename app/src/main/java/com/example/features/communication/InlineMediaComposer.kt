@@ -34,6 +34,7 @@ fun InlineMediaComposer(
     onLargeDocument: () -> Unit = {},
     onLargePhoto: () -> Unit = {},
     onLocation: () -> Unit = {},
+    onLiveLocation: () -> Unit = {},
     onCancel: () -> Unit,
     onSend: (String, () -> Unit) -> Unit
 ) {
@@ -65,6 +66,12 @@ fun InlineMediaComposer(
                 leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
                 onClick = { menu = false; onLocation() },
                 modifier = Modifier.testTag("private_location_menu")
+            )
+            DropdownMenuItem(
+                text = { Text("Şifreli canlı konum paylaş") },
+                leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
+                onClick = { menu = false; onLiveLocation() },
+                modifier = Modifier.testTag("private_live_location_menu")
             )
             if (BuildConfig.LANU_PRIVATE_MEDIA_UI_ENABLED) {
                 DropdownMenuItem(
