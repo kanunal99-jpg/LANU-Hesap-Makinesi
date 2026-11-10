@@ -128,6 +128,7 @@ class NativeCallEngine(
     private val cameraSwitchGate = CallCameraSwitchGate()
     private var texture: SurfaceTextureHelper? = null
     private var videoEnabled = false
+    private var captureProfile = CallCameraCaptureProfilePolicy.profiles.first()
     // Thread-safe evidence tracker rejects cumulative RTP packets from prior ICE epochs.
     private val rtpEvidence = CallRtpEvidenceTracker()
     private val statsRequestSequence = AtomicLong()
@@ -282,31 +283,40 @@ class NativeCallEngine(
             },
             open = { index, device ->
                 if (closing.get()) throw CancellationException("Call camera fallback cancelled")
-                val generation = cameraGeneration.incrementAndGet()
-                // Some OEM callbacks report startup failure before startCapture
-                // returns. Retry that camera rather than closing the entire call.
-                val starting = AtomicBoolean(true)
-                val failed = AtomicBoolean(false)
-                val candidate = enumerators[index].createCapturer(device.name,
-                    cameraEvents(generation, starting, failed))
-                CallCameraStartupPolicy.tryStart(
-                    candidate,
-                    start = { camera ->
-                        if (closing.get()) throw CancellationException("Call camera startup cancelled")
-                        camera.initialize(texture, context, videoSource!!.capturerObserver)
-                        camera.startCapture(1280, 720, 24)
-                        if (closing.get()) throw CancellationException("Call camera startup cancelled")
-                        check(!failed.get()) { "Kamera açılışında hata." }
-                        starting.set(false)
-                    },
-                    releaseFailed = { camera ->
-                        // Invalidate late callbacks before disposing the failed
-                        // native camera, then retry an actual alternate HAL.
-                        cameraGeneration.incrementAndGet()
-                        runCatching { camera.stopCapture() }
-                        runCatching { camera.dispose() }
+                var selected: CameraVideoCapturer? = null
+                // Try a smaller capture format on a NEW camera handle before
+                // abandoning an otherwise functional OEM Camera1/Camera2 HAL.
+                // All attempts remain user-consented and audio-independent.
+                for (profile in CallCameraCaptureProfilePolicy.profiles) {
+                    if (selected != null) break
+                    if (closing.get()) throw CancellationException("Call camera fallback cancelled")
+                    val generation = cameraGeneration.incrementAndGet()
+                    val starting = AtomicBoolean(true)
+                    val failed = AtomicBoolean(false)
+                    val candidate = enumerators[index].createCapturer(device.name,
+                        cameraEvents(generation, starting, failed))
+                    val started = CallCameraStartupPolicy.tryStart(
+                        candidate,
+                        start = { camera ->
+                            if (closing.get()) throw CancellationException("Call camera startup cancelled")
+                            camera.initialize(texture, context, videoSource!!.capturerObserver)
+                            camera.startCapture(profile.width, profile.height, profile.fps)
+                            if (closing.get()) throw CancellationException("Call camera startup cancelled")
+                            check(!failed.get()) { "Kamera açılışında hata." }
+                            starting.set(false)
+                        },
+                        releaseFailed = { camera ->
+                            cameraGeneration.incrementAndGet()
+                            runCatching { camera.stopCapture() }
+                            runCatching { camera.dispose() }
+                        }
+                    )
+                    if (started != null) {
+                        captureProfile = profile
+                        selected = started
                     }
-                )
+                }
+                selected
             }
         )
         if (closing.get()) throw CancellationException("Call camera startup cancelled")
@@ -444,7 +454,8 @@ class NativeCallEngine(
             previous = videoEnabled,
             requested = value,
             setDevice = { enabled ->
-                if (enabled) camera.startCapture(1280, 720, 24) else camera.stopCapture()
+                if (enabled) camera.startCapture(captureProfile.width,
+                    captureProfile.height, captureProfile.fps) else camera.stopCapture()
             },
             setTrack = { track.setEnabled(it) }
         )
