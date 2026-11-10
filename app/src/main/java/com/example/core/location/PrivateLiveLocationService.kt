@@ -88,6 +88,10 @@ class PrivateLiveLocationService : Service() {
                     reject("Konum veya bildirim izni yok")
                     return START_NOT_STICKY
                 }
+                if (!hasInternet()) {
+                    reject("İnternet bağlantısı yok")
+                    return START_NOT_STICKY
+                }
                 val start = System.currentTimeMillis()
                 val end = start + duration
                 val fresh = Session(UUID.randomUUID().toString(), conversationId,
@@ -399,7 +403,9 @@ class PrivateLiveLocationService : Service() {
         }
         locationListener = null
         session = null
-        _state.value = State(status = "Paylaşım sona erdi")
+        // Keep the user-facing fail-closed reason until the next explicit
+        // session; onDestroy must not overwrite it with a generic status.
+        if (_state.value.active) _state.value = State(status = "Paylaşım sona erdi")
         scope.cancel()
         super.onDestroy()
     }
