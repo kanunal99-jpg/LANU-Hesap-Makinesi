@@ -23,6 +23,9 @@
          conversation. No background location/foreground tracking service. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- User-started, notification-visible live location only. No permission to
+         track silently while the app is closed or after a device restart. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Android 13+ optional call/message alerts: runtime consent from private settings. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -67,6 +70,10 @@
         <service android:name=".core.calls.CallForegroundService"
             android:exported="false"
             android:foregroundServiceType="microphone|camera" />
+        <service android:name=".core.location.PrivateLiveLocationService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="location" />
         <!-- Call-only secure screen, no access to the hidden chat/navigation. -->
         <activity android:name=".IncomingCallActivity"
             android:exported="false"

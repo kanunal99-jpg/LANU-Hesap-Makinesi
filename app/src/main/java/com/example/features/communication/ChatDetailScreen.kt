@@ -38,6 +38,7 @@ import com.example.core.crypto.CryptoUtils
 import com.example.core.database.MessageEntity
 import com.example.core.media.InlineMediaCodec
 import com.example.core.location.PrivateLocationCodec
+import com.example.core.location.PrivateLiveLocationCodec
 import com.example.core.repository.CommunicationRepository
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -77,6 +78,7 @@ fun ChatDetailScreen(
     var isSelfDestructEnabled by remember(conversationId) { mutableStateOf(false) }
     var showClearConfirmation by remember(conversationId) { mutableStateOf(false) }
     var showLocationPicker by remember(conversationId) { mutableStateOf(false) }
+    var showLivePicker by remember(conversationId) { mutableStateOf(false) }
     // Silent UI policy: no sound or haptic feedback for chat actions.
     val triggerVibration: () -> Unit = {}
 
@@ -117,6 +119,13 @@ fun ChatDetailScreen(
             }
         )
     }
+
+    PrivateLiveLocationControls(
+        conversationId = conversationId,
+        enabled = activeConversation?.id == conversationId,
+        showPicker = showLivePicker,
+        onDismiss = { showLivePicker = false }
+    )
 
     PrivateLocationPicker(
         visible = showLocationPicker,
@@ -306,6 +315,7 @@ fun ChatDetailScreen(
                     onRetry = { viewModel.retryMessage(message.id) },
                     onEdit = { newText ->
                         if (!InlineMediaCodec.isAttachment(message.content) &&
+                            !PrivateLiveLocationCodec.isLiveLocationMessage(message.content) &&
                             !PrivateLocationCodec.isLocationMessage(message.content) &&
                             !message.content.startsWith(CommunicationRepository.PRIVATE_MEDIA_MARKER)) {
                             viewModel.editMessage(message.id, newText)
@@ -336,6 +346,7 @@ fun ChatDetailScreen(
                         onLargeDocument = onChooseLargeDocument,
                         onLargePhoto = onChooseLargePhoto,
                         onLocation = { showLocationPicker = true },
+                        onLiveLocation = { showLivePicker = true },
                         onCancel = { viewModel.clearPreparedMedia() },
                         onSend = { envelope, onQueued ->
                             viewModel.sendInlineAttachment(
@@ -528,7 +539,9 @@ fun MessageBubble(
             // Inline attachments are already E2EE-decrypted here, but their
             // checksums and MIME are verified again before display/export.
             // Never render their base64 JSON as ordinary text.
-            if (PrivateLocationCodec.isLocationMessage(text)) {
+            if (PrivateLiveLocationCodec.isLiveLocationMessage(text)) {
+                PrivateLiveLocationMessageCard(message = text)
+            } else if (PrivateLocationCodec.isLocationMessage(text)) {
                 PrivateLocationMessageCard(message = text)
             } else if (InlineMediaCodec.isAttachment(text)) {
                 InlineMediaAttachment(payload = text, onSave = onSaveAttachment)
@@ -620,6 +633,7 @@ fun MessageBubble(
                 }
                 HorizontalDivider()
                 if (!InlineMediaCodec.isAttachment(text) &&
+                    !PrivateLiveLocationCodec.isLiveLocationMessage(text) &&
                     !PrivateLocationCodec.isLocationMessage(text) &&
                     !text.startsWith(CommunicationRepository.PRIVATE_MEDIA_MARKER)) DropdownMenuItem(
                     text = { Text("Metni Kopyala") },
@@ -635,6 +649,7 @@ fun MessageBubble(
                     }
                 )
                 if (isMine && !InlineMediaCodec.isAttachment(text) &&
+                    !PrivateLiveLocationCodec.isLiveLocationMessage(text) &&
                     !PrivateLocationCodec.isLocationMessage(text) &&
                     !text.startsWith(CommunicationRepository.PRIVATE_MEDIA_MARKER)) {
                     DropdownMenuItem(
