@@ -12,6 +12,7 @@ import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
 import com.example.core.notifications.PublicNotificationText
+import com.example.core.notifications.PublicNotificationIds
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -100,6 +101,11 @@ object MessageWakePreferences {
 
 object MessageWakePolicy {
     const val TYPE = "lanu_message_wake_v1"
+
+    // A user-selected silent/LOW channel is still a legitimate alert.
+    // Only a fully blocked channel (IMPORTANCE_NONE) forbids delivery.
+    fun channelCanDisplay(api: Int, importance: Int?): Boolean =
+        api < 26 || (importance != null && importance > NotificationManager.IMPORTANCE_NONE)
     private val recent = LinkedHashSet<Long>()
 
     fun eligible(data: Map<String, String>, now: Long): Boolean {
@@ -191,7 +197,7 @@ object MessageWakeTapPolicy {
 
 object MessageWakeNotification {
     const val CHANNEL_ID = "lanu_private_message_alerts_v1"
-    private const val ID = 8130
+    private const val ID = PublicNotificationIds.MESSAGE_WAKE
 
     /**
      * A local opt-out must also remove an already displayed neutral alert.
@@ -230,9 +236,11 @@ object MessageWakeNotification {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
                 ?: return@safeShow false
             ensureChannel(manager)
-            if (Build.VERSION.SDK_INT >= 26 &&
-                (manager.getNotificationChannel(CHANNEL_ID)?.importance ?: 0) <
-                    NotificationManager.IMPORTANCE_DEFAULT) return@safeShow false
+            if (!MessageWakePolicy.channelCanDisplay(
+                    Build.VERSION.SDK_INT,
+                    if (Build.VERSION.SDK_INT >= 26)
+                        manager.getNotificationChannel(CHANNEL_ID)?.importance else null
+                )) return@safeShow false
 
             val at = data["at"]?.toLongOrNull() ?: return@safeShow false
             MessageWakePolicy.publishOnce(at) {
