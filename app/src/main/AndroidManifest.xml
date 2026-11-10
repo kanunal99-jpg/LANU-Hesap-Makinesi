@@ -23,8 +23,9 @@
          conversation. No background location/foreground tracking service. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <!-- User-started, notification-visible live location only. No permission to
-         track silently while the app is closed or after a device restart. -->
+    <!-- User-started, notification-visible live location only. An already
+         active FGS can continue after task removal until expiry or STOP.
+         No silent process/boot restart or background-location permission. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Android 13+ optional call/message alerts: runtime consent from private settings. -->
@@ -70,6 +71,8 @@
         <service android:name=".core.calls.CallForegroundService"
             android:exported="false"
             android:foregroundServiceType="microphone|camera" />
+        <!-- stopWithTask=false is essential: an explicitly running,
+             notification-visible session must not stop on Recents swipe. -->
         <service android:name=".core.location.PrivateLiveLocationService"
             android:exported="false"
             android:stopWithTask="false"
