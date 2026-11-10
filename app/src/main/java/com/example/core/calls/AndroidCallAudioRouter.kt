@@ -235,7 +235,13 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
         // An explicit device retry must reapply a stuck OEM route. Returning
         // to AUTO (null) must NOT clear a still-correct route or interrupt
         // active RTP just to discard the previous manual preference.
-        val result = selectRoute(forceReapply = route != null)
+        // Do not reset a working speaker/earpiece merely because the user
+        // requested a Bluetooth device that Android has not exposed yet.
+        // Keep the Bluetooth preference for bounded discovery and hotplug.
+        val requestedDeviceAvailable = route != null && availableOutputDevices().any {
+            classify(it.type) == route
+        }
+        val result = selectRoute(forceReapply = requestedDeviceAvailable)
         if (route == Route.BLUETOOTH_HEADSET &&
             result.selected != Route.BLUETOOTH_HEADSET &&
             result.pending != Route.BLUETOOTH_HEADSET) scheduleBluetoothRecovery()
