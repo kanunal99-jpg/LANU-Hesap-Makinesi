@@ -53,6 +53,26 @@ class CallBluetoothRouteWatchdogTest {
             pendingPreferred = true, routed = true))
     }
 
+    @Test fun rejectedHeadsetNeverStealsHealthyFallbackOnRefresh() {
+        val inventory = mapOf(
+            17 to Route.BLUETOOTH_HEADSET,
+            18 to Route.EARPIECE,
+            19 to Route.SPEAKER
+        )
+        val rejected = Policy.eligibleRoutes(inventory, setOf(17), true)
+        assertEquals(setOf(Route.EARPIECE, Route.SPEAKER), rejected)
+        assertEquals(Route.EARPIECE,
+            com.example.core.calls.CallAudioRoutePolicy.priorities(
+                rejected, false, Route.BLUETOOTH_HEADSET
+            ).first())
+        assertEquals(setOf(Route.EARPIECE, Route.SPEAKER),
+            Policy.eligibleRoutes(inventory, emptySet(), false))
+        assertTrue(Route.BLUETOOTH_HEADSET in Policy.eligibleRoutes(
+            inventory + (20 to Route.BLUETOOTH_HEADSET), setOf(17), true))
+        assertEquals(emptySet<Route>(),
+            Policy.eligibleRoutes(emptyMap(), setOf(17), true))
+    }
+
     @Test fun bothRetryBudgetsRemainFiniteAcrossRepeatedOemEvents() {
         assertEquals(2, Policy.MAX_RETRIES)
         assertEquals(6, Policy.MAX_AUTOMATIC_RETRIES_PER_CALL)
