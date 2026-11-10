@@ -116,7 +116,7 @@ internal fun PrivateLiveLocationControls(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Yalnızca bu sohbetin doğrulanmış kişisine süreli konum gönderilir.")
-                Text("Uygulamayı son uygulamalardan kaldırsanız veya ekranı kilitleseniz de seçilen süre boyunca görünür Android bildirimiyle paylaşım devam eder. Bildirimden veya sohbetten durdurabilirsiniz.",
+                Text("Uygulamayı son uygulamalardan kaldırsanız veya ekranı kilitleseniz de paylaşım seçilen süre boyunca devam eder. Süre bitmeden durdurmak için Android bildirimindeki Durdur butonuna basın (görünmüyorsa bildirimi genişletin) ya da sohbetten Paylaşımı şimdi durdur seçin.",
                     style = MaterialTheme.typography.bodySmall)
                 Text("Android Ayarlar'dan Zorla durdur, telefonun işlemi kapatması veya konum izninin kaldırılması paylaşımı kesebilir.",
                     style = MaterialTheme.typography.bodySmall)
