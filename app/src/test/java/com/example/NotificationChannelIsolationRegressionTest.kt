@@ -58,6 +58,13 @@ class NotificationChannelIsolationRegressionTest {
         assertEquals(8130, PublicNotificationIds.MESSAGE_WAKE)
         assertNotEquals(8130, PublicNotificationIds.ACTIVE_CALL)
         assertEquals(4137, PublicNotificationIds.LIVE_LOCATION)
+        // Bind this policy test to the actual production notification IDs:
+        // merely defining a registry must not disguise a service hardcoding 8130.
+        assertEquals(PublicNotificationIds.ACTIVE_CALL, CallForegroundService.ONGOING_ID)
+        assertEquals(PublicNotificationIds.INCOMING_CALL, CallWakeNotification.NOTIFICATION_ID)
+        assertEquals(PublicNotificationIds.MESSAGE_WAKE, MessageWakeNotification.ID)
+        assertEquals(PublicNotificationIds.LIVE_LOCATION,
+            com.example.core.location.PrivateLiveLocationService.NOTIFICATION_ID)
     }
 
     @Test fun messageOptOutCannotCancelOngoingVoiceOrVideoCallNotification() {
