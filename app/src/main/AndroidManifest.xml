@@ -19,6 +19,10 @@
     <uses-permission android:name="android.permission.BLUETOOTH"
         android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Only a foreground, user-confirmed snapshot from a PIN-open private
+         conversation. No background location/foreground tracking service. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Android 13+ optional call/message alerts: runtime consent from private settings. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
