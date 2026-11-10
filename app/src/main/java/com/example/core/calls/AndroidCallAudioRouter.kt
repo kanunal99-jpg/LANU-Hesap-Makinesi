@@ -308,7 +308,14 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
             cancelBluetoothRecovery()
             bluetoothRecoveryAttempts = 0
             rejectedCommunicationIds.clear()
-            selectRoute()
+            val result = selectRoute()
+            // Some OEMs announce the physical headset before it appears in
+            // getAvailableCommunicationDevices(). Keep the explicit user's
+            // bounded discovery retry across that intermediate callback.
+            if (preferred == Route.BLUETOOTH_HEADSET &&
+                result.selected != Route.BLUETOOTH_HEADSET &&
+                result.pending != Route.BLUETOOTH_HEADSET)
+                scheduleBluetoothRecovery()
         }
     }
 
