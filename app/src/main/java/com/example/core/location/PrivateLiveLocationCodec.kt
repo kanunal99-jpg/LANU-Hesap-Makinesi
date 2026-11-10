@@ -21,6 +21,24 @@ object PrivateLiveLocationCodec {
     const val FRESH_UPDATE_MAX_AGE_MS = 2 * 60_000L
     val durations = setOf(FIFTEEN_MINUTES_MS, ONE_HOUR_MS, EIGHT_HOURS_MS)
 
+    /**
+     * A precise (GPS) choice must never silently downgrade to a network fix.
+     * Approximate sharing only uses the coarse-capable network provider.
+     * No location capture is permitted when the selected provider is disabled.
+     */
+    enum class ProviderChoice { GPS, NETWORK }
+
+    fun chooseProvider(
+        precise: Boolean,
+        gpsEnabled: Boolean,
+        networkEnabled: Boolean
+    ): ProviderChoice? = when {
+        precise && gpsEnabled -> ProviderChoice.GPS
+        precise -> null
+        networkEnabled -> ProviderChoice.NETWORK
+        else -> null
+    }
+
     enum class Kind { START, POINT, STOP }
     data class Event(
         val kind: Kind,
