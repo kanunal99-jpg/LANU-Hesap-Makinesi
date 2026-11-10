@@ -16,6 +16,17 @@ internal object CallBluetoothRecoveryPolicy {
     fun withinCallBudget(attempts: Int): Boolean =
         attempts in 0 until MAX_AUTOMATIC_RETRIES_PER_CALL
 
+    /** Rejected Bluetooth IDs are NOT candidate routes for automatic refresh.
+     * Preserve a healthy speaker/earpiece without repeatedly reapplying it;
+     * a new device or explicit user retry can make Bluetooth eligible again. */
+    fun eligibleRoutes(
+        inventory: Map<Int, Route>,
+        rejectedIds: Set<Int>,
+        bluetoothAllowed: Boolean
+    ): Set<Route> = inventory.filter { (id, route) ->
+        id !in rejectedIds && (route != Route.BLUETOOTH_HEADSET || bluetoothAllowed)
+    }.values.toSet()
+
     // HFP/LE Audio is asynchronous. Do not hold the UI in a false pending
     // state for thirty seconds when a headset never activates.
     const val BLUETOOTH_CONFIRMATION_TIMEOUT_MS = 9_000L
