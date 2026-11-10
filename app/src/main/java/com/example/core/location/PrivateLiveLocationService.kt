@@ -46,6 +46,8 @@ import kotlin.math.abs
  * recipient, coordinates, chat content or identity.
  */
 internal object PrivateLiveLocationStopPolicy {
+    const val MAX_STOP_DELIVERY_MS = 6_000L
+
     fun matchesCurrent(expected: String?, supplied: String?): Boolean =
         !expected.isNullOrBlank() && supplied == expected
 }
@@ -385,6 +387,8 @@ class PrivateLiveLocationService : Service() {
                     .notify(NOTIFICATION_ID, notification(old.stopToken, stopping = true))
             } catch (_: RuntimeException) {
                 // OEM notification failure cannot undo revocation.
+            } catch (_: LinkageError) {
+                // Vendor notification ABI failure cannot revive tracking.
             }
         }
         scope.launch {
@@ -393,7 +397,8 @@ class PrivateLiveLocationService : Service() {
                 // while Android continues displaying a location FGS. Queue
                 // one authenticated E2EE STOP and perform bounded transport.
                 // Expiry and freshness remain the receiver's fail-closed path.
-                if (old != null && sendEnd) withTimeout(6_000L) {
+                if (old != null && sendEnd)
+                    withTimeout(PrivateLiveLocationStopPolicy.MAX_STOP_DELIVERY_MS) {
                     val stoppedAt = System.currentTimeMillis()
                         .coerceIn(old.startedAtMs, old.expiresAtMs)
                     val payload = PrivateLiveLocationCodec.encode(
