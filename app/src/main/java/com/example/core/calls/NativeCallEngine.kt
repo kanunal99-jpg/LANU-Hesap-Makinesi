@@ -48,9 +48,67 @@ class NativeCallEngine(
     private val audio = this.context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var focus: AudioFocusRequest? = null
     private var ownsFocus = false
+    // Android calls the focus listener on an arbitrary thread. Keep the native
+    // ADM/track changes on the single RTC owner, while disabling the audio
+    // track promptly on a focus loss. Neither a notification nor a transient
+    // telephone interruption must permanently tear down healthy DTLS/RTP.
+    @Volatile private var focusSuppressed = false
+    private var focusHoldJob: Job? = null
     private val focusListener = AudioManager.OnAudioFocusChangeListener { value ->
-        if (value == AudioManager.AUDIOFOCUS_LOSS || value == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
-            if (!closing.get()) failure("Ses başka bir görüşmeye ayrıldı; arama sonlandırıldı.")
+        if (closing.get()) return@OnAudioFocusChangeListener
+        when (CallAudioFocusPolicy.classify(value)) {
+            CallAudioFocusPolicy.Action.MUTE_AND_HOLD -> {
+                focusSuppressed = true
+                runCatching { localAudio?.setEnabled(false) }
+                scope.launch {
+                    if (closing.get() || !focusSuppressed) return@launch
+                    focusHoldJob?.cancel()
+                    focusHoldJob = launch {
+                        delay(CallAudioFocusPolicy.MAX_TRANSIENT_LOSS_MS)
+                        if (focusSuppressed && !closing.get())
+                            failure("Ses odağı uzun süre geri alınamadı. Görüşme sonlandırıldı.")
+                    }
+                    refreshEffectiveAudioMute()
+                }
+            }
+            CallAudioFocusPolicy.Action.RESTORE_IF_USER_UNMUTED -> {
+                focusSuppressed = false
+                scope.launch {
+                    focusHoldJob?.cancel()
+                    focusHoldJob = null
+                    if (!closing.get()) refreshEffectiveAudioMute()
+                }
+            }
+            CallAudioFocusPolicy.Action.TERMINATE -> {
+                focusSuppressed = true
+                runCatching { localAudio?.setEnabled(false) }
+                if (!closing.get()) failure("Ses başka bir görüşmeye ayrıldı; arama sonlandırıldı.")
+            }
+            CallAudioFocusPolicy.Action.IGNORE -> Unit
+        }
+    }
+
+    /** Serialize on RTC thread. Never override an explicit user mute. */
+    private fun refreshEffectiveAudioMute() {
+        if (closing.get()) return
+        val muted = CallAudioFocusPolicy.effectiveMute(microphoneMuted, focusSuppressed)
+        val track = localAudio ?: return
+        val module = adm ?: return
+        if (muted) {
+            runCatching { track.setEnabled(false) }
+            runCatching { module.setMicrophoneMute(true) }
+        } else {
+            try {
+                module.setMicrophoneMute(false)
+                check(track.setEnabled(true)) { "Mikrofon kanalı açılmadı." }
+            } catch (_: RuntimeException) {
+                runCatching { track.setEnabled(false) }
+                if (!closing.get()) failure("Ses odağı geri geldi ancak mikrofon açılamadı.")
+            } catch (_: LinkageError) {
+                runCatching { track.setEnabled(false) }
+                if (!closing.get()) failure("Mikrofon sürücüsü yeniden başlatılamadı.")
+            }
+        }
     }
     private var factory: PeerConnectionFactory? = null
     private var connection: PeerConnection? = null
@@ -70,9 +128,11 @@ class NativeCallEngine(
     private val cameraSwitchGate = CallCameraSwitchGate()
     private var texture: SurfaceTextureHelper? = null
     private var videoEnabled = false
+    private var captureProfile = CallCameraCaptureProfilePolicy.profiles.first()
     // Thread-safe evidence tracker rejects cumulative RTP packets from prior ICE epochs.
     private val rtpEvidence = CallRtpEvidenceTracker()
     private val statsRequestSequence = AtomicLong()
+    private val statsSamplingGate = CallStatsSamplingGate()
     // Video-only adaptation never changes the existing Opus/AEC/NS/AGC path.
     private val videoBitratePolicy = AdaptiveVideoBitratePolicy()
     private val remoteStatsGate = RemoteCallStatsGate()
@@ -158,8 +218,12 @@ class NativeCallEngine(
         }
         source = factory!!.createAudioSource(audioConstraints)
         localAudio = factory!!.createAudioTrack("lanu-audio", source).also {
-            it.setEnabled(true); connection!!.addTrack(it, listOf("lanu-stream"))
+            // Audio focus may be revoked after requestFocus() but before the
+            // microphone track exists. Never open capture in that gap.
+            it.setEnabled(!focusSuppressed)
+            connection!!.addTrack(it, listOf("lanu-stream"))
         }
+        if (focusSuppressed) refreshEffectiveAudioMute()
         ensureActive(); check(!closing.get())
         if (video) startCamera()
         scope.launch {
@@ -174,7 +238,8 @@ class NativeCallEngine(
             focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
                 .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
-                .setOnAudioFocusChangeListener(focusListener).build()
+                .setOnAudioFocusChangeListener(focusListener)
+                .setWillPauseWhenDucked(true).build()
             audio.requestAudioFocus(focus!!)
         } else {
             @Suppress("DEPRECATION")
@@ -205,6 +270,7 @@ class NativeCallEngine(
         texture = checkNotNull(SurfaceTextureHelper.create("LANU-Camera", egl!!.eglBaseContext)) {
             "Kamera yüzeyi açılamadı."
         }
+        val cameraAttemptsPerHal = IntArray(enumerators.size)
         capturer = CallCameraFallback.select(
             enumerate = enumerators.map { cameraEnumerator ->
                 {
@@ -219,31 +285,42 @@ class NativeCallEngine(
             },
             open = { index, device ->
                 if (closing.get()) throw CancellationException("Call camera fallback cancelled")
-                val generation = cameraGeneration.incrementAndGet()
-                // Some OEM callbacks report startup failure before startCapture
-                // returns. Retry that camera rather than closing the entire call.
-                val starting = AtomicBoolean(true)
-                val failed = AtomicBoolean(false)
-                val candidate = enumerators[index].createCapturer(device.name,
-                    cameraEvents(generation, starting, failed))
-                CallCameraStartupPolicy.tryStart(
-                    candidate,
-                    start = { camera ->
-                        if (closing.get()) throw CancellationException("Call camera startup cancelled")
-                        camera.initialize(texture, context, videoSource!!.capturerObserver)
-                        camera.startCapture(1280, 720, 24)
-                        if (closing.get()) throw CancellationException("Call camera startup cancelled")
-                        check(!failed.get()) { "Kamera açılışında hata." }
-                        starting.set(false)
-                    },
-                    releaseFailed = { camera ->
-                        // Invalidate late callbacks before disposing the failed
-                        // native camera, then retry an actual alternate HAL.
-                        cameraGeneration.incrementAndGet()
-                        runCatching { camera.stopCapture() }
-                        runCatching { camera.dispose() }
+                var selected: CameraVideoCapturer? = null
+                // Try a smaller capture format on a NEW camera handle before
+                // abandoning an otherwise functional OEM Camera1/Camera2 HAL.
+                // All attempts remain user-consented and audio-independent.
+                for (profile in CallCameraCaptureProfilePolicy.profiles) {
+                    if (selected != null ||
+                        !CallCameraCaptureProfilePolicy.mayAttempt(cameraAttemptsPerHal[index])) break
+                    if (closing.get()) throw CancellationException("Call camera fallback cancelled")
+                    cameraAttemptsPerHal[index]++
+                    val generation = cameraGeneration.incrementAndGet()
+                    val starting = AtomicBoolean(true)
+                    val failed = AtomicBoolean(false)
+                    val candidate = enumerators[index].createCapturer(device.name,
+                        cameraEvents(generation, starting, failed))
+                    val started = CallCameraStartupPolicy.tryStart(
+                        candidate,
+                        start = { camera ->
+                            if (closing.get()) throw CancellationException("Call camera startup cancelled")
+                            camera.initialize(texture, context, videoSource!!.capturerObserver)
+                            camera.startCapture(profile.width, profile.height, profile.fps)
+                            if (closing.get()) throw CancellationException("Call camera startup cancelled")
+                            check(!failed.get()) { "Kamera açılışında hata." }
+                            starting.set(false)
+                        },
+                        releaseFailed = { camera ->
+                            cameraGeneration.incrementAndGet()
+                            runCatching { camera.stopCapture() }
+                            runCatching { camera.dispose() }
+                        }
+                    )
+                    if (started != null) {
+                        captureProfile = profile
+                        selected = started
                     }
-                )
+                }
+                selected
             }
         )
         if (closing.get()) throw CancellationException("Call camera startup cancelled")
@@ -359,8 +436,8 @@ class NativeCallEngine(
         val device = checkNotNull(adm) { "Mikrofon kullanılamıyor." }
         val track = checkNotNull(localAudio) { "Ses kanalı bulunamadı." }
         CallMediaControlTransaction.apply(
-            previous = microphoneMuted,
-            requested = value,
+            previous = CallAudioFocusPolicy.effectiveMute(microphoneMuted, focusSuppressed),
+            requested = CallAudioFocusPolicy.effectiveMute(value, focusSuppressed),
             setDevice = { device.setMicrophoneMute(it) },
             setTrack = { track.setEnabled(!it) }
         )
@@ -381,7 +458,8 @@ class NativeCallEngine(
             previous = videoEnabled,
             requested = value,
             setDevice = { enabled ->
-                if (enabled) camera.startCapture(1280, 720, 24) else camera.stopCapture()
+                if (enabled) camera.startCapture(captureProfile.width,
+                    captureProfile.height, captureProfile.fps) else camera.stopCapture()
             },
             setTrack = { track.setEnabled(it) }
         )
@@ -445,8 +523,13 @@ class NativeCallEngine(
         val snapshotEpoch = rtpEvidence.currentEpoch()
         val snapshotSequence = statsRequestSequence.incrementAndGet()
         val requestedAtMs = android.os.SystemClock.elapsedRealtime()
-        connection?.getStats { report ->
-            if (closing.get()) return@getStats
+        val pc = connection ?: return
+        if (!statsSamplingGate.begin(snapshotSequence, requestedAtMs)) return
+        try {
+        pc.getStats { report ->
+            // Callback could arrive late, after a newer sample or call
+            // disposal. Never attribute an old report to a fresh ICE epoch.
+            if (!statsSamplingGate.finish(snapshotSequence) || closing.get()) return@getStats
             var received = 0L; var sent = 0L
             for (stat in report.statsMap.values) {
                 val kind = stat.members["kind"] ?: stat.members["mediaType"]
@@ -505,6 +588,13 @@ class NativeCallEngine(
                 videoBitratePolicy.attemptFinished(target, now, applied)
             }
         }
+        } catch (_: RuntimeException) {
+            // Optional diagnostics must not terminate real media. The next
+            // bounded sample is still permitted on the foreground RTC owner.
+            statsSamplingGate.finish(snapshotSequence)
+        } catch (_: LinkageError) {
+            statsSamplingGate.finish(snapshotSequence)
+        }
     }
     private val observer = object : EmptyPeerObserver() {
         override fun onIceCandidate(candidate: IceCandidate) {
@@ -552,6 +642,10 @@ class NativeCallEngine(
     /** Immediate mute, then release camera, renderers, codecs and audio off the UI thread. */
     override fun close() {
         if (!closing.compareAndSet(false, true)) return
+        focusSuppressed = true
+        focusHoldJob?.cancel()
+        focusHoldJob = null
+        statsSamplingGate.invalidate()
         candidateCallback = null
         cameraSwitchGate.invalidate()
         runCatching { localAudio?.setEnabled(false) }; runCatching { localVideo?.setEnabled(false) }

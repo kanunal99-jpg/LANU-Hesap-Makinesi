@@ -1006,12 +1006,29 @@ class CommunicationRepository(
                     .forEach { read.add(it) }
             }
         }
-        if (ack.length() > 0 || read.isNotEmpty())
-            relay.request(own, "ack", JSONObject().put("eventIds", ack).put("readIds", JSONArray(read.toList())))
+        var deferredAckFailure: java.io.IOException? = null
+        if (ack.length() > 0 || read.isNotEmpty()) try {
+            relay.request(own, "ack", JSONObject().put("eventIds", ack)
+                .put("readIds", JSONArray(read.toList())))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: java.io.IOException) {
+            // Each received E2EE event was authenticated and persisted in
+            // Room already, but an HTTP ACK may time out after being accepted.
+            // Leave the unchanged event IDs on the relay for replay. A
+            // transient ACK-only outage must not stall unrelated pending
+            // outbound ciphertext. Never bypass auth/TLS/429 or mark
+            // anything DELIVERED just because an HTTP request was attempted.
+            if (!MessageAckFailurePolicy.mayDrainIndependentOutbox(e)) throw e
+            deferredAckFailure = e
+        }
         // Five sends plus register/sync/receipts stay below 120 requests/minute
         // at the normal 5-second cadence. Manual rapid refresh is also bounded.
         if (drainOutbox && clock() >= nextSendAt) drainPendingOutbox(own)
         if (rejectedIds.isNotEmpty()) throw RejectedCiphertext()
+        // Re-report the failed ACK so no upstream code mistakes this sync
+        // for a fully acknowledged success, even if outgoing delivery worked.
+        deferredAckFailure?.let { throw it }
     }
 
     private class RejectedCiphertext(cause: Exception? = null) :
