@@ -48,9 +48,67 @@ class NativeCallEngine(
     private val audio = this.context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var focus: AudioFocusRequest? = null
     private var ownsFocus = false
+    // Android calls the focus listener on an arbitrary thread. Keep the native
+    // ADM/track changes on the single RTC owner, while disabling the audio
+    // track promptly on a focus loss. Neither a notification nor a transient
+    // telephone interruption must permanently tear down healthy DTLS/RTP.
+    @Volatile private var focusSuppressed = false
+    private var focusHoldJob: Job? = null
     private val focusListener = AudioManager.OnAudioFocusChangeListener { value ->
-        if (value == AudioManager.AUDIOFOCUS_LOSS || value == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
-            if (!closing.get()) failure("Ses başka bir görüşmeye ayrıldı; arama sonlandırıldı.")
+        if (closing.get()) return@OnAudioFocusChangeListener
+        when (CallAudioFocusPolicy.classify(value)) {
+            CallAudioFocusPolicy.Action.MUTE_AND_HOLD -> {
+                focusSuppressed = true
+                runCatching { localAudio?.setEnabled(false) }
+                scope.launch {
+                    if (closing.get() || !focusSuppressed) return@launch
+                    focusHoldJob?.cancel()
+                    focusHoldJob = launch {
+                        delay(CallAudioFocusPolicy.MAX_TRANSIENT_LOSS_MS)
+                        if (focusSuppressed && !closing.get())
+                            failure("Ses odağı uzun süre geri alınamadı. Görüşme sonlandırıldı.")
+                    }
+                    refreshEffectiveAudioMute()
+                }
+            }
+            CallAudioFocusPolicy.Action.RESTORE_IF_USER_UNMUTED -> {
+                focusSuppressed = false
+                scope.launch {
+                    focusHoldJob?.cancel()
+                    focusHoldJob = null
+                    if (!closing.get()) refreshEffectiveAudioMute()
+                }
+            }
+            CallAudioFocusPolicy.Action.TERMINATE -> {
+                focusSuppressed = true
+                runCatching { localAudio?.setEnabled(false) }
+                if (!closing.get()) failure("Ses başka bir görüşmeye ayrıldı; arama sonlandırıldı.")
+            }
+            CallAudioFocusPolicy.Action.IGNORE -> Unit
+        }
+    }
+
+    /** Serialize on RTC thread. Never override an explicit user mute. */
+    private fun refreshEffectiveAudioMute() {
+        if (closing.get()) return
+        val muted = CallAudioFocusPolicy.effectiveMute(microphoneMuted, focusSuppressed)
+        val track = localAudio ?: return
+        val module = adm ?: return
+        if (muted) {
+            runCatching { track.setEnabled(false) }
+            runCatching { module.setMicrophoneMute(true) }
+        } else {
+            try {
+                module.setMicrophoneMute(false)
+                check(track.setEnabled(true)) { "Mikrofon kanalı açılmadı." }
+            } catch (_: RuntimeException) {
+                runCatching { track.setEnabled(false) }
+                if (!closing.get()) failure("Ses odağı geri geldi ancak mikrofon açılamadı.")
+            } catch (_: LinkageError) {
+                runCatching { track.setEnabled(false) }
+                if (!closing.get()) failure("Mikrofon sürücüsü yeniden başlatılamadı.")
+            }
+        }
     }
     private var factory: PeerConnectionFactory? = null
     private var connection: PeerConnection? = null
@@ -158,8 +216,12 @@ class NativeCallEngine(
         }
         source = factory!!.createAudioSource(audioConstraints)
         localAudio = factory!!.createAudioTrack("lanu-audio", source).also {
-            it.setEnabled(true); connection!!.addTrack(it, listOf("lanu-stream"))
+            // Audio focus may be revoked after requestFocus() but before the
+            // microphone track exists. Never open capture in that gap.
+            it.setEnabled(!focusSuppressed)
+            connection!!.addTrack(it, listOf("lanu-stream"))
         }
+        if (focusSuppressed) refreshEffectiveAudioMute()
         ensureActive(); check(!closing.get())
         if (video) startCamera()
         scope.launch {
@@ -174,7 +236,8 @@ class NativeCallEngine(
             focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
                 .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
-                .setOnAudioFocusChangeListener(focusListener).build()
+                .setOnAudioFocusChangeListener(focusListener)
+                .setWillPauseWhenDucked(true).build()
             audio.requestAudioFocus(focus!!)
         } else {
             @Suppress("DEPRECATION")
@@ -359,8 +422,8 @@ class NativeCallEngine(
         val device = checkNotNull(adm) { "Mikrofon kullanılamıyor." }
         val track = checkNotNull(localAudio) { "Ses kanalı bulunamadı." }
         CallMediaControlTransaction.apply(
-            previous = microphoneMuted,
-            requested = value,
+            previous = CallAudioFocusPolicy.effectiveMute(microphoneMuted, focusSuppressed),
+            requested = CallAudioFocusPolicy.effectiveMute(value, focusSuppressed),
             setDevice = { device.setMicrophoneMute(it) },
             setTrack = { track.setEnabled(!it) }
         )
@@ -552,6 +615,9 @@ class NativeCallEngine(
     /** Immediate mute, then release camera, renderers, codecs and audio off the UI thread. */
     override fun close() {
         if (!closing.compareAndSet(false, true)) return
+        focusSuppressed = true
+        focusHoldJob?.cancel()
+        focusHoldJob = null
         candidateCallback = null
         cameraSwitchGate.invalidate()
         runCatching { localAudio?.setEnabled(false) }; runCatching { localVideo?.setEnabled(false) }
