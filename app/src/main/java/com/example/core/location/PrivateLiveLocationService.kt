@@ -156,13 +156,15 @@ class PrivateLiveLocationService : Service() {
         return coarse && (!precise || fine) && notification
     }
 
-    private fun hasInternet(): Boolean = try {
-        val manager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val network = manager.activeNetwork ?: return false
-        val caps = manager.getNetworkCapabilities(network) ?: return false
-        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-    } catch (_: RuntimeException) { false }
+    private fun hasInternet(): Boolean {
+        return try {
+            val manager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val network = manager.activeNetwork ?: return false
+            val caps = manager.getNetworkCapabilities(network) ?: return false
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        } catch (_: RuntimeException) { false }
+    }
 
     @SuppressLint("MissingPermission")
     private fun startLocationUpdates(active: Session) {
