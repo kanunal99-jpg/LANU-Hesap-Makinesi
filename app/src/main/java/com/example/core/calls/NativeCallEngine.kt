@@ -270,6 +270,7 @@ class NativeCallEngine(
         texture = checkNotNull(SurfaceTextureHelper.create("LANU-Camera", egl!!.eglBaseContext)) {
             "Kamera yüzeyi açılamadı."
         }
+        val cameraAttemptsPerHal = IntArray(enumerators.size)
         capturer = CallCameraFallback.select(
             enumerate = enumerators.map { cameraEnumerator ->
                 {
@@ -289,8 +290,10 @@ class NativeCallEngine(
                 // abandoning an otherwise functional OEM Camera1/Camera2 HAL.
                 // All attempts remain user-consented and audio-independent.
                 for (profile in CallCameraCaptureProfilePolicy.profiles) {
-                    if (selected != null) break
+                    if (selected != null ||
+                        !CallCameraCaptureProfilePolicy.mayAttempt(cameraAttemptsPerHal[index])) break
                     if (closing.get()) throw CancellationException("Call camera fallback cancelled")
+                    cameraAttemptsPerHal[index]++
                     val generation = cameraGeneration.incrementAndGet()
                     val starting = AtomicBoolean(true)
                     val failed = AtomicBoolean(false)
