@@ -10,6 +10,18 @@ package com.example.core.calls
 internal object CallWeakNetworkRecoveryPolicy {
     const val TRANSIENT_GRACE_MS = 2_250L
     const val FAILED_GRACE_MS = 300L
+    // Only for a user-started foreground call already inside its 25s
+    // recovery deadline, and at most one additional authenticated ICE offer.
+    const val FAILED_RESTART_SIGNAL_RETRY_MS = 1_750L
+
+    fun canHoldAfterRestartSignalError(
+        outgoing: Boolean,
+        sameSession: Boolean,
+        sameRecoveryGeneration: Boolean,
+        reconnecting: Boolean,
+        failure: java.io.IOException
+    ): Boolean = outgoing && sameSession && sameRecoveryGeneration &&
+        reconnecting && CallSignalRetryPolicy.delayAfter(failure, 1) != null
 
     fun graceMs(iceFailed: Boolean): Long =
         if (iceFailed) FAILED_GRACE_MS else TRANSIENT_GRACE_MS

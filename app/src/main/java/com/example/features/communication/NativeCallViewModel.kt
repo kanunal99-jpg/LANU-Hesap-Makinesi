@@ -474,7 +474,34 @@ class NativeCallViewModel(
                 current.reconnectGeneration != generation ||
                 _state.value.phase != NativeCallPhase.RECONNECTING) return@guarded
             current.awaitingAnswer = true
-            send(current, CallSignalKind.OFFER, offerSdp)
+            try {
+                send(current, CallSignalKind.OFFER, offerSdp)
+            } catch (e: java.io.IOException) {
+                if (!CallWeakNetworkRecoveryPolicy.canHoldAfterRestartSignalError(
+                        outgoing = current.outgoing,
+                        sameSession = session === current && foreground,
+                        sameRecoveryGeneration = current.reconnectGeneration == generation,
+                        reconnecting = _state.value.phase == NativeCallPhase.RECONNECTING,
+                        failure = e
+                    )) throw e
+                // The signaling relay may be temporarily unreachable during a
+                // Wi-Fi/LTE handover while native ICE/RTP still self-recovers.
+                // Never tear down that foreground call before its existing
+                // 25-second recovery deadline solely for a transient HTTP ACK.
+                // Permanent identity/TLS/protocol/quota errors still fail shut.
+                // A second offer is allowed only under the EXISTING hard
+                // 2-restart session budget, not an independent retry loop.
+                if (current.reconnectBudget.remaining() > 0) {
+                    delay(CallWeakNetworkRecoveryPolicy.FAILED_RESTART_SIGNAL_RETRY_MS)
+                    if (session === current && foreground &&
+                        current.reconnectGeneration == generation &&
+                        _state.value.phase == NativeCallPhase.RECONNECTING) {
+                        scheduleIceRecovery(current, generation, iceFailed = true)
+                    }
+                }
+                // If no budget remains, let the same deadline expire or the
+                // native connection recover; never invent RTP success.
+            }
         }
         current.recoveryJob = job
         pipeline = job
