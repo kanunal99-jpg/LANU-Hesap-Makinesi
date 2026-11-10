@@ -48,20 +48,19 @@ class CallPollCoordinatorTest {
             calls++
             if (calls <= 3) throw RelayException(503, "temporary network failure")
         }
-        repeat(3) { attempt ->
+        for (attempt in 1..3) {
             val outcome = async { runCatching { poller.run() }.exceptionOrNull() }
             runCurrent()
-            if (attempt == 0) assertEquals(1, calls)
-            val requiredAt = when (attempt) { 0 -> 0L; 1 -> 1_000L; else -> 3_000L }
-            if (testScheduler.currentTime < requiredAt) {
-                advanceTimeBy(requiredAt - testScheduler.currentTime - 1)
+            val scheduled = when (attempt) { 1 -> 0L; 2 -> 1_000L; else -> 3_000L }
+            if (testScheduler.currentTime < scheduled) {
+                advanceTimeBy(scheduled - testScheduler.currentTime - 1)
                 runCurrent()
-                assertEquals(attempt, calls - 1)
+                assertEquals(attempt - 1, calls)
                 advanceTimeBy(1)
                 runCurrent()
             }
             assertTrue(outcome.await() is RelayException)
-            assertEquals(attempt + 1, calls)
+            assertEquals(attempt, calls)
         }
         val recovered = async { poller.run() }
         runCurrent()
