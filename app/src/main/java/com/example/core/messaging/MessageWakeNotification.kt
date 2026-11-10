@@ -218,7 +218,7 @@ object MessageWakeTapPolicy {
 
 object MessageWakeNotification {
     const val CHANNEL_ID = "lanu_private_message_alerts_v1"
-    private const val ID = PublicNotificationIds.MESSAGE_WAKE
+    internal const val ID = PublicNotificationIds.MESSAGE_WAKE
 
     /**
      * A local opt-out must also remove an already displayed neutral alert.
