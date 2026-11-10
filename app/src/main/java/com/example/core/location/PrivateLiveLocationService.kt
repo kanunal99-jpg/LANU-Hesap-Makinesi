@@ -178,12 +178,20 @@ class PrivateLiveLocationService : Service() {
             stopSharing("Konum izni değişti", sendEnd = true)
             return
         }
-        val provider = if (active.precise && locationManager.isProviderEnabled(
-                LocationManager.GPS_PROVIDER)) LocationManager.GPS_PROVIDER
-            else LocationManager.NETWORK_PROVIDER
         try {
-            if (!locationManager.isProviderEnabled(provider))
-                throw IllegalStateException("Konum sağlayıcısı kapalı")
+            // Never mislabel a network fix as user-selected precise GPS.
+            // Check provider availability inside the guarded block: OEM
+            // LocationManager implementations may throw while toggling GPS.
+            val selection = PrivateLiveLocationCodec.chooseProvider(
+                precise = active.precise,
+                gpsEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER),
+                networkEnabled = locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+            )
+            val provider = when (selection) {
+                PrivateLiveLocationCodec.ProviderChoice.GPS -> LocationManager.GPS_PROVIDER
+                PrivateLiveLocationCodec.ProviderChoice.NETWORK -> LocationManager.NETWORK_PROVIDER
+                null -> throw IllegalStateException("Seçilen konum sağlayıcısı kapalı")
+            }
             val listener = object : LocationListener {
                 override fun onLocationChanged(location: Location) {
                     if (session === active) onFix(active, location)
