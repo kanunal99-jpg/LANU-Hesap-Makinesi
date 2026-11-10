@@ -104,7 +104,7 @@ class CallForegroundService : Service() {
         const val CHANNEL = "lanu_active_call_v1"
         // MessageWakeNotification keeps legacy ID 8130 so existing message
         // opt-out semantics survive an OTA without canceling this service.
-        private const val ONGOING_ID = PublicNotificationIds.ACTIVE_CALL
+        internal const val ONGOING_ID = PublicNotificationIds.ACTIVE_CALL
         private const val EXTRA_VIDEO = "lanu_call_video"
         private const val ACTION_END = "com.aistudio.lanucalc.kxwzqm.action.LANU_CALL_END"
         @Volatile var isRunning: Boolean = false
