@@ -1,5 +1,6 @@
 package com.example.features.communication
 
+import android.annotation.SuppressLint
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -85,6 +86,9 @@ internal object PrivateLocationCapture {
         return null
     }
 
+    // Permission is checked immediately in take(); platform access still
+    // catches permission revocation during the asynchronous request.
+    @SuppressLint("MissingPermission")
     private suspend fun oneShot(
         context: Context, manager: LocationManager, provider: String
     ): Location? = suspendCancellableCoroutine { continuation ->
