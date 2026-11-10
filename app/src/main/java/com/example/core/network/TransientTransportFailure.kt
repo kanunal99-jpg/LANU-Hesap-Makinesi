@@ -28,7 +28,10 @@ internal object TransientTransportFailure {
                 is CancellationException, is InterruptedException,
                 is SecurityException, is GeneralSecurityException,
                 is IllegalArgumentException, is IllegalStateException,
-                is LinkageError, is OutOfMemoryError -> return false
+                is LinkageError, is OutOfMemoryError,
+                // Unknown RuntimeException/Error from an OEM or API contract
+                // must never be retried as if it were an offline transport.
+                is RuntimeException, is Error -> return false
                 is InterruptedIOException -> if (cause !is SocketTimeoutException) return false
             }
             current = cause.cause
