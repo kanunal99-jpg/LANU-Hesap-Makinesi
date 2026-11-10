@@ -2,6 +2,7 @@ package com.example
 
 import android.app.Application
 import android.app.Notification
+import android.app.PendingIntent
 import androidx.test.core.app.ApplicationProvider
 import com.example.core.location.PrivateLiveLocationService
 import com.example.core.location.PrivateLiveLocationStopPolicy
@@ -9,6 +10,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
+import org.robolectric.Shadows
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
@@ -62,6 +64,35 @@ class PrivateLiveLocationNotificationStopTest {
         assertFalse(PrivateLiveLocationStopPolicy.matchesCurrent(null, current))
         assertFalse(PrivateLiveLocationStopPolicy.matchesCurrent("", ""))
         assertFalse(PrivateLiveLocationStopPolicy.matchesCurrent(" ", " "))
+        assertEquals(6_000L, PrivateLiveLocationStopPolicy.MAX_STOP_DELIVERY_MS)
+    }
+
+    @Test fun notificationStopPendingIntentCarriesOnlyItsOwnOpaqueSessionToken() {
+        val controller = Robolectric.buildService(PrivateLiveLocationService::class.java).create()
+        try {
+            val earlier = controller.get().notification("session-A-opaque-stop-token")
+            val later = controller.get().notification("session-B-opaque-stop-token")
+            val actionA = Shadows.shadowOf(earlier.actions.single().actionIntent)
+            val actionB = Shadows.shadowOf(later.actions.single().actionIntent)
+            val saved = actionA.savedIntent
+            assertEquals(PrivateLiveLocationService.ACTION_STOP_NOTIFICATION, saved.action)
+            assertEquals("session-A-opaque-stop-token",
+                saved.getStringExtra(PrivateLiveLocationService.EXTRA_STOP_TOKEN))
+            assertEquals(PrivateLiveLocationService::class.java.name,
+                saved.component?.className)
+            assertNull(saved.getStringExtra("conversation"))
+            assertNull(saved.getStringExtra("precise"))
+            assertTrue(actionA.flags and PendingIntent.FLAG_IMMUTABLE != 0)
+            assertNotEquals(actionA.requestCode, actionB.requestCode)
+            assertEquals("session-B-opaque-stop-token",
+                actionB.savedIntent.getStringExtra(PrivateLiveLocationService.EXTRA_STOP_TOKEN))
+            assertFalse("An earlier PendingIntent must not match the later session",
+                PrivateLiveLocationStopPolicy.matchesCurrent(
+                    actionB.savedIntent.getStringExtra(PrivateLiveLocationService.EXTRA_STOP_TOKEN),
+                    saved.getStringExtra(PrivateLiveLocationService.EXTRA_STOP_TOKEN)))
+        } finally {
+            controller.destroy()
+        }
     }
 
     @Test fun manifestServiceRemainsNonExportedSoOnlyOwnNotificationCanStopIt() {
