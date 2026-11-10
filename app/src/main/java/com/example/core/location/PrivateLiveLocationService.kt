@@ -32,9 +32,12 @@ import kotlin.math.abs
  * plaintext preferences. All updates use CommunicationRepository.sendMessage:
  * the established per-peer authenticated E2EE/Room/outbox chain.
  *
- * Only ONE live session per app process. Death/restart FAILS CLOSED: no restart,
- * re-enrollment, boot receiver or background auto-tracking. Receiver checks
- * expiry/freshness; a missing terminal message never promises ongoing tracking.
+ * Only ONE live session per app process. Removing the app's recent task does
+ * NOT cancel an already user-started, notification-visible foreground share:
+ * expiry, explicit STOP, revoked permission and network/provider health checks
+ * remain active. Process death/restart FAILS CLOSED: no silent restart, no
+ * boot receiver, and no background-location permission. The receiver still
+ * verifies expiry/freshness, even if a terminal STOP cannot be delivered.
  */
 class PrivateLiveLocationService : Service() {
     data class State(
@@ -405,7 +408,12 @@ class PrivateLiveLocationService : Service() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        stopSharing("Uygulama kapatıldı", sendEnd = true)
+        // Swiping away the recent-task card is NOT a revocation of the
+        // user's explicitly timed sharing consent. This foreground service
+        // already has its notification and expires on its own timer.
+        // Do not start/restart location capture here: that would bypass
+        // Android's foreground/while-in-use permission rules.
+        // The user can stop sharing at any time via the notification.
         super.onTaskRemoved(rootIntent)
     }
 
