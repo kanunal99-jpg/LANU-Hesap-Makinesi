@@ -29,8 +29,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.app.NotificationManagerCompat
 import com.example.core.calls.CallWakePreferences
 import com.example.core.calls.CallWakeNotification
+import com.example.core.calls.CallWakePolicy
 import com.example.core.calls.CallWakeTokenRefreshPolicy
 import com.example.core.calls.CallWakeTokenRefreshWorker
 import com.example.core.messaging.MessageWakePreferences
@@ -90,6 +92,31 @@ fun CallWakeSettings(repository: CommunicationRepository) {
         if (busy) return
         busy = true
         status = null
+        // A signed FCM token is not proof that Android can actually display a
+        // call alert. Honor global and per-channel user notification settings.
+        // Silent/LOW is fine; blocked/NONE must be fixed in OS Settings first.
+        val channelReady = CallWakePolicy.safePlatformDelivery {
+            if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+                false
+            } else if (Build.VERSION.SDK_INT < 26) {
+                true
+            } else {
+                val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                if (manager == null) false
+                else {
+                    CallWakeNotification.ensureChannel(manager)
+                    CallWakePolicy.channelCanDisplay(
+                        Build.VERSION.SDK_INT,
+                        manager.getNotificationChannel(CallWakeNotification.CHANNEL_ID)?.importance
+                    )
+                }
+            }
+        }
+        if (!channelReady) {
+            status = "Android gelen arama bildirim kanalı kapalı veya kullanılamıyor. Telefon Ayarları → LANU → Bildirimler bölümünden açın."
+            busy = false
+            return
+        }
         // Without real google-services configuration, never pretend the
         // notification preference registered a reachable device.
         val configured = try { FirebaseApp.getApps(context).isNotEmpty() } catch (_: Exception) { false }
