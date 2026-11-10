@@ -37,6 +37,7 @@ import com.example.R
 import com.example.core.crypto.CryptoUtils
 import com.example.core.database.MessageEntity
 import com.example.core.media.InlineMediaCodec
+import com.example.core.location.PrivateLocationCodec
 import com.example.core.repository.CommunicationRepository
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -75,6 +76,7 @@ fun ChatDetailScreen(
     val textInput by viewModel.draftText.collectAsState()
     var isSelfDestructEnabled by remember(conversationId) { mutableStateOf(false) }
     var showClearConfirmation by remember(conversationId) { mutableStateOf(false) }
+    var showLocationPicker by remember(conversationId) { mutableStateOf(false) }
     // Silent UI policy: no sound or haptic feedback for chat actions.
     val triggerVibration: () -> Unit = {}
 
@@ -115,6 +117,20 @@ fun ChatDetailScreen(
             }
         )
     }
+
+    PrivateLocationPicker(
+        visible = showLocationPicker,
+        enabled = !isSending && activeConversation?.id == conversationId,
+        onDismiss = { showLocationPicker = false },
+        onSend = { encryptedLocationEnvelope ->
+            if (activeConversation?.id == conversationId) {
+                viewModel.sendMessage(
+                    text = encryptedLocationEnvelope,
+                    expectedConversationId = conversationId
+                )
+            }
+        }
+    )
 
     Scaffold(
         topBar = {
@@ -290,6 +306,7 @@ fun ChatDetailScreen(
                     onRetry = { viewModel.retryMessage(message.id) },
                     onEdit = { newText ->
                         if (!InlineMediaCodec.isAttachment(message.content) &&
+                            !PrivateLocationCodec.isLocationMessage(message.content) &&
                             !message.content.startsWith(CommunicationRepository.PRIVATE_MEDIA_MARKER)) {
                             viewModel.editMessage(message.id, newText)
                         }
@@ -318,6 +335,7 @@ fun ChatDetailScreen(
                         onDocument = onChooseDocument,
                         onLargeDocument = onChooseLargeDocument,
                         onLargePhoto = onChooseLargePhoto,
+                        onLocation = { showLocationPicker = true },
                         onCancel = { viewModel.clearPreparedMedia() },
                         onSend = { envelope, onQueued ->
                             viewModel.sendInlineAttachment(
@@ -510,7 +528,9 @@ fun MessageBubble(
             // Inline attachments are already E2EE-decrypted here, but their
             // checksums and MIME are verified again before display/export.
             // Never render their base64 JSON as ordinary text.
-            if (InlineMediaCodec.isAttachment(text)) {
+            if (PrivateLocationCodec.isLocationMessage(text)) {
+                PrivateLocationMessageCard(message = text)
+            } else if (InlineMediaCodec.isAttachment(text)) {
                 InlineMediaAttachment(payload = text, onSave = onSaveAttachment)
             } else if (text.startsWith(CommunicationRepository.PRIVATE_MEDIA_MARKER)) {
                 Text("Uçtan uca şifreli belge · yalnız izinli kişiler")
@@ -600,6 +620,7 @@ fun MessageBubble(
                 }
                 HorizontalDivider()
                 if (!InlineMediaCodec.isAttachment(text) &&
+                    !PrivateLocationCodec.isLocationMessage(text) &&
                     !text.startsWith(CommunicationRepository.PRIVATE_MEDIA_MARKER)) DropdownMenuItem(
                     text = { Text("Metni Kopyala") },
                     leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp)) },
@@ -614,6 +635,7 @@ fun MessageBubble(
                     }
                 )
                 if (isMine && !InlineMediaCodec.isAttachment(text) &&
+                    !PrivateLocationCodec.isLocationMessage(text) &&
                     !text.startsWith(CommunicationRepository.PRIVATE_MEDIA_MARKER)) {
                     DropdownMenuItem(
                         text = { Text("Mesajı Düzenle") },
