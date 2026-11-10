@@ -132,6 +132,7 @@ class NativeCallEngine(
     // Thread-safe evidence tracker rejects cumulative RTP packets from prior ICE epochs.
     private val rtpEvidence = CallRtpEvidenceTracker()
     private val statsRequestSequence = AtomicLong()
+    private val statsSamplingGate = CallStatsSamplingGate()
     // Video-only adaptation never changes the existing Opus/AEC/NS/AGC path.
     private val videoBitratePolicy = AdaptiveVideoBitratePolicy()
     private val remoteStatsGate = RemoteCallStatsGate()
@@ -519,8 +520,13 @@ class NativeCallEngine(
         val snapshotEpoch = rtpEvidence.currentEpoch()
         val snapshotSequence = statsRequestSequence.incrementAndGet()
         val requestedAtMs = android.os.SystemClock.elapsedRealtime()
-        connection?.getStats { report ->
-            if (closing.get()) return@getStats
+        val pc = connection ?: return
+        if (!statsSamplingGate.begin(snapshotSequence, requestedAtMs)) return
+        try {
+        pc.getStats { report ->
+            // Callback could arrive late, after a newer sample or call
+            // disposal. Never attribute an old report to a fresh ICE epoch.
+            if (!statsSamplingGate.finish(snapshotSequence) || closing.get()) return@getStats
             var received = 0L; var sent = 0L
             for (stat in report.statsMap.values) {
                 val kind = stat.members["kind"] ?: stat.members["mediaType"]
@@ -579,6 +585,13 @@ class NativeCallEngine(
                 videoBitratePolicy.attemptFinished(target, now, applied)
             }
         }
+        } catch (_: RuntimeException) {
+            // Optional diagnostics must not terminate real media. The next
+            // bounded sample is still permitted on the foreground RTC owner.
+            statsSamplingGate.finish(snapshotSequence)
+        } catch (_: LinkageError) {
+            statsSamplingGate.finish(snapshotSequence)
+        }
     }
     private val observer = object : EmptyPeerObserver() {
         override fun onIceCandidate(candidate: IceCandidate) {
@@ -629,6 +642,7 @@ class NativeCallEngine(
         focusSuppressed = true
         focusHoldJob?.cancel()
         focusHoldJob = null
+        statsSamplingGate.invalidate()
         candidateCallback = null
         cameraSwitchGate.invalidate()
         runCatching { localAudio?.setEnabled(false) }; runCatching { localVideo?.setEnabled(false) }
