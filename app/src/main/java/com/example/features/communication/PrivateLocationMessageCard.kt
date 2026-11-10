@@ -40,7 +40,7 @@ internal fun PrivateLocationMessageCard(message: String) {
     Column(modifier = Modifier.testTag("private_location_card")) {
         Text("📍 Paylaşılan konum", style = MaterialTheme.typography.titleSmall)
         Text(if (point.approximate)
-            "Yaklaşık konum · en az 1,5 km belirsizlik" else
+            "Yaklaşık konum · koordinatlar yuvarlandı; GPS noktasını göstermez" else
             "Hassas konum · yaklaşık ${point.accuracyMeters} m doğruluk",
             style = MaterialTheme.typography.bodySmall)
         Text("Alınma zamanı: " +
