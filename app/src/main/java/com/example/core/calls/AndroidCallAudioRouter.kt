@@ -64,6 +64,9 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
     private var pendingCommunicationDeviceId: Int? = null
     private var pendingCommunicationRoute: Route? = null
     private var communicationTimeout: Runnable? = null
+    private var communicationRecheck: Runnable? = null
+    private var bluetoothRecovery: Runnable? = null
+    private var bluetoothRecoveryAttempts = 0
     // Session-local only. OEM rejects are retried after device changes or
     // a deliberate user route selection, never in a tight loop.
     private val rejectedCommunicationIds = mutableSetOf<Int>()
@@ -139,6 +142,8 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
         }
         running = true
         communicationGeneration++
+        cancelBluetoothRecovery()
+        bluetoothRecoveryAttempts = 0
         rejectedCommunicationIds.clear()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val generation = communicationGeneration
@@ -167,6 +172,8 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
                         )) {
                         val route = pendingCommunicationRoute ?: return@synchronized
                         clearPendingCommunication()
+                        if (route == Route.BLUETOOTH_HEADSET)
+                            cancelBluetoothRecovery()
                         _state.value = State(true, route, null, _state.value.available, "ROUTED")
                     } else if (pendingCommunicationDeviceId == null &&
                         _state.value.status == "ROUTED" && _state.value.selected != null) {
@@ -219,6 +226,8 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
     fun choose(route: Route?): State {
         if (!running) return _state.value
         preferred = route
+        cancelBluetoothRecovery()
+        bluetoothRecoveryAttempts = 0
         // On old platforms an explicit retry may be requested by the user.
         if (route == Route.BLUETOOTH_HEADSET) scoFailed = false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
@@ -226,7 +235,11 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
         // An explicit device retry must reapply a stuck OEM route. Returning
         // to AUTO (null) must NOT clear a still-correct route or interrupt
         // active RTP just to discard the previous manual preference.
-        return selectRoute(forceReapply = route != null)
+        val result = selectRoute(forceReapply = route != null)
+        if (route == Route.BLUETOOTH_HEADSET &&
+            result.selected != Route.BLUETOOTH_HEADSET &&
+            result.pending != Route.BLUETOOTH_HEADSET) scheduleBluetoothRecovery()
+        return result
     }
 
     @Synchronized
@@ -238,6 +251,8 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
         running = false
         communicationGeneration++ // reject callbacks from the ended call
         clearPendingCommunication()
+        cancelBluetoothRecovery()
+        bluetoothRecoveryAttempts = 0
         rejectedCommunicationIds.clear()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             communicationListener?.let { listener ->
@@ -284,6 +299,8 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
         synchronized(this) {
             if (!running) return
             scoFailed = false // new hardware may be a working route
+            cancelBluetoothRecovery()
+            bluetoothRecoveryAttempts = 0
             rejectedCommunicationIds.clear()
             selectRoute()
         }
@@ -346,9 +363,68 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
 
     private fun clearPendingCommunication() {
         communicationTimeout?.let { mainHandler.removeCallbacks(it) }
+        communicationRecheck?.let { mainHandler.removeCallbacks(it) }
         communicationTimeout = null
+        communicationRecheck = null
         pendingCommunicationDeviceId = null
         pendingCommunicationRoute = null
+    }
+
+    private fun cancelBluetoothRecovery() {
+        bluetoothRecovery?.let { mainHandler.removeCallbacks(it) }
+        bluetoothRecovery = null
+    }
+
+    /**
+     * Some OEMs reject a Bluetooth route before the ADM/HFP path is ready.
+     * Retry at most twice within this call, without an infinite polling loop,
+     * opening private data or changing a healthy non-Bluetooth user preference.
+     */
+    private fun scheduleBluetoothRecovery() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || bluetoothRecovery != null) return
+        val generation = communicationGeneration
+        val available = communicationInventory().values.toSet()
+        val first = CallAudioRoutePolicy.priorities(
+            available.filter { it != Route.BLUETOOTH_HEADSET || hasBluetoothAccess() }.toSet(),
+            videoCall, preferred
+        ).firstOrNull()
+        if (!CallBluetoothRecoveryPolicy.mayRetry(
+                running, true, hasBluetoothAccess(), preferred, first,
+                _state.value.status == "ROUTED" &&
+                    _state.value.selected == Route.BLUETOOTH_HEADSET,
+                bluetoothRecoveryAttempts
+            )) return
+        val attempt = Runnable {
+            synchronized(this@AndroidCallAudioRouter) {
+                bluetoothRecovery = null
+                val devices = communicationInventory()
+                val candidate = CallAudioRoutePolicy.priorities(
+                    devices.values.filter {
+                        it != Route.BLUETOOTH_HEADSET || hasBluetoothAccess()
+                    }.toSet(), videoCall, preferred
+                ).firstOrNull()
+                if (!CallBluetoothRecoveryPolicy.mayRetry(
+                        running, generation == communicationGeneration,
+                        hasBluetoothAccess(), preferred, candidate,
+                        _state.value.status == "ROUTED" &&
+                            _state.value.selected == Route.BLUETOOTH_HEADSET,
+                        bluetoothRecoveryAttempts
+                    )) return@synchronized
+                bluetoothRecoveryAttempts++
+                // Only allow previously rejected *still-present* Bluetooth
+                // devices another attempt. No other OEM rejections are cleared.
+                rejectedCommunicationIds.removeAll {
+                    devices[it] == Route.BLUETOOTH_HEADSET
+                }
+                val result = selectRoute()
+                if (result.selected != Route.BLUETOOTH_HEADSET &&
+                    result.pending != Route.BLUETOOTH_HEADSET) scheduleBluetoothRecovery()
+            }
+        }
+        bluetoothRecovery = attempt
+        mainHandler.postDelayed(
+            attempt, CallBluetoothRecoveryPolicy.retryDelayMs(bluetoothRecoveryAttempts)
+        )
     }
 
     @RequiresApi(Build.VERSION_CODES.S)
@@ -412,6 +488,46 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
         communicationTimeout = timeout
         mainHandler.postDelayed(timeout,
             CallCommunicationDeviceConfirmationPolicy.CONFIRMATION_TIMEOUT_MS)
+        // A real Android route may become active without an OEM listener
+        // callback. Poll the platform getter twice, but NEVER fabricate ROUTED.
+        val recheck = object : Runnable {
+            private var count = 0
+            override fun run() {
+                synchronized(this@AndroidCallAudioRouter) {
+                    if (!CallCommunicationDeviceConfirmationPolicy.validCallCallback(
+                            running, communicationGeneration, generation
+                        ) || pendingCommunicationDeviceId != deviceId ||
+                        communicationRequestId != requestId) return
+                    val inventory = communicationInventory()
+                    val allowed = hasBluetoothAccess()
+                    val current = try { audioManager.communicationDevice?.id }
+                        catch (_: RuntimeException) { null }
+                    val priorities = CallAudioRoutePolicy.priorities(
+                        inventory.values.filter {
+                            it != Route.BLUETOOTH_HEADSET || allowed
+                        }.toSet(), videoCall, preferred
+                    )
+                    if (CallCommunicationDeviceConfirmationPolicy.confirmedPreferredPendingRoute(
+                            deviceId, current, pendingCommunicationRoute,
+                            inventory, allowed, priorities
+                        )) {
+                        val confirmedRoute = pendingCommunicationRoute
+                        clearPendingCommunication()
+                        if (confirmedRoute != null) {
+                            if (confirmedRoute == Route.BLUETOOTH_HEADSET)
+                                cancelBluetoothRecovery()
+                            _state.value = State(true, confirmedRoute, null,
+                                priorities.toSet(), "ROUTED")
+                        }
+                        return
+                    }
+                    count++
+                    if (count < 2) mainHandler.postDelayed(this, 2_000L)
+                }
+            }
+        }
+        communicationRecheck = recheck
+        mainHandler.postDelayed(recheck, 1_500L)
     }
 
     private fun selectRoute(forceReapply: Boolean = false): State {
@@ -482,6 +598,8 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
                     if (!accepted) {
                         clearPendingCommunication()
                         rejectedCommunicationIds.add(device.id)
+                        if (route == Route.BLUETOOTH_HEADSET)
+                            scheduleBluetoothRecovery()
                         continue
                     }
                     val selectedId = try { audioManager.communicationDevice?.id }
