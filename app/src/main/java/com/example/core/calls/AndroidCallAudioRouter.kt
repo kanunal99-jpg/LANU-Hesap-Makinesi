@@ -71,6 +71,7 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
     private var routeWatchdog: Runnable? = null
     private var observedInventory = emptyMap<Int, Route>()
     private var observedBluetoothPermission: Boolean? = null
+    private var staleRouteSamples = 0
     // Session-local only. OEM rejects are retried after device changes or
     // a deliberate user route selection, never in a tight loop.
     private val rejectedCommunicationIds = mutableSetOf<Int>()
@@ -417,6 +418,7 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
         routeWatchdog = null
         observedInventory = emptyMap()
         observedBluetoothPermission = null
+        staleRouteSamples = 0
     }
 
     /**
@@ -473,10 +475,20 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
                         CallCommunicationDeviceConfirmationPolicy.confirmedAvailableRoute(
                             activeId, activeId, shown.selected, inventory, allowed
                         )
+                    // One transient null/mismatched OEM getter is not proof
+                    // that a healthy call lost its audio route. Require two
+                    // observations unless an actual device/permission event
+                    // already makes reconciliation immediately necessary.
+                    staleRouteSamples = if (routed && !routeValid)
+                        (staleRouteSamples + 1).coerceAtMost(
+                            CallBluetoothRecoveryPolicy.STALE_ROUTE_CONFIRMATION_SAMPLES
+                        ) else 0
+                    val stableRouteValid = routeValid ||
+                        !CallBluetoothRecoveryPolicy.confirmedStaleRoute(staleRouteSamples)
                     if (CallBluetoothRecoveryPolicy.shouldReconcile(
                             topologyChanged, permissionChanged,
                             pendingId != null, pendingStillPreferred, pendingConfirmed,
-                            routed, routeValid
+                            routed, stableRouteValid
                         )) {
                         val result = selectRoute()
                         if (preferred == Route.BLUETOOTH_HEADSET &&
@@ -671,6 +683,7 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
 
     private fun selectRoute(forceReapply: Boolean = false): State {
         if (!running) return _state.value
+        staleRouteSamples = 0
         val devices = availableOutputDevices()
         // Android 12+ Nearby Devices permission is requested only when a real
         // call needs Bluetooth. Built-in/wired calls must remain usable when
