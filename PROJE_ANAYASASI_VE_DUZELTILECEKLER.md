@@ -1176,3 +1176,11 @@ Bu puanlar matematiksel sertifikasyon değil, testli geliştirme ve açık üret
 
 **Test kapısı:** Yeni `CallIceGatherPolicyTest` gerçek CRLF, srflx/host, sessiz süre, eski ICE oturumu, bounded completion ve kötü biçimli aday satırlarını test eder. Çağrı bildirimindeki opt-out yarışında yalnız çağrı uyarısının silindiği; diğer mesaj kanalının korunduğu Robolectric testi ve tüm Android 14 kabul/CI imza-R8-APK kapıları zorunludur. Gerçek cihazda çift yönlü arama süresi, mesaj FCM teslimi ve eski APK üzerinde veri kayıpsız yükseltme ayrıca ölçülene kadar doğrulandı denmez.
 
+
+
+## 2026-11-10 — Kapsamlı +5 kalite hedefi ve üretim güvenliği
+
+- Kullanıcının yeni hedefi: iletişim (ses, video, AEC/NS/AGC, WebRTC/ICE/TURN, ağ kurtarma), E2EE mesajlaşma ve bildirimler, canlı konum, Android OEM/arka plan, mahremiyet/PIN, veri ve servisler, performans/erişilebilirlik, finansal/bilimsel hesap, OTA/CI dahil **her kategoride azami +5 kalite puanı hedefi**. Bu yalnızca *hedef*tir; başlangıç ve bitiş 0–10 arası ölçülür, 10 üstü olmaz, ölçülmeyen hiçbir puan artışı iddia edilemez.
+- Ana servis → Alternatif → Fallback → Hata yönetimi → Güvenli varsayılan → Loglama/izleme → Smoke test zinciri kritik yollarda geçerli, otomatik negatif senaryo testleriyle kanıtlanmalıdır. Mevcut çalışan teknoloji yeterliyse korunur; ücretsiz/açık kaynak öncelikli; ücret/kota artışı ancak ayrı açık onayla.
+- Yeni çalışma kod inceleme/kanıt sonrası ayrı branch ve PR üzerinden yapılır; son HEAD CI, Android unit/Robolectric/Lint/R8, mevcut imza, iki imzalı taban sürümden OTA/veri koruma, main CI ve herkese açık Release APK/SHA256/signer okunabilirlik koşullarının tamamı **gerçekten** geçmeden yeni sürüm yayımlanamaz. Fiziksel A55/ikinci cihaz şartını otomatik emülatörle geçti sayma.
+- `2011.` gizli giriş, isteğe bağlı PIN, şifreleme kimliği ve eski Room/mesaj verisi değiştirilemez. Kamera/mikrofon/konum yalnız açık kullanıcı izniyle. Başarısız yayın kapısı atlanamaz. Kısmi çalışma `tamamlandı` diye raporlanamaz.
