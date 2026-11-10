@@ -36,6 +36,7 @@ import androidx.core.content.ContextCompat
 import com.example.core.calls.CallWakePreferences
 import com.example.core.messaging.MessageWakeNotification
 import com.example.core.messaging.MessageWakePreferences
+import com.example.core.messaging.MessageWakePolicy
 import com.example.core.messaging.MessageWakeTokenRefreshPolicy
 import com.example.core.messaging.MessageWakeTokenRefreshWorker
 import com.example.core.repository.CommunicationRepository
@@ -108,6 +109,24 @@ fun MessageWakeSettings(repository: CommunicationRepository) {
             status = "Telefon bildirimleri kapalı. Önce Android ayarlarından açın."
             openSystemChannel()
             return
+        }
+        // Respect user-selected silent channels. A blocked/missing channel
+        // cannot deliver an alert even after a successful FCM registration.
+        if (Build.VERSION.SDK_INT >= 26) {
+            val channelReady = MessageWakePolicy.safeShow {
+                val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                    ?: return@safeShow false
+                MessageWakeNotification.ensureChannel(manager)
+                MessageWakePolicy.channelCanDisplay(
+                    Build.VERSION.SDK_INT,
+                    manager.getNotificationChannel(MessageWakeNotification.CHANNEL_ID)?.importance
+                )
+            }
+            if (!channelReady) {
+                status = "Android mesaj bildirim kanalı kapalı veya kullanılamıyor. Sistem bildirim ayarlarından açın."
+                openSystemChannel()
+                return
+            }
         }
         if (!runCatching { FirebaseApp.getApps(context).isNotEmpty() }.getOrDefault(false)) {
             status = "Mesaj bildirimleri için Firebase yapılandırması eksik."
