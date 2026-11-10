@@ -204,7 +204,7 @@ fun PrivateLocationPicker(
                     OutlinedButton(
                         onClick = { request(false) },
                         modifier = Modifier.fillMaxWidth().testTag("location_approximate")
-                    ) { Text("Yaklaşık konum (~1–2 km)") }
+                    ) { Text("Yaklaşık konum (koordinatlar yuvarlanır)") }
                     OutlinedButton(
                         onClick = { request(true) },
                         modifier = Modifier.fillMaxWidth().testTag("location_precise")
@@ -216,7 +216,7 @@ fun PrivateLocationPicker(
                 }
                 fix?.let {
                     Text(if (it.approximate)
-                        "Yaklaşık konum hazır · en az 1,5 km belirsizlik"
+                        "Yaklaşık konum hazır · kesin nokta değil, koordinatlar yuvarlandı"
                         else "Konum hazır · doğruluk yaklaşık ${it.accuracyMeters} m")
                     Text("Gönderilen konum alıcı tarafından kaydedilebilir. Gönderdikten sonra geri alınamaz.",
                         style = MaterialTheme.typography.bodySmall)
