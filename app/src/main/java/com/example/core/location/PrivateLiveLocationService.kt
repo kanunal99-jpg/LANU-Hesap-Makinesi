@@ -58,7 +58,8 @@ class PrivateLiveLocationService : Service() {
         val expiresAtMs: Long = 0L,
         val lastFixAtMs: Long = 0L,
         val pointsSent: Int = 0,
-        val status: String = ""
+        val status: String = "",
+        val stopping: Boolean = false
     )
     private class Session(
         val id: String,
@@ -374,7 +375,7 @@ class PrivateLiveLocationService : Service() {
             catch (_: RuntimeException) { }
         }
         locationListener = null
-        _state.value = State(status = reason)
+        _state.value = State(status = reason, stopping = old != null)
         if (old != null) {
             // Immediate, visible acknowledgment: GPS capture and point writes
             // are already stopped; remove the action while bounded encrypted
@@ -406,7 +407,14 @@ class PrivateLiveLocationService : Service() {
                     )
                     val repo = (application as LanuApplication).container.communicationRepository
                     repo.sendMessage(old.conversationId, payload)
-                    runCatching { repo.sendQueuedForeground() }
+                    try {
+                        repo.sendQueuedForeground()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // The encrypted STOP was already persisted to the
+                        // existing outbox; foreground delivery may retry.
+                    }
                 }
             } catch (e: TimeoutCancellationException) {
                 // STOP may remain queued or unsent; never resume location.
@@ -486,6 +494,7 @@ class PrivateLiveLocationService : Service() {
         // Keep the user-facing fail-closed reason until the next explicit
         // session; onDestroy must not overwrite it with a generic status.
         if (_state.value.active) _state.value = State(status = "Paylaşım sona erdi")
+        else if (_state.value.stopping) _state.value = _state.value.copy(stopping = false)
         scope.cancel()
         super.onDestroy()
     }
@@ -510,7 +519,7 @@ class PrivateLiveLocationService : Service() {
             durationMs: Long, precise: Boolean): Boolean {
             if (conversationId.isBlank() ||
                 durationMs !in PrivateLiveLocationCodec.durations ||
-                _state.value.active) return false
+                _state.value.active || _state.value.stopping) return false
             return try {
                 ContextCompat.startForegroundService(context,
                     Intent(context, PrivateLiveLocationService::class.java)
