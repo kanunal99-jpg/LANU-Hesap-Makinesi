@@ -34,6 +34,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleStartEffect
 import com.example.core.calls.NativeCallEngine
 import com.example.core.calls.CallAudioRouteLabelPolicy
+import com.example.core.calls.CallAudioRoutePolicy
 import com.example.core.calls.CallForegroundService
 import com.example.core.calls.CallWakeTapPolicy
 import kotlinx.coroutines.delay
@@ -229,12 +230,65 @@ private fun CallAudioRouteControls(engine: NativeCallEngine, enabled: Boolean) {
     val route by engine.router.state.collectAsState()
     val context = LocalContext.current
     var menu by remember { mutableStateOf(false) }
-    LaunchedEffect(enabled) { if (!enabled) menu = false }
-    val bluetooth = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { engine.refreshRoutes() }
+    var permissionPending by remember(engine) { mutableStateOf(false) }
+    var bluetoothRequested by remember(engine) { mutableStateOf(false) }
+    var bluetoothDenied by remember(engine) { mutableStateOf(false) }
+    val latestEngine by rememberUpdatedState(engine)
+    val currentlyEnabled by rememberUpdatedState(enabled)
+    LaunchedEffect(enabled) {
+        if (!enabled) {
+            menu = false
+            permissionPending = false
+            bluetoothRequested = false
+        }
+    }
+    // A Bluetooth permission callback must finish the requested routing action.
+    // Previously it merely refreshed the list and left audio on the phone.
+    // Never apply a late grant after the call ends or the user selects another route.
+    val bluetooth = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val requested = permissionPending
+        permissionPending = false
+        if (requested && currentlyEnabled && latestEngine === engine &&
+            latestEngine.router.state.value.running) {
+            if (granted) {
+                bluetoothDenied = false
+                bluetoothRequested = true
+                latestEngine.chooseRoute(CallAudioRoutePolicy.Route.BLUETOOTH_HEADSET)
+            } else {
+                bluetoothRequested = false
+                bluetoothDenied = true
+            }
+        }
+    }
+    val bluetoothAllowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+        ContextCompat.checkSelfPermission(
+            context, Manifest.permission.BLUETOOTH_CONNECT
+        ) == PackageManager.PERMISSION_GRANTED
+    val bluetoothAvailable =
+        CallAudioRoutePolicy.Route.BLUETOOTH_HEADSET in route.available
     val routeAnnouncement = CallAudioRouteLabelPolicy.label(
         route.running, route.status, route.selected, route.pending
     )
-    Box {
+    LaunchedEffect(route.selected, route.status) {
+        if (route.status == "ROUTED" &&
+            route.selected == CallAudioRoutePolicy.Route.BLUETOOTH_HEADSET)
+            bluetoothRequested = false
+    }
+    fun tryBluetooth() {
+        menu = false
+        bluetoothDenied = false
+        if (!bluetoothAllowed) {
+            permissionPending = true
+            bluetooth.launch(Manifest.permission.BLUETOOTH_CONNECT)
+        } else {
+            permissionPending = false
+            bluetoothRequested = true
+            engine.chooseRoute(CallAudioRoutePolicy.Route.BLUETOOTH_HEADSET)
+        }
+    }
+    Column {
         TextButton(
             onClick = { menu = true },
             enabled = enabled,
@@ -248,19 +302,50 @@ private fun CallAudioRouteControls(engine: NativeCallEngine, enabled: Boolean) {
         ) {
             Text(routeAnnouncement)
         }
+        if (enabled && bluetoothDenied) {
+            Text("Bluetooth izni verilmedi. Ayarlar > Uygulamalar > LANU > İzinler bölümünden Yakındaki cihazlar iznini açın.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.testTag("call_bluetooth_permission_help"))
+        } else if (enabled && bluetoothRequested &&
+            route.selected != CallAudioRoutePolicy.Route.BLUETOOTH_HEADSET &&
+            route.pending != CallAudioRoutePolicy.Route.BLUETOOTH_HEADSET) {
+            Text(if (bluetoothAvailable)
+                "Bluetooth ses yönü henüz doğrulanmadı. Tekrar deneyebilir veya otomatik sesi seçebilirsiniz."
+                else "Bluetooth kulaklık arama aygıtı olarak bulunamadı. Telefonun Bluetooth ayarlarında 'Aramalar' seçeneğini açıp tekrar deneyin.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.testTag("call_bluetooth_connect_help"))
+        }
         DropdownMenu(expanded = menu && enabled, onDismissRequest = { menu = false }) {
             DropdownMenuItem(
                 text = { Text("Otomatik ses çıkışı") },
                 modifier = Modifier.testTag("call_audio_route_auto"),
-                onClick = { menu = false; engine.chooseRoute(null) }
+                onClick = {
+                    menu = false
+                    permissionPending = false
+                    bluetoothRequested = false
+                    bluetoothDenied = false
+                    engine.chooseRoute(null)
+                }
             )
-            for (item in route.available.sortedBy { it.ordinal })
+            DropdownMenuItem(
+                text = { Text("Bluetooth kulaklığa bağlan / yeniden dene") },
+                modifier = Modifier.testTag("call_bluetooth_connect_retry"),
+                onClick = ::tryBluetooth
+            )
+            for (item in route.available.filter {
+                it != CallAudioRoutePolicy.Route.BLUETOOTH_HEADSET
+            }.sortedBy { it.ordinal }) {
                 DropdownMenuItem(
                     text = { Text(CallAudioRouteLabelPolicy.routeName(item)) },
-                    onClick = { menu = false; engine.chooseRoute(item) }
+                    onClick = {
+                        menu = false
+                        permissionPending = false
+                        bluetoothRequested = false
+                        bluetoothDenied = false
+                        engine.chooseRoute(item)
+                    }
                 )
-            if (Build.VERSION.SDK_INT >= 31 && ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)
-                DropdownMenuItem(text = { Text("Bluetooth kulaklığa izin ver") }, onClick = { menu = false; bluetooth.launch(Manifest.permission.BLUETOOTH_CONNECT) })
+            }
         }
     }
 }
