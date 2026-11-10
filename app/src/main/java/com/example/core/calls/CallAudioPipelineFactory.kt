@@ -20,7 +20,14 @@ internal object CallAudioPipelineFactory {
             }
         }
         try { return attempt(decision) }
-        catch (error: RuntimeException) {
+        catch (error: Throwable) {
+            // Some vendor JavaAudioDeviceModule implementations throw a
+            // LinkageError during hardware AEC/NS initialization, not merely
+            // RuntimeException. A single fresh, software APM attempt is safe.
+            // Never hide cancellation/permission, OutOfMemoryError, or repeat
+            // when software is already selected. An unsuccessful fallback
+            // propagates the real error rather than pretending audio exists.
+            if (error !is RuntimeException && error !is LinkageError) throw error
             if (error is CancellationException || error is SecurityException) throw error
             val fallback = CallAudioProcessingPolicy.softwareFallback(decision)
             if (fallback == decision) throw error
