@@ -11,6 +11,11 @@ class CallCameraCaptureProfilePolicyTest {
 
     @Test fun boundedLowBandwidthAndOemFallbackHasValidOrderedCaptureFormats() {
         assertEquals(3, profiles.size)
+        assertEquals(12, CallCameraCaptureProfilePolicy.MAX_ATTEMPTS_PER_HAL)
+        assertTrue(CallCameraCaptureProfilePolicy.mayAttempt(0))
+        assertTrue(CallCameraCaptureProfilePolicy.mayAttempt(11))
+        assertFalse(CallCameraCaptureProfilePolicy.mayAttempt(12))
+        assertFalse(CallCameraCaptureProfilePolicy.mayAttempt(-1))
         assertEquals(CallCameraCaptureProfilePolicy.Profile(1280, 720, 24), profiles[0])
         assertEquals(CallCameraCaptureProfilePolicy.Profile(640, 480, 24), profiles[1])
         assertEquals(CallCameraCaptureProfilePolicy.Profile(320, 240, 15), profiles[2])
