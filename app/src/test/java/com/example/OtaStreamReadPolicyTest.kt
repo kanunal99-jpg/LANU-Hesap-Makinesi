@@ -21,7 +21,22 @@ class OtaStreamReadPolicyTest {
         }
     }
 
-    @Test fun positiveReadsAndEofKeepTheirOriginalMeaning() {
+    @Test fun invalidReadLengthsAreRejectedBeforeHashOrCopy() {
+        for (invalid in listOf(-2, 9, Int.MAX_VALUE, Int.MIN_VALUE)) {
+            val broken = object : InputStream() {
+                override fun read(): Int = 0
+                override fun read(b: ByteArray, off: Int, len: Int): Int = invalid
+            }
+            try {
+                OtaStreamReadPolicy.read(broken, ByteArray(8))
+                fail("Invalid byte count must be rejected")
+            } catch (e: IOException) {
+                assertTrue(e.message.orEmpty().contains("geçersiz uzunluk"))
+            }
+        }
+    }
+
+    @Test fun validDataAndEofPreserveTheirMeaning() {
         val input = ByteArrayInputStream(byteArrayOf(1, 2, 3))
         val buffer = ByteArray(8)
         assertEquals(3, OtaStreamReadPolicy.read(input, buffer))
