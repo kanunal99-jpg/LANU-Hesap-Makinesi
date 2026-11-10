@@ -1,0 +1,71 @@
+package com.example
+
+import com.example.core.calls.CallAudioRoutePolicy.Route
+import com.example.core.calls.CallBluetoothRecoveryPolicy as Policy
+import com.example.core.calls.CallCommunicationDeviceConfirmationPolicy
+import org.junit.Assert.*
+import org.junit.Test
+
+/** Pure contract tests: hardware and Android OEM callbacks remain device acceptance. */
+class CallBluetoothRouteWatchdogTest {
+    private fun reconcile(
+        topology: Boolean = false,
+        permission: Boolean = false,
+        hasPending: Boolean = false,
+        pendingPreferred: Boolean = true,
+        pendingConfirmed: Boolean = false,
+        routed: Boolean = false,
+        routeValid: Boolean = true
+    ): Boolean = Policy.shouldReconcile(
+        topology, permission, hasPending, pendingPreferred, pendingConfirmed,
+        routed, routeValid
+    )
+
+    @Test fun bluetoothTimeoutRecoversFasterThanUnrelatedAudio() {
+        assertEquals(9_000L, Policy.confirmationTimeoutMs(Route.BLUETOOTH_HEADSET))
+        assertEquals(CallCommunicationDeviceConfirmationPolicy.CONFIRMATION_TIMEOUT_MS,
+            Policy.confirmationTimeoutMs(Route.SPEAKER))
+        assertEquals(CallCommunicationDeviceConfirmationPolicy.CONFIRMATION_TIMEOUT_MS,
+            Policy.confirmationTimeoutMs(Route.EARPIECE))
+        assertFalse(Policy.pendingExpired(5_000L, 13_999L, Route.BLUETOOTH_HEADSET))
+        assertTrue(Policy.pendingExpired(5_000L, 14_000L, Route.BLUETOOTH_HEADSET))
+        assertFalse(Policy.pendingExpired(5_000L, 14_000L, Route.SPEAKER))
+        assertTrue(Policy.pendingExpired(5_000L, 35_000L, Route.SPEAKER))
+        assertFalse(Policy.pendingExpired(-1L, 200_000L, Route.BLUETOOTH_HEADSET))
+        assertFalse(Policy.pendingExpired(20_000L, 19_999L, Route.BLUETOOTH_HEADSET))
+    }
+
+    @Test fun normalHealthyCallNeverResetsAudioEveryWatchdogTick() {
+        assertEquals(4_000L, Policy.ROUTE_WATCHDOG_INTERVAL_MS)
+        assertFalse(reconcile())
+        assertFalse(reconcile(routed = true))
+        assertFalse(reconcile(hasPending = true, pendingPreferred = true))
+        assertFalse(reconcile(hasPending = false, pendingConfirmed = true))
+    }
+
+    @Test fun missedAndroidEventsAndPermissionRevocationNeedReconciliation() {
+        assertTrue(reconcile(topology = true))
+        assertTrue(reconcile(permission = true))
+        assertTrue(reconcile(routed = true, routeValid = false))
+        assertTrue(reconcile(hasPending = true, pendingPreferred = false))
+        assertTrue(reconcile(hasPending = true, pendingConfirmed = true))
+        assertFalse(reconcile(hasPending = true, pendingConfirmed = false,
+            pendingPreferred = true, routed = true))
+    }
+
+    @Test fun bothRetryBudgetsRemainFiniteAcrossRepeatedOemEvents() {
+        assertEquals(2, Policy.MAX_RETRIES)
+        assertEquals(6, Policy.MAX_AUTOMATIC_RETRIES_PER_CALL)
+        assertTrue(Policy.withinCallBudget(0))
+        assertTrue(Policy.withinCallBudget(5))
+        for (attempts in listOf(-2, -1, 6, 7, Int.MAX_VALUE)) {
+            assertFalse(Policy.withinCallBudget(attempts))
+        }
+        // The per-episode retry counter may reset on confirmed Bluetooth;
+        // the per-call total MUST remain exhausted without an explicit new call.
+        assertTrue(Policy.mayRetry(
+            true, true, true, Route.BLUETOOTH_HEADSET, Route.SPEAKER, false, 0
+        ))
+        assertFalse(Policy.withinCallBudget(6))
+    }
+}
