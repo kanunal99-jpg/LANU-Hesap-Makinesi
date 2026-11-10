@@ -676,9 +676,20 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
         // call needs Bluetooth. Built-in/wired calls must remain usable when
         // the user declines Bluetooth access.
         val bluetoothAllowed = hasBluetoothAccess()
-        val available = devices.mapNotNull { classify(it.type) }
-            .filter { it != Route.BLUETOOTH_HEADSET || bluetoothAllowed }.toSet()
-        val candidates = CallAudioRoutePolicy.priorities(available, videoCall, preferred)
+        val inventory = devices.mapNotNull { device ->
+            classify(device.type)?.let { device.id to it }
+        }.toMap()
+        val available = inventory.values.filter {
+            it != Route.BLUETOOTH_HEADSET || bluetoothAllowed
+        }.toSet()
+        // Keep failed headset IDs visible to the user, but do not treat
+        // them as preferred outputs on every refresh: this preserves a
+        // working speaker/earpiece after an OEM Bluetooth rejection.
+        val eligible = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+            CallBluetoothRecoveryPolicy.eligibleRoutes(
+                inventory, rejectedCommunicationIds, bluetoothAllowed
+            ) else available
+        val candidates = CallAudioRoutePolicy.priorities(eligible, videoCall, preferred)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             // Android 12+ may call this again while wired/Bluetooth devices are
             // unchanged. Clearing a correctly selected device causes an
