@@ -66,6 +66,8 @@ class PrivateLiveLocationService : Service() {
     private var session: Session? = null
     private var locationListener: LocationListener? = null
     private var expiryJob: Job? = null
+    private var firstFixJob: Job? = null
+    private var healthJob: Job? = null
     private var stopInProgress = false
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -193,6 +195,36 @@ class PrivateLiveLocationService : Service() {
                 0f, listener, Looper.getMainLooper()
             )
             _state.value = _state.value.copy(status = "Canlı konum etkin")
+            // A silent indoor GPS or missing network fix must never leave a
+            // forever-active session that has not delivered a single point.
+            firstFixJob?.cancel()
+            firstFixJob = scope.launch {
+                delay(90_000L)
+                if (session === active && active.sequence == 0)
+                    stopSharing("İlk konum alınamadı", sendEnd = true)
+            }
+            healthJob?.cancel()
+            healthJob = scope.launch {
+                while (isActive && session === active) {
+                    delay(30_000L)
+                    if (session !== active) return@launch
+                    if (!permissionsGranted(active.precise)) {
+                        stopSharing("Konum veya bildirim izni kaldırıldı", sendEnd = true)
+                        return@launch
+                    }
+                    if (!hasInternet()) {
+                        stopSharing("İnternet bağlantısı kesildi", sendEnd = true)
+                        return@launch
+                    }
+                    val last = active.lastQueuedElapsedMs
+                    val elapsed = SystemClock.elapsedRealtime()
+                    val allowedGap = PrivateLiveLocationCodec.intervalMs(active.durationMs) * 4
+                    if (last != Long.MIN_VALUE && elapsed - last > allowedGap) {
+                        stopSharing("Konum güncellemeleri kesildi", sendEnd = true)
+                        return@launch
+                    }
+                }
+            }
         } catch (_: SecurityException) {
             stopSharing("Konum izni kaldırıldı", sendEnd = true)
         } catch (_: RuntimeException) {
@@ -250,6 +282,8 @@ class PrivateLiveLocationService : Service() {
                 val repo = (application as LanuApplication).container.communicationRepository
                 repo.sendMessage(active.conversationId, payload)
                 active.sequence = next
+                firstFixJob?.cancel()
+                firstFixJob = null
                 active.lastQueuedElapsedMs = SystemClock.elapsedRealtime()
                 _state.value = _state.value.copy(
                     lastFixAtMs = point.capturedAtMillis,
@@ -277,6 +311,10 @@ class PrivateLiveLocationService : Service() {
         session = null
         expiryJob?.cancel()
         expiryJob = null
+        firstFixJob?.cancel()
+        firstFixJob = null
+        healthJob?.cancel()
+        healthJob = null
         locationListener?.let {
             try { locationManager.removeUpdates(it) }
             catch (_: SecurityException) { }
@@ -353,6 +391,8 @@ class PrivateLiveLocationService : Service() {
 
     override fun onDestroy() {
         expiryJob?.cancel()
+        firstFixJob?.cancel()
+        healthJob?.cancel()
         locationListener?.let {
             try { locationManager.removeUpdates(it) }
             catch (_: RuntimeException) { }
