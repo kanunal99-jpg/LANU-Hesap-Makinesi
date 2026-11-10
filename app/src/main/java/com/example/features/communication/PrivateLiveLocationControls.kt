@@ -102,6 +102,11 @@ internal fun PrivateLiveLocationControls(
         Text("Başka bir güvenli sohbette canlı paylaşım etkin. Önce onu durdurun.",
             modifier = Modifier.padding(12.dp).testTag("live_location_other_chat"),
             style = MaterialTheme.typography.bodySmall)
+    } else if (live.status.isNotBlank() && enabled) {
+        Text("Konum paylaşımı: " + live.status,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                .testTag("live_location_last_status"),
+            style = MaterialTheme.typography.bodySmall)
     }
 
     if (!showPicker || !enabled) return
