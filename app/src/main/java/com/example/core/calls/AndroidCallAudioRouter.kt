@@ -179,7 +179,7 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
                         val route = pendingCommunicationRoute ?: return@synchronized
                         clearPendingCommunication()
                         if (route == Route.BLUETOOTH_HEADSET)
-                            cancelBluetoothRecovery()
+                            onBluetoothConfirmed()
                         _state.value = State(true, route, null, _state.value.available, "ROUTED")
                     } else if (pendingCommunicationDeviceId == null &&
                         _state.value.status == "ROUTED" && _state.value.selected != null) {
@@ -405,6 +405,13 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
         bluetoothRecovery = null
     }
 
+    private fun onBluetoothConfirmed() {
+        cancelBluetoothRecovery()
+        // New healthy HFP/LE connection begins a fresh, short recovery
+        // window; the total per-call retry budget is intentionally retained.
+        bluetoothRecoveryAttempts = 0
+    }
+
     private fun cancelRouteWatchdog() {
         routeWatchdog?.let { mainHandler.removeCallbacks(it) }
         routeWatchdog = null
@@ -594,6 +601,7 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
                         val route = pendingCommunicationRoute
                         clearPendingCommunication()
                         if (route != null) {
+                            if (route == Route.BLUETOOTH_HEADSET) onBluetoothConfirmed()
                             _state.value = State(true, route, null, _state.value.available, "ROUTED")
                             return
                         }
@@ -646,7 +654,7 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
                         clearPendingCommunication()
                         if (confirmedRoute != null) {
                             if (confirmedRoute == Route.BLUETOOTH_HEADSET)
-                                cancelBluetoothRecovery()
+                                onBluetoothConfirmed()
                             _state.value = State(true, confirmedRoute, null,
                                 priorities.toSet(), "ROUTED")
                         }
@@ -686,9 +694,11 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
                     )) {
                     val confirmedRoute = pendingCommunicationRoute
                     clearPendingCommunication()
-                    if (confirmedRoute != null)
+                    if (confirmedRoute != null) {
+                        if (confirmedRoute == Route.BLUETOOTH_HEADSET) onBluetoothConfirmed()
                         return State(true, confirmedRoute, null, available, "ROUTED")
                             .also { _state.value = it }
+                    }
                 } else if (CallCommunicationDeviceConfirmationPolicy.stillPreferred(
                         pendingId, pendingCommunicationRoute,
                         communicationInventory(), candidates
@@ -702,6 +712,7 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
                     active?.id, activeRoute, communicationInventory(),
                     bluetoothAllowed, rejectedCommunicationIds, candidates
                 )) {
+                if (activeRoute == Route.BLUETOOTH_HEADSET) onBluetoothConfirmed()
                 return State(true, activeRoute, null, available, "ROUTED")
                     .also { _state.value = it }
             }
@@ -743,6 +754,7 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
                     )
                     if (confirmed) {
                         clearPendingCommunication()
+                        if (route == Route.BLUETOOTH_HEADSET) onBluetoothConfirmed()
                         return State(true, route, null, available, "ROUTED")
                             .also { _state.value = it }
                     }
