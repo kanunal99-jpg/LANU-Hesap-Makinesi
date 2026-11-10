@@ -265,7 +265,7 @@ object CallWakeNotification {
     // Version the once-silent call channel without touching chat notifications.
     const val CHANNEL_ID = "lanu_private_calls_ringing_v2"
     private const val OLD_CHANNEL_ID = "lanu_private_calls_v1"
-    private const val NOTIFICATION_ID = PublicNotificationIds.INCOMING_CALL
+    internal const val NOTIFICATION_ID = PublicNotificationIds.INCOMING_CALL
 
     /** Clears only the already displayed call alert after local opt-out. */
     fun cancel(context: Context): Boolean = CallWakePolicy.safePlatformDelivery {
