@@ -32,7 +32,7 @@ class MessageAckFailurePolicyTest {
             IOException("TLS wrapped", SSLHandshakeException("bad cert")),
             IOException("cancel wrapped", java.util.concurrent.CancellationException("gone"))
         )
-        errors.forEach { assertFalse(error.javaClass.simpleName,
+        errors.forEach { error -> assertFalse(error.javaClass.simpleName,
             MessageAckFailurePolicy.mayDrainIndependentOutbox(error)) }
     }
 
