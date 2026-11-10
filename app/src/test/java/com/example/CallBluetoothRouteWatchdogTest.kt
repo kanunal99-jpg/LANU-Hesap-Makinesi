@@ -22,17 +22,32 @@ class CallBluetoothRouteWatchdogTest {
     )
 
     @Test fun bluetoothTimeoutRecoversFasterThanUnrelatedAudio() {
-        assertEquals(9_000L, Policy.confirmationTimeoutMs(Route.BLUETOOTH_HEADSET))
+        assertEquals(15_000L, Policy.confirmationTimeoutMs(Route.BLUETOOTH_HEADSET))
         assertEquals(CallCommunicationDeviceConfirmationPolicy.CONFIRMATION_TIMEOUT_MS,
             Policy.confirmationTimeoutMs(Route.SPEAKER))
         assertEquals(CallCommunicationDeviceConfirmationPolicy.CONFIRMATION_TIMEOUT_MS,
             Policy.confirmationTimeoutMs(Route.EARPIECE))
-        assertFalse(Policy.pendingExpired(5_000L, 13_999L, Route.BLUETOOTH_HEADSET))
-        assertTrue(Policy.pendingExpired(5_000L, 14_000L, Route.BLUETOOTH_HEADSET))
+        assertFalse(Policy.pendingExpired(5_000L, 19_999L, Route.BLUETOOTH_HEADSET))
+        assertTrue(Policy.pendingExpired(5_000L, 20_000L, Route.BLUETOOTH_HEADSET))
         assertFalse(Policy.pendingExpired(5_000L, 14_000L, Route.SPEAKER))
         assertTrue(Policy.pendingExpired(5_000L, 35_000L, Route.SPEAKER))
         assertFalse(Policy.pendingExpired(-1L, 200_000L, Route.BLUETOOTH_HEADSET))
         assertFalse(Policy.pendingExpired(20_000L, 19_999L, Route.BLUETOOTH_HEADSET))
+    }
+
+    @Test fun transientOemGetterMismatchDoesNotInterruptWorkingHeadset() {
+        assertEquals(2, Policy.STALE_ROUTE_CONFIRMATION_SAMPLES)
+        assertFalse(Policy.confirmedStaleRoute(0))
+        assertFalse(Policy.confirmedStaleRoute(1))
+        assertTrue(Policy.confirmedStaleRoute(2))
+        assertTrue(Policy.confirmedStaleRoute(3))
+        assertFalse(reconcile(routed = true, routeValid = true))
+        // Watchdog passes a first transient mismatch as effectively valid;
+        // only a second contradictory sample triggers recovery.
+        assertFalse(reconcile(routed = true,
+            routeValid = !Policy.confirmedStaleRoute(1)))
+        assertTrue(reconcile(routed = true,
+            routeValid = !Policy.confirmedStaleRoute(2)))
     }
 
     @Test fun normalHealthyCallNeverResetsAudioEveryWatchdogTick() {
