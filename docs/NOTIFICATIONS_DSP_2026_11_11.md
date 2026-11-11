@@ -9,6 +9,7 @@ Kullanıcının hedefi mesaj ve arama bildirimleri ile gürültü/yankı azaltma
 1. Gelen arama bildiriminin 75 saniyelik `setTimeoutAfter` sayacı, gerçek arama ipucu 60+ saniye gecikerek FCM'den geldikten sonra **yeniden** başlıyordu. Bitmek üzere olan bir çağrı, geçersiz hale geldikten sonra uzun süre çalıyor görünebilirdi. Mesaj uyarısında ise Android O+ için süre sonu yoktu.
 2. WebRTC JavaAudioDeviceModule donanım AEC/NS seçimi kurulumda başarılı olabilir ancak OEM `AudioRecord` başlatması asenkron başarısız olabilir. Mevcut kurulum sırasındaki HW→SW fallback bu geç callback'i yakalayamaz. Aynı uygulama sürecindeki sonraki çağrı hatalı donanımı tekrar seçebiliyordu.
 3. Media owner kapandıktan sonra gelen gecikmiş AudioRecord callback'i bir sonraki çağrıya ait yanlış ses sağlığı kararı üretebilirdi.
+4. Arama ön plan servisi başlatma/bildirim servisinde bazı OEM `LinkageError` durumları yakalanmıyordu; aktif mikrofon/camera foreground sahipliği oluşmadan süreç çökebilirdi.
 
 ### Yapılan kod iyileştirmeleri
 
@@ -16,6 +17,7 @@ Kullanıcının hedefi mesaj ve arama bildirimleri ile gürültü/yankı azaltma
 - Ayrı call/message kanalları ve sistem zil/sessiz/DND tercihi, opt-in, PIN, normal hesap makinesi PendingIntent'i, ciphertext gizliliği ve notification ID'leri değişmedi. Otomatik silinen şey yalnız geçici Android uyarısıdır; Room şifreli mesaj geçmişi değil.
 - Yetkili mikrofon yakalama hatası donanım AEC/NS üzerinde oluşursa sonraki aramada var olan WebRTC software APM (AEC/NS) seçilir. Kurulu kalıcı kullanıcı tercihi veya aktif görüşme ayarları değiştirilmez. Kapalı oturum callback'i ve izin geri alınması donanım arızası sayılmaz.
 - Özel ses ayarları ekranında yazılım fallback durumu gizlilik bozmayacak şekilde açıklanır.
+- `CallForegroundPlatformSafety` mikrofon/kamera ön plan bildirimini başlatırken izin, arka plan ve OEM runtime/linkage hatasında sahte servis başarısı iddia etmez; mevcut güvenli görüşme sonlandırma ve kullanıcı hata yoluna düşer. OutOfMemoryError gibi fatal VM sorunları normal platform hatası olarak gizlenmez.
 - Yeni yalnız mantıksal ve Robolectric negatif testler: gecikme, zamanaşımı, Long.MIN/MAX, eski çağrı, kullanıcı izin iptali, geç callback, ikinci görüşmede tek APM, bildirim kilit ekranı gizliliği.
 
 ### Zorunlu yayın kanıtları
