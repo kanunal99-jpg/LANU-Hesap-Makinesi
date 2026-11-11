@@ -78,6 +78,19 @@ def is_evidence_link(value):
     ))
 
 
+def evidence_matches_kind(value, key):
+    if not is_evidence_link(value):
+        return False
+    target = urlparse(value).path[len(REPO_PREFIX):]
+    if key == "code":
+        return target.startswith("pull/")
+    if key in ("ci", "fallback", "smoke"):
+        return target.startswith("actions/runs/")
+    # A frozen, reviewed report is necessary for phone measurements, private
+    # data migration, legal review, quota and independent crypto approval.
+    return target.startswith("blob/")
+
+
 def validate(manifest, expected_commit):
     errors = []
     if not isinstance(manifest, dict):
@@ -120,7 +133,7 @@ def validate(manifest, expected_commit):
             errors.append(category + ": missing proof object")
             continue
         for key in sorted(REQUIRED_PROOFS[category]):
-            if not is_evidence_link(proof.get(key)):
+            if not evidence_matches_kind(proof.get(key), key):
                 errors.append(category + ": missing or malformed " + key + " evidence")
     for category in sorted(set(REQUIRED_PROOFS) - seen):
         errors.append("missing category: " + category)
