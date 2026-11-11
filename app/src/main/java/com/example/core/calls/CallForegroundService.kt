@@ -95,7 +95,8 @@ class CallForegroundService : Service() {
             // failed before any call session could be created.
             scope.launch {
                 delay(60_000L)
-                if (ownedCallId == null && model.state.value.phase == NativeCallPhase.IDLE)
+                if (ownedCallId == null &&
+                    !CallForegroundOwnershipPolicy.active(model.state.value.phase))
                     stopSelfResult(activeStartId)
             }
             scope.launch {
