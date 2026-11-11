@@ -83,6 +83,19 @@ class Quality80ReleaseGateTest(unittest.TestCase):
         self.assertTrue(errors)
         self.assertFalse(rows)
 
+    def test_malformed_id_and_stale_baseline_fail_closed(self):
+        data = synthetic_ready_fixture()
+        data["categories"][2]["id"] = {"untrusted": "object"}
+        errors, rows = module.evaluate(data)
+        self.assertTrue(errors)
+        self.assertFalse(rows)
+
+        data = synthetic_ready_fixture()
+        data["baseline"]["sha"] = "untrusted-other-commit"
+        errors, rows = module.evaluate(data)
+        self.assertTrue(errors)
+        self.assertTrue(any("Baseline tag" in error for error in errors))
+
     def test_wrong_bool_score_and_empty_or_unsafe_evidence_fail(self):
         data = synthetic_ready_fixture()
         data["categories"][0]["verifiedScore"] = True
