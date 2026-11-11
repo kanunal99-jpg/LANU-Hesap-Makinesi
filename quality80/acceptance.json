@@ -1,0 +1,206 @@
+{
+  "schema_version": 1,
+  "program": "QUALITY80-UNIFIED-MAJOR-RELEASE",
+  "baseline": {
+    "tag": "v1.2.0-signed.1284",
+    "sha": "142d4540c5df5000c29f87959ddf781fce3636a1",
+    "measured_at": "2026-11-11",
+    "valid_until_revalidated": true
+  },
+  "policy": {
+    "minimum_verified_score": 80,
+    "category_count": 11,
+    "release_after_all_pass": true,
+    "no_test_credential_in_evidence": true,
+    "release_channel": "github-releases-ota-only"
+  },
+  "categories": [
+    {
+      "id": "Q80-01",
+      "name": "E2EE / kimlik",
+      "baselineScore": 73,
+      "targetScore": 80,
+      "verifiedScore": null,
+      "codeCiEvidence": [],
+      "negativeTestEvidence": [],
+      "deviceEvidence": [],
+      "independentReviewEvidence": [],
+      "requiresDevice": true,
+      "requiresIndependentReview": true,
+      "blockers": [
+        "https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/114"
+      ]
+    },
+    {
+      "id": "Q80-02",
+      "name": "Güvenli medya",
+      "baselineScore": 70,
+      "targetScore": 80,
+      "verifiedScore": null,
+      "codeCiEvidence": [],
+      "negativeTestEvidence": [],
+      "deviceEvidence": [],
+      "independentReviewEvidence": [],
+      "requiresDevice": true,
+      "requiresIndependentReview": false,
+      "blockers": [
+        "https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/85"
+      ]
+    },
+    {
+      "id": "Q80-03",
+      "name": "Sesli görüşme",
+      "baselineScore": 75,
+      "targetScore": 80,
+      "verifiedScore": null,
+      "codeCiEvidence": [],
+      "negativeTestEvidence": [],
+      "deviceEvidence": [],
+      "independentReviewEvidence": [],
+      "requiresDevice": true,
+      "requiresIndependentReview": false,
+      "blockers": [
+        "https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/3"
+      ]
+    },
+    {
+      "id": "Q80-04",
+      "name": "Görüntülü görüşme",
+      "baselineScore": 73,
+      "targetScore": 80,
+      "verifiedScore": null,
+      "codeCiEvidence": [],
+      "negativeTestEvidence": [],
+      "deviceEvidence": [],
+      "independentReviewEvidence": [],
+      "requiresDevice": true,
+      "requiresIndependentReview": false,
+      "blockers": [
+        "https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/3"
+      ]
+    },
+    {
+      "id": "Q80-05",
+      "name": "AEC/NS/AGC",
+      "baselineScore": 68,
+      "targetScore": 80,
+      "verifiedScore": null,
+      "codeCiEvidence": [],
+      "negativeTestEvidence": [],
+      "deviceEvidence": [],
+      "independentReviewEvidence": [],
+      "requiresDevice": true,
+      "requiresIndependentReview": false,
+      "blockers": [
+        "https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/245"
+      ]
+    },
+    {
+      "id": "Q80-06",
+      "name": "Arka plan FCM",
+      "baselineScore": 66,
+      "targetScore": 80,
+      "verifiedScore": null,
+      "codeCiEvidence": [],
+      "negativeTestEvidence": [],
+      "deviceEvidence": [],
+      "independentReviewEvidence": [],
+      "requiresDevice": true,
+      "requiresIndependentReview": false,
+      "blockers": [
+        "https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/133"
+      ]
+    },
+    {
+      "id": "Q80-07",
+      "name": "Room / veri koruma",
+      "baselineScore": 68,
+      "targetScore": 80,
+      "verifiedScore": null,
+      "codeCiEvidence": [],
+      "negativeTestEvidence": [],
+      "deviceEvidence": [],
+      "independentReviewEvidence": [],
+      "requiresDevice": true,
+      "requiresIndependentReview": true,
+      "blockers": [
+        "https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/113"
+      ]
+    },
+    {
+      "id": "Q80-08",
+      "name": "Android/OEM",
+      "baselineScore": 67,
+      "targetScore": 80,
+      "verifiedScore": null,
+      "codeCiEvidence": [],
+      "negativeTestEvidence": [],
+      "deviceEvidence": [],
+      "independentReviewEvidence": [],
+      "requiresDevice": true,
+      "requiresIndependentReview": false,
+      "blockers": [
+        "https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/245"
+      ]
+    },
+    {
+      "id": "Q80-09",
+      "name": "Performans/ANR",
+      "baselineScore": 75,
+      "targetScore": 80,
+      "verifiedScore": null,
+      "codeCiEvidence": [],
+      "negativeTestEvidence": [],
+      "deviceEvidence": [],
+      "independentReviewEvidence": [],
+      "requiresDevice": true,
+      "requiresIndependentReview": false,
+      "blockers": [
+        "https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/100"
+      ]
+    },
+    {
+      "id": "Q80-10",
+      "name": "Erişilebilirlik",
+      "baselineScore": 74,
+      "targetScore": 80,
+      "verifiedScore": null,
+      "codeCiEvidence": [],
+      "negativeTestEvidence": [],
+      "deviceEvidence": [],
+      "independentReviewEvidence": [],
+      "requiresDevice": true,
+      "requiresIndependentReview": false,
+      "blockers": [
+        "https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/177"
+      ]
+    },
+    {
+      "id": "Q80-11",
+      "name": "KVKK / veri silme",
+      "baselineScore": 61,
+      "targetScore": 80,
+      "verifiedScore": null,
+      "codeCiEvidence": [],
+      "negativeTestEvidence": [],
+      "deviceEvidence": [],
+      "independentReviewEvidence": [],
+      "requiresDevice": true,
+      "requiresIndependentReview": true,
+      "blockers": [
+        "https://github.com/kanunal99-jpg/LANU-Hesap-Makinesi/issues/224"
+      ]
+    }
+  ],
+  "releaseEvidence": {
+    "allElevenPassed": false,
+    "zeroCriticalOpen": false,
+    "currentHeadPrCi": [],
+    "newMainCi": [],
+    "signedOtaLegacyAndStable": [],
+    "stableSignerContinuity": [],
+    "publicShaSignerReadback": [],
+    "offDeviceSignerRestore": [],
+    "legalKvkkApproval": []
+  }
+}
