@@ -61,6 +61,7 @@ class NativeCallEngine(
     @Volatile private var cameraUnavailableListener: (() -> Unit)? = null
     private var remoteAudio: AudioTrack? = null
     private var cameraPausedForFocus = false
+    private var authorizedVideoCall = false
 
     override fun interruptionListener(onHeld: (Boolean) -> Unit, onCameraUnavailable: () -> Unit) {
         holdListener = onHeld
@@ -86,6 +87,10 @@ class NativeCallEngine(
                 scope.launch {
                     if (closing.get() || !focusSuppressed) return@launch
                     refreshEffectiveAudioMute()
+                    // Release MODE_IN_COMMUNICATION and any selected output
+                    // device so SIM/WhatsApp owns its own speaker/Bluetooth.
+                    // Native DTLS/ICE and RTP objects stay allocated.
+                    runCatching { router.close() }
                     // Unblock the camera for a third-party VIDEO call. A
                     // broken OEM stopCapture cannot make us re-enable video.
                     if (videoEnabled && capturer != null && !cameraPausedForFocus) {
@@ -106,6 +111,10 @@ class NativeCallEngine(
                 focusSuppressed = false
                 scope.launch {
                     if (closing.get() || focusSuppressed) return@launch
+                    // Only the authorized still-running call may reacquire
+                    // the route, and only after Android grants audio focus.
+                    runCatching { router.start(realCallAuthorized = true,
+                        isVideo = authorizedVideoCall) }
                     refreshEffectiveAudioMute()
                     runCatching { remoteAudio?.setEnabled(true) }
                     if (videoEnabled && cameraPausedForFocus) {
@@ -231,6 +240,7 @@ class NativeCallEngine(
 
     override suspend fun start(video: Boolean): Unit = withContext(dispatcher) {
         check(!closing.get())
+        authorizedVideoCall = video
         check(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) { "Mikrofon izni gerekiyor." }
         if (video) check(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) { "Kamera izni gerekiyor." }
         initialize(context)
