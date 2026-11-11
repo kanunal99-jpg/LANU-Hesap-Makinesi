@@ -83,6 +83,7 @@ class NativeCallViewModel(
         var holdNeedsRetry = false
         var nextHoldRetryAtMs = 0L
         val holdSignalMutex = Mutex()
+        var holdSendJob: Job? = null
     }
     private var session: Session? = null
     private var foreground = false
@@ -556,6 +557,82 @@ class NativeCallViewModel(
         pipeline = job
     }
 
+    /** A real Android audio-focus event, not an inferred WhatsApp/SIM caller. */
+    private fun onLocalInterruption(current: Session, held: Boolean) {
+        if (session !== current || !foreground ||
+            _state.value.phase !in setOf(NativeCallPhase.CONNECTING,
+                NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING)) return
+        if (_state.value.localOnHold == held) return
+        _state.value = _state.value.copy(localOnHold = held)
+        updateInterruptionRecovery(current)
+        publishHoldState(current)
+    }
+
+    /**
+     * Keep the same verified call alive during another call. A carrier call
+     * may suspend mobile data completely; do not burn the 25s ICE budget
+     * while either peer is intentionally held. Resume normal evidence-gated
+     * ICE recovery only after BOTH parties are no longer on hold.
+     */
+    private fun updateInterruptionRecovery(current: Session) {
+        if (session !== current || !foreground) return
+        if (_state.value.localOnHold || _state.value.remoteOnHold) {
+            current.reconnectGeneration++
+            current.recoveryJob?.cancel(); current.recoveryJob = null
+            timeout?.cancel(); timeout = null
+        } else if (_state.value.phase == NativeCallPhase.RECONNECTING) {
+            val generation = ++current.reconnectGeneration
+            current.reconnectOfferStarted = false
+            deadline(current, 35_000L, "Görüşmeye dönüşte ağ bağlantısı kurulamadı.")
+            if (current.outgoing && !current.lastTransportConnected) {
+                scheduleIceRecovery(current, generation, iceFailed = true)
+            }
+            // Even a still-connected ICE route needs fresh bidirectional RTP
+            // before CONNECTED can be displayed. Existing stats proves it.
+        } else if (_state.value.phase == NativeCallPhase.CONNECTING) {
+            deadline(current, 35_000L, "Görüşmeye dönüşte bağlantı kurulamadı.")
+        }
+    }
+
+    /**
+     * Inform the verified peer via E2EE, never public FCM or Android status.
+     * A broken relay must NOT terminate locally healthy held media. Keep one
+     * bounded next network/poll retry for the latest held/unheld state.
+     */
+    private fun publishHoldState(current: Session) {
+        if (session !== current || !foreground) return
+        current.holdSendJob?.cancel()
+        current.holdSendJob = viewModelScope.launch {
+            try {
+                current.holdSignalMutex.withLock {
+                    if (session !== current || !foreground) return@withLock
+                    send(current, if (_state.value.localOnHold) CallSignalKind.HOLD else CallSignalKind.RESUME)
+                    current.holdNeedsRetry = false
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: LinkageError) {
+                if (session === current) scheduleHoldSignalRetry(current)
+            } catch (_: Exception) {
+                if (session === current) scheduleHoldSignalRetry(current)
+            }
+        }
+    }
+
+    private fun scheduleHoldSignalRetry(current: Session) {
+        current.holdNeedsRetry = true
+        current.nextHoldRetryAtMs = (mediaClockMs() + 10_000L).coerceAtLeast(0L)
+    }
+
+    private fun retryHoldStateIfNeeded(current: Session) {
+        if (session !== current || !foreground || !current.holdNeedsRetry ||
+            current.holdSendJob?.isActive == true) return
+        val now = mediaClockMs()
+        if (now < current.nextHoldRetryAtMs) return
+        current.holdNeedsRetry = false
+        publishHoldState(current)
+    }
+
     private fun guarded(current: Session, block: suspend () -> Unit): Job {
         val job = viewModelScope.launch {
             try { if (session === current && foreground) block() }
@@ -581,6 +658,8 @@ class NativeCallViewModel(
     private fun startActivePoll(current: Session) {
         activePoll?.cancel()
         current.networkRecovery?.cancel()
+        current.holdSendJob?.cancel(); current.holdSendJob = null
+        current.holdNeedsRetry = false
         current.networkRecovery = viewModelScope.launch {
             var lastHint: Long? = null
             repository.foregroundNetworkChanges.catch { if (it is CancellationException) throw it }.collect {
@@ -594,6 +673,7 @@ class NativeCallViewModel(
                 try {
                     repository.validatedCallNetworkChange()
                     repository.pollCallSignals(requestFollowUp = true)
+                    retryHoldStateIfNeeded(current)
                 }
                 catch (e: CancellationException) { throw e }
                 catch (_: Exception) { /* Independent two-second HTTP fallback remains. */ }
@@ -602,7 +682,10 @@ class NativeCallViewModel(
         activePoll = viewModelScope.launch {
             while (isActive && session === current && foreground) {
                 var delayMs = 2000L
-                try { repository.pollCallSignals() /* Repository enqueues before relay ACK; callSignals flow delivers. */ }
+                try {
+                    repository.pollCallSignals() /* Repository enqueues before relay ACK; callSignals flow delivers. */
+                    retryHoldStateIfNeeded(current)
+                }
                 catch (e: CancellationException) { throw e }
                 catch (e: RelayException) { if (e.status == 429) delayMs = e.retryAfterMillis.coerceIn(5_000, 120_000) }
                 catch (_: Exception) { /* P2P media may continue; native evidence/deadline remains authoritative. */ }
