@@ -265,16 +265,20 @@ class NativeCallEngine(
             // for the NEXT call. The failing call follows its existing safe
             // error path; no live SDP/track recreation or double AEC/NS.
             fun onCaptureFailure() {
-                if (closing.get()) return
+                if (!CallInterruptionFailurePolicy.shouldReportAudioError(
+                        closing.get(), focusSuppressed)) return
                 val permitted = try {
                     ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
                         PackageManager.PERMISSION_GRANTED
                 } catch (_: RuntimeException) { false }
-                CallAudioRecoveryRegistry.policy.captureStartupFailed(
-                    usingHardware = hardwareAec || hardwareNs,
-                    microphonePermissionGranted = permitted,
-                    captureStillOwned = !closing.get()
-                )
+                if (CallInterruptionFailurePolicy.shouldQuarantineOemCapture(
+                        closing.get(), focusSuppressed, hardwareAec || hardwareNs, permitted)) {
+                    CallAudioRecoveryRegistry.policy.captureStartupFailed(
+                        usingHardware = true,
+                        microphonePermissionGranted = permitted,
+                        captureStillOwned = !closing.get()
+                    )
+                }
                 audioFailure()
             }
             return JavaAudioDeviceModule.builder(context)
@@ -336,7 +340,12 @@ class NativeCallEngine(
         }
     }
 
-    private fun audioFailure() { if (!closing.get()) failure("Mikrofon veya ses çıkışı kullanılamadı. İzinleri ve bağlı kulaklığı kontrol edin.") }
+    private fun audioFailure() {
+        if (CallInterruptionFailurePolicy.shouldReportAudioError(
+                closing.get(), focusSuppressed)) {
+            failure("Mikrofon veya ses çıkışı kullanılamadı. İzinleri ve bağlı kulaklığı kontrol edin.")
+        }
+    }
 
     private fun requestFocus() {
         val result = if (Build.VERSION.SDK_INT >= 26) {
@@ -462,7 +471,19 @@ class NativeCallEngine(
         override fun onFirstFrameAvailable() {}
         override fun onCameraClosed() {}
     }
-    private fun cameraFailure() { if (!closing.get()) failure("Kamera kullanılamadı; sesli aramayı deneyin.") }
+    private fun cameraFailure() {
+        if (closing.get() || focusSuppressed || cameraPausedForFocus || !videoEnabled) return
+        // Losing the camera must not force-close healthy encrypted AUDIO RTP.
+        // A delayed camera callback is handled only by the current RTC owner.
+        scope.launch {
+            if (closing.get() || focusSuppressed || cameraPausedForFocus || !videoEnabled)
+                return@launch
+            videoEnabled = false
+            runCatching { localVideo?.setEnabled(false) }
+            runCatching { capturer?.stopCapture() }
+            cameraUnavailableListener?.invoke()
+        }
+    }
 
     override suspend fun offer(restart: Boolean): String = withContext(dispatcher) {
         val pc = checkNotNull(connection)
