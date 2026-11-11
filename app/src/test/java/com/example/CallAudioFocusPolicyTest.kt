@@ -11,18 +11,18 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28, 34])
 class CallAudioFocusPolicyTest {
-    @Test fun transientAudioFocusMustNotTerminateRtpCall() {
+    @Test fun transientAndPermanentAudioFocusMustHoldRatherThanTerminateRtpCall() {
         assertEquals(CallAudioFocusPolicy.Action.MUTE_AND_HOLD,
             CallAudioFocusPolicy.classify(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT))
         assertEquals(CallAudioFocusPolicy.Action.MUTE_AND_HOLD,
             CallAudioFocusPolicy.classify(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK))
         assertEquals(CallAudioFocusPolicy.Action.RESTORE_IF_USER_UNMUTED,
             CallAudioFocusPolicy.classify(AudioManager.AUDIOFOCUS_GAIN))
-        assertEquals(CallAudioFocusPolicy.Action.TERMINATE,
+        assertEquals(CallAudioFocusPolicy.Action.MUTE_AND_HOLD,
             CallAudioFocusPolicy.classify(AudioManager.AUDIOFOCUS_LOSS))
         assertEquals(CallAudioFocusPolicy.Action.IGNORE,
             CallAudioFocusPolicy.classify(0))
-        assertEquals(45_000L, CallAudioFocusPolicy.MAX_TRANSIENT_LOSS_MS)
+        // A 45-second SIM/VoIP call must no longer time out the E2EE session.
     }
 
     @Test fun userMuteIsNeverBypassedWhenFocusReturns() {
