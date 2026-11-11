@@ -92,3 +92,12 @@ Kullanıcı 80 altında kalan 11 alanın TÜMÜNÜ 80 ve üzerine taşıyan **te
 - [ ] Yeni main CI 5/5 + public signed APK SHA256/signer byte-for-byte
 - [ ] Fiziksel cihazdaki kullanıcı onaylı yerinde kurulumu doğrulayan kanıt; eski app kaldırılmadı
 - [ ] Yayın notlarında ölçülmeyen/OS sınırlı davranışlara dürüst açıklama
+
+
+## Birleşik APK yayın freninin uygulaması — QUALITY80 proof gate
+
+Bu program dalında `quality80/evidence.json` on bir kategoriye ait **başlangıç puanı ve onaysız durumla** eklenmiştir. `scripts/quality80_release_gate.py` aynı manifest üzerinde 11 ayrı score>=80, açık review ve kanıt bağlantılarının yapısal biçimi, kesin release commit SHA eşleşmesi, program/schema sürümü ve eksiksiz kanıt kategorilerini denetler. Yayın işi `.github/workflows/android.yml` içindeki `Publish verified APK` aşamasında, APK artefaktını bile indirmeden bu denetimi çalıştırır. **Başlangıç manifesti bilerek kırmızıdır** ve 80+ imza/kanıt gelmeden geçmeyecektir. PR'da yalnız doğrulayıcının olumlu ve olumsuz unit testleri koşturulur; prod yayın işi PR'da çalışmaz.
+
+Kritik sınır: bu doğrulayıcı **GitHub URL'lerini ziyaret etmez**, bir belge veya review bağlantısının içerik doğruluğunu kendisi ölçemez; biçimsel eksikliği fail-closed reddeden ikinci emniyet katmanıdır. Gerçek iki telefon, AEC/NS, E2EE, KVKK ve Room kabulü bağımsız olarak insan tarafından gözden geçirilip değişmez commit raporuyla kanıtlanmalıdır. Sahte, herkese açık ama ilgisiz GitHub linki yasaktır. `approved:true` verilmesi tek başına kaliteyi artırmaz. Onaylar henüz verilmediği için bu aşamada **11 kategorinin hiçbirinin yeni 80 puanı yok**; ana dal ve kullanıcının son APK'sı signed.1284 kalır.
+
+**Yayın mimarisi tercihi:** Yalnız final QUALITY80 entegrasyon PR'ı hazır olduğunda `main`'e alınır; manifest ve gate, 11 doğru kanıt sunulduğunda aynı üretim commit'inde test edilir. Taslak PR hiçbir zaman sırf yeşil plan/doğrulayıcı CI nedeniyle birleştirilmez. CI gate testleri, release gate'in negatif kabul testleri ve tüm mevcut ürün regresyonları bir arada çalışır.
