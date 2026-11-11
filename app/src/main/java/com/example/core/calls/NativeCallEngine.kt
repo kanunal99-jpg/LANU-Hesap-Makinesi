@@ -57,42 +57,108 @@ class NativeCallEngine(
     // track promptly on a focus loss. Neither a notification nor a transient
     // telephone interruption must permanently tear down healthy DTLS/RTP.
     @Volatile private var focusSuppressed = false
-    private var focusHoldJob: Job? = null
-    private val focusListener = AudioManager.OnAudioFocusChangeListener { value ->
-        if (closing.get()) return@OnAudioFocusChangeListener
-        when (CallAudioFocusPolicy.classify(value)) {
+    @Volatile private var holdListener: ((Boolean) -> Unit)? = null
+    @Volatile private var cameraUnavailableListener: (() -> Unit)? = null
+    private var remoteAudio: AudioTrack? = null
+    private var cameraPausedForFocus = false
+
+    override fun interruptionListener(onHeld: (Boolean) -> Unit, onCameraUnavailable: () -> Unit) {
+        holdListener = onHeld
+        cameraUnavailableListener = onCameraUnavailable
+        if (focusSuppressed && !closing.get()) onHeld(true)
+    }
+
+    private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        applyAudioFocusChange(change)
+    }
+
+    /** Never release a healthy PeerConnection just because SIM/VoIP took focus. */
+    private fun applyAudioFocusChange(change: Int) {
+        if (closing.get()) return
+        when (CallAudioFocusPolicy.classify(change)) {
             CallAudioFocusPolicy.Action.MUTE_AND_HOLD -> {
+                if (focusSuppressed) return
+                // Disable native output immediately, even before RTC dispatch.
                 focusSuppressed = true
                 runCatching { localAudio?.setEnabled(false) }
+                runCatching { remoteAudio?.setEnabled(false) }
+                runCatching { localVideo?.setEnabled(false) }
                 scope.launch {
                     if (closing.get() || !focusSuppressed) return@launch
-                    focusHoldJob?.cancel()
-                    focusHoldJob = launch {
-                        delay(CallAudioFocusPolicy.MAX_TRANSIENT_LOSS_MS)
-                        if (focusSuppressed && !closing.get())
-                            failure("Ses odağı uzun süre geri alınamadı. Görüşme sonlandırıldı.")
-                    }
                     refreshEffectiveAudioMute()
+                    // Unblock the camera for a third-party VIDEO call. A
+                    // broken OEM stopCapture cannot make us re-enable video.
+                    if (videoEnabled && capturer != null && !cameraPausedForFocus) {
+                        cameraPausedForFocus = try {
+                            capturer!!.stopCapture()
+                            true
+                        } catch (_: RuntimeException) { false }
+                        catch (_: InterruptedException) {
+                            Thread.currentThread().interrupt()
+                            false
+                        } catch (_: LinkageError) { false }
+                    }
+                    if (!closing.get() && focusSuppressed) holdListener?.invoke(true)
                 }
             }
             CallAudioFocusPolicy.Action.RESTORE_IF_USER_UNMUTED -> {
+                if (!focusSuppressed) return
                 focusSuppressed = false
                 scope.launch {
-                    focusHoldJob?.cancel()
-                    focusHoldJob = null
-                    if (!closing.get()) refreshEffectiveAudioMute()
+                    if (closing.get() || focusSuppressed) return@launch
+                    refreshEffectiveAudioMute()
+                    runCatching { remoteAudio?.setEnabled(true) }
+                    if (videoEnabled && cameraPausedForFocus) {
+                        // Resume only after Android returns focus and camera
+                        // permission is still granted. If an OEM camera stays
+                        // unavailable, continue the AUDIO call, video disabled.
+                        val restarted = try {
+                            check(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+                                PackageManager.PERMISSION_GRANTED)
+                            checkNotNull(capturer).startCapture(captureProfile.width,
+                                captureProfile.height, captureProfile.fps)
+                            true
+                        } catch (_: RuntimeException) { false }
+                        catch (_: LinkageError) { false }
+                        cameraPausedForFocus = false
+                        if (!restarted) {
+                            videoEnabled = false
+                            runCatching { localVideo?.setEnabled(false) }
+                            cameraUnavailableListener?.invoke()
+                        }
+                    }
+                    if (videoEnabled) runCatching { localVideo?.setEnabled(true) }
+                    if (!closing.get() && !focusSuppressed) holdListener?.invoke(false)
                 }
-            }
-            CallAudioFocusPolicy.Action.TERMINATE -> {
-                focusSuppressed = true
-                runCatching { localAudio?.setEnabled(false) }
-                if (!closing.get()) failure("Ses başka bir görüşmeye ayrıldı; arama sonlandırıldı.")
             }
             CallAudioFocusPolicy.Action.IGNORE -> Unit
         }
     }
 
-    /** Serialize on RTC thread. Never override an explicit user mute. */
+    /** User-initiated retry after permanent focus loss; never steal a SIM call. */
+    override suspend fun requestAudioResume(): Boolean = withContext(dispatcher) {
+        if (closing.get()) return@withContext false
+        if (!focusSuppressed) return@withContext true
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) !=
+            PackageManager.PERMISSION_GRANTED) return@withContext false
+        val result = try {
+            if (Build.VERSION.SDK_INT >= 26) {
+                val request = focus ?: return@withContext false
+                audio.requestAudioFocus(request)
+            } else {
+                @Suppress("DEPRECATION")
+                audio.requestAudioFocus(focusListener, AudioManager.STREAM_VOICE_CALL,
+                    AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+            }
+        } catch (_: RuntimeException) { AudioManager.AUDIOFOCUS_REQUEST_FAILED }
+        catch (_: LinkageError) { AudioManager.AUDIOFOCUS_REQUEST_FAILED }
+        if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+            applyAudioFocusChange(AudioManager.AUDIOFOCUS_GAIN)
+            true
+        } else false // DELAYED may later call GAIN; remain muted until then.
+    }
+
+    /** Serialize on RTC owner; preserve explicit user-mute after focus gain. */
     private fun refreshEffectiveAudioMute() {
         if (closing.get()) return
         val muted = CallAudioFocusPolicy.effectiveMute(microphoneMuted, focusSuppressed)
@@ -103,10 +169,13 @@ class NativeCallEngine(
             runCatching { module.setMicrophoneMute(true) }
         } else {
             try {
+                check(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                    PackageManager.PERMISSION_GRANTED) { "Mikrofon izni geri alındı." }
                 module.setMicrophoneMute(false)
                 check(track.setEnabled(true)) { "Mikrofon kanalı açılmadı." }
             } catch (_: RuntimeException) {
                 runCatching { track.setEnabled(false) }
+                runCatching { module.setMicrophoneMute(true) }
                 if (!closing.get()) failure("Ses odağı geri geldi ancak mikrofon açılamadı.")
             } catch (_: LinkageError) {
                 runCatching { track.setEnabled(false) }
@@ -265,7 +334,8 @@ class NativeCallEngine(
                 .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
                 .setOnAudioFocusChangeListener(focusListener)
-                .setWillPauseWhenDucked(true).build()
+                .setWillPauseWhenDucked(true)
+                .setAcceptsDelayedFocusGain(true).build()
             audio.requestAudioFocus(focus!!)
         } else {
             @Suppress("DEPRECATION")
@@ -353,8 +423,16 @@ class NativeCallEngine(
         checkNotNull(capturer) { "Kamera kullanılamadı; sesli aramayı deneyin." }
         videoEnabled = true
         localVideo = factory!!.createVideoTrack("lanu-video", videoSource).also { track ->
-            track.setEnabled(true)
+            track.setEnabled(!focusSuppressed)
             connection!!.addTrack(track, listOf("lanu-stream"))
+            if (focusSuppressed && capturer != null) {
+                cameraPausedForFocus = try {
+                    capturer!!.stopCapture()
+                    true
+                } catch (_: RuntimeException) { false }
+                catch (_: InterruptedException) { Thread.currentThread().interrupt(); false }
+                catch (_: LinkageError) { false }
+            }
         }
         updateBindings()
     }
@@ -661,7 +739,12 @@ class NativeCallEngine(
         }
         override fun onTrack(transceiver: RtpTransceiver) {
             val track = transceiver.receiver.track()
-            if (track is VideoTrack && !closing.get()) scope.launch { remoteVideo = track; updateBindings() }
+            if (closing.get()) return
+            if (track is VideoTrack) scope.launch { remoteVideo = track; updateBindings() }
+            if (track is AudioTrack) scope.launch {
+                remoteAudio = track
+                if (focusSuppressed) runCatching { track.setEnabled(false) }
+            }
         }
     }
 
@@ -669,8 +752,8 @@ class NativeCallEngine(
     override fun close() {
         if (!closing.compareAndSet(false, true)) return
         focusSuppressed = true
-        focusHoldJob?.cancel()
-        focusHoldJob = null
+        holdListener = null
+        cameraUnavailableListener = null
         statsSamplingGate.invalidate()
         candidateCallback = null
         cameraSwitchGate.invalidate()
