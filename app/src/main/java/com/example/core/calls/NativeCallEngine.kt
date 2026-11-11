@@ -98,6 +98,10 @@ class NativeCallEngine(
                     // device so SIM/WhatsApp owns its own speaker/Bluetooth.
                     // Native DTLS/ICE and RTP objects stay allocated.
                     runCatching { router.close() }
+                    // Send the neutral E2EE busy state immediately after
+                    // muting; OEM Camera2.stopCapture may block for seconds.
+                    if (!closing.get() && focusSuppressed)
+                        runCatching { holdListener?.invoke(true) }
                     // Unblock the camera for a third-party VIDEO call. A
                     // broken OEM stopCapture cannot make us re-enable video.
                     if (videoEnabled && capturer != null && !cameraPausedForFocus) {
@@ -110,7 +114,6 @@ class NativeCallEngine(
                             false
                         } catch (_: LinkageError) { false }
                     }
-                    if (!closing.get() && focusSuppressed) holdListener?.invoke(true)
                 }
             }
             CallAudioFocusPolicy.Action.RESTORE_IF_USER_UNMUTED -> {
