@@ -182,13 +182,15 @@ class NativeCallEngine(
             // for the NEXT call. The failing call follows its existing safe
             // error path; no live SDP/track recreation or double AEC/NS.
             fun onCaptureFailure() {
+                if (closing.get()) return
                 val permitted = try {
                     ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
                         PackageManager.PERMISSION_GRANTED
                 } catch (_: RuntimeException) { false }
                 CallAudioRecoveryRegistry.policy.captureStartupFailed(
                     usingHardware = hardwareAec || hardwareNs,
-                    microphonePermissionGranted = permitted
+                    microphonePermissionGranted = permitted,
+                    captureStillOwned = !closing.get()
                 )
                 audioFailure()
             }
