@@ -284,9 +284,23 @@ class NativeCallViewModel(
         if (!foreground || !current.video || _state.value.phase !in setOf(NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING) || cameraChange?.isActive == true) return
         val target = !_state.value.cameraOn
         cameraChange = guarded(current) {
-            engine.camera(target)
-            // No false camera indication on permission/HAL failure or a late
-            // callback from a call already closed in the private area.
+            try {
+                engine.camera(target)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: RuntimeException) {
+                if (session === current && foreground) {
+                    _state.value = _state.value.copy(cameraOn = false)
+                    _notice.value = "Diğer arama sonrası kamera açılamadı; sesli görüşme devam ediyor."
+                }
+                return@guarded
+            } catch (_: LinkageError) {
+                if (session === current && foreground) {
+                    _state.value = _state.value.copy(cameraOn = false)
+                    _notice.value = "Diğer arama sonrası kamera açılamadı; sesli görüşme devam ediyor."
+                }
+                return@guarded
+            }
+            // A failed camera switch never aborts healthy audio/RTP.
             if (session === current && foreground)
                 _state.value = _state.value.copy(cameraOn = target)
         }
