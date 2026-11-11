@@ -50,6 +50,7 @@ class NativeCallStateTest {
     private var cameraGate:CompletableDeferred<Unit>?=null
     private var muteGate:CompletableDeferred<Unit>?=null
     private var failMute=false
+    private var failCamera=false
     private val cameraCommands=mutableListOf<Boolean>()
     private val muteCommands=mutableListOf<Boolean>()
     private var failCallAck=false
@@ -86,6 +87,10 @@ class NativeCallStateTest {
     private var evidenceNowMs = 1_000L
     private var report: ((CallMediaEvidence)->Unit)?=null
     private var mediaFailure: ((String)->Unit)?=null
+    private var interruptionCb: ((Boolean)->Unit)?=null
+    private var cameraUnavailableCb: (() -> Unit)?=null
+    private var focusResumeAllowed = true
+    private var focusResumeAttempts = 0
     private val sdp="v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=fingerprint:sha-256 AA:BB\r\n"
 
     @Before fun setup() = runBlocking {
@@ -193,8 +198,18 @@ class NativeCallStateTest {
                 override suspend fun camera(value:Boolean) {
                     cameraCommands += value
                     cameraGate?.await()
+                    if (failCamera) error("Simulated camera HAL unavailable")
                 }
                 override fun switchCamera() { cameraSwitches++ }
+                override fun interruptionListener(onHeld: (Boolean) -> Unit, onCameraUnavailable: () -> Unit) {
+                    interruptionCb = onHeld
+                    cameraUnavailableCb = onCameraUnavailable
+                }
+                override suspend fun requestAudioResume(): Boolean {
+                    focusResumeAttempts++
+                    if (focusResumeAllowed) interruptionCb?.invoke(false)
+                    return focusResumeAllowed
+                }
                 override fun close() { closes++ }
             }
         }
@@ -271,6 +286,178 @@ class NativeCallStateTest {
             .put("content",cipher).put("createdAt",System.currentTimeMillis()).put("expiresAt",System.currentTimeMillis()+90_000)
         repo.synchronize()
     }
+    /** Establish REAL fake RTP evidence; no UI-only CONNECTED simulation. */
+    private suspend fun connectVerifiedOutgoing(): String {
+        vm.outgoing(UserCodes.conversationId(own.id, peer.id), false, true)
+        val invite = awaitSent(CallSignalKind.INVITE)
+        inject(CallSignaling.create(invite.callId, CallSignalKind.ACCEPT, false))
+        awaitSent(CallSignalKind.OFFER)
+        report!!(CallMediaEvidence(true, 5, 5))
+        waitPhase(NativeCallPhase.CONNECTED)
+        return invite.callId
+    }
+
+    @Test fun longExternalCallHoldsNativeSessionAndSendsEncryptedBusyWithoutDropping() = runBlocking<Unit> {
+        val id = connectVerifiedOutgoing()
+        interruptionCb!!(true)
+        withTimeout(5_000) { vm.state.first { it.localOnHold } }
+        val hold = awaitSent(CallSignalKind.HOLD)
+        assertEquals(id, hold.callId)
+        assertEquals("", hold.sdp)
+        assertEquals(NativeCallPhase.CONNECTED, vm.state.value.phase)
+        // Carrier calls can block mobile data; 25s ICE timeout must not
+        // terminate the held call even when the transport becomes unavailable.
+        report!!(CallMediaEvidence(false, 5, 5))
+        waitPhase(NativeCallPhase.RECONNECTING)
+        mainTestDispatcher.scheduler.advanceTimeBy(90_000L)
+        mainTestDispatcher.scheduler.runCurrent()
+        assertEquals(NativeCallPhase.RECONNECTING, vm.state.value.phase)
+        assertTrue(vm.state.value.localOnHold)
+        assertEquals(0, iceRestarts)
+        assertEquals(0, closes)
+        interruptionCb!!(false)
+        withTimeout(5_000) { vm.state.first { !it.localOnHold } }
+        awaitSent(CallSignalKind.RESUME)
+        assertEquals("Do not show connected from pre-hold packet counters",
+            NativeCallPhase.RECONNECTING, vm.state.value.phase)
+        assertEquals(id, vm.state.value.callId)
+        report!!(CallMediaEvidence(true, 7, 8))
+        waitPhase(NativeCallPhase.CONNECTED)
+        vm.end()
+        waitPhase(NativeCallPhase.ENDED)
+    }
+
+    @Test fun remoteBusyAndResumeMustBeSameVerifiedCallAndRejectLateOldHold() = runBlocking<Unit> {
+        val id = connectVerifiedOutgoing()
+        val now = System.currentTimeMillis()
+        inject(CallSignaling.create(id, CallSignalKind.HOLD, false, now = now))
+        withTimeout(5_000) { vm.state.first { it.remoteOnHold } }
+        assertFalse(vm.state.value.localOnHold)
+        inject(CallSignaling.create(id, CallSignalKind.RESUME, false, now = now + 1L))
+        withTimeout(5_000) { vm.state.first { !it.remoteOnHold } }
+        // Late older HOLD with a NEW authenticated UUID must not
+        // regress the newer RESUME state or steal any other call.
+        inject(CallSignaling.create(id, CallSignalKind.HOLD, false, now = now))
+        assertFalse(vm.state.value.remoteOnHold)
+        inject(CallSignaling.create(UUID.randomUUID().toString(), CallSignalKind.HOLD, false))
+        assertFalse(vm.state.value.remoteOnHold)
+        assertEquals("Remote RESUME must wait for real new RTP evidence",
+            NativeCallPhase.RECONNECTING, vm.state.value.phase)
+        report!!(CallMediaEvidence(true, 7, 8))
+        waitPhase(NativeCallPhase.CONNECTED)
+    }
+
+    @Test fun deniedAudioFocusRetryLeavesHoldUntilUserMayReturn() = runBlocking<Unit> {
+        connectVerifiedOutgoing()
+        interruptionCb!!(true)
+        withTimeout(5_000) { vm.state.first { it.localOnHold } }
+        focusResumeAllowed = false
+        vm.resumeAfterExternalCall()
+        withTimeout(5_000) { vm.notice.first { it?.contains("ses odağı") == true } }
+        assertTrue(vm.state.value.localOnHold)
+        assertEquals(1, focusResumeAttempts)
+        focusResumeAllowed = true
+        vm.resumeAfterExternalCall()
+        withTimeout(5_000) { vm.state.first { !it.localOnHold } }
+        awaitSent(CallSignalKind.RESUME)
+        assertEquals(2, focusResumeAttempts)
+    }
+
+    @Test fun cameraHalErrorAfterHoldDegradesToAudioWithoutKillingCall() = runBlocking<Unit> {
+        val callId = connectVerifiedOutgoing()
+        interruptionCb!!(true)
+        withTimeout(5_000) { vm.state.first { it.localOnHold } }
+        interruptionCb!!(false)
+        withTimeout(5_000) { vm.state.first { !it.localOnHold } }
+        // The call is still active but video was requested in a separate
+        // native control operation; failure must not terminate encrypted audio.
+        // A second fresh video call exercises the same media factory path.
+        vm.end(); waitPhase(NativeCallPhase.ENDED)
+        vm.outgoing(UserCodes.conversationId(own.id, peer.id), true, true)
+        val videoInvite = withTimeout(5_000) {
+            sent.first { signals -> signals.count { it.kind == CallSignalKind.INVITE } >= 2 }
+                .last { it.kind == CallSignalKind.INVITE }
+        }
+        inject(CallSignaling.create(videoInvite.callId, CallSignalKind.ACCEPT, true))
+        withTimeout(5_000) { sent.first { signals ->
+            signals.count { it.kind == CallSignalKind.OFFER } >= 2
+        } }
+        report!!(CallMediaEvidence(true, 7, 7))
+        waitPhase(NativeCallPhase.CONNECTED)
+        assertTrue(vm.state.value.cameraOn)
+        failCamera = true
+        vm.camera()
+        withTimeout(5_000) { vm.state.first { !it.cameraOn } }
+        assertEquals(NativeCallPhase.CONNECTED, vm.state.value.phase)
+        assertEquals(videoInvite.callId, vm.state.value.callId)
+        assertNotEquals(callId, vm.state.value.callId)
+        assertNotNull(vm.notice.value)
+    }
+
+    @Test fun postExternalCallSilenceWithConnectedIceCannotDropHealthyE2eeSession() = runBlocking<Unit> {
+        val callId = connectVerifiedOutgoing()
+        interruptionCb!!(true)
+        withTimeout(5_000L) { vm.state.first { it.localOnHold } }
+        interruptionCb!!(false)
+        withTimeout(5_000L) { vm.state.first { !it.localOnHold } }
+        waitPhase(NativeCallPhase.RECONNECTING)
+
+        // No new media evidence during 90 seconds of legitimate Opus silence.
+        // This must NOT trigger a 35s failure while native ICE is still up.
+        mainTestDispatcher.scheduler.advanceTimeBy(90_000L)
+        mainTestDispatcher.scheduler.runCurrent()
+        assertEquals(callId, vm.state.value.callId)
+        assertEquals(NativeCallPhase.RECONNECTING, vm.state.value.phase)
+        assertEquals(0, closes)
+        assertEquals(0, iceRestarts)
+        // The first genuinely fresh pair of media packets restores status.
+        report!!(CallMediaEvidence(true, 8, 9))
+        waitPhase(NativeCallPhase.CONNECTED)
+        assertEquals(callId, vm.state.value.callId)
+        vm.end()
+        waitPhase(NativeCallPhase.ENDED)
+    }
+
+    @Test fun transportFailureAfterHoldTriggersBoundedIceRestartNotSilentZombie() = runBlocking<Unit> {
+        connectVerifiedOutgoing()
+        interruptionCb!!(true)
+        withTimeout(5_000L) { vm.state.first { it.localOnHold } }
+        interruptionCb!!(false)
+        withTimeout(5_000L) { vm.state.first { !it.localOnHold } }
+        waitPhase(NativeCallPhase.RECONNECTING)
+
+        // A real ICE loss AFTER the hold ends is different from silence.
+        report!!(CallMediaEvidence(false, 5, 5))
+        mainTestDispatcher.scheduler.advanceTimeBy(ICE_RESTART_GRACE_MS + 1L)
+        mainTestDispatcher.scheduler.runCurrent()
+        withTimeout(5_000L) { sent.first { it.count { s -> s.kind == CallSignalKind.OFFER } >= 2 } }
+        assertEquals(1, iceRestarts)
+        assertEquals(NativeCallPhase.RECONNECTING, vm.state.value.phase)
+        vm.end()
+        waitPhase(NativeCallPhase.ENDED)
+    }
+
+    @Test fun immediateSecondCallWorksWhilePreviousMediaDisposesAsynchronously() = runBlocking<Unit> {
+        val original = connectVerifiedOutgoing()
+        vm.end()
+        waitPhase(NativeCallPhase.ENDED)
+        // The native close can be asynchronous. A just-cancelled starting
+        // Job must not prevent a legitimate second authorized call.
+        vm.outgoing(UserCodes.conversationId(own.id, peer.id), false, true)
+        val second = withTimeout(5_000) {
+            sent.first { rows -> rows.count { it.kind == CallSignalKind.INVITE } >= 2 }
+                .last { it.kind == CallSignalKind.INVITE }
+        }
+        assertNotEquals(original, second.callId)
+        inject(CallSignaling.create(second.callId, CallSignalKind.ACCEPT, false))
+        withTimeout(5_000) {
+            sent.first { rows -> rows.count { it.kind == CallSignalKind.OFFER } >= 2 }
+        }
+        report!!(CallMediaEvidence(true, 6, 6))
+        waitPhase(NativeCallPhase.CONNECTED)
+        assertEquals(second.callId, vm.state.value.callId)
+    }
+
     @Test fun visibleIdleHostPollsAndAuthenticatesInviteArrivingAfterFirstSync() = runBlocking {
         // Do NOT call repo.synchronize(): the idle host itself must fetch
         // a later invitation rather than relying on the one startup sync.

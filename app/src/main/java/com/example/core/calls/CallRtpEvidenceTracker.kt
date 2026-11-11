@@ -32,6 +32,18 @@ class CallRtpEvidenceTracker {
         return CallMediaEvidence(transportConnected)
     }
 
+    /**
+     * A SIM/VoIP audio-focus interruption may leave ICE CONNECTED without
+     * passing fresh RTP. Invalidate packet proof and every already-requested
+     * asynchronous getStats callback while retaining the actual ICE state.
+     * Neither old cumulative counts nor the UI phase can prove resume.
+     */
+    @Synchronized fun invalidateOnHoldTransition(): CallMediaEvidence {
+        epoch++
+        resetCounters()
+        return CallMediaEvidence(transportConnected = transportConnected)
+    }
+
     @Synchronized fun currentEpoch(): Long = epoch
 
     @Synchronized fun observe(

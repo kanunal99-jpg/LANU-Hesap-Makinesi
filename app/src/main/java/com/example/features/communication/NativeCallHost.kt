@@ -148,14 +148,20 @@ fun NativeCallHost(
                 Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(18.dp),
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(if (revealPeerName) state.name else "LANU araması", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    Text(when (state.phase) {
+                    Text(when {
+                        !revealPeerName -> "LANU görüşmesi"
+                        state.localOnHold -> "Diğer telefon veya uygulama görüşmesi nedeniyle LANU beklemede"
+                        state.remoteOnHold -> "Diğer kullanıcı meşgul — LANU görüşmesi beklemede"
+                        else -> when (state.phase) {
                         NativeCallPhase.RINGING -> if (state.video) "Gelen görüntülü arama" else "Gelen sesli arama"
                         NativeCallPhase.DIALING -> "Aranıyor…"
                         NativeCallPhase.CONNECTING -> "Güvenli bağlantı kuruluyor…"
                         NativeCallPhase.CONNECTED -> "Bağlandı"
                         NativeCallPhase.RECONNECTING -> "Ağ bağlantısı yenileniyor…"
                         else -> PrivateCallUiTextPolicy.terminal(state.phase, revealPeerName, state.message)
-                    }, style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }, style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.testTag("private_call_hold_status"))
                     if (state.connectedAt > 0 && !ended) {
                         var elapsed by remember { mutableLongStateOf(0) }
                         LaunchedEffect(state.connectedAt) { while (true) { elapsed = (SystemClock.elapsedRealtime()-state.connectedAt)/1000; delay(1000) } }
@@ -168,7 +174,16 @@ fun NativeCallHost(
                         } else Icon(if (state.video) Icons.Default.Videocam else Icons.Default.Call, null, Modifier.size(72.dp))
                     }
                     if (engine != null && !ended) {
-                        val controlsReady = state.phase in setOf(NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING)
+                        val controlsReady = state.phase in setOf(NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING) &&
+                            !state.localOnHold
+                        if (state.localOnHold && revealPeerName) {
+                            Text("LANU görüşmesi sonlanmadı. Diğer arama bittikten sonra ses odağı otomatik dönmezse aşağıdan tekrar deneyin.",
+                                style = MaterialTheme.typography.bodySmall)
+                            Button(
+                                onClick = model::resumeAfterExternalCall,
+                                modifier = Modifier.testTag("private_call_resume_after_external")
+                            ) { Text("LANU görüşmesine dön") }
+                        }
                         CallAudioRouteControls(engine!!, enabled = controlsReady)
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             FilledTonalIconButton(
@@ -353,5 +368,6 @@ private fun CallAudioRouteControls(engine: NativeCallEngine, enabled: Boolean) {
  * exist until start() succeeds. Audio/RTP proof is authoritative for CONNECTED.
  */
 internal fun canRenderNativeCallVideo(state: NativeCallUiState, enginePresent: Boolean): Boolean =
-    enginePresent && state.video && state.phase == NativeCallPhase.CONNECTED
+    enginePresent && state.video && state.phase == NativeCallPhase.CONNECTED &&
+        !state.localOnHold && !state.remoteOnHold
 

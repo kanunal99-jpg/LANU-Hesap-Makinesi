@@ -18,6 +18,33 @@ class CallRtpEvidenceTrackerTest {
         assertEquals(7L, actual.sentAudio)
     }
 
+    @Test fun simOrWhatsappHoldInvalidatesOldRtpAndInFlightStatsEvenWithIceConnected() {
+        val tracker = CallRtpEvidenceTracker()
+        tracker.updateTransport(true)
+        val first = tracker.currentEpoch()
+        assertFalse(tracker.observe(first, 100, 100, 1_000L, 1)!!.connected)
+        assertTrue(tracker.observe(first, 105, 107, 1_100L, 2)!!.connected)
+
+        val held = tracker.invalidateOnHoldTransition()
+        assertTrue("Keep transport/DTLS; only invalidate media proof", held.transportConnected)
+        assertFalse(held.connected)
+        assertNull("A pending getStats callback from before hold cannot revive the call",
+            tracker.observe(first, 999, 999, 1_200L, 3))
+        val holdEpoch = tracker.currentEpoch()
+        assertFalse(tracker.observe(holdEpoch, 105, 107, 1_300L, 1)!!.connected)
+        assertFalse(tracker.observe(holdEpoch, 105, 107, 1_400L, 2)!!.connected)
+
+        val resumed = tracker.invalidateOnHoldTransition()
+        assertTrue(resumed.transportConnected)
+        val resumeEpoch = tracker.currentEpoch()
+        assertNull(tracker.observe(holdEpoch, 999, 999, 1_500L, 3))
+        assertFalse("First post-resume sample is only the new baseline",
+            tracker.observe(resumeEpoch, 105, 107, 1_600L, 1)!!.connected)
+        assertFalse(tracker.observe(resumeEpoch, 106, 107, 1_700L, 2)!!.connected)
+        assertTrue("Both directions must show new RTP after focus gain",
+            tracker.observe(resumeEpoch, 106, 108, 1_800L, 3)!!.connected)
+    }
+
     @Test fun reconnectDoesNotReusePreviousAudioPackets() {
         val t = CallRtpEvidenceTracker()
         t.updateTransport(true)

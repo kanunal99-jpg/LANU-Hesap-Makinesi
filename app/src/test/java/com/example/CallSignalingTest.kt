@@ -106,6 +106,28 @@ class CallSignalingTest {
         val stranger=UserCodes.create()
         assertThrows(Exception::class.java) { PeerMessageCrypto.decrypt(stranger,a.id,a.publicKey,CallSignaling.aadId(id),a.id,cipher) }
     }
+    @Test fun holdAndResumeAreAuthenticatedCallScopedMetadataFreeSignals() {
+        for (kind in listOf(CallSignalKind.HOLD, CallSignalKind.RESUME)) {
+            val event = CallSignaling.create(call, kind, video = true, now = now)
+            val encoded = CallSignaling.encode(event)
+            val decoded = CallSignaling.decode(encoded, event.id, call, now + 1_000L)
+            assertEquals(kind, decoded.kind)
+            assertEquals("", decoded.sdp)
+            assertTrue(decoded.video)
+            assertThrows(IllegalArgumentException::class.java) {
+                CallSignaling.decode(encoded, event.id, UUID.randomUUID().toString(), now)
+            }
+            assertThrows(IllegalArgumentException::class.java) {
+                CallSignaling.create(call, kind, video = true, sdp = "caller-private", now = now)
+            }
+            assertThrows(IllegalArgumentException::class.java) {
+                CallSignaling.decode(encoded, event.id, call, now + CallSignaling.TTL_MILLIS + 1L)
+            }
+            assertFalse(encoded.contains("WhatsApp"))
+            assertFalse(encoded.contains("SIM"))
+        }
+    }
+
     @Test fun connectedBadgeRequiresTransportAndRealBidirectionalAudioPackets() {
         assertFalse(CallMediaEvidence(true,0,10).connected)
         assertFalse(CallMediaEvidence(true,10,0).connected)

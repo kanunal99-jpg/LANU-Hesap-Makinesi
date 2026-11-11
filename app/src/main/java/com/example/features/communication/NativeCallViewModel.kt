@@ -9,6 +9,8 @@ import com.example.core.messaging.RelayException
 import com.example.core.repository.CommunicationRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -25,7 +27,8 @@ data class NativeCallUiState(
     val callId: String = "", val name: String = "", val video: Boolean = false,
     val phase: NativeCallPhase = NativeCallPhase.IDLE, val muted: Boolean = false,
     val cameraOn: Boolean = false, val message: String = "", val connectedAt: Long = 0L,
-    val inviteAtMs: Long = 0L
+    val inviteAtMs: Long = 0L,
+    val localOnHold: Boolean = false, val remoteOnHold: Boolean = false
 )
 
 /** One foreground-only real call. Permission dialog callbacks are bound to call IDs. */
@@ -74,6 +77,13 @@ class NativeCallViewModel(
         var measurementStart: Long? = null
         var measurementToken: Long? = null
         var measurementStage = com.example.core.diagnostics.PrivateConnectionMetrics.Stage.CALL_SETUP
+        var lastRemoteHoldAtMs = 0L
+        var lastLocalHoldAtMs = 0L
+        var lastTransportConnected = false
+        var holdNeedsRetry = false
+        var nextHoldRetryAtMs = 0L
+        val holdSignalMutex = Mutex()
+        var holdSendJob: Job? = null
     }
     private var session: Session? = null
     private var foreground = false
@@ -243,6 +253,17 @@ class NativeCallViewModel(
         finish("Arama reddedildi.", CallSignalKind.REJECT)
     }
     fun end() = finish("Görüşme sonlandırıldı.")
+
+    /** Permanent Android focus loss may never deliver GAIN automatically. */
+    fun resumeAfterExternalCall() {
+        val current = session ?: return
+        if (!foreground || !_state.value.localOnHold || _media.value == null) return
+        guarded(current) {
+            if (!_media.value!!.requestAudioResume() && session === current) {
+                _notice.value = "Diğer görüşme veya ses odağı hâlâ etkin. Bittikten sonra tekrar deneyin."
+            }
+        }
+    }
     fun dismiss() { if (session == null) _state.value = NativeCallUiState(); _notice.value = null }
     fun clearNotice() { _notice.value = null }
     fun muted() {
@@ -263,9 +284,23 @@ class NativeCallViewModel(
         if (!foreground || !current.video || _state.value.phase !in setOf(NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING) || cameraChange?.isActive == true) return
         val target = !_state.value.cameraOn
         cameraChange = guarded(current) {
-            engine.camera(target)
-            // No false camera indication on permission/HAL failure or a late
-            // callback from a call already closed in the private area.
+            try {
+                engine.camera(target)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: RuntimeException) {
+                if (session === current && foreground) {
+                    _state.value = _state.value.copy(cameraOn = false)
+                    _notice.value = "Diğer arama sonrası kamera açılamadı; sesli görüşme devam ediyor."
+                }
+                return@guarded
+            } catch (_: LinkageError) {
+                if (session === current && foreground) {
+                    _state.value = _state.value.copy(cameraOn = false)
+                    _notice.value = "Diğer arama sonrası kamera açılamadı; sesli görüşme devam ediyor."
+                }
+                return@guarded
+            }
+            // A failed camera switch never aborts healthy audio/RTP.
             if (session === current && foreground)
                 _state.value = _state.value.copy(cameraOn = target)
         }
@@ -372,6 +407,21 @@ class NativeCallViewModel(
             CallSignalKind.REJECT -> finish("Karşı taraf aramayı reddetti.", notify = false)
             CallSignalKind.BUSY -> finish("Karşı taraf başka bir aramada.", notify = false)
             CallSignalKind.END -> finish("Karşı taraf görüşmeyi sonlandırdı.", notify = false)
+            CallSignalKind.HOLD, CallSignalKind.RESUME -> {
+                if (_state.value.phase !in setOf(NativeCallPhase.CONNECTING,
+                        NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING)) return
+                // Intra-peer clock order, not arrival order: an older delayed
+                // HOLD must never override a newer authenticated RESUME.
+                if (s.createdAt <= current.lastRemoteHoldAtMs) return
+                current.lastRemoteHoldAtMs = s.createdAt
+                val held = s.kind == CallSignalKind.HOLD
+                if (_state.value.remoteOnHold != held) {
+                    val wasHeld = _state.value.localOnHold || _state.value.remoteOnHold
+                    _media.value?.invalidateAfterRemoteHold()
+                    _state.value = _state.value.copy(remoteOnHold = held)
+                    updateInterruptionRecovery(current, wasHeld)
+                }
+            }
             else -> Unit
         }
     }
@@ -392,7 +442,14 @@ class NativeCallViewModel(
     private fun createEngine(current: Session): CallMediaSession = mediaFactory(
         { value -> viewModelScope.launch {
             if (session !== current || !foreground) return@launch
+            current.lastTransportConnected = value.transportConnected
             if (value.connected) {
+                // Old or in-flight stats during a hold do not prove a resumed
+                // two-way call. Both tracks must advance after the epoch reset.
+                if (_state.value.localOnHold || _state.value.remoteOnHold) {
+                    current.lastConfirmedMediaAtMs = null
+                    return@launch
+                }
                 endMeasurement(current, true)
                 current.lastConfirmedMediaAtMs = mediaClockMs().takeIf { it >= 0L }
                 current.reconnectGeneration++ // invalidate any short-disconnect grace timer
@@ -411,9 +468,23 @@ class NativeCallViewModel(
                     val generation = ++current.reconnectGeneration
                     current.reconnectOfferStarted = false
                     current.fastTrackUsed = value.iceFailed
-                    deadline(current, 25_000, "Ağ bağlantısı kesildi.")
+                    if (!_state.value.localOnHold && !_state.value.remoteOnHold) {
+                        deadline(current, 25_000, "Ağ bağlantısı kesildi.")
+                        if (current.outgoing) scheduleIceRecovery(current, generation, value.iceFailed)
+                    }
+                } else if (!value.transportConnected &&
+                    _state.value.phase == NativeCallPhase.RECONNECTING &&
+                    !_state.value.localOnHold && !_state.value.remoteOnHold &&
+                    timeout?.isActive != true) {
+                    // A previously connected route can drop AFTER return from
+                    // an external call. Arm recovery when ICE actually drops,
+                    // not from mere Opus DTX/silence while transport is healthy.
+                    val generation = ++current.reconnectGeneration
+                    current.reconnectOfferStarted = false
+                    deadline(current, 35_000L, "Görüşmeye dönüşte ağ bağlantısı kurulamadı.")
                     if (current.outgoing) scheduleIceRecovery(current, generation, value.iceFailed)
                 } else if (!value.transportConnected &&
+                    !_state.value.localOnHold && !_state.value.remoteOnHold &&
                     CallWeakNetworkRecoveryPolicy.mayFastTrack(
                         outgoing = current.outgoing,
                         reconnecting = _state.value.phase == NativeCallPhase.RECONNECTING,
@@ -430,6 +501,15 @@ class NativeCallViewModel(
                 }
             }
         } }, { message -> viewModelScope.launch { if (session === current) fail(message) } }).also { engine ->
+        engine.interruptionListener(
+            onHeld = { held -> viewModelScope.launch { onLocalInterruption(current, held) } },
+            onCameraUnavailable = { viewModelScope.launch {
+                if (session === current && foreground) {
+                    _state.value = _state.value.copy(cameraOn = false)
+                    _notice.value = "Diğer arama sonrası kamera açılamadı; sesli görüşme devam ediyor."
+                }
+            } }
+        )
         engine.candidateListener { candidate -> viewModelScope.launch {
             if (session !== current || !foreground) return@launch
             if (current.localCandidates.size < 32) current.localCandidates.add(candidate)
@@ -461,7 +541,8 @@ class NativeCallViewModel(
             delay(CallWeakNetworkRecoveryPolicy.graceMs(iceFailed))
             if (session !== current || !foreground ||
                 current.reconnectGeneration != generation ||
-                _state.value.phase != NativeCallPhase.RECONNECTING) return@guarded
+                _state.value.phase != NativeCallPhase.RECONNECTING ||
+                _state.value.localOnHold || _state.value.remoteOnHold) return@guarded
             val engine = _media.value ?: return@guarded
             if (!current.reconnectBudget.claim()) return@guarded
             current.reconnectOfferStarted = true
@@ -472,7 +553,8 @@ class NativeCallViewModel(
             // or a subsequent disconnect. Never signal a stale restart.
             if (session !== current || !foreground ||
                 current.reconnectGeneration != generation ||
-                _state.value.phase != NativeCallPhase.RECONNECTING) return@guarded
+                _state.value.phase != NativeCallPhase.RECONNECTING ||
+                _state.value.localOnHold || _state.value.remoteOnHold) return@guarded
             current.awaitingAnswer = true
             try {
                 send(current, CallSignalKind.OFFER, offerSdp)
@@ -495,7 +577,8 @@ class NativeCallViewModel(
                     delay(CallWeakNetworkRecoveryPolicy.FAILED_RESTART_SIGNAL_RETRY_MS)
                     if (session === current && foreground &&
                         current.reconnectGeneration == generation &&
-                        _state.value.phase == NativeCallPhase.RECONNECTING) {
+                        _state.value.phase == NativeCallPhase.RECONNECTING &&
+                        !_state.value.localOnHold && !_state.value.remoteOnHold) {
                         scheduleIceRecovery(current, generation, iceFailed = true)
                     }
                 }
@@ -505,6 +588,94 @@ class NativeCallViewModel(
         }
         current.recoveryJob = job
         pipeline = job
+    }
+
+    /** A real Android audio-focus event, not an inferred WhatsApp/SIM caller. */
+    private fun onLocalInterruption(current: Session, held: Boolean) {
+        if (session !== current || !foreground ||
+            _state.value.phase !in setOf(NativeCallPhase.CONNECTING,
+                NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING)) return
+        if (_state.value.localOnHold == held) return
+        val wasHeld = _state.value.localOnHold || _state.value.remoteOnHold
+        _state.value = _state.value.copy(localOnHold = held)
+        updateInterruptionRecovery(current, wasHeld)
+        publishHoldState(current)
+    }
+
+    /**
+     * Keep the same verified call alive during another call. A carrier call
+     * may suspend mobile data completely; do not burn the 25s ICE budget
+     * while either peer is intentionally held. Resume normal evidence-gated
+     * ICE recovery only after BOTH parties are no longer on hold.
+     */
+    private fun updateInterruptionRecovery(current: Session, wasHeld: Boolean) {
+        if (session !== current || !foreground) return
+        if (wasHeld && !_state.value.localOnHold && !_state.value.remoteOnHold &&
+            _state.value.phase == NativeCallPhase.CONNECTED) {
+            // Never leave the old CONNECTED banner visible before fresh
+            // bidirectional RTP arrives after SIM/VoIP interruption.
+            _state.value = _state.value.copy(phase = NativeCallPhase.RECONNECTING)
+            current.lastConfirmedMediaAtMs = null
+            beginMeasurement(current, true)
+        }
+        if (_state.value.localOnHold || _state.value.remoteOnHold) {
+            current.reconnectGeneration++
+            current.recoveryJob?.cancel(); current.recoveryJob = null
+            timeout?.cancel(); timeout = null
+        } else if (_state.value.phase == NativeCallPhase.RECONNECTING) {
+            val generation = ++current.reconnectGeneration
+            current.reconnectOfferStarted = false
+            if (!current.lastTransportConnected) {
+                deadline(current, 35_000L, "Görüşmeye dönüşte ağ bağlantısı kurulamadı.")
+                if (current.outgoing) scheduleIceRecovery(current, generation, iceFailed = true)
+            } else {
+                // Opus DTX/silence is not an outage. The old CONNECTED banner
+                // remains withheld until fresh two-way RTP, but neither
+                // silence nor an unchanged ICE-connected route drops the call.
+                timeout?.cancel(); timeout = null
+            }
+        } else if (_state.value.phase == NativeCallPhase.CONNECTING) {
+            deadline(current, 35_000L, "Görüşmeye dönüşte bağlantı kurulamadı.")
+        }
+    }
+
+    /**
+     * Inform the verified peer via E2EE, never public FCM or Android status.
+     * A broken relay must NOT terminate locally healthy held media. Keep one
+     * bounded next network/poll retry for the latest held/unheld state.
+     */
+    private fun publishHoldState(current: Session) {
+        if (session !== current || !foreground) return
+        current.holdSendJob?.cancel()
+        current.holdSendJob = viewModelScope.launch {
+            try {
+                current.holdSignalMutex.withLock {
+                    if (session !== current || !foreground) return@withLock
+                    send(current, if (_state.value.localOnHold) CallSignalKind.HOLD else CallSignalKind.RESUME)
+                    current.holdNeedsRetry = false
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: LinkageError) {
+                if (session === current) scheduleHoldSignalRetry(current)
+            } catch (_: Exception) {
+                if (session === current) scheduleHoldSignalRetry(current)
+            }
+        }
+    }
+
+    private fun scheduleHoldSignalRetry(current: Session) {
+        current.holdNeedsRetry = true
+        current.nextHoldRetryAtMs = (mediaClockMs() + 10_000L).coerceAtLeast(0L)
+    }
+
+    private fun retryHoldStateIfNeeded(current: Session) {
+        if (session !== current || !foreground || !current.holdNeedsRetry ||
+            current.holdSendJob?.isActive == true) return
+        val now = mediaClockMs()
+        if (now < current.nextHoldRetryAtMs) return
+        current.holdNeedsRetry = false
+        publishHoldState(current)
     }
 
     private fun guarded(current: Session, block: suspend () -> Unit): Job {
@@ -532,6 +703,8 @@ class NativeCallViewModel(
     private fun startActivePoll(current: Session) {
         activePoll?.cancel()
         current.networkRecovery?.cancel()
+        current.holdSendJob?.cancel(); current.holdSendJob = null
+        current.holdNeedsRetry = false
         current.networkRecovery = viewModelScope.launch {
             var lastHint: Long? = null
             repository.foregroundNetworkChanges.catch { if (it is CancellationException) throw it }.collect {
@@ -545,6 +718,7 @@ class NativeCallViewModel(
                 try {
                     repository.validatedCallNetworkChange()
                     repository.pollCallSignals(requestFollowUp = true)
+                    retryHoldStateIfNeeded(current)
                 }
                 catch (e: CancellationException) { throw e }
                 catch (_: Exception) { /* Independent two-second HTTP fallback remains. */ }
@@ -553,7 +727,10 @@ class NativeCallViewModel(
         activePoll = viewModelScope.launch {
             while (isActive && session === current && foreground) {
                 var delayMs = 2000L
-                try { repository.pollCallSignals() /* Repository enqueues before relay ACK; callSignals flow delivers. */ }
+                try {
+                    repository.pollCallSignals() /* Repository enqueues before relay ACK; callSignals flow delivers. */
+                    retryHoldStateIfNeeded(current)
+                }
                 catch (e: CancellationException) { throw e }
                 catch (e: RelayException) { if (e.status == 429) delayMs = e.retryAfterMillis.coerceIn(5_000, 120_000) }
                 catch (_: Exception) { /* P2P media may continue; native evidence/deadline remains authoritative. */ }
@@ -562,7 +739,16 @@ class NativeCallViewModel(
         }
     }
     private suspend fun send(current: Session, kind: CallSignalKind, sdp: String = "") {
-        val signal = CallSignaling.create(current.id, kind, current.video, sdp)
+        val holdControl = kind == CallSignalKind.HOLD || kind == CallSignalKind.RESUME
+        val now = System.currentTimeMillis()
+        // Monotonic within this verified call, even when focus flaps twice
+        // in one millisecond or the wall clock moves backwards.
+        val at = if (holdControl && current.lastLocalHoldAtMs >= now) {
+            (current.lastLocalHoldAtMs + 1L).takeIf { it > 0L }
+                ?: throw IllegalStateException("Invalid call clock")
+        } else now
+        val signal = CallSignaling.create(current.id, kind, current.video, sdp, now = at)
+        if (holdControl) current.lastLocalHoldAtMs = at
         try {
             repository.sendCallSignal(current.peer, signal)
         } catch (e: java.io.IOException) {
@@ -605,7 +791,12 @@ class NativeCallViewModel(
         current.networkRecovery?.cancel()
         session = null
         repository.setCallInProgress(false)
-        pipeline?.cancel(); starting?.cancel(); activePoll?.cancel(); timeout?.cancel()
+        pipeline?.cancel(); pipeline = null
+        starting?.cancel(); starting = null
+        activePoll?.cancel(); activePoll = null
+        timeout?.cancel(); timeout = null
+        muteChange?.cancel(); muteChange = null
+        cameraChange?.cancel(); cameraChange = null
         workJobs.toList().forEach { it.cancel() }; workJobs.clear()
         _media.value?.close(); _media.value = null
         val previous = _state.value

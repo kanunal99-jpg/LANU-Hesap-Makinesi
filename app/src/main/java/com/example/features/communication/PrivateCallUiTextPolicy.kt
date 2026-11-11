@@ -24,6 +24,8 @@ internal object PrivateCallUiTextPolicy {
         "Karşı taraf görüşmeyi sonlandırdı.",
         "İzin verilmedi.",
         "Ağ bağlantısı kesildi.",
+        "Görüşmeye dönüşte ağ bağlantısı kurulamadı.",
+        "Görüşmeye dönüşte bağlantı kurulamadı.",
         "Bu cihazda görüşme motoru açılamadı.",
         "İki telefonda da güncel LANU güvenli alanı açık olmalı ve kişiler karşılıklı kayıtlı olmalıdır.",
         "Arama isteği sınırına ulaşıldı. Biraz bekleyip yeniden deneyin.",
@@ -32,7 +34,9 @@ internal object PrivateCallUiTextPolicy {
     private val safeNotices = safeTerminalMessages + setOf(
         "Android görüşmeyi arka planda sürdüremedi. Mikrofon iznini ve pil kısıtlamalarını kontrol edin.",
         "Görüşme için mikrofon, görüntülü arama için kamera izni gerekir.",
-        "Mikrofon/kamera izni verilmedi."
+        "Mikrofon/kamera izni verilmedi.",
+        "Diğer görüşme veya ses odağı hâlâ etkin. Bittikten sonra tekrar deneyin.",
+        "Diğer arama sonrası kamera açılamadı; sesli görüşme devam ediyor."
     )
 
     fun terminal(phase: NativeCallPhase, privateAreaVisible: Boolean, raw: String): String {

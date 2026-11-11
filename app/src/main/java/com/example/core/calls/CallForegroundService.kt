@@ -4,6 +4,8 @@ import android.app.*
 import android.content.*
 import android.content.pm.ServiceInfo
 import android.os.*
+import android.net.Uri
+import java.util.UUID
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.example.IncomingCallActivity
@@ -23,13 +25,30 @@ import kotlinx.coroutines.flow.collect
 class CallForegroundService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var observing = false
+    private var ownedCallId: String? = null
+    private var activeRequestToken: String? = null
+    private var activeStartId: Int = 0
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val model = (application as LanuApplication).callModel
         if (intent?.action == ACTION_END) {
-            model.end()
-            stopSelf()
+            val state = model.state.value
+            if (CallForegroundOwnershipPolicy.shouldAcceptEndAction(
+                    activeRequestToken, intent.getStringExtra(EXTRA_TOKEN),
+                    ownedCallId, state.callId, state.phase)) {
+                model.end()
+                stopSelfResult(startId)
+            }
+            // An older notification can never end a newer call.
             return START_NOT_STICKY
+        }
+        val token = intent?.getStringExtra(EXTRA_TOKEN)
+        if (token.isNullOrBlank()) return START_NOT_STICKY
+        activeRequestToken = token
+        activeStartId = startId
+        val initial = model.state.value
+        ownedCallId = initial.callId.takeIf {
+            it.isNotBlank() && CallForegroundOwnershipPolicy.active(initial.phase)
         }
         val video = intent?.getBooleanExtra(EXTRA_VIDEO, false) == true
         val foregroundStarted = CallForegroundPlatformSafety.execute {
@@ -39,7 +58,12 @@ class CallForegroundService : Service() {
                     this.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             val end = PendingIntent.getService(this, 11,
-                Intent(this, CallForegroundService::class.java).setAction(ACTION_END),
+                Intent(this, CallForegroundService::class.java)
+                    .setAction(ACTION_END)
+                    // PendingIntent identity includes URI, not extras. A stale
+                    // prior-call "Bitir" must never be rebound to a new call.
+                    .setData(Uri.parse("lanu-call-end:$token"))
+                    .putExtra(EXTRA_TOKEN, token),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             val notification = NotificationCompat.Builder(this, CHANNEL)
                 .setSmallIcon(R.mipmap.ic_launcher)
@@ -71,12 +95,23 @@ class CallForegroundService : Service() {
             // failed before any call session could be created.
             scope.launch {
                 delay(60_000L)
-                if (model.state.value.phase == NativeCallPhase.IDLE) stopSelf()
+                if (ownedCallId == null &&
+                    !CallForegroundOwnershipPolicy.active(model.state.value.phase))
+                    stopSelfResult(activeStartId)
             }
             scope.launch {
                 model.state.collect { state ->
-                    if (state.phase == NativeCallPhase.ENDED || state.phase == NativeCallPhase.FAILED)
-                        stopSelf()
+                    // An initial stale ENDED state from the preceding call
+                    // must not immediately close the brand-new foreground
+                    // service before its new authorized session is created.
+                    if (ownedCallId == null && state.callId.isNotBlank() &&
+                        CallForegroundOwnershipPolicy.active(state.phase)) {
+                        ownedCallId = state.callId
+                    }
+                    if (CallForegroundOwnershipPolicy.shouldStopForTerminal(
+                            ownedCallId, state.callId, state.phase)) {
+                        stopSelfResult(activeStartId)
+                    }
                 }
             }
         }
@@ -95,9 +130,9 @@ class CallForegroundService : Service() {
         val model = (application as LanuApplication).callModel
         // A destroyed foreground service must never leave live microphone or
         // video media running without Android's persistent call notification.
-        if (model.state.value.phase in setOf(NativeCallPhase.DIALING,
-                NativeCallPhase.RINGING, NativeCallPhase.CONNECTING,
-                NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING)) model.end()
+        val state = model.state.value
+        if (CallForegroundOwnershipPolicy.shouldEndOnDestroy(
+                ownedCallId, state.callId, state.phase)) model.end()
         model.releaseIdleHost()
         super.onDestroy()
     }
@@ -107,6 +142,7 @@ class CallForegroundService : Service() {
         // opt-out semantics survive an OTA without canceling this service.
         internal const val ONGOING_ID = PublicNotificationIds.ACTIVE_CALL
         private const val EXTRA_VIDEO = "lanu_call_video"
+        private const val EXTRA_TOKEN = "lanu_call_service_request_token"
         private const val ACTION_END = "com.aistudio.lanucalc.kxwzqm.action.LANU_CALL_END"
         @Volatile var isRunning: Boolean = false
             private set
@@ -116,7 +152,9 @@ class CallForegroundService : Service() {
         fun start(context: Context, video: Boolean): Boolean =
             CallForegroundPlatformSafety.execute {
                 ContextCompat.startForegroundService(context,
-                    Intent(context, CallForegroundService::class.java).putExtra(EXTRA_VIDEO, video))
+                    Intent(context, CallForegroundService::class.java)
+                        .putExtra(EXTRA_VIDEO, video)
+                        .putExtra(EXTRA_TOKEN, UUID.randomUUID().toString()))
             }
     }
 }
