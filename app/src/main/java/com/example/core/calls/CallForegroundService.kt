@@ -50,7 +50,7 @@ class CallForegroundService : Service() {
         ownedCallId = initial.callId.takeIf {
             it.isNotBlank() && CallForegroundOwnershipPolicy.active(initial.phase)
         }
-        val video = intent.getBooleanExtra(EXTRA_VIDEO, false)
+        val video = intent?.getBooleanExtra(EXTRA_VIDEO, false) == true
         val foregroundStarted = CallForegroundPlatformSafety.execute {
             createChannel()
             val content = PendingIntent.getActivity(this, 10,
