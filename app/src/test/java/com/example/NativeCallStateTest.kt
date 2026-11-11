@@ -318,6 +318,8 @@ class NativeCallStateTest {
         interruptionCb!!(false)
         withTimeout(5_000) { vm.state.first { !it.localOnHold } }
         awaitSent(CallSignalKind.RESUME)
+        assertEquals("Do not show connected from pre-hold packet counters",
+            NativeCallPhase.RECONNECTING, vm.state.value.phase)
         assertEquals(id, vm.state.value.callId)
         report!!(CallMediaEvidence(true, 7, 8))
         waitPhase(NativeCallPhase.CONNECTED)
@@ -339,7 +341,10 @@ class NativeCallStateTest {
         assertFalse(vm.state.value.remoteOnHold)
         inject(CallSignaling.create(UUID.randomUUID().toString(), CallSignalKind.HOLD, false))
         assertFalse(vm.state.value.remoteOnHold)
-        assertEquals(NativeCallPhase.CONNECTED, vm.state.value.phase)
+        assertEquals("Remote RESUME must wait for real new RTP evidence",
+            NativeCallPhase.RECONNECTING, vm.state.value.phase)
+        report!!(CallMediaEvidence(true, 7, 8))
+        waitPhase(NativeCallPhase.CONNECTED)
     }
 
     @Test fun deniedAudioFocusRetryLeavesHoldUntilUserMayReturn() = runBlocking<Unit> {
