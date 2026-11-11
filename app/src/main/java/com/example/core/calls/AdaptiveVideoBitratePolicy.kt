@@ -8,7 +8,7 @@ package com.example.core.calls
  */
 internal class AdaptiveVideoBitratePolicy {
     private enum class Level(val bps: Int) {
-        LOW(350_000), MEDIUM(650_000), HIGH(1_100_000)
+        AUDIO_PRIORITY(220_000), LOW(350_000), MEDIUM(650_000), HIGH(1_100_000)
     }
     private var level = Level.HIGH
     private var lastAttemptAt: Long? = null
@@ -20,7 +20,8 @@ internal class AdaptiveVideoBitratePolicy {
         lastAttemptAt = null; poorSamples = 0; goodSamples = 0
     }
 
-    fun recommend(lossFraction: Double?, rttMs: Double?, nowMs: Long): Int? {
+    fun recommend(lossFraction: Double?, rttMs: Double?, nowMs: Long,
+                  audioUnderPressure: Boolean = false): Int? {
         if (nowMs < 0L || (lossFraction == null && rttMs == null)) return null
         if (lossFraction != null &&
             (!lossFraction.isFinite() || lossFraction !in 0.0..1.0)) return null
@@ -49,9 +50,15 @@ internal class AdaptiveVideoBitratePolicy {
             goodSamples = 0
         }
         return when {
+            // Only validated remote AUDIO RTP metrics may activate this
+            // additional rung. Two fresh poor samples plus a 10s cooldown
+            // avoid one-off congestion spikes making video unreadable.
+            poorSamples >= 2 && audioUnderPressure &&
+                level != Level.AUDIO_PRIORITY -> Level.AUDIO_PRIORITY.bps
             poorSamples >= 2 && level == Level.HIGH && critical -> Level.LOW.bps
             poorSamples >= 2 && level == Level.HIGH -> Level.MEDIUM.bps
             poorSamples >= 2 && level == Level.MEDIUM -> Level.LOW.bps
+            goodSamples >= 5 && level == Level.AUDIO_PRIORITY -> Level.LOW.bps
             goodSamples >= 5 && level == Level.LOW -> Level.MEDIUM.bps
             goodSamples >= 5 && level == Level.MEDIUM -> Level.HIGH.bps
             else -> null

@@ -12,6 +12,22 @@ class VoiceFirstNetworkPolicyTest {
         assertEquals(550.0, s.rttMs!!, 0.0)
     }
 
+    @Test fun remoteAudioPressureIsReportedOnlyFromValidatedAudioStats() {
+        val audioLoss = VoiceFirstNetworkPolicy.select(0.01, 80.0, 0.14, 320.0)
+        assertTrue(audioLoss.audioUnderPressure)
+        val audioRtt = VoiceFirstNetworkPolicy.select(null, null, null, 720.0)
+        assertTrue(audioRtt.audioUnderPressure)
+        assertEquals(720.0, audioRtt.rttMs!!, 0.0)
+        val videoOnly = VoiceFirstNetworkPolicy.select(0.40, 1800.0, null, null)
+        assertFalse("Bad video stats alone cannot assert remote audio pressure",
+            videoOnly.audioUnderPressure)
+        val malformed = VoiceFirstNetworkPolicy.select(0.01, 100.0,
+            Double.NaN, Double.POSITIVE_INFINITY)
+        assertFalse(malformed.audioUnderPressure)
+        assertFalse(VoiceFirstNetworkPolicy.select(null, null, -0.1, -5.0).audioUnderPressure)
+        assertFalse(VoiceFirstNetworkPolicy.select(null, null, 0.119, 699.0).audioUnderPressure)
+    }
+
     @Test fun noStatsNeverTriggersCongestionGuess() {
         val s = VoiceFirstNetworkPolicy.select(null, null, null, null)
         assertFalse(s.available)
