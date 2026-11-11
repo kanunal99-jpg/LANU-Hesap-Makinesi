@@ -48,6 +48,12 @@ def evaluate(manifest: Any) -> tuple[list[str], dict[str, list[str]]]:
         missing.append("Unsupported evidence schema version")
     if manifest.get("program") != "QUALITY80-UNIFIED-MAJOR-RELEASE":
         missing.append("Wrong major-release program identity")
+    baseline = manifest.get("baseline")
+    if not isinstance(baseline, dict) or (
+        baseline.get("tag") != "v1.2.0-signed.1284"
+        or baseline.get("sha") != "142d4540c5df5000c29f87959ddf781fce3636a1"
+    ):
+        missing.append("Baseline tag and source commit do not match the audited release")
     policy = manifest.get("policy")
     if not isinstance(policy, dict) or (
         policy.get("minimum_verified_score") != 80
@@ -62,6 +68,8 @@ def evaluate(manifest: Any) -> tuple[list[str], dict[str, list[str]]]:
         return missing + ["Exactly 11 category records are required"], per_category
 
     ids = [c.get("id") if isinstance(c, dict) else None for c in categories]
+    if any(type(cid) is not str for cid in ids):
+        return missing + ["Category ID must be a string"], per_category
     if len(ids) != len(set(ids)) or set(ids) != set(EXPECTED_BASELINES):
         return missing + ["Unknown, duplicated or missing category ID"], per_category
     for c in categories:
