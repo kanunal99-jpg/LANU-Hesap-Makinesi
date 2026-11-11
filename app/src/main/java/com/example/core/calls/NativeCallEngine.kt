@@ -126,16 +126,21 @@ class NativeCallEngine(
                             isVideo = authorizedVideoCall).running
                     } catch (_: RuntimeException) { false }
                     catch (_: LinkageError) { false }
-                    if (!routeRunning) {
-                        // Android may return focus while the OEM audio-mode
-                        // switch fails. Never unmute the microphone or tell
-                        // the peer RESUME when no call route was acquired.
-                        focusSuppressed = true
-                        refreshEffectiveAudioMute()
-                        if (!closing.get()) holdListener?.invoke(true)
+                    if (!routeRunning || closing.get() || focusSuppressed ||
+                        !refreshEffectiveAudioMute()) {
+                        // Another focus-loss callback may race route startup,
+                        // or an OEM may reject reopening the audio device.
+                        // Keep *all* tracks quiet and the E2EE call held,
+                        // without reporting false RESUME or terminating RTP.
+                        if (!closing.get()) {
+                            focusSuppressed = true
+                            refreshEffectiveAudioMute()
+                            runCatching { router.close() }
+                            holdListener?.invoke(true)
+                        }
                         return@launch
                     }
-                    refreshEffectiveAudioMute()
+                    if (closing.get() || focusSuppressed) return@launch
                     runCatching { remoteAudio?.setEnabled(true) }
                     if (videoEnabled && cameraPausedForFocus) {
                         // Resume only after Android returns focus and camera
@@ -156,7 +161,8 @@ class NativeCallEngine(
                             cameraUnavailableListener?.invoke()
                         }
                     }
-                    if (videoEnabled) runCatching { localVideo?.setEnabled(true) }
+                    if (videoEnabled && !closing.get() && !focusSuppressed)
+                        runCatching { localVideo?.setEnabled(true) }
                     if (!closing.get() && !focusSuppressed) holdListener?.invoke(false)
                 }
             }
@@ -187,29 +193,37 @@ class NativeCallEngine(
         } else false // DELAYED may later call GAIN; remain muted until then.
     }
 
-    /** Serialize on RTC owner; preserve explicit user-mute after focus gain. */
-    private fun refreshEffectiveAudioMute() {
-        if (closing.get()) return
+    /**
+     * RTC-owner-only transactional mute. A temporarily unavailable OEM
+     * AudioRecord during SIM/VoIP handoff is not a broken DTLS session:
+     * restore fails CLOSED (remain on hold), never force-end an active call.
+     */
+    private fun refreshEffectiveAudioMute(): Boolean {
+        if (closing.get()) return false
         val muted = CallAudioFocusPolicy.effectiveMute(microphoneMuted, focusSuppressed)
-        val track = localAudio ?: return
-        val module = adm ?: return
+        val track = localAudio ?: return true // ADM not created yet.
+        val module = adm ?: return true
         if (muted) {
             runCatching { track.setEnabled(false) }
             runCatching { module.setMicrophoneMute(true) }
-        } else {
-            try {
-                check(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
-                    PackageManager.PERMISSION_GRANTED) { "Mikrofon izni geri alındı." }
-                module.setMicrophoneMute(false)
-                check(track.setEnabled(true)) { "Mikrofon kanalı açılmadı." }
-            } catch (_: RuntimeException) {
-                runCatching { track.setEnabled(false) }
-                runCatching { module.setMicrophoneMute(true) }
-                if (!closing.get()) failure("Ses odağı geri geldi ancak mikrofon açılamadı.")
-            } catch (_: LinkageError) {
-                runCatching { track.setEnabled(false) }
-                if (!closing.get()) failure("Mikrofon sürücüsü yeniden başlatılamadı.")
-            }
+            return true
+        }
+        return try {
+            check(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                PackageManager.PERMISSION_GRANTED) { "Microphone permission revoked" }
+            module.setMicrophoneMute(false)
+            check(track.setEnabled(true)) { "Audio track unavailable" }
+            true
+        } catch (_: RuntimeException) {
+            runCatching { track.setEnabled(false) }
+            runCatching { module.setMicrophoneMute(true) }
+            focusSuppressed = true
+            false
+        } catch (_: LinkageError) {
+            runCatching { track.setEnabled(false) }
+            runCatching { module.setMicrophoneMute(true) }
+            focusSuppressed = true
+            false
         }
     }
     private var factory: PeerConnectionFactory? = null
