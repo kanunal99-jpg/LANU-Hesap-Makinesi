@@ -97,7 +97,7 @@ class NativeCallEngine(
                     // Release MODE_IN_COMMUNICATION and any selected output
                     // device so SIM/WhatsApp owns its own speaker/Bluetooth.
                     // Native DTLS/ICE and RTP objects stay allocated.
-                    runCatching { router.close() }
+                    runCatching { router.releaseForExternalFocus() }
                     // Send the neutral E2EE busy state immediately after
                     // muting; OEM Camera2.stopCapture may block for seconds.
                     if (!closing.get() && focusSuppressed)
@@ -138,7 +138,7 @@ class NativeCallEngine(
                         if (!closing.get()) {
                             focusSuppressed = true
                             refreshEffectiveAudioMute()
-                            runCatching { router.close() }
+                            runCatching { router.releaseForExternalFocus() }
                             holdListener?.invoke(true)
                         }
                         return@launch
