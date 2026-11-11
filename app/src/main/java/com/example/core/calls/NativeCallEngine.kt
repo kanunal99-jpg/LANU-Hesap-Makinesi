@@ -31,6 +31,10 @@ interface CallMediaSession {
     fun close()
     fun candidateListener(listener: (String) -> Unit) {}
     suspend fun remoteCandidate(candidate: String) {}
+    /** Media is already silenced by Android focus loss before this is called. */
+    fun interruptionListener(onHeld: (Boolean) -> Unit, onCameraUnavailable: () -> Unit) {}
+    /** Explicit user action after permanent loss; false leaves WebRTC held. */
+    suspend fun requestAudioResume(): Boolean = false
 }
 
 class NativeCallEngine(
