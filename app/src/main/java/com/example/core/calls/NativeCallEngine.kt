@@ -320,8 +320,13 @@ class NativeCallEngine(
             }
             return JavaAudioDeviceModule.builder(context)
                 .setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
-            .setUseHardwareAcousticEchoCanceler(hardwareAec)
-            .setUseHardwareNoiseSuppressor(hardwareNs)
+                // Single-channel speech avoids wasting capture/output
+                // bandwidth on identical left/right phone microphone audio.
+                .setUseStereoInput(CallSpeechProcessingPolicy.stereoMicrophone)
+                .setUseStereoOutput(CallSpeechProcessingPolicy.stereoSpeaker)
+                .setEnableVolumeLogger(CallSpeechProcessingPolicy.volumeLogger)
+                .setUseHardwareAcousticEchoCanceler(hardwareAec)
+                .setUseHardwareNoiseSuppressor(hardwareNs)
             .setAudioRecordErrorCallback(object : JavaAudioDeviceModule.AudioRecordErrorCallback {
                 override fun onWebRtcAudioRecordInitError(error: String) = onCaptureFailure()
                 override fun onWebRtcAudioRecordStartError(code: JavaAudioDeviceModule.AudioRecordStartErrorCode, error: String) = onCaptureFailure()
@@ -358,9 +363,9 @@ class NativeCallEngine(
         ).apply { sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN }
         connection = checkNotNull(factory!!.createPeerConnection(config, observer)) { "Bağlantı motoru açılamadı." }
         val audioConstraints = MediaConstraints().apply {
-            optional.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
-            optional.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
-            optional.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
+            CallSpeechProcessingPolicy.audioSourceConstraints().forEach { (key, value) ->
+                optional.add(MediaConstraints.KeyValuePair(key, value))
+            }
         }
         source = factory!!.createAudioSource(audioConstraints)
         localAudio = factory!!.createAudioTrack("lanu-audio", source).also {
@@ -737,7 +742,12 @@ class NativeCallEngine(
                 if (!voiceFirst.available) return@launch
                 val loss = voiceFirst.loss; val rtt = voiceFirst.rttMs
                 val now = android.os.SystemClock.elapsedRealtime()
-                val target = videoBitratePolicy.recommend(loss, rtt, now) ?: return@launch
+                // The remote peer's actual audio RTP loss/RTT is a stronger
+                // reason to protect Opus than local speculative packet counts.
+                // A failed OEM setParameters leaves the existing encoder.
+                val target = videoBitratePolicy.recommend(
+                    loss, rtt, now, audioUnderPressure = voiceFirst.audioUnderPressure
+                ) ?: return@launch
                 val sender = connection?.senders?.firstOrNull {
                     it.track()?.kind() == "video"
                 } ?: return@launch
