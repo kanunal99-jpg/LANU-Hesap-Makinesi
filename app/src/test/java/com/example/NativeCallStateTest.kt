@@ -394,6 +394,49 @@ class NativeCallStateTest {
         assertNotNull(vm.notice.value)
     }
 
+    @Test fun postExternalCallSilenceWithConnectedIceCannotDropHealthyE2eeSession() = runBlocking<Unit> {
+        val callId = connectVerifiedOutgoing()
+        interruptionCb!!(true)
+        withTimeout(5_000L) { vm.state.first { it.localOnHold } }
+        interruptionCb!!(false)
+        withTimeout(5_000L) { vm.state.first { !it.localOnHold } }
+        waitPhase(NativeCallPhase.RECONNECTING)
+
+        // No new media evidence during 90 seconds of legitimate Opus silence.
+        // This must NOT trigger a 35s failure while native ICE is still up.
+        mainTestDispatcher.scheduler.advanceTimeBy(90_000L)
+        mainTestDispatcher.scheduler.runCurrent()
+        assertEquals(callId, vm.state.value.callId)
+        assertEquals(NativeCallPhase.RECONNECTING, vm.state.value.phase)
+        assertEquals(0, closes)
+        assertEquals(0, iceRestarts)
+        // The first genuinely fresh pair of media packets restores status.
+        report!!(CallMediaEvidence(true, 8, 9))
+        waitPhase(NativeCallPhase.CONNECTED)
+        assertEquals(callId, vm.state.value.callId)
+        vm.end()
+        waitPhase(NativeCallPhase.ENDED)
+    }
+
+    @Test fun transportFailureAfterHoldTriggersBoundedIceRestartNotSilentZombie() = runBlocking<Unit> {
+        connectVerifiedOutgoing()
+        interruptionCb!!(true)
+        withTimeout(5_000L) { vm.state.first { it.localOnHold } }
+        interruptionCb!!(false)
+        withTimeout(5_000L) { vm.state.first { !it.localOnHold } }
+        waitPhase(NativeCallPhase.RECONNECTING)
+
+        // A real ICE loss AFTER the hold ends is different from silence.
+        report!!(CallMediaEvidence(false, 5, 5))
+        mainTestDispatcher.scheduler.advanceTimeBy(ICE_RESTART_GRACE_MS + 1L)
+        mainTestDispatcher.scheduler.runCurrent()
+        withTimeout(5_000L) { sent.first { it.count { s -> s.kind == CallSignalKind.OFFER } >= 2 } }
+        assertEquals(1, iceRestarts)
+        assertEquals(NativeCallPhase.RECONNECTING, vm.state.value.phase)
+        vm.end()
+        waitPhase(NativeCallPhase.ENDED)
+    }
+
     @Test fun immediateSecondCallWorksWhilePreviousMediaDisposesAsynchronously() = runBlocking<Unit> {
         val original = connectVerifiedOutgoing()
         vm.end()
