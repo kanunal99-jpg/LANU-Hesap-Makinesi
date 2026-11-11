@@ -13,6 +13,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import com.example.core.notifications.PublicNotificationText
 import com.example.core.notifications.PublicNotificationIds
+import com.example.core.notifications.WakeNotificationLifetimePolicy
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -113,6 +114,8 @@ object CallWakePreferences {
 /** Reject stale, unsupported or arbitrary FCM payloads without fetching private data. */
 object CallWakePolicy {
     const val TYPE = "lanu_call_wake_v1"
+    internal const val PAST_WINDOW_MS = 65_000L
+    internal const val FUTURE_GRACE_MS = 15_000L
     // Android 13+ notifications require runtime permission. The calculator
     // and foreground E2EE messages must remain usable without this permission.
     fun requiresNotificationPermission(api: Int): Boolean = api >= 33
@@ -230,8 +233,8 @@ object CallWakePolicy {
         // positive Long timestamps cannot overflow; adding a grace window to
         // Long.MAX_VALUE could wrap and accidentally reject a fresh wake.
         return created > 0L && now > 0L &&
-            if (created <= now) now - created <= 65_000L
-            else created - now <= 15_000L
+            if (created <= now) now - created <= PAST_WINDOW_MS
+            else created - now <= FUTURE_GRACE_MS
     }
 }
 
@@ -344,19 +347,25 @@ object CallWakeNotification {
                     manager.getNotificationChannel(CHANNEL_ID)?.importance else null
             )) return@safePlatformDelivery false
 
+        val wakeAt = data["at"]?.toLongOrNull() ?: return@safePlatformDelivery false
+        val remaining = WakeNotificationLifetimePolicy.remainingMs(
+            wakeAt, now, CallWakePolicy.PAST_WINDOW_MS,
+            CallWakePolicy.FUTURE_GRACE_MS, 75_000L
+        ) ?: return@safePlatformDelivery false
+
         // A notification is only a wake hint, NOT a private-area credential.
         // Answer only after verifying the fresh encrypted peer invitation and
         // obtaining user microphone/camera permission; reveal no private data.
         val intent = Intent(context, IncomingCallActivity::class.java).apply {
             action = CallWakeTapPolicy.ACTION
-            putExtra(CallWakeTapPolicy.EXTRA_WAKE_AT, data["at"]!!.toLong())
+            putExtra(CallWakeTapPolicy.EXTRA_WAKE_AT, wakeAt)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         val pending = PendingIntent.getActivity(context, 0, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val answerIntent = Intent(context, IncomingCallActivity::class.java).apply {
             action = CallWakeTapPolicy.ANSWER
-            putExtra(CallWakeTapPolicy.EXTRA_WAKE_AT, data["at"]!!.toLong())
+            putExtra(CallWakeTapPolicy.EXTRA_WAKE_AT, wakeAt)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         val answerPending = PendingIntent.getActivity(context, 1, answerIntent,
@@ -371,11 +380,11 @@ object CallWakeNotification {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))
             .setVisibility(NotificationCompat.VISIBILITY_SECRET)
-            .setTimeoutAfter(75_000L)
+            .setTimeoutAfter(remaining)
             .setAutoCancel(false)
             .build()
         CallWakePolicy.publishWhileConsented(
-            at = data["at"]!!.toLong(),
+            at = wakeAt,
             isConsented = { !CallWakePolicy.privateAreaVisible && CallWakePreferences.isEnabled(context) },
             notify = { manager.notify(NOTIFICATION_ID, notification) },
             cancel = { manager.cancel(NOTIFICATION_ID) }
