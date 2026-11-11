@@ -39,6 +39,9 @@ jobs:
       - name: Verify relay protocol and Postgres security
         run: npm ci --prefix server && npm test --prefix server
 
+      - name: Validate all 11 QUALITY80 release proof gate invariants
+        run: python3 -m unittest discover -s scripts -p 'test_quality80_release_gate.py'
+
       - name: Test anonymous release download fallback
         run: python3 scripts/test_download_public_release_asset.py
 
@@ -648,6 +651,16 @@ jobs:
         uses: actions/checkout@v5
         with:
           persist-credentials: false
+
+      # The combined QUALITY80 release train must prove all eleven areas
+      # before a single new GitHub APK becomes public. The checked-in baseline
+      # manifest is deliberately BLOCKED; no doc-only or partial-quality
+      # build can silently increase the stable version counter.
+      - name: Block QUALITY80 release until all 11 acceptances are verified
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/quality80_release_gate.py --manifest quality80/evidence.json --commit "$GITHUB_SHA"
 
       - name: Download verified APK artifact
         uses: actions/download-artifact@v4

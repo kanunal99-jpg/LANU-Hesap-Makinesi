@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "program": "LANU-QUALITY80-11",
+  "candidate_commit": null,
+  "categories": [
+    {
+      "id": "e2ee_identity",
+      "score": 73,
+      "approved": false,
+      "review": null,
+      "proof": {}
+    },
+    {
+      "id": "private_media",
+      "score": 70,
+      "approved": false,
+      "review": null,
+      "proof": {}
+    },
+    {
+      "id": "voice_calls",
+      "score": 75,
+      "approved": false,
+      "review": null,
+      "proof": {}
+    },
+    {
+      "id": "video_calls",
+      "score": 73,
+      "approved": false,
+      "review": null,
+      "proof": {}
+    },
+    {
+      "id": "audio_apm",
+      "score": 68,
+      "approved": false,
+      "review": null,
+      "proof": {}
+    },
+    {
+      "id": "background_fcm",
+      "score": 66,
+      "approved": false,
+      "review": null,
+      "proof": {}
+    },
+    {
+      "id": "room_encryption",
+      "score": 68,
+      "approved": false,
+      "review": null,
+      "proof": {}
+    },
+    {
+      "id": "android_oem",
+      "score": 67,
+      "approved": false,
+      "review": null,
+      "proof": {}
+    },
+    {
+      "id": "performance",
+      "score": 75,
+      "approved": false,
+      "review": null,
+      "proof": {}
+    },
+    {
+      "id": "accessibility",
+      "score": 74,
+      "approved": false,
+      "review": null,
+      "proof": {}
+    },
+    {
+      "id": "kvkk_erasure",
+      "score": 61,
+      "approved": false,
+      "review": null,
+      "proof": {}
+    }
+  ]
+}
