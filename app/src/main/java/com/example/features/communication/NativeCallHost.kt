@@ -176,7 +176,7 @@ fun NativeCallHost(
                     if (engine != null && !ended) {
                         val controlsReady = state.phase in setOf(NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING) &&
                             !state.localOnHold
-                        if (state.localOnHold) {
+                        if (state.localOnHold && revealPeerName) {
                             Text("LANU görüşmesi sonlanmadı. Diğer arama bittikten sonra ses odağı otomatik dönmezse aşağıdan tekrar deneyin.",
                                 style = MaterialTheme.typography.bodySmall)
                             Button(
