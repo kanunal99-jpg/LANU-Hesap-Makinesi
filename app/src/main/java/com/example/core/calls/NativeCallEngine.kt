@@ -171,16 +171,35 @@ class NativeCallEngine(
         val audioProcessing = CallAudioProcessingPolicy.choose(
             aecReported = runCatching { JavaAudioDeviceModule.isBuiltInAcousticEchoCancelerSupported() }.getOrDefault(false),
             nsReported = runCatching { JavaAudioDeviceModule.isBuiltInNoiseSuppressorSupported() }.getOrDefault(false),
-            preferSoftware = CallAudioPreference(context).preferSoftware()
+            preferSoftware = CallAudioRecoveryRegistry.policy.preferSoftware(
+                CallAudioPreference(context).preferSoftware()
+            )
         )
-        fun createAdm(hardwareAec: Boolean, hardwareNs: Boolean): JavaAudioDeviceModule =
-            JavaAudioDeviceModule.builder(context).setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+        fun createAdm(hardwareAec: Boolean, hardwareNs: Boolean): JavaAudioDeviceModule {
+            // AudioRecord starts asynchronously after ADM construction. An
+            // OEM-specific capture failure can therefore bypass the synchronous
+            // factory fallback; remember only a one-bit in-process health flag
+            // for the NEXT call. The failing call follows its existing safe
+            // error path; no live SDP/track recreation or double AEC/NS.
+            fun onCaptureFailure() {
+                val permitted = try {
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                        PackageManager.PERMISSION_GRANTED
+                } catch (_: RuntimeException) { false }
+                CallAudioRecoveryRegistry.policy.captureStartupFailed(
+                    usingHardware = hardwareAec || hardwareNs,
+                    microphonePermissionGranted = permitted
+                )
+                audioFailure()
+            }
+            return JavaAudioDeviceModule.builder(context)
+                .setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
             .setUseHardwareAcousticEchoCanceler(hardwareAec)
             .setUseHardwareNoiseSuppressor(hardwareNs)
             .setAudioRecordErrorCallback(object : JavaAudioDeviceModule.AudioRecordErrorCallback {
-                override fun onWebRtcAudioRecordInitError(error: String) = audioFailure()
-                override fun onWebRtcAudioRecordStartError(code: JavaAudioDeviceModule.AudioRecordStartErrorCode, error: String) = audioFailure()
-                override fun onWebRtcAudioRecordError(error: String) = audioFailure()
+                override fun onWebRtcAudioRecordInitError(error: String) = onCaptureFailure()
+                override fun onWebRtcAudioRecordStartError(code: JavaAudioDeviceModule.AudioRecordStartErrorCode, error: String) = onCaptureFailure()
+                override fun onWebRtcAudioRecordError(error: String) = onCaptureFailure()
             })
             .setAudioTrackErrorCallback(object : JavaAudioDeviceModule.AudioTrackErrorCallback {
                 override fun onWebRtcAudioTrackInitError(error: String) = audioFailure()
@@ -188,6 +207,7 @@ class NativeCallEngine(
                 override fun onWebRtcAudioTrackError(error: String) = audioFailure()
             })
             .createAudioDeviceModule()
+        }
         val audioPipeline = CallAudioPipelineFactory.build(audioProcessing,
             createModule = { createAdm(it.hardwareAec, it.hardwareNs) },
             createEngine = { module ->
