@@ -35,6 +35,8 @@ interface CallMediaSession {
     fun interruptionListener(onHeld: (Boolean) -> Unit, onCameraUnavailable: () -> Unit) {}
     /** Explicit user action after permanent loss; false leaves WebRTC held. */
     suspend fun requestAudioResume(): Boolean = false
+    /** A verified remote HOLD/RESUME also invalidates cumulative RTP proof. */
+    fun invalidateAfterRemoteHold() {}
 }
 
 class NativeCallEngine(
@@ -63,6 +65,10 @@ class NativeCallEngine(
     private var cameraPausedForFocus = false
     private var authorizedVideoCall = false
 
+    override fun invalidateAfterRemoteHold() {
+        if (!closing.get()) rtpEvidence.invalidateOnHoldTransition()
+    }
+
     override fun interruptionListener(onHeld: (Boolean) -> Unit, onCameraUnavailable: () -> Unit) {
         holdListener = onHeld
         cameraUnavailableListener = onCameraUnavailable
@@ -81,6 +87,7 @@ class NativeCallEngine(
                 if (focusSuppressed) return
                 // Disable native output immediately, even before RTC dispatch.
                 focusSuppressed = true
+                rtpEvidence.invalidateOnHoldTransition()
                 runCatching { localAudio?.setEnabled(false) }
                 runCatching { remoteAudio?.setEnabled(false) }
                 runCatching { localVideo?.setEnabled(false) }
@@ -109,6 +116,7 @@ class NativeCallEngine(
             CallAudioFocusPolicy.Action.RESTORE_IF_USER_UNMUTED -> {
                 if (!focusSuppressed) return
                 focusSuppressed = false
+                rtpEvidence.invalidateOnHoldTransition()
                 scope.launch {
                     if (closing.get() || focusSuppressed) return@launch
                     // Only the authorized still-running call may reacquire
