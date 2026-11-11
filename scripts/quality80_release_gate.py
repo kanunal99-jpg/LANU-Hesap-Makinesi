@@ -63,7 +63,12 @@ def is_evidence_link(value):
     value = value.strip()
     if not value or any(ord(char) < 33 for char in value):
         return False
-    url = urlparse(value)
+    try:
+        url = urlparse(value)
+    except ValueError:
+        return False
+    if any(segment in (".", "..") for segment in url.path.split("/")):
+        return False
     # No arbitrary HTTP endpoint, token, credentials, query, or fragment in
     # immutable quality proof; public/GitHub review links are inspectable.
     if (url.scheme != "https" or url.hostname != "github.com" or
