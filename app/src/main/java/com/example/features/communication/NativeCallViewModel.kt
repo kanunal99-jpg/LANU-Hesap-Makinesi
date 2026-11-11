@@ -416,8 +416,10 @@ class NativeCallViewModel(
                 current.lastRemoteHoldAtMs = s.createdAt
                 val held = s.kind == CallSignalKind.HOLD
                 if (_state.value.remoteOnHold != held) {
+                    val wasHeld = _state.value.localOnHold || _state.value.remoteOnHold
+                    _media.value?.invalidateAfterRemoteHold()
                     _state.value = _state.value.copy(remoteOnHold = held)
-                    updateInterruptionRecovery(current)
+                    updateInterruptionRecovery(current, wasHeld)
                 }
             }
             else -> Unit
@@ -442,6 +444,12 @@ class NativeCallViewModel(
             if (session !== current || !foreground) return@launch
             current.lastTransportConnected = value.transportConnected
             if (value.connected) {
+                // Old or in-flight stats during a hold do not prove a resumed
+                // two-way call. Both tracks must advance after the epoch reset.
+                if (_state.value.localOnHold || _state.value.remoteOnHold) {
+                    current.lastConfirmedMediaAtMs = null
+                    return@launch
+                }
                 endMeasurement(current, true)
                 current.lastConfirmedMediaAtMs = mediaClockMs().takeIf { it >= 0L }
                 current.reconnectGeneration++ // invalidate any short-disconnect grace timer
@@ -577,8 +585,9 @@ class NativeCallViewModel(
             _state.value.phase !in setOf(NativeCallPhase.CONNECTING,
                 NativeCallPhase.CONNECTED, NativeCallPhase.RECONNECTING)) return
         if (_state.value.localOnHold == held) return
+        val wasHeld = _state.value.localOnHold || _state.value.remoteOnHold
         _state.value = _state.value.copy(localOnHold = held)
-        updateInterruptionRecovery(current)
+        updateInterruptionRecovery(current, wasHeld)
         publishHoldState(current)
     }
 
@@ -588,8 +597,16 @@ class NativeCallViewModel(
      * while either peer is intentionally held. Resume normal evidence-gated
      * ICE recovery only after BOTH parties are no longer on hold.
      */
-    private fun updateInterruptionRecovery(current: Session) {
+    private fun updateInterruptionRecovery(current: Session, wasHeld: Boolean) {
         if (session !== current || !foreground) return
+        if (wasHeld && !_state.value.localOnHold && !_state.value.remoteOnHold &&
+            _state.value.phase == NativeCallPhase.CONNECTED) {
+            // Never leave the old CONNECTED banner visible before fresh
+            // bidirectional RTP arrives after SIM/VoIP interruption.
+            _state.value = _state.value.copy(phase = NativeCallPhase.RECONNECTING)
+            current.lastConfirmedMediaAtMs = null
+            beginMeasurement(current, true)
+        }
         if (_state.value.localOnHold || _state.value.remoteOnHold) {
             current.reconnectGeneration++
             current.recoveryJob?.cancel(); current.recoveryJob = null
