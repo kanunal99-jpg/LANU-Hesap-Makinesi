@@ -121,8 +121,20 @@ class NativeCallEngine(
                     if (closing.get() || focusSuppressed) return@launch
                     // Only the authorized still-running call may reacquire
                     // the route, and only after Android grants audio focus.
-                    runCatching { router.start(realCallAuthorized = true,
-                        isVideo = authorizedVideoCall) }
+                    val routeRunning = try {
+                        router.start(realCallAuthorized = true,
+                            isVideo = authorizedVideoCall).running
+                    } catch (_: RuntimeException) { false }
+                    catch (_: LinkageError) { false }
+                    if (!routeRunning) {
+                        // Android may return focus while the OEM audio-mode
+                        // switch fails. Never unmute the microphone or tell
+                        // the peer RESUME when no call route was acquired.
+                        focusSuppressed = true
+                        refreshEffectiveAudioMute()
+                        if (!closing.get()) holdListener?.invoke(true)
+                        return@launch
+                    }
                     refreshEffectiveAudioMute()
                     runCatching { remoteAudio?.setEnabled(true) }
                     if (videoEnabled && cameraPausedForFocus) {
