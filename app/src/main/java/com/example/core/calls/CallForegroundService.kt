@@ -32,7 +32,7 @@ class CallForegroundService : Service() {
             return START_NOT_STICKY
         }
         val video = intent?.getBooleanExtra(EXTRA_VIDEO, false) == true
-        try {
+        val foregroundStarted = CallForegroundPlatformSafety.execute {
             createChannel()
             val content = PendingIntent.getActivity(this, 10,
                 Intent(this, IncomingCallActivity::class.java).apply {
@@ -58,7 +58,8 @@ class CallForegroundService : Service() {
                 startForeground(ONGOING_ID, notification, type)
             } else startForeground(ONGOING_ID, notification)
             isRunning = true
-        } catch (_: RuntimeException) {
+        }
+        if (!foregroundStarted) {
             model.reportServiceUnavailable()
             model.end()
             stopSelf()
@@ -112,16 +113,10 @@ class CallForegroundService : Service() {
         // camera/microphone FGS types were added in Android 11 (API 30).
         // Android 10 uses the basic FGS overload, not unsupported type bits.
         fun useTypedMediaForegroundService(api: Int): Boolean = api >= 30
-        fun start(context: Context, video: Boolean): Boolean = try {
-            ContextCompat.startForegroundService(context,
-                Intent(context, CallForegroundService::class.java).putExtra(EXTRA_VIDEO, video))
-            true
-        } catch (_: SecurityException) {
-            false
-        } catch (_: IllegalStateException) {
-            false
-        } catch (_: RuntimeException) {
-            false
-        }
+        fun start(context: Context, video: Boolean): Boolean =
+            CallForegroundPlatformSafety.execute {
+                ContextCompat.startForegroundService(context,
+                    Intent(context, CallForegroundService::class.java).putExtra(EXTRA_VIDEO, video))
+            }
     }
 }

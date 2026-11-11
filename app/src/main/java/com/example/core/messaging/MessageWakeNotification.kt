@@ -13,6 +13,7 @@ import android.media.RingtoneManager
 import android.os.Build
 import com.example.core.notifications.PublicNotificationText
 import com.example.core.notifications.PublicNotificationIds
+import com.example.core.notifications.WakeNotificationLifetimePolicy
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -101,6 +102,8 @@ object MessageWakePreferences {
 
 object MessageWakePolicy {
     const val TYPE = "lanu_message_wake_v1"
+    internal const val PAST_WINDOW_MS = 120_000L
+    internal const val FUTURE_GRACE_MS = 15_000L
 
     // A user-selected silent/LOW channel is still a legitimate alert.
     // Only a fully blocked channel (IMPORTANCE_NONE) forbids delivery.
@@ -116,8 +119,8 @@ object MessageWakePolicy {
         // corrupted clock at Long.MIN/MAX must never wrap into an accepted
         // private notification hint. No sender/message metadata is involved.
         if (at <= 0L || now <= 0L) return false
-        return if (at <= now) now - at <= 120_000L
-        else at - now <= 15_000L
+        return if (at <= now) now - at <= PAST_WINDOW_MS
+        else at - now <= FUTURE_GRACE_MS
     }
 
     @Synchronized
@@ -264,6 +267,10 @@ object MessageWakeNotification {
                 )) return@safeShow false
 
             val at = data["at"]?.toLongOrNull() ?: return@safeShow false
+            val remaining = WakeNotificationLifetimePolicy.remainingMs(
+                at, now, MessageWakePolicy.PAST_WINDOW_MS,
+                MessageWakePolicy.FUTURE_GRACE_MS, 120_000L
+            ) ?: return@safeShow false
             MessageWakePolicy.publishOnce(at) {
                 val launch = Intent(context, MainActivity::class.java).apply {
                     action = MessageWakeTapPolicy.ACTION
@@ -281,6 +288,9 @@ object MessageWakeNotification {
                     .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                     .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
                     .setAutoCancel(true)
+                    // Late or duplicated wake hints must not linger indefinitely
+                    // on Android O+; the encrypted conversation remains in Room.
+                    .setTimeoutAfter(remaining)
                     .build()
                 MessageWakePolicy.postIfStillEnabled(
                     isEnabled = {

@@ -10,6 +10,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.example.core.calls.CallAudioPreference
+import com.example.core.calls.CallAudioRecoveryRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -42,8 +43,13 @@ internal fun CallAudioSettings() {
                     }
                 })
         }
-        Text("Ses boğuksa veya yankı varsa deneyin. Bir sonraki aramada WebRTC yazılım gürültü/yankı azaltması kullanılır. Kapatınca otomatik cihaz seçimine dönülür; mevcut görüşme değişmez.",
+        Text("Ses boğuksa veya yankı varsa deneyin. Bir sonraki aramada WebRTC yazılım gürültü/yankı azaltması kullanılır. Bu tercih mevcut görüşmeyi değiştirmez.",
             style = MaterialTheme.typography.bodySmall)
+        if (CallAudioRecoveryRegistry.policy.hardwareQuarantined()) {
+            Text("Mikrofon başlatma hatası algılandı. Güvenlik için uygulama yeniden açılana kadar sonraki görüşmelerde WebRTC yazılım ses işleme kullanılacak.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error)
+        }
         if (failed) Text("Tercih kaydedilemedi. Tekrar deneyin.", color = MaterialTheme.colorScheme.error)
     }
 }
