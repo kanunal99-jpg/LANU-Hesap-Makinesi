@@ -3,7 +3,7 @@ package com.example.core.calls
 import org.json.JSONObject
 import java.util.UUID
 
-enum class CallSignalKind { INVITE, ACCEPT, REJECT, BUSY, OFFER, ANSWER, END, CANDIDATES }
+enum class CallSignalKind { INVITE, ACCEPT, REJECT, BUSY, OFFER, ANSWER, END, CANDIDATES, HOLD, RESUME }
 
 /** Sensitive SDP stays only in RAM and inside authenticated peer ciphertext. */
 class CallSignal(
