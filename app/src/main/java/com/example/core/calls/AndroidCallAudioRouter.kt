@@ -47,6 +47,9 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
     private var running = false
+    // Another SIM/VoIP app may own the GLOBAL Android mode and speaker state
+    // by the time AUDIOFOCUS_LOSS reaches us. Never overwrite its choices.
+    private var releasingForExternalFocus = false
     private var videoCall = false
     private var preferred: Route? = null
     private var previousMode: Int? = null
@@ -260,6 +263,17 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
     @Synchronized
     fun refresh(): State = if (running) selectRoute() else _state.value
 
+    /**
+     * Release LANU-owned routing while a different app owns Android focus.
+     * Unlike user hangup, do not restore global audio mode/speaker flags:
+     * they may already belong to the incoming SIM/WhatsApp call.
+     */
+    @Synchronized
+    fun releaseForExternalFocus() {
+        releasingForExternalFocus = true
+        try { close() } finally { releasingForExternalFocus = false }
+    }
+
     @Synchronized
     override fun close() {
         if (!running) return
@@ -293,11 +307,15 @@ class AndroidCallAudioRouter(context: Context) : Closeable {
         } else {
             stopSco()
             @Suppress("DEPRECATION")
-            try { previousSpeaker?.let { audioManager.isSpeakerphoneOn = it } }
+            if (!releasingForExternalFocus) {
+                try { previousSpeaker?.let { audioManager.isSpeakerphoneOn = it } }
+                catch (_: RuntimeException) { }
+            }
+        }
+        if (!releasingForExternalFocus) {
+            try { previousMode?.let { audioManager.mode = it } }
             catch (_: RuntimeException) { }
         }
-        try { previousMode?.let { audioManager.mode = it } }
-        catch (_: RuntimeException) { }
         previousMode = null
         previousSpeaker = null
         preferred = null
