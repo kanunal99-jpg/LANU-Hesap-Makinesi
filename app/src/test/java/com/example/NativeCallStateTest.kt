@@ -50,6 +50,7 @@ class NativeCallStateTest {
     private var cameraGate:CompletableDeferred<Unit>?=null
     private var muteGate:CompletableDeferred<Unit>?=null
     private var failMute=false
+    private var failCamera=false
     private val cameraCommands=mutableListOf<Boolean>()
     private val muteCommands=mutableListOf<Boolean>()
     private var failCallAck=false
@@ -197,6 +198,7 @@ class NativeCallStateTest {
                 override suspend fun camera(value:Boolean) {
                     cameraCommands += value
                     cameraGate?.await()
+                    if (failCamera) error("Simulated camera HAL unavailable")
                 }
                 override fun switchCamera() { cameraSwitches++ }
                 override fun interruptionListener(onHeld: (Boolean) -> Unit, onCameraUnavailable: () -> Unit) {
@@ -354,6 +356,37 @@ class NativeCallStateTest {
         withTimeout(5_000) { vm.state.first { !it.localOnHold } }
         awaitSent(CallSignalKind.RESUME)
         assertEquals(2, focusResumeAttempts)
+    }
+
+    @Test fun cameraHalErrorAfterHoldDegradesToAudioWithoutKillingCall() = runBlocking {
+        val callId = connectVerifiedOutgoing()
+        interruptionCb!!(true)
+        withTimeout(5_000) { vm.state.first { it.localOnHold } }
+        interruptionCb!!(false)
+        withTimeout(5_000) { vm.state.first { !it.localOnHold } }
+        // The call is still active but video was requested in a separate
+        // native control operation; failure must not terminate encrypted audio.
+        // A second fresh video call exercises the same media factory path.
+        vm.end(); waitPhase(NativeCallPhase.ENDED)
+        vm.outgoing(UserCodes.conversationId(own.id, peer.id), true, true)
+        val videoInvite = withTimeout(5_000) {
+            sent.first { signals -> signals.count { it.kind == CallSignalKind.INVITE } >= 2 }
+                .last { it.kind == CallSignalKind.INVITE }
+        }
+        inject(CallSignaling.create(videoInvite.callId, CallSignalKind.ACCEPT, true))
+        withTimeout(5_000) { sent.first { signals ->
+            signals.count { it.kind == CallSignalKind.OFFER } >= 2
+        } }
+        report!!(CallMediaEvidence(true, 7, 7))
+        waitPhase(NativeCallPhase.CONNECTED)
+        assertTrue(vm.state.value.cameraOn)
+        failCamera = true
+        vm.camera()
+        withTimeout(5_000) { vm.state.first { !it.cameraOn } }
+        assertEquals(NativeCallPhase.CONNECTED, vm.state.value.phase)
+        assertEquals(videoInvite.callId, vm.state.value.callId)
+        assertNotEquals(callId, vm.state.value.callId)
+        assertNotNull(vm.notice.value)
     }
 
     @Test fun immediateSecondCallWorksWhilePreviousMediaDisposesAsynchronously() = runBlocking {
