@@ -297,7 +297,7 @@ class NativeCallStateTest {
         return invite.callId
     }
 
-    @Test fun longExternalCallHoldsNativeSessionAndSendsEncryptedBusyWithoutDropping() = runBlocking {
+    @Test fun longExternalCallHoldsNativeSessionAndSendsEncryptedBusyWithoutDropping() = runBlocking<Unit> {
         val id = connectVerifiedOutgoing()
         interruptionCb!!(true)
         withTimeout(5_000) { vm.state.first { it.localOnHold } }
@@ -325,7 +325,7 @@ class NativeCallStateTest {
         waitPhase(NativeCallPhase.ENDED)
     }
 
-    @Test fun remoteBusyAndResumeMustBeSameVerifiedCallAndRejectLateOldHold() = runBlocking {
+    @Test fun remoteBusyAndResumeMustBeSameVerifiedCallAndRejectLateOldHold() = runBlocking<Unit> {
         val id = connectVerifiedOutgoing()
         val now = System.currentTimeMillis()
         inject(CallSignaling.create(id, CallSignalKind.HOLD, false, now = now))
@@ -342,7 +342,7 @@ class NativeCallStateTest {
         assertEquals(NativeCallPhase.CONNECTED, vm.state.value.phase)
     }
 
-    @Test fun deniedAudioFocusRetryLeavesHoldUntilUserMayReturn() = runBlocking {
+    @Test fun deniedAudioFocusRetryLeavesHoldUntilUserMayReturn() = runBlocking<Unit> {
         connectVerifiedOutgoing()
         interruptionCb!!(true)
         withTimeout(5_000) { vm.state.first { it.localOnHold } }
@@ -358,7 +358,7 @@ class NativeCallStateTest {
         assertEquals(2, focusResumeAttempts)
     }
 
-    @Test fun cameraHalErrorAfterHoldDegradesToAudioWithoutKillingCall() = runBlocking {
+    @Test fun cameraHalErrorAfterHoldDegradesToAudioWithoutKillingCall() = runBlocking<Unit> {
         val callId = connectVerifiedOutgoing()
         interruptionCb!!(true)
         withTimeout(5_000) { vm.state.first { it.localOnHold } }
@@ -389,7 +389,7 @@ class NativeCallStateTest {
         assertNotNull(vm.notice.value)
     }
 
-    @Test fun immediateSecondCallWorksWhilePreviousMediaDisposesAsynchronously() = runBlocking {
+    @Test fun immediateSecondCallWorksWhilePreviousMediaDisposesAsynchronously() = runBlocking<Unit> {
         val original = connectVerifiedOutgoing()
         vm.end()
         waitPhase(NativeCallPhase.ENDED)
