@@ -149,6 +149,7 @@ fun NativeCallHost(
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(if (revealPeerName) state.name else "LANU araması", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Text(when {
+                        !revealPeerName -> "LANU görüşmesi"
                         state.localOnHold -> "Diğer telefon veya uygulama görüşmesi nedeniyle LANU beklemede"
                         state.remoteOnHold -> "Diğer kullanıcı meşgul — LANU görüşmesi beklemede"
                         else -> when (state.phase) {
