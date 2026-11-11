@@ -16,6 +16,44 @@ class AdaptiveVideoBitratePolicyTest {
         assertEquals(350_000, policy.recommend(0.20, 700.0, 13000L))
     }
 
+    @Test fun confirmedRemoteAudioTroubleGetsConservativeVideoBandwidthPriority() {
+        val policy = AdaptiveVideoBitratePolicy()
+        assertNull("One audio-loss outlier must not force a large video downshift",
+            policy.recommend(0.14, 700.0, 1_000L, audioUnderPressure = true))
+        assertEquals(220_000, policy.recommend(0.15, 720.0, 2_000L,
+            audioUnderPressure = true))
+        policy.attemptFinished(220_000, 2_000L, applied = true)
+        assertNull(policy.recommend(0.16, 800.0, 12_000L, audioUnderPressure = true))
+        assertNull(policy.recommend(0.16, 800.0, 13_000L, audioUnderPressure = true))
+        // Restore only after sustained network health, never bounce immediately.
+        repeat(4) { index ->
+            assertNull(policy.recommend(0.005, 85.0, 24_000L + index,
+                audioUnderPressure = false))
+        }
+        assertEquals(350_000, policy.recommend(0.005, 85.0, 24_004L,
+            audioUnderPressure = false))
+        policy.attemptFinished(350_000, 24_004L, applied = true)
+        repeat(4) { index ->
+            assertNull(policy.recommend(0.005, 85.0, 35_000L + index,
+                audioUnderPressure = false))
+        }
+        assertEquals(650_000, policy.recommend(0.005, 85.0, 35_004L,
+            audioUnderPressure = false))
+    }
+
+    @Test fun failedNativeAudioPrioritySetDoesNotAdvanceEncoderState() {
+        val policy = AdaptiveVideoBitratePolicy()
+        assertNull(policy.recommend(0.17, 850.0, 1_000L, audioUnderPressure = true))
+        assertEquals(220_000, policy.recommend(0.20, 850.0, 2_000L, audioUnderPressure = true))
+        policy.attemptFinished(220_000, 2_000L, applied = false)
+        assertNull(policy.recommend(0.20, 850.0, 12_000L, audioUnderPressure = true))
+        assertEquals(220_000, policy.recommend(0.20, 850.0, 13_000L,
+            audioUnderPressure = true))
+        policy.attemptFinished(220_000, 13_000L, applied = true)
+        assertNull(policy.recommend(Double.NaN, 900.0, 25_000L, audioUnderPressure = true))
+        assertNull(policy.recommend(0.03, -1.0, 25_000L, audioUnderPressure = true))
+    }
+
     @Test fun missingOrInvalidStatsNeverTriggerAdaptation() {
         val policy = AdaptiveVideoBitratePolicy()
         assertNull(policy.recommend(null, null, 1000L))
