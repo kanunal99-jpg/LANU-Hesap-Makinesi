@@ -473,6 +473,17 @@ class NativeCallViewModel(
                         if (current.outgoing) scheduleIceRecovery(current, generation, value.iceFailed)
                     }
                 } else if (!value.transportConnected &&
+                    _state.value.phase == NativeCallPhase.RECONNECTING &&
+                    !_state.value.localOnHold && !_state.value.remoteOnHold &&
+                    timeout?.isActive != true) {
+                    // A previously connected route can drop AFTER return from
+                    // an external call. Arm recovery when ICE actually drops,
+                    // not from mere Opus DTX/silence while transport is healthy.
+                    val generation = ++current.reconnectGeneration
+                    current.reconnectOfferStarted = false
+                    deadline(current, 35_000L, "Görüşmeye dönüşte ağ bağlantısı kurulamadı.")
+                    if (current.outgoing) scheduleIceRecovery(current, generation, value.iceFailed)
+                } else if (!value.transportConnected &&
                     !_state.value.localOnHold && !_state.value.remoteOnHold &&
                     CallWeakNetworkRecoveryPolicy.mayFastTrack(
                         outgoing = current.outgoing,
@@ -614,12 +625,15 @@ class NativeCallViewModel(
         } else if (_state.value.phase == NativeCallPhase.RECONNECTING) {
             val generation = ++current.reconnectGeneration
             current.reconnectOfferStarted = false
-            deadline(current, 35_000L, "Görüşmeye dönüşte ağ bağlantısı kurulamadı.")
-            if (current.outgoing && !current.lastTransportConnected) {
-                scheduleIceRecovery(current, generation, iceFailed = true)
+            if (!current.lastTransportConnected) {
+                deadline(current, 35_000L, "Görüşmeye dönüşte ağ bağlantısı kurulamadı.")
+                if (current.outgoing) scheduleIceRecovery(current, generation, iceFailed = true)
+            } else {
+                // Opus DTX/silence is not an outage. The old CONNECTED banner
+                // remains withheld until fresh two-way RTP, but neither
+                // silence nor an unchanged ICE-connected route drops the call.
+                timeout?.cancel(); timeout = null
             }
-            // Even a still-connected ICE route needs fresh bidirectional RTP
-            // before CONNECTED can be displayed. Existing stats proves it.
         } else if (_state.value.phase == NativeCallPhase.CONNECTING) {
             deadline(current, 35_000L, "Görüşmeye dönüşte bağlantı kurulamadı.")
         }
