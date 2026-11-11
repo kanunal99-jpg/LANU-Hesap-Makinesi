@@ -51,7 +51,13 @@ class LocalCrashReportTest {
             assertEquals(2, record.appFrames.size)
             val file = File(context.noBackupFilesDir, "lanu_crash_code_frames_v1.json")
             val bytes = file.readText()
-            assertFalse(bytes.contains("9437"))
+            // An unrelated wall-clock timestamp can legitimately contain
+            // the same digits as the synthetic PIN (e.g. November 2026).
+            // Inspect the code frame fields, not the public timestamp number.
+            val storedFrames = org.json.JSONObject(bytes).getJSONArray("appFrames").toString()
+            assertFalse(storedFrames.contains("9437"))
+            assertFalse(bytes.contains("PIN=9437"))
+            assertFalse(bytes.contains("PIN-9437"))
             assertFalse(bytes.contains("private.example.com"))
             assertFalse(bytes.contains("SECRET_CHAT_MESSAGE"))
             assertFalse(bytes.contains("com.external.SecretLeak"))
