@@ -403,7 +403,7 @@ class NativeCallViewModel(
                 val held = s.kind == CallSignalKind.HOLD
                 if (_state.value.remoteOnHold != held) {
                     _state.value = _state.value.copy(remoteOnHold = held)
-                    updateInterruptionRecovery(current, held)
+                    updateInterruptionRecovery(current)
                 }
             }
             else -> Unit
