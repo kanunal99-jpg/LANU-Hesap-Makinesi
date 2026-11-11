@@ -39,6 +39,14 @@ jobs:
       - name: Verify relay protocol and Postgres security
         run: npm ci --prefix server && npm test --prefix server
 
+      # Audit the unified 11-category quality acceptance contract. Planning
+      # or "all CI green" is explicitly NOT a completed 80+ release; --enforce
+      # may only be used once physical, cryptographic and legal evidence exists.
+      - name: Verify QUALITY80 plan and negative release-admission tests
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_quality80_release_gate.py'
+          python3 scripts/quality80_release_gate.py
+
       - name: Test anonymous release download fallback
         run: python3 scripts/test_download_public_release_asset.py
 
