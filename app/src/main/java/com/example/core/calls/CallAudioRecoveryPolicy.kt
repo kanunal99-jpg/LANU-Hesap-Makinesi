@@ -21,9 +21,11 @@ internal class CallAudioRecoveryPolicy {
 
     fun captureStartupFailed(
         usingHardware: Boolean,
-        microphonePermissionGranted: Boolean
+        microphonePermissionGranted: Boolean,
+        captureStillOwned: Boolean
     ) {
-        if (usingHardware && microphonePermissionGranted) {
+        // Ignore asynchronous callbacks from a closed or replaced WebRTC ADM.
+        if (usingHardware && microphonePermissionGranted && captureStillOwned) {
             captureFailedWithHardware.set(true)
         }
     }
