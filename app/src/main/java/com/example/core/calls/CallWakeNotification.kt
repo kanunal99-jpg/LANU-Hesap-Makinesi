@@ -409,16 +409,28 @@ object CallWakeNotification {
             .setTimeoutAfter(remaining)
             .setOngoing(true)
             .setAutoCancel(false)
-        if (Build.VERSION.SDK_INT >= 31) {
-            builder.setStyle(NotificationCompat.CallStyle.forIncomingCall(
-                Person.Builder().setName("LANU araması").build(), declinePending, answerPending))
-        } else {
+        // OEM CallStyle failures must fall back to the ordinary two-button
+        // notification rather than silently losing a time-critical call.
+        val styled = if (Build.VERSION.SDK_INT >= 31) {
+            try {
+                builder.setStyle(NotificationCompat.CallStyle.forIncomingCall(
+                    Person.Builder().setName("LANU araması").build(), declinePending, answerPending))
+                true
+            } catch (_: RuntimeException) { false }
+            catch (_: LinkageError) { false }
+        } else false
+        if (!styled) {
             builder.addAction(R.mipmap.ic_launcher, "Reddet", declinePending)
                 .addAction(R.mipmap.ic_launcher, "Yanıtla", answerPending)
         }
-        // Never launch an Activity directly from FCM: Android owns FSI routing,
-        // user DND/channel/FSI access and heads-up fallback on locked devices.
-        if (canShowFullScreen(manager)) builder.setFullScreenIntent(pending, true)
+        // Never launch an Activity directly from FCM: Android owns FSI routing.
+        // A failing FSI enhancement must preserve the regular heads-up fallback.
+        if (canShowFullScreen(manager)) {
+            try { builder.setFullScreenIntent(pending, true) }
+            catch (_: SecurityException) { /* Heads-up remains. */ }
+            catch (_: RuntimeException) { /* Heads-up remains. */ }
+            catch (_: LinkageError) { /* Heads-up remains. */ }
+        }
         val notification = builder.build()
         CallWakePolicy.publishWhileConsented(
             at = wakeAt,
