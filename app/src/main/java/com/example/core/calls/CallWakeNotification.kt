@@ -432,6 +432,11 @@ object CallWakeNotification {
             .setTimeoutAfter(remaining)
             .setOngoing(true)
             .setAutoCancel(false)
+        // Before Android 8 there are no notification channels; provide the
+        // same call vibration directly to the OS notification builder.
+        // On 8+ only the user-controlled channel decides vibration.
+        if (Build.VERSION.SDK_INT < 26)
+            builder.setVibrate(longArrayOf(0L, 650L, 650L, 650L, 1_800L))
         // OEM CallStyle failures must fall back to the ordinary two-button
         // notification rather than silently losing a time-critical call.
         val styled = if (Build.VERSION.SDK_INT >= 31) {
