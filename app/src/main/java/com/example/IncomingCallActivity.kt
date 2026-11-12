@@ -32,6 +32,10 @@ class IncomingCallActivity : ComponentActivity() {
         if (android.os.Build.VERSION.SDK_INT >= 27) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
+        } else {
+            // Pre-Android-8.1 devices require legacy window flags.
+            window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
         }
         if (!mayOpenCallUi()) { finish(); return }
         readWakeIntent(intent)
