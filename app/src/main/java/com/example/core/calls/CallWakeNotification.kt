@@ -120,6 +120,8 @@ object CallWakePolicy {
     // Android 13+ notifications require runtime permission. The calculator
     // and foreground E2EE messages must remain usable without this permission.
     fun requiresNotificationPermission(api: Int): Boolean = api >= 33
+    fun fullScreenAllowed(api: Int, specialAccessGranted: Boolean): Boolean =
+        api < 34 || specialAccessGranted
     // A muted (LOW/MIN) channel is still a valid silent notification; a
     // blocked (NONE) or missing channel is not delivery. Do not consume a
     // call's one-shot wake claim when Android cannot display it.
@@ -337,7 +339,9 @@ object CallWakeNotification {
 
     /** Android 14+ special access is optional. If denied, keep the heads-up notification. */
     fun canShowFullScreen(manager: NotificationManager, api: Int = Build.VERSION.SDK_INT): Boolean =
-        CallWakePolicy.safePlatformDelivery { api < 34 || manager.canUseFullScreenIntent() }
+        CallWakePolicy.safePlatformDelivery {
+            fullScreenAllowed(api, api >= 34 && manager.canUseFullScreenIntent())
+        }
 
     fun show(context: Context, data: Map<String, String>, now: Long = System.currentTimeMillis()): Boolean =
         CallWakePolicy.safePlatformDelivery {
