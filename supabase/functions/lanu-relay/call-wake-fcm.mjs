@@ -23,7 +23,8 @@ export class FcmUnregisteredTokenError extends Error {
   constructor() { super('FCM_UNREGISTERED'); this.name = 'FcmUnregisteredTokenError'; }
 }
 
-export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi = crypto) {
+export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi = crypto,
+  retryWait = ms => new Promise(resolve => setTimeout(resolve, ms))) {
   if (!rawCredentials) return null; // Safe default: disabled without credentials.
   let config;
   try { config = JSON.parse(rawCredentials); } catch { return null; }
@@ -73,7 +74,15 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
     if (typeof deviceToken !== 'string' || deviceToken.length < 20 ||
       deviceToken.length > 4096 || !/^[A-Za-z0-9_:.-]+$/.test(deviceToken)) return false;
     const bearer = await accessToken();
-    const response = await fetchWithDeadline(fetcher, 'https://fcm.googleapis.com/v1/projects/'+config.project_id+'/messages:send',{
+    // Three total bounded attempts for a single incoming CALL only.
+    // Reuse the EXACT opaque FCM hint/timestamp on retry so Android's
+    // dedupe rejects a duplicate if Google accepted the first lost ACK.
+    // Message notifications are unchanged. Never retry auth, invalid-token,
+    // protocol or permanent client-side failures.
+    for (let attempt = 0; attempt < (kind === 'call' ? 3 : 1); attempt++) {
+      let response;
+      try {
+        response = await fetchWithDeadline(fetcher, 'https://fcm.googleapis.com/v1/projects/'+config.project_id+'/messages:send',{
       method:'POST',headers:{Authorization:'Bearer '+bearer,'Content-Type':'application/json'},
       body:JSON.stringify({message:{
         token:deviceToken,
@@ -83,10 +92,20 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
         android:{priority:'HIGH',ttl:kind === 'message' ? '120s' : '45s',
           collapse_key:kind === 'message' ? 'lanu_message_v1' : 'lanu_call_v1'}
       }}),
-      // A slow Google endpoint must never indefinitely hold the encrypted
-      // call invitation relay. Do not retry rate-limited FCM synchronously.
-    });
-    if (!response.ok) {
+      // The signed relay ACK and encrypted INVITE are independent of FCM.
+      // The Edge waitUntil task absorbs this bounded retry without blocking
+      // the caller. Never loop past the original call's 45-second lifetime.
+        });
+      } catch (error) {
+        if (kind === 'call' && attempt < 2 &&
+            (error instanceof TypeError || error?.name === 'AbortError')) {
+          await retryWait(attempt === 0 ? 450 : 1_350);
+          continue;
+        }
+        throw error;
+      }
+      if (response.ok) return true;
+      if (!response.ok) {
       // FCM HTTP 404 alone can also mean a missing project or endpoint.
       // Only the explicit UNREGISTERED detail proves this *device token*
       // is expired. Never discard an active token on generic 400/401/404/429.
@@ -101,8 +120,14 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
           if (error instanceof FcmUnregisteredTokenError) throw error;
         }
       }
-      throw new Error('FCM dispatch unavailable');
+        if (kind === 'call' && attempt < 2 &&
+            [408, 429, 500, 502, 503, 504].includes(response.status)) {
+          await retryWait(attempt === 0 ? 450 : 1_350);
+          continue;
+        }
+        throw new Error('FCM dispatch unavailable');
+      }
     }
-    return true;
+    throw new Error('FCM dispatch unavailable');
   };
 }

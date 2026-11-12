@@ -41,6 +41,8 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** Called only inside the already-unlocked private settings screen. */
 @Composable
@@ -151,6 +153,12 @@ fun CallWakeSettings(repository: CommunicationRepository) {
                                 repository.registerCallWakeToken(it)
                             }
                             enabled = true
+                            // A registration that succeeded this session still
+                            // needs token recovery after a later process death.
+                            // WorkManager Binder operations stay off the UI thread.
+                            withContext(Dispatchers.IO) {
+                                CallWakeTokenRefreshWorker.maintainTokenRecovery(context)
+                            }
                             status = "Yalnız gelen sesli/görüntülü arama uyarıları etkin."
                         } catch (failure: Exception) {
                             // Server or credential failure is not success.

@@ -6,6 +6,8 @@ import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
@@ -147,11 +149,40 @@ class CallWakeTokenRefreshWorker(
 
     companion object {
         const val WORK_NAME = "lanu-call-wake-token-refresh-v1"
+        const val PERIODIC_WORK_NAME = "lanu-call-wake-token-health-v1"
+
+        /**
+         * FCM onNewToken is not guaranteed to reach a killed app, and a
+         * one-shot worker may exhaust its bounded retries while offline.
+         * A sparse, network-only periodic repair renews the CURRENT token
+         * without storing tokens, keys or peer data in WorkManager.
+         * No enrollment is ever started without previous explicit consent.
+         */
+        fun maintainTokenRecovery(context: Context) {
+            if (CallWakePreferences.isRegistrationInProgress(context)) return
+            try {
+                val manager = WorkManager.getInstance(context.applicationContext)
+                if (!CallWakePreferences.isEnabled(context)) {
+                    manager.cancelUniqueWork(PERIODIC_WORK_NAME)
+                    return
+                }
+                val request = PeriodicWorkRequestBuilder<CallWakeTokenRefreshWorker>(
+                    12, TimeUnit.HOURS
+                ).setConstraints(Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED).build())
+                    .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                    .build()
+                manager.enqueueUniquePeriodicWork(
+                    PERIODIC_WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
+            } catch (_: RuntimeException) { /* Foreground manual retry remains. */ }
+              catch (_: LinkageError) { /* Unsupported OEM WorkManager remains optional. */ }
+        }
 
         fun enqueue(context: Context, replace: Boolean = true) {
             if (CallWakePreferences.isRegistrationInProgress(context)) return
             if (!CallWakePreferences.isEnabled(context) &&
                 !CallWakePreferences.hasPendingRemoteRevoke(context)) return
+            maintainTokenRecovery(context)
             val request = OneTimeWorkRequestBuilder<CallWakeTokenRefreshWorker>()
                 .setConstraints(Constraints.Builder()
                     .setRequiredNetworkType(NetworkType.CONNECTED).build())
