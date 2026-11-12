@@ -246,6 +246,18 @@ class CallWakeNotificationTest {
         }
     }
 
+    @Test @Config(sdk = [25]) fun legacyAndroidIncomingWakeCarriesRingtoneVibration() {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val at = 1_710_000_077_999L
+        assertTrue(CallWakePreferences.setEnabled(context, true))
+        assertTrue(CallWakeNotification.show(context,
+            mapOf("type" to CallWakePolicy.TYPE, "at" to at.toString()), now = at))
+        val notification = manager.activeNotifications.first { it.id == 8129 }.notification
+        assertEquals(Notification.CATEGORY_CALL, notification.category)
+        assertTrue(notification.vibrate!!.any { it > 0L })
+        assertEquals(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE), notification.sound)
+    }
+
     @Test @Config(sdk = [29]) fun ringtoneCallChannelEnablesRealVibration() {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         CallWakeNotification.ensureChannel(manager)
