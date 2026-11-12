@@ -64,6 +64,32 @@ class CallWakeRecoverySchedulingTest {
         assertTrue(CallWakePreferences.hasPendingRemoteRevoke(context))
     }
 
+    @Test fun optedInDeviceGetsSparsePeriodicTokenRecoveryAndOptOutCancelsIt() {
+        assertTrue(CallWakePreferences.beginRemoteRegistration(context))
+        assertTrue(CallWakePreferences.completeRemoteRegistration(context))
+        CallWakeTokenRefreshWorker.maintainTokenRecovery(context)
+        val first = manager.getWorkInfosForUniqueWork(
+            CallWakeTokenRefreshWorker.PERIODIC_WORK_NAME).get(5, TimeUnit.SECONDS)
+            .single()
+        assertEquals(WorkInfo.State.ENQUEUED, first.state)
+        assertEquals(NetworkType.CONNECTED, first.constraints.requiredNetworkType)
+        assertTrue(first.outputData.keyValueMap.isEmpty())
+        CallWakeTokenRefreshWorker.maintainTokenRecovery(context)
+        val unchanged = manager.getWorkInfosForUniqueWork(
+            CallWakeTokenRefreshWorker.PERIODIC_WORK_NAME).get(5, TimeUnit.SECONDS)
+            .single()
+        assertEquals(first.id, unchanged.id)
+
+        assertTrue(CallWakePreferences.disableAndQueueRemoteRevoke(context))
+        CallWakeTokenRefreshWorker.enqueue(context, replace = false)
+        val work = manager.getWorkInfosForUniqueWork(
+            CallWakeTokenRefreshWorker.PERIODIC_WORK_NAME).get(5, TimeUnit.SECONDS)
+        assertTrue(work.none { it.state == WorkInfo.State.ENQUEUED ||
+            it.state == WorkInfo.State.RUNNING })
+        assertFalse(CallWakePreferences.isEnabled(context))
+        assertEquals(WorkInfo.State.ENQUEUED, scheduled().single().state)
+    }
+
     @Test fun freshInstallOrFullyRevokedConsentNeverSchedulesRegistration() {
         CallWakeTokenRefreshWorker.enqueue(context)
         assertTrue(scheduled().isEmpty())
