@@ -25,6 +25,7 @@ import com.example.ui.theme.MyApplicationTheme
  */
 class IncomingCallActivity : ComponentActivity() {
     private var answerAt by mutableLongStateOf(0L)
+    private var declineAt by mutableLongStateOf(0L)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
@@ -43,6 +44,15 @@ class IncomingCallActivity : ComponentActivity() {
                 kotlinx.coroutines.delay(30_000L)
                 if (!observedLiveCall &&
                     (application as LanuApplication).callModel.state.value.phase == NativeCallPhase.IDLE) finish()
+            }
+            // A decline gesture is only executable after a separately verified
+            // encrypted INVITE matches this very notification timestamp.
+            LaunchedEffect(state.phase, state.inviteAtMs, declineAt) {
+                if (state.phase == NativeCallPhase.RINGING &&
+                    CallWakeTapPolicy.matchesVerifiedInvite(declineAt, state.inviteAtMs, System.currentTimeMillis())) {
+                    declineAt = 0L
+                    (application as LanuApplication).callModel.reject()
+                }
             }
             LaunchedEffect(state.phase, state.callId) {
                 // MainActivity can dismiss a completed call concurrently,
@@ -103,11 +113,15 @@ class IncomingCallActivity : ComponentActivity() {
     }
     private fun readWakeIntent(incoming: Intent?) {
         answerAt = 0L
-        if (incoming?.action != CallWakeTapPolicy.ANSWER ||
+        declineAt = 0L
+        if (incoming?.action !in setOf(CallWakeTapPolicy.ANSWER, CallWakeTapPolicy.DECLINE) ||
             !CallWakePreferences.isEnabled(this)) return
         val at = incoming.getLongExtra(CallWakeTapPolicy.EXTRA_WAKE_AT, 0L)
         // This merely records a recent user gesture; it does NOT authorize
         // any peer or microphone permission until a signed invite matches.
-        if (CallWakeTapPolicy.freshWakeIntent(incoming.action, at, System.currentTimeMillis())) answerAt = at
+        if (CallWakeTapPolicy.freshWakeIntent(incoming.action, at, System.currentTimeMillis())) {
+            if (incoming.action == CallWakeTapPolicy.ANSWER) answerAt = at
+            else declineAt = at
+        }
     }
 }
