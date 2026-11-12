@@ -37,6 +37,7 @@ import com.example.core.calls.CallAudioRouteLabelPolicy
 import com.example.core.calls.CallAudioRoutePolicy
 import com.example.core.calls.CallForegroundService
 import com.example.core.calls.CallWakeTapPolicy
+import com.example.core.calls.CallRingVibration
 import kotlinx.coroutines.delay
 import org.webrtc.SurfaceViewRenderer
 
@@ -56,6 +57,10 @@ fun NativeCallHost(
     // permission callbacks return, not the stale composition that launched it.
     val privateAreaVisible by rememberUpdatedState(revealPeerName)
     LifecycleStartEffect(state.callId, state.phase, context) {
+        // RINGING is entered only after decryption of a matching E2EE INVITE.
+        // Pair haptics with the existing looping ringtone, not with raw FCM.
+        val stopVibration = if (state.phase == NativeCallPhase.RINGING)
+            CallRingVibration.start(context) else null
         val ringtone = if (state.phase == NativeCallPhase.RINGING) runCatching {
             RingtoneManager.getRingtone(context, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))?.apply {
                 audioAttributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
@@ -64,7 +69,10 @@ fun NativeCallHost(
                 play()
             }
         }.getOrNull() else null
-        onStopOrDispose { runCatching { ringtone?.stop() } }
+        onStopOrDispose {
+            runCatching { ringtone?.stop() }
+            stopVibration?.invoke()
+        }
     }
     var confirm by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     var permissionTarget by remember { mutableStateOf<Triple<String, Boolean, Boolean>?>(null) }
