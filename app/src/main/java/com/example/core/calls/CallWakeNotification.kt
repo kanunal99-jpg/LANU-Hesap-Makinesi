@@ -340,7 +340,7 @@ object CallWakeNotification {
     /** Android 14+ special access is optional. If denied, keep the heads-up notification. */
     fun canShowFullScreen(manager: NotificationManager, api: Int = Build.VERSION.SDK_INT): Boolean =
         CallWakePolicy.safePlatformDelivery {
-            fullScreenAllowed(api, api >= 34 && manager.canUseFullScreenIntent())
+            CallWakePolicy.fullScreenAllowed(api, api >= 34 && manager.canUseFullScreenIntent())
         }
 
     fun show(context: Context, data: Map<String, String>, now: Long = System.currentTimeMillis()): Boolean =
