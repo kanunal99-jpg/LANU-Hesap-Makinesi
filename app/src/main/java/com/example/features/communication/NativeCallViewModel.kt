@@ -332,6 +332,9 @@ class NativeCallViewModel(
             repository.setCallInProgress(true)
             _state.value = NativeCallUiState(s.callId, incoming.peer.name, s.video, NativeCallPhase.RINGING,
                 inviteAtMs = s.createdAt)
+            // The secured live host now owns the ringtone and action buttons.
+            // Prevent the earlier generic FCM alert from ringing concurrently.
+            CallWakeNotification.cancel(appContext)
             startActivePoll(current)
             deadline(current, 45_000, "Arama süresi doldu.")
             return

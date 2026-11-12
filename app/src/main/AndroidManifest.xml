@@ -30,6 +30,8 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Android 13+ optional call/message alerts: runtime consent from private settings. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Only user-opted-in real LANU voice/video ringing; Android 14+ may revoke special access. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <!-- Only for a user-tapped APK update; Android requires separate installer consent. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />

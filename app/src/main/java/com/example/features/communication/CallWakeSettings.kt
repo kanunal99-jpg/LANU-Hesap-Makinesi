@@ -205,7 +205,7 @@ fun CallWakeSettings(repository: CommunicationRepository) {
             modifier = Modifier.padding(top = 12.dp))
         Text("Yalnız sesli ve görüntülü aramalar. Mesaj bildirimleri aşağıdaki ayrı seçenekten yönetilir. Kilit ekranında kişi adı veya gizli içerik görünmez.",
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 6.dp))
-        Text("Bildirime dokununca hesap makinesi açılır; gizli alana 2011. ve isteğe bağlı PIN ile girilir. İnternet, Android pil yönetimi ve Google servisleri nedeniyle her çağrının bildirimi garanti değildir.",
+        Text("Gerçek çağrı geldiğinde kilit ekranında genel LANU araması bilgisi ile Yanıtla/Reddet görünür; kişi, sohbet ve PIN açılmaz. Ses/görüntü yalnız doğrulanmış davet ve izin sonrası başlar. İnternet, Android pil yönetimi ve Google servisleri nedeniyle her çağrının bildirimi garanti değildir.",
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 8.dp))
         if (busy) CircularProgressIndicator()
         else if (enabled) OutlinedButton(onClick = {
@@ -259,6 +259,25 @@ fun CallWakeSettings(repository: CommunicationRepository) {
             if (needsPermission) notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
             else startRegistration()
         }) { Text("Yalnız arama bildirimlerini etkinleştir") }
+        if (enabled && Build.VERSION.SDK_INT >= 34) {
+            Text("Tam ekran arama iznini Android Özel uygulama erişimi ekranından açabilirsiniz. İzin kapalıysa normal çağrı bildirimi kullanılır.",
+                style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 6.dp))
+            OutlinedButton(onClick = {
+                try {
+                    context.startActivity(Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
+                        data = android.net.Uri.parse("package:${context.packageName}")
+                    })
+                } catch (_: Exception) {
+                    try {
+                        context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = android.net.Uri.parse("package:${context.packageName}")
+                        })
+                    } catch (_: Exception) {
+                        status = "Telefon Ayarları → Özel erişim → Tam ekran bildirimler bölümünü kontrol edin."
+                    }
+                }
+            }) { Text("Kilit ekranı tam ekran arama iznini aç") }
+        }
         if (enabled) OutlinedButton(onClick = {
             // The OS is the only authority that can restore sound to a
             // user-muted notification category; never override it in code.

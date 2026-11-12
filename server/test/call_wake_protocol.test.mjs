@@ -115,7 +115,7 @@ test('simultaneous FCM wakes share OAuth refresh while preserving isolated priva
     assert.deepEqual(Object.keys(message.data).sort(),['at','type']);
     assert.equal(message.data.type,'lanu_call_wake_v1');
     assert.equal(message.android.priority,'HIGH');
-    assert.equal(message.android.ttl,'70s');
+    assert.equal(message.android.ttl,'45s');
     assert.equal(message.notification,undefined,'No caller information can leak into a notification payload');
     sent.push(message);
     return {ok:true};

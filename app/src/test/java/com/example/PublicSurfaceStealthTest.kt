@@ -63,7 +63,13 @@ class PublicSurfaceStealthTest {
             assertNotNull(channel)
             assertGeneric(channel.name.toString())
             assertGeneric(channel.description)
-            assertEquals(Notification.VISIBILITY_SECRET, channel.lockscreenVisibility)
+            // Consented call alerts show ONLY a redacted generic call; message
+            // alerts still reveal nothing on a locked screen.
+            assertEquals(
+                if (id == CallWakeNotification.CHANNEL_ID) Notification.VISIBILITY_PRIVATE
+                else Notification.VISIBILITY_SECRET,
+                channel.lockscreenVisibility
+            )
         }
     }
 
@@ -94,6 +100,41 @@ class PublicSurfaceStealthTest {
         }
         assertEquals(NotificationManager.IMPORTANCE_LOW,
             manager.getNotificationChannel(ids.first()).importance)
+    }
+
+    @Test fun sanitizerKeepsConsentedCallChannelRedactedWithoutCreatingChannels() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        CallWakeNotification.ensureChannel(manager)
+        val before = manager.notificationChannels.map { it.id }.toSet()
+        PublicNotificationChannelSanitizer.sanitizeExisting(context)
+        assertEquals(before, manager.notificationChannels.map { it.id }.toSet())
+        val call = manager.getNotificationChannel(CallWakeNotification.CHANNEL_ID)
+        assertGeneric(call.name.toString())
+        assertGeneric(call.description)
+        assertEquals(Notification.VISIBILITY_PRIVATE, call.lockscreenVisibility)
+    }
+
+    @Test fun oldRingingChannelMetadataIsNeutralizedWithoutRevivingMute() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val oldId = "lanu_private_calls_ringing_v2"
+        manager.createNotificationChannel(NotificationChannel(oldId,
+            "Gizli gelen arama bildirimi", NotificationManager.IMPORTANCE_LOW).apply {
+            setSound(null, null)
+            // v2 shipped with SECRET; Android does not allow an upgrade to
+            // change an already-created channel's user-managed visibility.
+            lockscreenVisibility = Notification.VISIBILITY_SECRET
+        })
+        val before = manager.notificationChannels.map { it.id }.toSet()
+        PublicNotificationChannelSanitizer.sanitizeExisting(context)
+        assertEquals(before, manager.notificationChannels.map { it.id }.toSet())
+        val old = manager.getNotificationChannel(oldId)
+        assertGeneric(old.name.toString())
+        assertGeneric(old.description)
+        assertEquals(Notification.VISIBILITY_SECRET, old.lockscreenVisibility)
+        assertEquals(NotificationManager.IMPORTANCE_LOW, old.importance)
+        assertEquals(null, old.sound)
     }
 
     @Test fun previouslyVisibleCallChannelNameIsNeutralizedWithoutResettingMute() {

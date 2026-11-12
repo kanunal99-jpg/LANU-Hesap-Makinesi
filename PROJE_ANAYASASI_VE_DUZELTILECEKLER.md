@@ -1,5 +1,13 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 12.11.2026 — Kullanıcı kararı: TSUNAMİ kilit ekranı çağrı kabulü ve kanıtlı dağıtım
+
+**Yalnızca LANU-Hesap-Makinesi** üzerinde, mevcut `#380` / `PR #381` üzerinden devam edilir; başka LANU deposuna yazılmaz. İstenen hedef kullanıcı onaylı, kilit ekranında kimliksiz sesli/görüntülü çağrı bildirimi, mümkün olduğunda Android tam ekran/heads-up, kolay Yanıtla/Reddet, doğrulanmış E2EE INVITE olmadan görüşme/ret/mikrofon/kamera başlatmama, çağrı zamanı ve kopyalarını güvenle yönetme, WebRTC ve ağ/focus/OEM yaşam döngüsü devamlılığıdır. Çağrı bildirimini bilerek açan kişi için yalnız genel çağrı varlığı görünür; kişi, PIN, sohbet ve özel alan açılmaz. Gizli hesap makinesi girişi, isteğe bağlı PIN, Room/kimlik/mesaj/geçmiş/kuyruk, mevcut imza ve kullanıcı tercihleri korunur.
+
+Kritik zincir: **ana servis → alternatif → fallback → hata yönetimi → güvenli varsayılan → mahrem gözlemleme → smoke test**. Android API23–36; özellikle API34–36 full-screen ve bildirim izni izinli/izinsiz, gecikmiş/tekrar çağrı, E2EE zaman uyuşmazlığı, iki telefon ve Samsung A55/OEM koşulları ayrıca incelenecek. Android, FCM, DND, OEM pil politikaları veya fiziksel cihaz etkileri garanti edilmiş gibi sunulmayacak. GMS olmayan cihazda FCM yoksa gerçek sistem alternatifi doğrulanmadan anlık teslim iddiası kurulmaz. Ücretli servis onaysız açılmaz.
+
+**Yayın kapısı:** Son PR HEAD CI, main CI, Android/R8, Firebase gerçek kurulum, stabil imza kimliği, SHA256, eski APK üzerinde veri koruyan OTA, public GitHub Releases APK/SHA/signer read-back ve iki **fiziksel** cihaz kabulü ayrı kanıt basamaklarıdır. Başarısız test veya eksik imza/veri koruma kapısında PR birleştirilmez ve yeni kullanıcı yayını yapılmaz. Kodu yazmak, emülatör sonucu veya eski APK başarısı fiziksel kabul/yayın olarak raporlanmaz. Bu kayıt hedef ve kuraldır; tamamlanmış geliştirme veya yayın kanıtı değildir.
+
 ## 10.11.2026 — Kullanıcı kararı: LANU iletişim kalite +2 puan HEDEF paketi
 
 Kullanıcı mesajlaşma, bağlantı, mikrofon gürültü/yankı azaltma, sesli ve görüntülü görüşme kalitesini bir **büyük ve bütünleşik sağlamlaştırma paketi** ile artırıp GitHub Releases üzerinden yeni imzalı APK'yi yayımlamayı istedi. Başlangıç kaynak main `5795857`, yayımlanmış sürüm `v1.2.0-signed.1242`. "+2 puan" **hedef ve bütçe/öncelik çerçevesidir**, ölçülmüş veya garanti edilen artış değildir; mevcut 100 puanlık MADDE 1B ve iki fiziksel cihaz kabul şartları korunur.

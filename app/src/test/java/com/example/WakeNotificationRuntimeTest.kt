@@ -39,16 +39,17 @@ class WakeNotificationRuntimeTest {
 
     @Test fun delayedCallPostsOnlyRemainingRingtoneLifetime() {
         assertTrue(CallWakePreferences.setEnabled(context, true))
-        val at = now - 64_000L
+        val at = now - 44_000L
         assertTrue(CallWakeNotification.show(context,
             mapOf("type" to CallWakePolicy.TYPE, "at" to at.toString()), now))
         val shown = manager.activeNotifications.single {
             it.id == PublicNotificationIds.INCOMING_CALL
         }.notification
         assertEquals(1_000L, shown.timeoutAfter)
-        assertEquals(Notification.VISIBILITY_SECRET, shown.visibility)
+        // A consenting user sees a generic redacted call, not a hidden chat.
+        assertEquals(Notification.VISIBILITY_PRIVATE, shown.visibility)
         assertFalse(CallWakeNotification.show(context,
-            mapOf("type" to CallWakePolicy.TYPE, "at" to (now-65_000L).toString()), now))
+            mapOf("type" to CallWakePolicy.TYPE, "at" to (now-45_000L).toString()), now))
     }
 
     @Test fun delayedMessageHasBoundedVisibleLifetimeAndCannotDismissCall() {

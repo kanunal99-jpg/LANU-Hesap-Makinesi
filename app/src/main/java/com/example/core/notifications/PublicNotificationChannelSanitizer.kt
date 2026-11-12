@@ -18,6 +18,7 @@ import com.example.core.messaging.MessageWakeNotification
  */
 object PublicNotificationChannelSanitizer {
     private const val LEGACY_CALL_ID = "lanu_private_calls_v1"
+    private const val PREVIOUS_CALL_ID = "lanu_private_calls_ringing_v2"
 
     fun sanitizeExisting(context: Context) {
         if (Build.VERSION.SDK_INT < 26) return
@@ -26,6 +27,7 @@ object PublicNotificationChannelSanitizer {
                 ?: return
             for (id in listOf(
                 LEGACY_CALL_ID,
+                PREVIOUS_CALL_ID,
                 CallWakeNotification.CHANNEL_ID,
                 MessageWakeNotification.CHANNEL_ID
             )) {
@@ -34,7 +36,11 @@ object PublicNotificationChannelSanitizer {
                     manager.createNotificationChannel(
                         NotificationChannel(id, PublicNotificationText.CHANNEL_NAME, existing.importance).apply {
                             description = PublicNotificationText.CHANNEL_DESCRIPTION
-                            lockscreenVisibility = Notification.VISIBILITY_SECRET
+                            // Opted-in call v3 intentionally shows ONLY a redacted call
+                            // on the lock screen. Older calls and all message hints
+                            // remain SECRET. Do not undo v3's explicit opt-in UX.
+                            lockscreenVisibility = if (id == CallWakeNotification.CHANNEL_ID)
+                                Notification.VISIBILITY_PRIVATE else Notification.VISIBILITY_SECRET
                         }
                     )
                 } catch (_: Exception) {

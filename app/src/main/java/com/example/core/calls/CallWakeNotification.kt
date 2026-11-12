@@ -15,6 +15,7 @@ import com.example.core.notifications.PublicNotificationText
 import com.example.core.notifications.PublicNotificationIds
 import com.example.core.notifications.WakeNotificationLifetimePolicy
 import androidx.core.app.NotificationCompat
+import androidx.core.app.Person
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.IncomingCallActivity
@@ -114,11 +115,15 @@ object CallWakePreferences {
 /** Reject stale, unsupported or arbitrary FCM payloads without fetching private data. */
 object CallWakePolicy {
     const val TYPE = "lanu_call_wake_v1"
-    internal const val PAST_WINDOW_MS = 65_000L
+    // The authenticated INVITE is considered expired at about 45 seconds.
+    // An older FCM wake must not keep ringing a call the peer cannot accept.
+    internal const val PAST_WINDOW_MS = 45_000L
     internal const val FUTURE_GRACE_MS = 15_000L
     // Android 13+ notifications require runtime permission. The calculator
     // and foreground E2EE messages must remain usable without this permission.
     fun requiresNotificationPermission(api: Int): Boolean = api >= 33
+    fun fullScreenAllowed(api: Int, specialAccessGranted: Boolean): Boolean =
+        api < 34 || specialAccessGranted
     // A muted (LOW/MIN) channel is still a valid silent notification; a
     // blocked (NONE) or missing channel is not delivery. Do not consume a
     // call's one-shot wake claim when Android cannot display it.
@@ -233,7 +238,7 @@ object CallWakePolicy {
         // positive Long timestamps cannot overflow; adding a grace window to
         // Long.MAX_VALUE could wrap and accidentally reject a fresh wake.
         return created > 0L && now > 0L &&
-            if (created <= now) now - created <= PAST_WINDOW_MS
+            if (created <= now) now - created < PAST_WINDOW_MS
             else created - now <= FUTURE_GRACE_MS
     }
 }
@@ -242,6 +247,7 @@ object CallWakePolicy {
 object CallWakeTapPolicy {
     const val ACTION = "com.aistudio.lanucalc.kxwzqm.action.LANU_CALL_WAKE"
     const val ANSWER = "com.aistudio.lanucalc.kxwzqm.action.LANU_CALL_ANSWER"
+    const val DECLINE = "com.aistudio.lanucalc.kxwzqm.action.LANU_CALL_DECLINE"
     const val EXTRA_WAKE_AT = "lanu_wake_at"
     fun requiresFreshEntry(action: String?): Boolean = action == ACTION
     /**
@@ -252,7 +258,7 @@ object CallWakeTapPolicy {
     fun mayOpenCallUi(userConsented: Boolean, liveCall: Boolean, freshWake: Boolean): Boolean =
         liveCall || (userConsented && freshWake)
     fun freshWakeIntent(action: String?, at: Long, now: Long): Boolean =
-        (action == ACTION || action == ANSWER) &&
+        (action == ACTION || action == ANSWER || action == DECLINE) &&
             CallWakePolicy.eligible(mapOf("type" to CallWakePolicy.TYPE, "at" to at.toString()), now)
 
     fun matchesVerifiedInvite(hintAt: Long, inviteAt: Long, now: Long): Boolean =
@@ -266,7 +272,8 @@ object CallWakeTapPolicy {
 object CallWakeNotification {
     // Android keeps a channel's first sound choice across APK upgrades.
     // Version the once-silent call channel without touching chat notifications.
-    const val CHANNEL_ID = "lanu_private_calls_ringing_v2"
+    const val CHANNEL_ID = "lanu_private_calls_ringing_v3"
+    private const val PREVIOUS_CHANNEL_ID = "lanu_private_calls_ringing_v2"
     private const val OLD_CHANNEL_ID = "lanu_private_calls_v1"
     internal const val NOTIFICATION_ID = PublicNotificationIds.INCOMING_CALL
 
@@ -288,37 +295,39 @@ object CallWakeNotification {
     fun ensureChannel(manager: NotificationManager) {
         if (Build.VERSION.SDK_INT < 26) return
 
-        // Respect deliberate old-channel mute/low-priority settings on upgrade.
-        val previous = manager.getNotificationChannel(OLD_CHANNEL_ID)
-        val userMuted = previous != null && (
-            previous.importance < NotificationManager.IMPORTANCE_DEFAULT ||
-                (Build.VERSION.SDK_INT >= 30 && previous.hasUserSetSound() && previous.sound == null)
+        // A new channel is needed because old v2 hid all call notifications
+        // from the lock screen. Never revive a channel the user blocked/muted.
+        val legacy = manager.getNotificationChannel(OLD_CHANNEL_ID)
+        val previous = manager.getNotificationChannel(PREVIOUS_CHANNEL_ID)
+        val legacyMuted = legacy != null && (
+            legacy.importance < NotificationManager.IMPORTANCE_DEFAULT ||
+                (Build.VERSION.SDK_INT >= 30 && legacy.hasUserSetSound() && legacy.sound == null)
             )
-        // Android channel names/descriptions are visible even when every alert
-        // is dismissed. Rename legacy channels without deleting user settings.
-        if (previous != null) {
+        if (legacy != null) {
             try {
                 manager.createNotificationChannel(
-                    NotificationChannel(OLD_CHANNEL_ID, PublicNotificationText.CHANNEL_NAME, previous.importance).apply {
+                    NotificationChannel(OLD_CHANNEL_ID, PublicNotificationText.CHANNEL_NAME, legacy.importance).apply {
                         description = PublicNotificationText.CHANNEL_DESCRIPTION
                         lockscreenVisibility = Notification.VISIBILITY_SECRET
                     }
                 )
             } catch (_: Exception) {
-                // An OEM channel-repair failure must not suppress a separately
-                // opted-in alert. Startup repair will retry next app launch.
+                // Channel rename is cosmetic; never reset user choices.
             }
         }
-        val incoming = NotificationChannel(
-            CHANNEL_ID, PublicNotificationText.CHANNEL_NAME,
-            if (userMuted) NotificationManager.IMPORTANCE_LOW else NotificationManager.IMPORTANCE_HIGH
-        ).apply {
+        val importance = previous?.importance ?: when {
+            legacy?.importance == NotificationManager.IMPORTANCE_NONE -> NotificationManager.IMPORTANCE_NONE
+            legacyMuted -> NotificationManager.IMPORTANCE_LOW
+            else -> NotificationManager.IMPORTANCE_HIGH
+        }
+        val incoming = NotificationChannel(CHANNEL_ID, PublicNotificationText.CHANNEL_NAME, importance).apply {
             description = PublicNotificationText.CHANNEL_DESCRIPTION
-            lockscreenVisibility = Notification.VISIBILITY_SECRET
-            if (userMuted) {
-                setSound(null, null)
-            } else {
-                setSound(
+            // Only a generic redacted call is visible; no caller/peer/PIN/SDP.
+            lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+            when {
+                previous != null -> setSound(previous.sound, previous.audioAttributes)
+                legacyMuted -> setSound(null, null)
+                else -> setSound(
                     RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
@@ -329,6 +338,17 @@ object CallWakeNotification {
         }
         manager.createNotificationChannel(incoming)
     }
+
+    /** Android 14+ special access is optional. If denied, keep the heads-up notification. */
+    fun canShowFullScreen(manager: NotificationManager, api: Int = Build.VERSION.SDK_INT): Boolean =
+        CallWakePolicy.safePlatformDelivery {
+            // Check the actual device API before touching the API 34 method.
+            // A synthetic version supplied to a test must never authorize a
+            // new-platform call on an API 23-33 phone.
+            val granted = if (Build.VERSION.SDK_INT >= 34 && api >= 34)
+                manager.canUseFullScreenIntent() else false
+            CallWakePolicy.fullScreenAllowed(api, granted)
+        }
 
     fun show(context: Context, data: Map<String, String>, now: Long = System.currentTimeMillis()): Boolean =
         CallWakePolicy.safePlatformDelivery {
@@ -350,7 +370,7 @@ object CallWakeNotification {
         val wakeAt = data["at"]?.toLongOrNull() ?: return@safePlatformDelivery false
         val remaining = WakeNotificationLifetimePolicy.remainingMs(
             wakeAt, now, CallWakePolicy.PAST_WINDOW_MS,
-            CallWakePolicy.FUTURE_GRACE_MS, 75_000L
+            CallWakePolicy.FUTURE_GRACE_MS, CallWakePolicy.PAST_WINDOW_MS
         ) ?: return@safePlatformDelivery false
 
         // A notification is only a wake hint, NOT a private-area credential.
@@ -370,19 +390,55 @@ object CallWakeNotification {
         }
         val answerPending = PendingIntent.getActivity(context, 1, answerIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        val declineIntent = Intent(context, IncomingCallActivity::class.java).apply {
+            action = CallWakeTapPolicy.DECLINE
+            putExtra(CallWakeTapPolicy.EXTRA_WAKE_AT, wakeAt)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val declinePending = PendingIntent.getActivity(context, 2, declineIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        // The lock screen may show the existence of a call only after opt-in.
+        // Always redact private identity and conversation content.
+        val redacted = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            // Preserve neutral visible notification metadata from current main.
-            .setContentTitle(PublicNotificationText.TITLE)
-            .addAction(R.mipmap.ic_launcher, "Yanıtla", answerPending)
+            .setContentTitle("Gelen LANU araması")
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .build()
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("Gelen LANU araması")
             .setContentIntent(pending)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))
-            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(redacted)
             .setTimeoutAfter(remaining)
+            .setOngoing(true)
             .setAutoCancel(false)
-            .build()
+        // OEM CallStyle failures must fall back to the ordinary two-button
+        // notification rather than silently losing a time-critical call.
+        val styled = if (Build.VERSION.SDK_INT >= 31) {
+            try {
+                builder.setStyle(NotificationCompat.CallStyle.forIncomingCall(
+                    Person.Builder().setName("LANU araması").build(), declinePending, answerPending))
+                true
+            } catch (_: RuntimeException) { false }
+            catch (_: LinkageError) { false }
+        } else false
+        if (!styled) {
+            builder.addAction(R.mipmap.ic_launcher, "Reddet", declinePending)
+                .addAction(R.mipmap.ic_launcher, "Yanıtla", answerPending)
+        }
+        // Never launch an Activity directly from FCM: Android owns FSI routing.
+        // A failing FSI enhancement must preserve the regular heads-up fallback.
+        if (canShowFullScreen(manager)) {
+            try { builder.setFullScreenIntent(pending, true) }
+            catch (_: SecurityException) { /* Heads-up remains. */ }
+            catch (_: RuntimeException) { /* Heads-up remains. */ }
+            catch (_: LinkageError) { /* Heads-up remains. */ }
+        }
+        val notification = builder.build()
         CallWakePolicy.publishWhileConsented(
             at = wakeAt,
             isConsented = { !CallWakePolicy.privateAreaVisible && CallWakePreferences.isEnabled(context) },
