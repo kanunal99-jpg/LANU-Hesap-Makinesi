@@ -115,7 +115,9 @@ object CallWakePreferences {
 /** Reject stale, unsupported or arbitrary FCM payloads without fetching private data. */
 object CallWakePolicy {
     const val TYPE = "lanu_call_wake_v1"
-    internal const val PAST_WINDOW_MS = 65_000L
+    // The authenticated INVITE is considered expired at about 45 seconds.
+    // An older FCM wake must not keep ringing a call the peer cannot accept.
+    internal const val PAST_WINDOW_MS = 45_000L
     internal const val FUTURE_GRACE_MS = 15_000L
     // Android 13+ notifications require runtime permission. The calculator
     // and foreground E2EE messages must remain usable without this permission.
@@ -236,7 +238,7 @@ object CallWakePolicy {
         // positive Long timestamps cannot overflow; adding a grace window to
         // Long.MAX_VALUE could wrap and accidentally reject a fresh wake.
         return created > 0L && now > 0L &&
-            if (created <= now) now - created <= PAST_WINDOW_MS
+            if (created <= now) now - created < PAST_WINDOW_MS
             else created - now <= FUTURE_GRACE_MS
     }
 }
@@ -363,7 +365,7 @@ object CallWakeNotification {
         val wakeAt = data["at"]?.toLongOrNull() ?: return@safePlatformDelivery false
         val remaining = WakeNotificationLifetimePolicy.remainingMs(
             wakeAt, now, CallWakePolicy.PAST_WINDOW_MS,
-            CallWakePolicy.FUTURE_GRACE_MS, 75_000L
+            CallWakePolicy.FUTURE_GRACE_MS, CallWakePolicy.PAST_WINDOW_MS
         ) ?: return@safePlatformDelivery false
 
         // A notification is only a wake hint, NOT a private-area credential.

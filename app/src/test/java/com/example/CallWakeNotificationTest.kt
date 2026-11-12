@@ -59,6 +59,7 @@ class CallWakeNotificationTest {
         assertFalse(CallWakeTapPolicy.freshWakeIntent(CallWakeTapPolicy.ACTION, 0L, now))
         assertFalse(CallWakeTapPolicy.freshWakeIntent(CallWakeTapPolicy.ACTION, now - 66_000L, now))
         assertFalse(CallWakeTapPolicy.freshWakeIntent(CallWakeTapPolicy.ANSWER, now + 16_000L, now))
+        assertFalse(CallWakeTapPolicy.freshWakeIntent(CallWakeTapPolicy.ACTION, now - 45_000L, now))
         assertTrue(CallWakeTapPolicy.freshWakeIntent(CallWakeTapPolicy.ACTION, now - 1_000L, now))
         assertTrue(CallWakeTapPolicy.freshWakeIntent(CallWakeTapPolicy.ANSWER, now - 1_000L, now))
         assertTrue(CallWakeTapPolicy.freshWakeIntent(CallWakeTapPolicy.DECLINE, now - 1_000L, now))
@@ -131,8 +132,8 @@ class CallWakeNotificationTest {
         assertTrue(CallWakePolicy.eligible(hint(upper), upper))
         assertTrue(CallWakePolicy.eligible(hint(upper), upper - 15_000L))
         assertFalse(CallWakePolicy.eligible(hint(upper), upper - 15_001L))
-        assertTrue(CallWakePolicy.eligible(hint(upper - 65_000L), upper))
-        assertFalse(CallWakePolicy.eligible(hint(upper - 65_001L), upper))
+        assertTrue(CallWakePolicy.eligible(hint(upper - 44_999L), upper))
+        assertFalse(CallWakePolicy.eligible(hint(upper - 45_000L), upper))
         assertFalse(CallWakePolicy.eligible(hint(upper), 1L))
         assertFalse(CallWakePolicy.eligible(hint(1L), upper))
         assertFalse(CallWakePolicy.eligible(hint(1L), 0L))
@@ -160,7 +161,7 @@ class CallWakeNotificationTest {
         assertFalse(CallWakePolicy.eligible(mapOf("type" to CallWakePolicy.TYPE,
             "at" to (now+16000).toString()), now))
         assertTrue(CallWakePolicy.eligible(mapOf("type" to CallWakePolicy.TYPE,
-            "at" to (now-60000).toString()), now))
+            "at" to (now-40000).toString()), now))
     }
 
     @Test fun disabledConsentPersistsPendingRemoteRevokeUntilAcknowledged() {
