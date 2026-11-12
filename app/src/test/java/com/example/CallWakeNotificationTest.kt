@@ -229,8 +229,8 @@ class CallWakeNotificationTest {
         assertEquals("Gelen LANU araması",
             notification.extras.getString(Notification.EXTRA_TITLE))
         assertEquals(2, notification.actions.size)
-        assertEquals("Reddet", notification.actions[0].title)
-        assertEquals("Yanıtla", notification.actions[1].title)
+        assertEquals("Reddet", notification.actions[0].title.toString())
+        assertEquals("Yanıtla", notification.actions[1].title.toString())
         assertTrue(notification.flags and Notification.FLAG_ONGOING_EVENT != 0)
         assertTrue(CallWakeNotification.cancel(context))
     }
