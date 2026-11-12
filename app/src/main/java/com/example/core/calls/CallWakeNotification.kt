@@ -342,7 +342,12 @@ object CallWakeNotification {
     /** Android 14+ special access is optional. If denied, keep the heads-up notification. */
     fun canShowFullScreen(manager: NotificationManager, api: Int = Build.VERSION.SDK_INT): Boolean =
         CallWakePolicy.safePlatformDelivery {
-            CallWakePolicy.fullScreenAllowed(api, api >= 34 && manager.canUseFullScreenIntent())
+            // Check the actual device API before touching the API 34 method.
+            // A synthetic version supplied to a test must never authorize a
+            // new-platform call on an API 23-33 phone.
+            val granted = if (Build.VERSION.SDK_INT >= 34 && api >= 34)
+                manager.canUseFullScreenIntent() else false
+            CallWakePolicy.fullScreenAllowed(api, granted)
         }
 
     fun show(context: Context, data: Map<String, String>, now: Long = System.currentTimeMillis()): Boolean =
