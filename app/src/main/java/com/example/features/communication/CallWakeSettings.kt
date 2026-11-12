@@ -296,9 +296,9 @@ fun CallWakeSettings(repository: CommunicationRepository) {
                 }
                 context.startActivity(intent)
             } catch (_: Exception) {
-                status = "Telefon Ayarları → Uygulamalar → LANU → Bildirimler → Gelen aramalar bölümünden Sesli'yi seçin."
+                status = "Telefon Ayarları → Uygulamalar → LANU → Bildirimler → Gelen aramalar bölümünde Ses ve Titreşim'i açın."
             }
-        }) { Text("Gelen arama zil sesini ayarla") }
+        }) { Text("Gelen arama zil sesi ve titreşimi ayarla") }
         status?.let { Text(it, style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp)) }
     }

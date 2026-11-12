@@ -272,7 +272,9 @@ object CallWakeTapPolicy {
 object CallWakeNotification {
     // Android keeps a channel's first sound choice across APK upgrades.
     // Version the once-silent call channel without touching chat notifications.
-    const val CHANNEL_ID = "lanu_private_calls_ringing_v3"
+    // Android notification channel audio/haptics cannot be modified in place.
+    const val CHANNEL_ID = "lanu_private_calls_ringing_v4"
+    private const val PREVIOUS_RINGING_CHANNEL_ID = "lanu_private_calls_ringing_v3"
     private const val PREVIOUS_CHANNEL_ID = "lanu_private_calls_ringing_v2"
     private const val OLD_CHANNEL_ID = "lanu_private_calls_v1"
     internal const val NOTIFICATION_ID = PublicNotificationIds.INCOMING_CALL
@@ -298,7 +300,8 @@ object CallWakeNotification {
         // A new channel is needed because old v2 hid all call notifications
         // from the lock screen. Never revive a channel the user blocked/muted.
         val legacy = manager.getNotificationChannel(OLD_CHANNEL_ID)
-        val previous = manager.getNotificationChannel(PREVIOUS_CHANNEL_ID)
+        val previous = manager.getNotificationChannel(PREVIOUS_RINGING_CHANNEL_ID)
+            ?: manager.getNotificationChannel(PREVIOUS_CHANNEL_ID)
         val legacyMuted = legacy != null && (
             legacy.importance < NotificationManager.IMPORTANCE_DEFAULT ||
                 (Build.VERSION.SDK_INT >= 30 && legacy.hasUserSetSound() && legacy.sound == null)
@@ -334,6 +337,19 @@ object CallWakeNotification {
                         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                         .build()
                 )
+            }
+            // OS-managed ringtone and vibration for user-opted-in calls.
+            // Never revive LOW/NONE, silent channels, or override a custom pattern.
+            val previousSilent = previous != null &&
+                (previous.importance < NotificationManager.IMPORTANCE_DEFAULT ||
+                    previous.sound == null)
+            when {
+                (previousSilent && previous?.shouldVibrate() != true) ||
+                    (previous == null && legacyMuted) -> enableVibration(false)
+                previous?.shouldVibrate() == true ->
+                    setVibrationPattern(previous.vibrationPattern?.takeIf { it.isNotEmpty() }
+                        ?: longArrayOf(0L, 650L, 650L, 650L, 1_800L))
+                else -> setVibrationPattern(longArrayOf(0L, 650L, 650L, 650L, 1_800L))
             }
         }
         manager.createNotificationChannel(incoming)
@@ -416,6 +432,11 @@ object CallWakeNotification {
             .setTimeoutAfter(remaining)
             .setOngoing(true)
             .setAutoCancel(false)
+        // Before Android 8 there are no notification channels; provide the
+        // same call vibration directly to the OS notification builder.
+        // On 8+ only the user-controlled channel decides vibration.
+        if (Build.VERSION.SDK_INT < 26)
+            builder.setVibrate(longArrayOf(0L, 650L, 650L, 650L, 1_800L))
         // OEM CallStyle failures must fall back to the ordinary two-button
         // notification rather than silently losing a time-critical call.
         val styled = if (Build.VERSION.SDK_INT >= 31) {

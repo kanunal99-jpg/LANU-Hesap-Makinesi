@@ -246,6 +246,73 @@ class CallWakeNotificationTest {
         }
     }
 
+    @Test @Config(sdk = [25]) fun legacyAndroidIncomingWakeCarriesRingtoneVibration() {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val at = 1_710_000_077_999L
+        assertTrue(CallWakePreferences.setEnabled(context, true))
+        assertTrue(CallWakeNotification.show(context,
+            mapOf("type" to CallWakePolicy.TYPE, "at" to at.toString()), now = at))
+        val notification = manager.activeNotifications.first { it.id == 8129 }.notification
+        assertEquals(Notification.CATEGORY_CALL, notification.category)
+        assertTrue(notification.vibrate!!.any { it > 0L })
+        assertEquals(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE), notification.sound)
+    }
+
+    @Test @Config(sdk = [29]) fun ringtoneCallChannelEnablesRealVibration() {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        CallWakeNotification.ensureChannel(manager)
+        val channel = manager.getNotificationChannel(CallWakeNotification.CHANNEL_ID)
+        assertEquals(NotificationManager.IMPORTANCE_HIGH, channel.importance)
+        assertTrue(channel.shouldVibrate())
+        assertTrue(channel.vibrationPattern!!.any { it > 0L })
+        assertEquals(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE), channel.sound)
+    }
+
+    @Test @Config(sdk = [29]) fun upgradeFromV3KeepsRingtoneAndEnablesHaptics() {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.createNotificationChannel(NotificationChannel(
+            "lanu_private_calls_ringing_v3", "Previous call ring", NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
+                AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE).build())
+            lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+        })
+        CallWakeNotification.ensureChannel(manager)
+        val upgraded = manager.getNotificationChannel(CallWakeNotification.CHANNEL_ID)
+        assertEquals(NotificationManager.IMPORTANCE_HIGH, upgraded.importance)
+        assertEquals(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE), upgraded.sound)
+        assertTrue(upgraded.shouldVibrate())
+        assertEquals(Notification.VISIBILITY_PRIVATE, upgraded.lockscreenVisibility)
+    }
+
+    @Test @Config(sdk = [29]) fun oldSilentV3ChannelNeverRevivesRingOrVibration() {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.createNotificationChannel(NotificationChannel(
+            "lanu_private_calls_ringing_v3", "Silent call", NotificationManager.IMPORTANCE_LOW
+        ).apply { setSound(null, null) })
+        CallWakeNotification.ensureChannel(manager)
+        val upgraded = manager.getNotificationChannel(CallWakeNotification.CHANNEL_ID)
+        assertEquals(NotificationManager.IMPORTANCE_LOW, upgraded.importance)
+        assertEquals(null, upgraded.sound)
+        assertFalse(upgraded.shouldVibrate())
+    }
+
+    @Test @Config(sdk = [29]) fun customV3HapticPatternSurvivesUpgrade() {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val pattern = longArrayOf(0L, 200L, 300L, 250L)
+        manager.createNotificationChannel(NotificationChannel(
+            "lanu_private_calls_ringing_v3", "Custom ring", NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
+                AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE).build())
+            setVibrationPattern(pattern)
+        })
+        CallWakeNotification.ensureChannel(manager)
+        val upgraded = manager.getNotificationChannel(CallWakeNotification.CHANNEL_ID)
+        assertTrue(upgraded.shouldVibrate())
+        assertTrue(pattern.contentEquals(upgraded.vibrationPattern))
+    }
+
     @Test @Config(sdk = [29]) fun blockedPreviousRingingChannelStaysBlockedAfterUpgrade() {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.createNotificationChannel(NotificationChannel(
