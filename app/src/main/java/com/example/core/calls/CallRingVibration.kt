@@ -40,11 +40,15 @@ object CallRingVibration {
                 ?: return null
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
                 as? NotificationManager ?: return null
-            val channel = if (Build.VERSION.SDK_INT >= 26)
-                manager.getNotificationChannel(CallWakeNotification.CHANNEL_ID) else null
+            // Only resolve NotificationChannel APIs inside the explicit SDK
+            // guard; Kotlin nullable safe-call alone is not a version guard.
+            val (importance, vibrates) = if (Build.VERSION.SDK_INT >= 26) {
+                val channel = manager.getNotificationChannel(CallWakeNotification.CHANNEL_ID)
+                Pair(channel?.importance, channel?.shouldVibrate())
+            } else Pair(null, null)
             if (!CallRingVibrationPolicy.allowed(
                     audio.ringerMode, manager.currentInterruptionFilter,
-                    channel?.importance, channel?.shouldVibrate()
+                    importance, vibrates
                 )) return null
             val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
                 ?: return null
