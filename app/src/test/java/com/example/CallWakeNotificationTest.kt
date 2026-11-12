@@ -217,6 +217,24 @@ class CallWakeNotificationTest {
         assertEquals(1, posts)
     }
 
+    @Test @Config(sdk = [28]) fun actualLegacyNotificationShowsTwoActionsWithoutPrivateCallerData() {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val at = 1710000777007L
+        assertTrue(CallWakePreferences.setEnabled(context, true))
+        assertTrue(CallWakeNotification.show(context, mapOf(
+            "type" to CallWakePolicy.TYPE, "at" to at.toString()
+        ), now = at))
+        val notification = manager.activeNotifications.first { it.id == 8129 }.notification
+        assertEquals(Notification.VISIBILITY_PRIVATE, notification.visibility)
+        assertEquals("Gelen LANU araması",
+            notification.extras.getString(Notification.EXTRA_TITLE))
+        assertEquals(2, notification.actions.size)
+        assertEquals("Reddet", notification.actions[0].title)
+        assertEquals("Yanıtla", notification.actions[1].title)
+        assertTrue(notification.flags and Notification.FLAG_ONGOING_EVENT != 0)
+        assertTrue(CallWakeNotification.cancel(context))
+    }
+
     @Test fun Android14FullScreenSpecialAccessIsOptionalWithHeadsUpFallback() {
         for (api in 23..33) {
             assertTrue(CallWakePolicy.fullScreenAllowed(api, false))
