@@ -61,6 +61,8 @@ class CallWakeNotificationTest {
         assertFalse(CallWakeTapPolicy.freshWakeIntent(CallWakeTapPolicy.ANSWER, now + 16_000L, now))
         assertTrue(CallWakeTapPolicy.freshWakeIntent(CallWakeTapPolicy.ACTION, now - 1_000L, now))
         assertTrue(CallWakeTapPolicy.freshWakeIntent(CallWakeTapPolicy.ANSWER, now - 1_000L, now))
+        assertTrue(CallWakeTapPolicy.freshWakeIntent(CallWakeTapPolicy.DECLINE, now - 1_000L, now))
+        assertFalse(CallWakeTapPolicy.freshWakeIntent(CallWakeTapPolicy.DECLINE, now - 66_000L, now))
     }
 
     @Test fun notificationAnswerMatchesOnlyItsFreshInvitation() {
@@ -69,6 +71,8 @@ class CallWakeNotificationTest {
         assertFalse(CallWakeTapPolicy.matchesVerifiedInvite(now, now - 30_001, now))
         assertFalse(CallWakeTapPolicy.matchesVerifiedInvite(now - 66_000, now - 60_000, now))
         assertFalse(CallWakeTapPolicy.matchesVerifiedInvite(now, 0, now))
+        // A stale "Reddet" may not reject an unrelated active call.
+        assertFalse(CallWakeTapPolicy.matchesVerifiedInvite(now - 1_000, now - 35_000, now))
     }
 
     @Test fun callOnlyScreenAndForegroundServiceAreNotExported() {
@@ -84,6 +88,8 @@ class CallWakeNotificationTest {
     @Test fun answerIntentIsSeparateFromPrivateEntryAndHasNoCallerIdentity() {
         assertFalse(CallWakeTapPolicy.requiresFreshEntry(CallWakeTapPolicy.ANSWER))
         assertTrue(CallWakeTapPolicy.ANSWER.startsWith(context.packageName))
+        assertTrue(CallWakeTapPolicy.DECLINE.startsWith(context.packageName))
+        assertFalse(CallWakeTapPolicy.requiresFreshEntry(CallWakeTapPolicy.DECLINE))
         assertEquals("lanu_wake_at", CallWakeTapPolicy.EXTRA_WAKE_AT)
     }
 
@@ -177,7 +183,7 @@ class CallWakeNotificationTest {
         val channel = manager.getNotificationChannel(CallWakeNotification.CHANNEL_ID)
         assertNotNull(channel)
         assertEquals(NotificationManager.IMPORTANCE_HIGH, channel.importance)
-        assertEquals(Notification.VISIBILITY_SECRET, channel.lockscreenVisibility)
+        assertEquals(Notification.VISIBILITY_PRIVATE, channel.lockscreenVisibility)
         assertEquals(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE), channel.sound)
         assertNotNull(channel.audioAttributes)
         assertEquals(AudioAttributes.USAGE_NOTIFICATION_RINGTONE, channel.audioAttributes.usage)
@@ -209,6 +215,41 @@ class CallWakeNotificationTest {
         assertTrue(CallWakePolicy.publishOnce(timestamp) { posts++ })
         assertFalse(CallWakePolicy.publishOnce(timestamp) { posts++ })
         assertEquals(1, posts)
+    }
+
+    @Test fun Android14FullScreenSpecialAccessIsOptionalWithHeadsUpFallback() {
+        for (api in 23..33) {
+            assertTrue(CallWakePolicy.fullScreenAllowed(api, false))
+        }
+        for (api in 34..36) {
+            assertFalse(CallWakePolicy.fullScreenAllowed(api, false))
+            assertTrue(CallWakePolicy.fullScreenAllowed(api, true))
+        }
+    }
+
+    @Test @Config(sdk = [29]) fun blockedPreviousRingingChannelStaysBlockedAfterUpgrade() {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.createNotificationChannel(NotificationChannel(
+            "lanu_private_calls_ringing_v2", "Previous call notifications",
+            NotificationManager.IMPORTANCE_NONE
+        ))
+        CallWakeNotification.ensureChannel(manager)
+        val migrated = manager.getNotificationChannel(CallWakeNotification.CHANNEL_ID)
+        assertEquals(NotificationManager.IMPORTANCE_NONE, migrated.importance)
+        assertEquals(Notification.VISIBILITY_PRIVATE, migrated.lockscreenVisibility)
+        assertFalse(CallWakePolicy.channelCanDisplay(29, migrated.importance))
+    }
+
+    @Test @Config(sdk = [29]) fun mutedPreviousRingingChannelKeepsSoundAndImportance() {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.createNotificationChannel(NotificationChannel(
+            "lanu_private_calls_ringing_v2", "Previous call notifications",
+            NotificationManager.IMPORTANCE_LOW
+        ).apply { setSound(null, null) })
+        CallWakeNotification.ensureChannel(manager)
+        val migrated = manager.getNotificationChannel(CallWakeNotification.CHANNEL_ID)
+        assertEquals(NotificationManager.IMPORTANCE_LOW, migrated.importance)
+        assertEquals(null, migrated.sound)
     }
 
     @Test fun oldCallChannelExplicitlyMutedDoesNotBecomeLoudOnUpgrade() {
