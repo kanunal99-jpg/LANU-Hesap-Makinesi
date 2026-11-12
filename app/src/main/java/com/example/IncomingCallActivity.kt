@@ -118,13 +118,15 @@ class IncomingCallActivity : ComponentActivity() {
     private fun readWakeIntent(incoming: Intent?) {
         answerAt = 0L
         declineAt = 0L
-        if (incoming?.action !in setOf(CallWakeTapPolicy.ANSWER, CallWakeTapPolicy.DECLINE) ||
+        val safeIntent = incoming ?: return
+        val action = safeIntent.action
+        if (action !in setOf(CallWakeTapPolicy.ANSWER, CallWakeTapPolicy.DECLINE) ||
             !CallWakePreferences.isEnabled(this)) return
-        val at = incoming.getLongExtra(CallWakeTapPolicy.EXTRA_WAKE_AT, 0L)
+        val at = safeIntent.getLongExtra(CallWakeTapPolicy.EXTRA_WAKE_AT, 0L)
         // This merely records a recent user gesture; it does NOT authorize
         // any peer or microphone permission until a signed invite matches.
-        if (CallWakeTapPolicy.freshWakeIntent(incoming.action, at, System.currentTimeMillis())) {
-            if (incoming.action == CallWakeTapPolicy.ANSWER) answerAt = at
+        if (CallWakeTapPolicy.freshWakeIntent(action, at, System.currentTimeMillis())) {
+            if (action == CallWakeTapPolicy.ANSWER) answerAt = at
             else declineAt = at
         }
     }
