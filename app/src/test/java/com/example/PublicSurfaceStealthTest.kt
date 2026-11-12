@@ -122,6 +122,9 @@ class PublicSurfaceStealthTest {
         manager.createNotificationChannel(NotificationChannel(oldId,
             "Gizli gelen arama bildirimi", NotificationManager.IMPORTANCE_LOW).apply {
             setSound(null, null)
+            // v2 shipped with SECRET; Android does not allow an upgrade to
+            // change an already-created channel's user-managed visibility.
+            lockscreenVisibility = Notification.VISIBILITY_SECRET
         })
         val before = manager.notificationChannels.map { it.id }.toSet()
         PublicNotificationChannelSanitizer.sanitizeExisting(context)
