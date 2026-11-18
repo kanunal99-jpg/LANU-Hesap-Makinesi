@@ -96,13 +96,15 @@ class CommunicationRepository(
         SharingStarted.WhileSubscribed(stopTimeoutMillis = 0), replay = 0)
 
     @Volatile private var callingForeground = false
+    @Volatile private var retainIncomingCallInvites = false
     @Volatile private var callInProgress = false
     fun setCallInProgress(active: Boolean) { callInProgress = active }
     // Bounded, lossless queue: if full, leave signals on the relay unacknowledged for retry.
     // DROP_OLDEST previously acknowledged signals that were silently discarded.
     private val callInbox = Channel<ReceivedCallSignal>(64)
     val callSignals = callInbox.receiveAsFlow()
-    fun setCallingForeground(enabled: Boolean) {
+    fun setCallingForeground(enabled: Boolean, retainIncomingInvites: Boolean = false) {
+        retainIncomingCallInvites = enabled && retainIncomingInvites
         callingForeground = enabled
         if (!enabled) while (callInbox.tryReceive().isSuccess) { /* discard ephemeral stale invites */ }
     }
@@ -288,6 +290,7 @@ class CommunicationRepository(
             val row = rows.getJSONObject(i)
             val id = row.optString("id")
             if (!CallSignaling.validId(id)) continue
+            var acknowledge = true
             try {
                 require(row.getString("recipientId") == own.id && row.getLong("expiresAt") > clock())
                 require(row.getLong("expiresAt") <= clock() + 120_000L)
@@ -299,9 +302,14 @@ class CommunicationRepository(
                 // ACK only once the foreground consumer queue actually owns the signal.
                 // No silent loss on saturation; relay retention permits next poll to retry.
                 if (!callingForeground || callInbox.trySend(signal).isFailure) break
+                // A background model lives only in RAM. Retain the encrypted
+                // INVITE until a visible call host owns it, so process death
+                // between notification and answer cannot lose the call.
+                if (retainIncomingCallInvites && signal.signal.kind == CallSignalKind.INVITE)
+                    acknowledge = false
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { /* Drop invalid/expired ephemeral control data, never log SDP/identity. */ }
-            ack.put(id)
+            if (acknowledge) ack.put(id)
         }
         if (ack.length() > 0) relay.request(own, "callAck", JSONObject().put("ids", ack))
     }

@@ -595,6 +595,73 @@ class NativeCallStateTest {
         assertEquals(NativeCallPhase.RINGING,vm.state.value.phase)
     }
 
+    @Test fun displayedWakeVerifiesIncomingCallWithoutAnyUiHostOrMedia() = runBlocking<Unit> {
+        vm.deactivate()
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        CallWakePreferences.setEnabled(context,true)
+        try {
+            val signal=CallSignaling.create(UUID.randomUUID().toString(),CallSignalKind.INVITE,false)
+            // Inactive calling intentionally leaves the invitation on the relay.
+            inject(signal)
+            vm.verifyIncomingWake(System.currentTimeMillis())
+            waitPhase(NativeCallPhase.RINGING)
+            assertEquals(signal.callId,awaitSent(CallSignalKind.RINGING).callId)
+            assertFalse("Background verification must not claim visible private UI",CallWakePolicy.privateAreaVisible)
+            assertEquals(0,mediaCreated)
+            assertEquals("RAM-only verification must retain INVITE for process-death recovery",1,inbox.size)
+            vm.attachHost()
+            repo.pollCallSignals(requestFollowUp = true)
+            assertTrue("Visible host may safely acknowledge retained INVITE",inbox.isEmpty())
+            vm.detachHost()
+            inject(CallSignaling.create(signal.callId,CallSignalKind.END,false))
+            waitPhase(NativeCallPhase.ENDED)
+        } finally { CallWakePreferences.setEnabled(context,false) }
+    }
+
+    @Test fun expiredOrUnconsentedWakeDoesNotActivateBackgroundCalling() = runBlocking {
+        vm.deactivate()
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        CallWakePreferences.setEnabled(context,false)
+        vm.verifyIncomingWake(System.currentTimeMillis())
+        assertEquals(NativeCallPhase.IDLE,vm.state.value.phase)
+        CallWakePreferences.setEnabled(context,true)
+        try {
+            vm.verifyIncomingWake(System.currentTimeMillis()-46_000L)
+            assertEquals(NativeCallPhase.IDLE,vm.state.value.phase)
+            assertEquals(0,mediaCreated)
+        } finally { CallWakePreferences.setEnabled(context,false) }
+    }
+
+    @Test fun ringbackRequiresMatchingVerifiedRecipientSignalAndStopsAfterAccept() = runBlocking {
+        vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,true)
+        val invite=awaitSent(CallSignalKind.INVITE)
+        assertFalse("Relay accepted is not recipient ringing",vm.state.value.remoteRinging)
+        inject(CallSignaling.create(UUID.randomUUID().toString(),CallSignalKind.RINGING,false))
+        assertFalse(vm.state.value.remoteRinging)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.RINGING,true))
+        assertFalse("Wrong media session must not ring",vm.state.value.remoteRinging)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.RINGING,false))
+        withTimeout(3000) { vm.state.first { it.remoteRinging } }
+        assertEquals(0,mediaCreated)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.ACCEPT,false))
+        awaitSent(CallSignalKind.OFFER)
+        assertFalse(vm.state.value.remoteRinging)
+        inject(CallSignaling.create(invite.callId,CallSignalKind.RINGING,false))
+        assertFalse("Late ringing must not regress a connected setup",vm.state.value.remoteRinging)
+        vm.end()
+        assertFalse(vm.state.value.remoteRinging)
+    }
+
+    @Test fun recipientConfirmsRingingOnceWithoutOpeningMicrophone() = runBlocking {
+        val call=UUID.randomUUID().toString()
+        inject(CallSignaling.create(call,CallSignalKind.INVITE,false))
+        val response=awaitSent(CallSignalKind.RINGING)
+        assertEquals(call,response.callId)
+        assertEquals(0,mediaCreated)
+        inject(CallSignaling.create(call,CallSignalKind.INVITE,false))
+        assertEquals(1,sent.value.count { it.kind==CallSignalKind.RINGING })
+    }
+
     @Test fun outgoingWithoutPermissionCannotSendAnInviteOrStartMedia() = runBlocking {
         vm.outgoing(UserCodes.conversationId(own.id,peer.id),false,false)
         assertEquals(NativeCallPhase.IDLE,vm.state.value.phase)

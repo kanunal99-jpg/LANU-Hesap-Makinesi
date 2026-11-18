@@ -157,6 +157,7 @@ fun MessageWakeSettings(repository: CommunicationRepository) {
                 MessageWakeTokenRefreshPolicy.completeRegistration(context, token) { freshToken ->
                     repository.registerMessageWakeToken(freshToken)
                 }
+                withContext(Dispatchers.IO) { MessageWakeTokenRefreshWorker.maintainTokenRecovery(context) }
                 pending = false
                 enabled = true
                 status = "Yalnız genel başlıklı bildirim ve arka planda şifreli mesaj eşitleme açık."

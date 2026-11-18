@@ -90,7 +90,10 @@ object MessageWakePreferences {
                 .putBoolean(ENABLED, false).putBoolean(PENDING, true)
                 .putBoolean(ENROLLING, false).commit()
         } catch (_: Exception) { false }
-        if (saved) MessageWakeSyncWorker.cancel(context)
+        if (saved) {
+            MessageWakeSyncWorker.cancel(context)
+            MessageWakeTokenRefreshWorker.maintainTokenRecovery(context)
+        }
         return saved
     }
 

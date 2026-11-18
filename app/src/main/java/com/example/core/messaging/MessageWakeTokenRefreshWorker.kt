@@ -6,6 +6,8 @@ import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
@@ -124,7 +126,27 @@ class MessageWakeTokenRefreshWorker(
 
     companion object {
         const val WORK_NAME = "lanu-message-wake-token-refresh-v1"
+        const val PERIODIC_WORK_NAME = "lanu-message-wake-token-health-v1"
+
+        fun maintainTokenRecovery(context: Context) {
+            if (MessageWakePreferences.isEnrollmentInProgress(context)) return
+            try {
+                val manager = WorkManager.getInstance(context.applicationContext)
+                if (!MessageWakePreferences.isEnabled(context)) {
+                    manager.cancelUniqueWork(PERIODIC_WORK_NAME)
+                    return
+                }
+                val request = PeriodicWorkRequestBuilder<MessageWakeTokenRefreshWorker>(12, TimeUnit.HOURS)
+                    .setConstraints(Constraints.Builder()
+                        .setRequiredNetworkType(NetworkType.CONNECTED).build())
+                    .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS).build()
+                manager.enqueueUniquePeriodicWork(PERIODIC_WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
+            } catch (_: RuntimeException) { /* Manual refresh remains available. */ }
+              catch (_: LinkageError) { /* Unsupported OEM scheduler. */ }
+        }
         fun enqueue(context: Context, replace: Boolean = true) {
+            if (MessageWakePreferences.isEnrollmentInProgress(context)) return
+            maintainTokenRecovery(context)
             if (!MessageWakePreferences.isEnabled(context) &&
                 !MessageWakePreferences.hasPendingRemoteRevoke(context)) return
             val request = OneTimeWorkRequestBuilder<MessageWakeTokenRefreshWorker>()
