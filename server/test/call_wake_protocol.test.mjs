@@ -408,3 +408,25 @@ test('backpressure respects live expiry, stale hints never send, retries shrink 
   assert.ok(attempts.every(x=>x.data.at===String(original)));
   assert.deepEqual(outcomes.pop(),['message','accepted']);
 });
+
+test('stalled shared OAuth body times out for both waiters and a later wake recovers',async()=>{
+  let auth=0, sends=0, cancelled=false;
+  const credentials=JSON.stringify({type:'service_account',project_id:'gen-lang-client-0658022317',
+    client_email:'test@gen-lang-client-0658022317.iam.gserviceaccount.com',
+    private_key:'-----BEGIN PRIVATE KEY-----\nAA==\n-----END PRIVATE KEY-----'});
+  const cryptoApi={subtle:{importKey:async()=>({}),sign:async()=>new Uint8Array(32)}};
+  const sender=createFcmWakeSender(credentials,async url=>{
+    if(url.includes('oauth2')) {
+      auth++;
+      if(auth===1) return new Response(new ReadableStream({cancel(){cancelled=true;}}));
+      return new Response(JSON.stringify({access_token:'x'.repeat(40),expires_in:3600}));
+    }
+    sends++;
+    return new Response('{}');
+  },cryptoApi);
+  const outcomes=await Promise.allSettled([sender('A'.repeat(40)),sender('B'.repeat(40))]);
+  assert.ok(outcomes.every(x=>x.status==='rejected'&&x.reason.name==='AbortError'));
+  assert.equal(auth,1);assert.equal(sends,0);assert.equal(cancelled,true);
+  assert.equal(await sender('C'.repeat(40)),true);
+  assert.equal(auth,2);assert.equal(sends,1);
+});
