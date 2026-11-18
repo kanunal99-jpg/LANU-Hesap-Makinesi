@@ -39,6 +39,8 @@ import com.example.core.calls.CallForegroundService
 import com.example.core.calls.CallWakeTapPolicy
 import com.example.core.calls.CallRingVibration
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import org.webrtc.SurfaceViewRenderer
 
 /** Secure dialog shared by the home and chat screens; media is never auto-accepted. */
@@ -72,6 +74,26 @@ fun NativeCallHost(
         onStopOrDispose {
             runCatching { ringtone?.stop() }
             stopVibration?.invoke()
+        }
+    }
+    // Ringback starts only after an authenticated recipient RINGING signal.
+    // A locally sent INVITE or HTTP 200 must never imitate remote delivery.
+    LifecycleStartEffect(state.callId, state.phase, state.remoteRinging) {
+        val tone = if (state.phase == NativeCallPhase.DIALING && state.remoteRinging)
+            runCatching { android.media.ToneGenerator(android.media.AudioManager.STREAM_VOICE_CALL, 60) }.getOrNull()
+        else null
+        val job = tone?.let {
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main.immediate).launch {
+                while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                    runCatching { it.startTone(android.media.ToneGenerator.TONE_SUP_RINGTONE, 1000) }
+                    delay(4000L)
+                }
+            }
+        }
+        onStopOrDispose {
+            job?.cancel()
+            runCatching { tone?.stopTone() }
+            runCatching { tone?.release() }
         }
     }
     var confirm by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
@@ -162,7 +184,7 @@ fun NativeCallHost(
                         state.remoteOnHold -> "Diğer kullanıcı meşgul — LANU görüşmesi beklemede"
                         else -> when (state.phase) {
                         NativeCallPhase.RINGING -> if (state.video) "Gelen görüntülü arama" else "Gelen sesli arama"
-                        NativeCallPhase.DIALING -> "Aranıyor…"
+                        NativeCallPhase.DIALING -> if (state.remoteRinging) "Karşı tarafın telefonu çalıyor…" else "Arama iletiliyor…"
                         NativeCallPhase.CONNECTING -> "Güvenli bağlantı kuruluyor…"
                         NativeCallPhase.CONNECTED -> "Bağlandı"
                         NativeCallPhase.RECONNECTING -> "Ağ bağlantısı yenileniyor…"
@@ -219,8 +241,14 @@ fun NativeCallHost(
                         Text("Doğrudan görüşmede IP adresinizi karşı taraf ve Google/Cloudflare STUN hizmetleri görebilir. Yapılandırdıysanız aktarma sunucusu da bağlantı IP adreslerini görebilir. Aramayı doğrudan yanıtlayabilirsiniz.",
                             style = MaterialTheme.typography.bodySmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                            Button(onClick = { authorize(state.callId, state.video, true) }) { Text("Kabul et") }
-                            OutlinedButton(onClick = model::reject) { Text("Reddet") }
+                            Button(onClick = { authorize(state.callId, state.video, true) },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B5E20), contentColor = Color.White)) {
+                                Icon(Icons.Default.Call, null); Spacer(Modifier.width(8.dp)); Text("Yanıtla")
+                            }
+                            Button(onClick = model::reject,
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
+                                Icon(Icons.Default.CallEnd, null); Spacer(Modifier.width(8.dp)); Text("Reddet")
+                            }
                         }
                     } else if (ended) Button(onClick = model::dismiss) { Text("Kapat") }
                     else Button(onClick = model::end, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {

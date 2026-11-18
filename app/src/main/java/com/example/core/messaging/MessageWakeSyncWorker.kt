@@ -6,6 +6,8 @@ import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
+import android.os.Build
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
@@ -52,18 +54,25 @@ class MessageWakeSyncWorker(context: Context, params: WorkerParameters) :
     }
 
     companion object {
-        private const val UNIQUE = "lanu-private-message-wake-sync-v1"
+        // Append a follow-up: KEEP drops a new hint while the current sync
+        // has already taken its inbox snapshot. REPLACE could cancel a commit.
+        internal const val UNIQUE = "lanu-private-message-wake-sync-v1"
 
         fun enqueue(context: Context): Boolean {
             if (!MessageWakePreferences.isEnabled(context)) return false
             return try {
-                val request = OneTimeWorkRequestBuilder<MessageWakeSyncWorker>()
+                val builder = OneTimeWorkRequestBuilder<MessageWakeSyncWorker>()
                     .setConstraints(Constraints.Builder()
                         .setRequiredNetworkType(NetworkType.CONNECTED).build())
                     .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
-                    .build()
+                // FCM grants a brief expedited-job exemption on Android 12+.
+                // On older devices expedited work would require a foreground
+                // service; keep the existing ordinary-job privacy contract.
+                if (Build.VERSION.SDK_INT >= 31) builder.setExpedited(
+                    OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                val request = builder.build()
                 WorkManager.getInstance(context.applicationContext)
-                    .enqueueUniqueWork(UNIQUE, ExistingWorkPolicy.KEEP, request)
+                    .enqueueUniqueWork(UNIQUE, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
                 true
             } catch (_: Exception) { false }
         }

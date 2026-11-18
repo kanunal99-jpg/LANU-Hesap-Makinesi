@@ -28,6 +28,7 @@ data class NativeCallUiState(
     val phase: NativeCallPhase = NativeCallPhase.IDLE, val muted: Boolean = false,
     val cameraOn: Boolean = false, val message: String = "", val connectedAt: Long = 0L,
     val inviteAtMs: Long = 0L,
+    val remoteRinging: Boolean = false,
     val localOnHold: Boolean = false, val remoteOnHold: Boolean = false
 )
 
@@ -86,6 +87,7 @@ class NativeCallViewModel(
         var holdSendJob: Job? = null
     }
     private var session: Session? = null
+    private var incomingWakeAtMs = 0L
     private var foreground = false
     private var attachedHosts = 0
     private var pendingHostRelease: Job? = null
@@ -96,6 +98,7 @@ class NativeCallViewModel(
         attachedHosts++
         pendingHostRelease?.cancel()
         activate()
+        if (_state.value.phase == NativeCallPhase.RINGING) CallWakeNotification.cancel(appContext)
         CallWakePolicy.privateAreaVisible = true
         if (visibleIdlePoll == null) {
             // FCM is only a wake hint. A consented calculator foreground must
@@ -169,18 +172,34 @@ class NativeCallViewModel(
         return callKey(peerId, callId) in closedCalls
     }
 
-    fun activate() {
+    fun activate(prepare: Boolean = true) {
         if (foreground) return
         foreground = true
-        com.example.core.calls.CallWakePolicy.privateAreaVisible = true
+        com.example.core.calls.CallWakePolicy.privateAreaVisible = attachedHosts > 0
         repository.setCallingForeground(true)
         receiving = viewModelScope.launch {
             repository.callSignals.collect { handle(it) }
         }
-        preparation = viewModelScope.launch {
+        if (prepare) preparation = viewModelScope.launch {
             try { repository.prepareCalling() }
             catch (e: CancellationException) { throw e }
             catch (_: Exception) { /* Existing foreground chat sync will retry; no idle extra loop. */ }
+        }
+    }
+
+    /** A displayed opt-in wake may verify signaling, never capture media or open chat. */
+    suspend fun verifyIncomingWake(at: Long) {
+        if (!CallWakePreferences.isEnabled(appContext) ||
+            !CallWakeTapPolicy.freshWakeIntent(CallWakeTapPolicy.ACTION, at, System.currentTimeMillis()) ||
+            !repository.hasStoredIdentity()) return
+        if (attachedHosts > 0 || session != null) return
+        incomingWakeAtMs = at
+        activate(prepare = false)
+        try {
+            repository.pollCallSignals(requestFollowUp = true)
+            yield() // let the single call-inbox owner consume the verified invitation
+        } finally {
+            releaseIdleHost() // bounded lifetime even if no signed invitation exists
         }
     }
 
@@ -202,6 +221,7 @@ class NativeCallViewModel(
 
     fun deactivate() {
         foreground = false
+        incomingWakeAtMs = 0L
         pendingHostRelease?.cancel()
         com.example.core.calls.CallWakePolicy.privateAreaVisible = false
         repository.setCallingForeground(false)
@@ -317,7 +337,13 @@ class NativeCallViewModel(
         if (!foreground || !seen.add(s.id)) return
         while (seen.size > 512) seen.remove(seen.first())
         if (s.kind == CallSignalKind.INVITE) {
-            if (System.currentTimeMillis() - s.createdAt > 45_000) return
+            val now = System.currentTimeMillis()
+            if (now - s.createdAt >= 45_000) return
+            // Background ownership comes only from the still-consented alert
+            // matching this signed INVITE. A push is not peer authentication.
+            if (attachedHosts == 0 && incomingWakeAtMs > 0L &&
+                (!CallWakePreferences.isEnabled(appContext) ||
+                 !CallWakeTapPolicy.matchesVerifiedInvite(incomingWakeAtMs, s.createdAt, now))) return
             // Retry with another signal UUID is still the SAME call. Sending
             // BUSY here would terminate the caller's valid ringing session.
             if (session?.let { it.id == s.callId && it.peer.id == incoming.peer.id } == true) return
@@ -334,16 +360,25 @@ class NativeCallViewModel(
                 inviteAtMs = s.createdAt)
             // The secured live host now owns the ringtone and action buttons.
             // Prevent the earlier generic FCM alert from ringing concurrently.
-            CallWakeNotification.cancel(appContext)
+            if (attachedHosts > 0) CallWakeNotification.cancel(appContext)
+            // A relay ACK proves only storage. This separately encrypted signal
+            // means the recipient verified the invitation and is alerting.
+            viewModelScope.launch {
+                runCatching { send(current, CallSignalKind.RINGING) }
+            }
             startActivePoll(current)
-            deadline(current, 45_000, "Arama süresi doldu.")
+            deadline(current, (45_000L - (now - s.createdAt).coerceAtLeast(0L)).coerceAtLeast(1L),
+                "Arama süresi doldu.")
             return
         }
         val current = session ?: return
         if (s.callId != current.id || incoming.peer.id != current.peer.id || s.video != current.video) return
         when (s.kind) {
+            CallSignalKind.RINGING -> if (current.outgoing && _state.value.phase == NativeCallPhase.DIALING) {
+                _state.value = _state.value.copy(remoteRinging = true)
+            }
             CallSignalKind.ACCEPT -> if (current.outgoing && _state.value.phase == NativeCallPhase.DIALING) {
-                _state.value = _state.value.copy(phase = NativeCallPhase.CONNECTING)
+                _state.value = _state.value.copy(phase = NativeCallPhase.CONNECTING, remoteRinging = false)
                 beginMeasurement(current, false)
                 deadline(current, 35_000, "Bağlantı kurulamadı; farklı bir ağ deneyin.")
                 pipeline = guarded(current) {
@@ -787,6 +822,7 @@ class NativeCallViewModel(
     }
     private fun finish(message: String, kind: CallSignalKind = CallSignalKind.END, notify: Boolean = true) {
         val current = session ?: return
+        CallWakeNotification.cancel(appContext)
         pruneClosedCalls()
         closedCalls[callKey(current.peer.id, current.id)] = android.os.SystemClock.elapsedRealtime()
         pruneClosedCalls()
@@ -803,7 +839,7 @@ class NativeCallViewModel(
         workJobs.toList().forEach { it.cancel() }; workJobs.clear()
         _media.value?.close(); _media.value = null
         val previous = _state.value
-        _state.value = previous.copy(phase = NativeCallPhase.ENDED, message = message, muted = false, cameraOn = false)
+        _state.value = previous.copy(phase = NativeCallPhase.ENDED, message = message, muted = false, cameraOn = false, remoteRinging = false)
         viewModelScope.launch {
             if (notify) runCatching { send(current, kind) }
             if (previous.connectedAt > 0) runCatching {

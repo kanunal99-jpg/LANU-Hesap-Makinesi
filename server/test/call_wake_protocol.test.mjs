@@ -292,7 +292,7 @@ test('transient FCM call delivery retries twice with the same privacy-safe hint 
   }
 });
 
-test('permanent FCM response and message alerts never get auto-retried',async()=>{
+test('permanent FCM responses never get auto-retried for either alert',async()=>{
   const {privateKey}=generateKeyPairSync('rsa',{
     modulusLength:2048,publicKeyEncoding:{format:'pem',type:'spki'},
     privateKeyEncoding:{format:'pem',type:'pkcs8'}
@@ -307,11 +307,44 @@ test('permanent FCM response and message alerts never get auto-retried',async()=
     if(url.includes('oauth2.googleapis.com'))
       return {ok:true,json:async()=>({access_token:'x'.repeat(36),expires_in:3600})};
     seen.push(JSON.parse(init.body).message.data.type);
-    return {ok:false,status:seen.length===1 ? 401 : 503};
+    return {ok:false,status:401};
   };
   const sender=createFcmWakeSender(credentials,fetcher,webcrypto,async ms=>{waits.push(ms)});
   await assert.rejects(sender('A'.repeat(44),1710000000000,'call'),/FCM dispatch unavailable/);
   await assert.rejects(sender('A'.repeat(44),1710000000000,'message'),/FCM dispatch unavailable/);
   assert.deepEqual(seen,['lanu_call_wake_v1','lanu_message_wake_v1']);
   assert.deepEqual(waits,[]);
+});
+
+test('transient FCM message delivery retries twice with the same privacy-safe hint and bounded waits',async()=>{
+  const {privateKey}=generateKeyPairSync('rsa',{
+    modulusLength:2048,publicKeyEncoding:{format:'pem',type:'spki'},
+    privateKeyEncoding:{format:'pem',type:'pkcs8'}
+  });
+  const credentials=JSON.stringify({
+    type:'service_account',project_id:'gen-lang-client-0658022317',
+    client_email:'lanu-retry-test@gen-lang-client-0658022317.iam.gserviceaccount.com',
+    private_key:privateKey
+  });
+  const attempts=[],waits=[];
+  const fetcher=async(url,init)=>{
+    if(url.includes('oauth2.googleapis.com'))
+      return {ok:true,json:async()=>({access_token:'x'.repeat(36),expires_in:3600})};
+    const call=JSON.parse(init.body).message;
+    attempts.push(call);
+    if(attempts.length===1)return {ok:false,status:503};
+    if(attempts.length===2)return {ok:false,status:429};
+    return {ok:true,status:200};
+  };
+  const sender=createFcmWakeSender(credentials,fetcher,webcrypto,async ms=>{waits.push(ms)});
+  assert.equal(await sender('A'.repeat(44),1710000000000,'message'),true);
+  assert.deepEqual(waits,[450,1350]);
+  assert.equal(attempts.length,3);
+  for(const message of attempts) {
+    assert.deepEqual(Object.keys(message.data).sort(),['at','type']);
+    assert.deepEqual(message.data,{type:'lanu_message_wake_v1',at:'1710000000000'});
+    assert.equal(message.notification,undefined);
+    assert.equal(message.android.priority,'HIGH');
+    assert.equal(message.android.ttl,'120s');
+  }
 });

@@ -11,14 +11,20 @@ import com.google.firebase.messaging.RemoteMessage
 
 /**
  * FCM is a wake-up hint, never proof of an authenticated caller or permission
- * to open the hidden area. Media and the E2EE INVITE are handled only after
- * the owner enters the existing private area.
+ * to open the hidden area. Bounded E2EE invitation verification is allowed
+ * after an opted-in alert; media still requires explicit answer and permission.
  */
 class CallWakeMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
-        // Never enqueue a chat sync, activity launch or media capture here.
+        // Keep the FCM callback short; no activity launch or media capture here.
         when (message.data["type"]) {
-            CallWakePolicy.TYPE -> CallWakeNotification.show(applicationContext, message.data)
+            CallWakePolicy.TYPE -> {
+                if (CallWakeNotification.show(applicationContext, message.data)) {
+                    message.data["at"]?.toLongOrNull()?.let {
+                        CallWakeVerifyWorker.enqueue(applicationContext, it)
+                    }
+                }
+            }
             MessageWakePolicy.TYPE -> {
                 // An opt-in FCM hint schedules only a bounded, metadata-free
                 // encrypted sync. The hint never authenticates a peer, opens
@@ -33,6 +39,14 @@ class CallWakeMessagingService : FirebaseMessagingService() {
                 )
             }
             else -> Unit // Never show an unrecognized notification.
+        }
+    }
+
+    override fun onDeletedMessages() {
+        // FCM may discard queued hints after a long offline interval. Recover
+        // the durable encrypted inbox without generating a new identity.
+        if (MessageWakePreferences.isEnabled(applicationContext)) {
+            MessageWakeSyncWorker.enqueue(applicationContext)
         }
     }
 

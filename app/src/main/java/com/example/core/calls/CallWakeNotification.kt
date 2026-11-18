@@ -459,7 +459,11 @@ object CallWakeNotification {
             catch (_: RuntimeException) { /* Heads-up remains. */ }
             catch (_: LinkageError) { /* Heads-up remains. */ }
         }
-        val notification = builder.build()
+        val notification = builder.build().apply {
+            // Let Android repeat the opt-in ringtone until answer/reject/TTL.
+            // OS channel, DND and volume remain authoritative.
+            flags = flags or Notification.FLAG_INSISTENT
+        }
         CallWakePolicy.publishWhileConsented(
             at = wakeAt,
             isConsented = { !CallWakePolicy.privateAreaVisible && CallWakePreferences.isEnabled(context) },

@@ -74,12 +74,12 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
     if (typeof deviceToken !== 'string' || deviceToken.length < 20 ||
       deviceToken.length > 4096 || !/^[A-Za-z0-9_:.-]+$/.test(deviceToken)) return false;
     const bearer = await accessToken();
-    // Three total bounded attempts for a single incoming CALL only.
+    // Three total bounded attempts for a single call or message wake.
     // Reuse the EXACT opaque FCM hint/timestamp on retry so Android's
     // dedupe rejects a duplicate if Google accepted the first lost ACK.
-    // Message notifications are unchanged. Never retry auth, invalid-token,
+    // Never retry auth, invalid-token,
     // protocol or permanent client-side failures.
-    for (let attempt = 0; attempt < (kind === 'call' ? 3 : 1); attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       let response;
       try {
         response = await fetchWithDeadline(fetcher, 'https://fcm.googleapis.com/v1/projects/'+config.project_id+'/messages:send',{
@@ -97,7 +97,7 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
       // the caller. Never loop past the original call's 45-second lifetime.
         });
       } catch (error) {
-        if (kind === 'call' && attempt < 2 &&
+        if (attempt < 2 &&
             (error instanceof TypeError || error?.name === 'AbortError')) {
           await retryWait(attempt === 0 ? 450 : 1_350);
           continue;
@@ -120,7 +120,7 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
           if (error instanceof FcmUnregisteredTokenError) throw error;
         }
       }
-        if (kind === 'call' && attempt < 2 &&
+        if (attempt < 2 &&
             [408, 429, 500, 502, 503, 504].includes(response.status)) {
           await retryWait(attempt === 0 ? 450 : 1_350);
           continue;
