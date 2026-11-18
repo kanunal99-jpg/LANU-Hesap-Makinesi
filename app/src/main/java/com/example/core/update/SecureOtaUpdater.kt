@@ -92,6 +92,7 @@ object SecureOtaUpdater {
     private val http = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(35, TimeUnit.SECONDS)
+        .callTimeout(240, TimeUnit.SECONDS)
         // Inspect every redirect before making a request to the next host.
         .followRedirects(false)
         .followSslRedirects(false)
@@ -570,6 +571,18 @@ object SecureOtaUpdater {
 
     /** Own every redirect AND the complete streamed body until processing ends. */
     private suspend fun <T> trustedGet(
+        url: String, accept: String, rangeStart: Long? = null,
+        process: suspend (Response) -> T
+    ): T = OtaRequestBudget.run(OtaAssetFallback.isApk(url)) {
+        OtaAssetFallback.fetch(url,
+            primary = { primaryGet(url, accept, rangeStart, process = process) },
+            metadata = { readText(it, 1_000_000) },
+            // A failed streaming primary may already have extended the partial
+            // file. Restart with HTTP 200, never append from the old offset twice.
+            fallback = { primaryGet(it, "application/octet-stream", null, process = process) })
+    }
+
+    private suspend fun <T> primaryGet(
         url: String, accept: String, rangeStart: Long? = null, hop: Int = 0,
         process: suspend (Response) -> T
     ): T {
@@ -586,14 +599,14 @@ object SecureOtaUpdater {
         return com.example.core.network.CancellableHttp.withResponse(builder.build(), http) { response ->
             if (rangeStart != null && rangeStart > 0L && response.code == 416) {
                 response.close()
-                trustedGet(url, accept, null, hop, process)
+                primaryGet(url, accept, null, hop, process)
             } else if (response.code in setOf(301, 302, 303, 307, 308)) {
                 val resolved = response.header("Location")?.let { next.resolve(it) }
                 response.close()
                 require(hop < MAX_REDIRECTS && resolved != null) { "Güncelleme yönlendirme sınırına ulaştı." }
-                trustedGet(resolved.toString(), accept, rangeStart, hop + 1, process)
+                primaryGet(resolved.toString(), accept, rangeStart, hop + 1, process)
             } else {
-                check(response.isSuccessful) { "GitHub güncelleme hizmeti HTTP ${response.code} döndürdü." }
+                if (!response.isSuccessful) throw OtaHttpException(response.code)
                 process(response)
             }
         }

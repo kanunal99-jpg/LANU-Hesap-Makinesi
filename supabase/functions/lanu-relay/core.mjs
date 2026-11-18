@@ -296,7 +296,11 @@ export function createRelay(store, clock = Date.now, options = {}) {
         insist(message.senderId === owner && message.recipientId === data.peerId && message.content === data.content, 409, 'Mesaj kimliği çakıştı.');
         // Never dispatch before the encrypted message is durable and validated.
         // Old relays/clients remain compatible. A wake is not a delivery ACK.
-        if (!existing && options.messageWakeEnabled === true &&
+        if (options.messageWakeEnabled === true && typeof options.drainMessageWakes === 'function') {
+          const task = options.drainMessageWakes();
+          if (typeof options.scheduleMessageWake === 'function') options.scheduleMessageWake(task);
+          else await task;
+        } else if (!existing && options.messageWakeEnabled === true &&
           typeof options.sendMessageWake === 'function' &&
           typeof store.messageWakeClaim === 'function') {
           // Both notification claim and the external FCM HTTP call run off
@@ -439,11 +443,17 @@ export function createRelay(store, clock = Date.now, options = {}) {
         // and the server-stored capability for its signed identity.
         const mediaAware = data.mediaVersion === 1 &&
           await store.mediaVersion(owner) === 1;
+        const paged = options.eventPaging === true && data.eventPaging === 1;
+        if (paged) insist(data.eventAfter == null || uuid.test(data.eventAfter), 400, 'Geçersiz olay sayfası.');
         const [contacts, events, calls] = await Promise.all([
-          store.contacts(owner), store.events(owner, mediaAware ? 1 : 0),
+          store.contacts(owner), store.events(owner, mediaAware ? 1 : 0, paged ? (data.eventAfter ?? null) : undefined),
           includeCalls ? store.callPoll(owner) : Promise.resolve(null)
         ]);
         const result = { contacts, events };
+        if (paged) {
+          result.eventPaging = 1;
+          result.nextEventCursor = events.length === 200 ? events[199].id : null;
+        }
         if (includeCalls) result.calls = calls;
         return result;
       }
@@ -599,15 +609,23 @@ export class RestStore {
     return Array.isArray(rows) && rows.length === 1
       ? this.mapMessage(rows[0]) : this.message(value.id);
   }
-  async events(owner, mediaVersion = 0) {
+  async events(owner, mediaVersion = 0, after = undefined) {
     // The deployed SQL RPC filters private_media for legacy clients BEFORE
     // generating event snapshots. Do not fetch all events and filter client-side.
-    const rows = await this.query('rpc/lanu_media_aware_events', 'POST',
-      { p_owner: owner, p_media_version: mediaVersion === 1 ? 1 : 0 });
+    const rows = await this.query(after === undefined ? 'rpc/lanu_media_aware_events' : 'rpc/lanu_message_event_page', 'POST',
+      { p_owner: owner, p_media_version: mediaVersion === 1 ? 1 : 0, ...(after === undefined ? {} : {p_after:after}) });
     return rows.map(row => ({ id: row.id, message: row.snapshot }));
   }
   async ack(owner, eventIds, readIds) { await this.query('rpc/lanu_ack', 'POST', { p_owner: owner, p_event_ids: eventIds, p_read_ids: readIds }); }
   async updateMessage(id, changes) { await this.query('lanu_messages?id=eq.' + id, 'PATCH', changes); }
+  async leaseMessagePush() { return this.query('rpc/lanu_push_lease', 'POST', {}); }
+  async finishMessagePush(job, outcome, delayMs) {
+    return this.query('rpc/lanu_push_finish', 'POST', {p_message:job.messageId,
+      p_lease:job.leaseId,p_outcome:outcome,p_delay_ms:delayMs});
+  }
+  async consumePushTicket(ticket) {
+    return this.query('rpc/lanu_push_consume_ticket','POST',{p_ticket:ticket});
+  }
   async callPoll(owner) {
     const rows = await this.query('rpc/lanu_call_poll', 'POST', { p_owner: owner });
     return rows.map(row => ({ id: row.id, callId: row.call_id, senderId: row.sender_id,

@@ -16,6 +16,7 @@ import com.google.firebase.messaging.RemoteMessage
  */
 class CallWakeMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
+        recordWakeDiagnostics(message)
         // Keep the FCM callback short; no activity launch or media capture here.
         when (message.data["type"]) {
             CallWakePolicy.TYPE -> {
@@ -40,6 +41,21 @@ class CallWakeMessagingService : FirebaseMessagingService() {
             }
             else -> Unit // Never show an unrecognized notification.
         }
+    }
+
+    private fun recordWakeDiagnostics(message: RemoteMessage) {
+        val metrics = com.example.core.diagnostics.PrivateConnectionMetrics
+        if (!metrics.isEnabled()) return
+        val now = System.currentTimeMillis()
+        val kind = when (message.data["type"]) {
+            CallWakePolicy.TYPE -> if (CallWakePreferences.isEnabled(applicationContext) && CallWakePolicy.eligible(message.data, now))
+                com.example.core.diagnostics.PrivateConnectionMetrics.WakeKind.CALL else null
+            MessageWakePolicy.TYPE -> if (MessageWakePreferences.isEnabled(applicationContext) && MessageWakePolicy.eligible(message.data, now))
+                com.example.core.diagnostics.PrivateConnectionMetrics.WakeKind.MESSAGE else null
+            else -> null
+        } ?: return
+        metrics.recordWake(kind, message.originalPriority == RemoteMessage.PRIORITY_HIGH,
+            message.priority == RemoteMessage.PRIORITY_NORMAL, message.data["at"]?.toLongOrNull()?.let { now - it })
     }
 
     override fun onDeletedMessages() {

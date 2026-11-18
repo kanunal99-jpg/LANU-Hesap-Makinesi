@@ -897,6 +897,8 @@ class CommunicationRepository(
         id
     }
 
+    suspend fun hasPendingInboxPage(): Boolean = settingsDao.getSettingValue("lanu_event_cursor_v1") != null
+
     suspend fun sendQueuedForeground() = syncMutex.withLock {
         if (clock() < nextSyncAt || clock() < nextForegroundSendAt) return@withLock
         nextForegroundSendAt = clock() + 1000L
@@ -931,6 +933,10 @@ class CommunicationRepository(
         // Receive and acknowledge BEFORE sending: one blocked/invalid outgoing
         // message must never prevent unrelated incoming conversations arriving.
         val response = relay.request(own, "sync", JSONObject().apply {
+            put("eventPaging", 1)
+            settingsDao.getSettingValue("lanu_event_cursor_v1")?.let { cursor ->
+                if (runCatching { UUID.fromString(cursor).toString() == cursor }.getOrDefault(false)) put("eventAfter", cursor)
+            }
             if (callingForeground) put("callVersion", CallSignaling.VERSION)
             if (privateMediaCapable) put("mediaVersion", 1)
         })
@@ -1030,6 +1036,17 @@ class CommunicationRepository(
             if (!MessageAckFailurePolicy.mayDrainIndependentOutbox(e)) throw e
             deferredAckFailure = e
         }
+        // Advance even when this page contains only rejected ciphertext. A cursor
+        // NEVER means delivered/read; those events stay unacknowledged and are
+        // revisited after traversal wraps. Older relays simply omit capability.
+        if (response.optInt("eventPaging") == 1) {
+            val cursor = response.optString("nextEventCursor").takeIf {
+                runCatching { UUID.fromString(it).toString() == it }.getOrDefault(false)
+            }
+            if (cursor == null) settingsDao.deleteSetting("lanu_event_cursor_v1")
+            else settingsDao.insertSetting(SettingsEntity("lanu_event_cursor_v1", cursor))
+        }
+        else settingsDao.deleteSetting("lanu_event_cursor_v1") // legacy relay/downgrade
         // Five sends plus register/sync/receipts stay below 120 requests/minute
         // at the normal 5-second cadence. Manual rapid refresh is also bounded.
         if (drainOutbox && clock() >= nextSendAt) drainPendingOutbox(own)
