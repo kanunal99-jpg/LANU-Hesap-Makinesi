@@ -1,5 +1,12 @@
 # PROJE ANAYASASI — 15.10.2026
 
+## 18.11.2026 — Geciken mesaj ve uygulama dışı çağrı arızası
+
+Kullanıcı 12–13 civarı beklenen mesajın yaklaşık 16:40’ta kendi mesajını gönderirken görünmesini ve uygulama açılmadan çağrı alamamayı bildirdi. Hedef: önceki açık mesaj/arama tercihleri korunarak zamanında arka plan teslim, kilit ekranında kimliksiz Yanıtla/Reddet, yalnız doğrulanmış davete dayalı arayan tarafı çalma bilgisi ve sesi. İlişkili yarışlar/eksikler aynı onarımda ele alınır; mevcut #380/#133 takipleri korunur. Bu bildirim belirli kurulu sürüm veya sunucu gönderim zamanı kanıtı değildir. Yeni ücret, veri silme, otomatik opt-in, gizli alana giriş atlama yoktur.
+
+Doğrulama: yeni uyarının çalışan eşitleme sırasında kaybolması, iş önceliği/kota fallback, süreç ölümü/token onarımı, sahte/eski/çift çağrı, bildirim izni/opt-out, ardışık çağrı ve ringback sırası test edilir. Android 23–36, son HEAD CI, main CI, mevcut signer ile OTA ve Release APK read-back ayrı kapılardır. İki fiziksel telefonda uygulama kapalı/kilitli senaryoları görülmeden olay tamamen çözüldü veya saha kabulü tamamlandı denmez.
+
+
 ## 12.11.2026 — Kullanıcı kararı: TSUNAMİ kilit ekranı çağrı kabulü ve kanıtlı dağıtım
 
 **Yalnızca LANU-Hesap-Makinesi** üzerinde, mevcut `#380` / `PR #381` üzerinden devam edilir; başka LANU deposuna yazılmaz. İstenen hedef kullanıcı onaylı, kilit ekranında kimliksiz sesli/görüntülü çağrı bildirimi, mümkün olduğunda Android tam ekran/heads-up, kolay Yanıtla/Reddet, doğrulanmış E2EE INVITE olmadan görüşme/ret/mikrofon/kamera başlatmama, çağrı zamanı ve kopyalarını güvenle yönetme, WebRTC ve ağ/focus/OEM yaşam döngüsü devamlılığıdır. Çağrı bildirimini bilerek açan kişi için yalnız genel çağrı varlığı görünür; kişi, PIN, sohbet ve özel alan açılmaz. Gizli hesap makinesi girişi, isteğe bağlı PIN, Room/kimlik/mesaj/geçmiş/kuyruk, mevcut imza ve kullanıcı tercihleri korunur.
