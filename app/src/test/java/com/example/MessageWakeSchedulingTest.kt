@@ -63,7 +63,6 @@ class MessageWakeSchedulingTest {
         MessageWakeTokenRefreshWorker.maintainTokenRecovery(context)
         assertEquals(first.id, manager.getWorkInfosForUniqueWork(MessageWakeTokenRefreshWorker.PERIODIC_WORK_NAME).get().single().id)
         assertTrue(MessageWakePreferences.disableAndQueueRemoteRevoke(context))
-        MessageWakeTokenRefreshWorker.maintainTokenRecovery(context)
         assertTrue(manager.getWorkInfosForUniqueWork(MessageWakeTokenRefreshWorker.PERIODIC_WORK_NAME).get().all { it.state.isFinished })
     }
 }
