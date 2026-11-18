@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID, generateKeyPairSync, webcrypto } from 'node:crypto';
 import { createRelay } from '../../supabase/functions/lanu-relay/core.mjs';
-import { createFcmWakeSender, fetchWithDeadline, FcmUnregisteredTokenError } from '../../supabase/functions/lanu-relay/call-wake-fcm.mjs';
+import { createFcmWakeSender, fetchWithDeadline, fcmRetryDelay, FcmUnregisteredTokenError } from '../../supabase/functions/lanu-relay/call-wake-fcm.mjs';
 import { fixture, link, envelope, encrypted } from './fixtures.mjs';
 
 test('call wake opt-in requires owner ECDSA and rejects unrelated payloads',async()=>{
@@ -86,6 +86,7 @@ test('ordinary chat, background legacy calls and unrelated messages cannot trigg
 test('FCM sender remains disabled without secret; invalid secret cannot send',()=>{
   assert.equal(createFcmWakeSender(null),null);
   assert.equal(createFcmWakeSender('{bad'),null);
+  assert.equal(createFcmWakeSender('null'),null);
   assert.equal(createFcmWakeSender(JSON.stringify({project_id:'fake-project'})),null);
 });
 
@@ -120,7 +121,7 @@ test('simultaneous FCM wakes share OAuth refresh while preserving isolated priva
     sent.push(message);
     return {ok:true};
   };
-  const sender=createFcmWakeSender(credentials,mockFetch,webcrypto);
+  const sender=createFcmWakeSender(credentials,mockFetch,webcrypto,undefined,{clock:()=>1700000000000});
   assert.ok(sender);
   const [first,second]=await Promise.all([
     sender('A'.repeat(40),1700000000001),
@@ -175,7 +176,7 @@ test('FCM fetch deadlines cancel slow Google calls and clear completed timers',a
     },{once:true});
   });
   await assert.rejects(fetchWithDeadline(hanging,'https://example.invalid',{},15),
-    /mock aborted as expected/);
+    e=>e.name==='AbortError'||/mock aborted as expected/.test(e.message));
   assert.equal(aborted,true,'Request must abort after its deadline');
 
   let completedSignal;
@@ -250,8 +251,7 @@ test('FCM response classification refuses unrelated 404 and 429 as invalid token
   await assert.rejects(sender('A'.repeat(40)),e=>!(e instanceof FcmUnregisteredTokenError)&&
     e.message==='FCM dispatch unavailable');
   responseKind='rate_limited';
-  await assert.rejects(sender('A'.repeat(40)),e=>!(e instanceof FcmUnregisteredTokenError)&&
-    e.message==='FCM dispatch unavailable');
+  assert.equal(await sender('A'.repeat(40)),false,'Backpressure exceeds live call budget');
   assert.equal(createFcmWakeSender(JSON.stringify({
     type:'service_account',project_id:'another-firebase-project',
     client_email:'lanu-test@another-firebase-project.iam.gserviceaccount.com',
@@ -276,12 +276,12 @@ test('transient FCM call delivery retries twice with the same privacy-safe hint 
     const call=JSON.parse(init.body).message;
     attempts.push(call);
     if(attempts.length===1)return {ok:false,status:503};
-    if(attempts.length===2)return {ok:false,status:429};
+    if(attempts.length===2)return {ok:false,status:503};
     return {ok:true,status:200};
   };
-  const sender=createFcmWakeSender(credentials,fetcher,webcrypto,async ms=>{waits.push(ms)});
+  const sender=createFcmWakeSender(credentials,fetcher,webcrypto,async ms=>{waits.push(ms)}, {clock:()=>1710000000000,random:()=>0});
   assert.equal(await sender('A'.repeat(44),1710000000000,'call'),true);
-  assert.deepEqual(waits,[450,1350]);
+  assert.deepEqual(waits,[10000,20000]);
   assert.equal(attempts.length,3);
   for(const message of attempts) {
     assert.deepEqual(Object.keys(message.data).sort(),['at','type']);
@@ -309,7 +309,7 @@ test('permanent FCM responses never get auto-retried for either alert',async()=>
     seen.push(JSON.parse(init.body).message.data.type);
     return {ok:false,status:401};
   };
-  const sender=createFcmWakeSender(credentials,fetcher,webcrypto,async ms=>{waits.push(ms)});
+  const sender=createFcmWakeSender(credentials,fetcher,webcrypto,async ms=>{waits.push(ms)}, {clock:()=>1710000000000,random:()=>0});
   await assert.rejects(sender('A'.repeat(44),1710000000000,'call'),/FCM dispatch unavailable/);
   await assert.rejects(sender('A'.repeat(44),1710000000000,'message'),/FCM dispatch unavailable/);
   assert.deepEqual(seen,['lanu_call_wake_v1','lanu_message_wake_v1']);
@@ -333,12 +333,12 @@ test('transient FCM message delivery retries twice with the same privacy-safe hi
     const call=JSON.parse(init.body).message;
     attempts.push(call);
     if(attempts.length===1)return {ok:false,status:503};
-    if(attempts.length===2)return {ok:false,status:429};
+    if(attempts.length===2)return {ok:false,status:503};
     return {ok:true,status:200};
   };
-  const sender=createFcmWakeSender(credentials,fetcher,webcrypto,async ms=>{waits.push(ms)});
+  const sender=createFcmWakeSender(credentials,fetcher,webcrypto,async ms=>{waits.push(ms)}, {clock:()=>1710000000000,random:()=>0});
   assert.equal(await sender('A'.repeat(44),1710000000000,'message'),true);
-  assert.deepEqual(waits,[450,1350]);
+  assert.deepEqual(waits,[10000,20000]);
   assert.equal(attempts.length,3);
   for(const message of attempts) {
     assert.deepEqual(Object.keys(message.data).sort(),['at','type']);
@@ -347,4 +347,86 @@ test('transient FCM message delivery retries twice with the same privacy-safe hi
     assert.equal(message.android.priority,'HIGH');
     assert.equal(message.android.ttl,'120s');
   }
+});
+
+test('deadline covers stalled response body and cancels its stream',async()=>{
+  let cancelled=false;
+  const fetcher=async()=>new Response(new ReadableStream({
+    start(controller) { controller.enqueue(new TextEncoder().encode('{')); },
+    cancel() { cancelled=true; }
+  }));
+  await assert.rejects(fetchWithDeadline(fetcher,'https://example.invalid',{},15),e=>e.name==='AbortError');
+  assert.equal(cancelled,true);
+});
+
+test('response body is bounded even without Content-Length and normal bodies survive deadline cleanup',async()=>{
+  let cancelled=false;
+  await assert.rejects(fetchWithDeadline(async()=>new Response(new ReadableStream({
+    start(controller) { controller.enqueue(new Uint8Array(65_537)); },
+    cancel() { cancelled=true; }
+  })),'https://example.invalid',{}),/response too large/);
+  assert.equal(cancelled,true);
+  const response=await fetchWithDeadline(async()=>new Response('{"ok":true}'),'',{},50);
+  assert.deepEqual(await response.json(),{ok:true});
+});
+
+test('Retry-After seconds, dates, quota minimum, invalid values and jitter are lower bounded',()=>{
+  const now=Date.parse('2026-11-18T12:00:00Z');
+  assert.equal(fcmRetryDelay(503,new Headers({'Retry-After':'120'}),0,now,()=>0),120000);
+  assert.equal(fcmRetryDelay(503,new Headers({'Retry-After':'Wed, 18 Nov 2026 12:01:00 GMT'}),0,now,()=>0),60000);
+  assert.equal(fcmRetryDelay(429,new Headers(),0,now,()=>0),60000);
+  for(const value of ['invalid','-2','0']) {
+    assert.ok(fcmRetryDelay(503,new Headers({'Retry-After':value}),0,now,()=>0)>=10000);
+  }
+  assert.equal(fcmRetryDelay(503,null,1,now,()=>1),25000);
+  assert.equal(fcmRetryDelay(503,new Headers({'Retry-After':'9'.repeat(400)}),0,now,()=>0),Infinity);
+});
+
+test('backpressure respects live expiry, stale hints never send, retries shrink TTL, diagnostics are fixed labels',async()=>{
+  const {privateKey}=generateKeyPairSync('rsa',{modulusLength:2048,
+    privateKeyEncoding:{format:'pem',type:'pkcs8'},publicKeyEncoding:{format:'pem',type:'spki'}});
+  const credentials=JSON.stringify({type:'service_account',project_id:'gen-lang-client-0658022317',
+    client_email:'test@gen-lang-client-0658022317.iam.gserviceaccount.com',private_key:privateKey});
+  let time=1800000000000, status=503, header='120', attempts=[], waits=[], outcomes=[];
+  const sender=createFcmWakeSender(credentials,async(url,init)=>{
+    if(url.includes('oauth2')) return new Response(JSON.stringify({access_token:'x'.repeat(40),expires_in:3600}));
+    attempts.push(JSON.parse(init.body).message);
+    return new Response('{}',{status:attempts.length===1?status:200,headers:{'Retry-After':header}});
+  },webcrypto,async ms=>{waits.push(ms);time+=ms;},{clock:()=>time,random:()=>0,
+    onOutcome:(kind,outcome)=>outcomes.push([kind,outcome])});
+  assert.equal(await sender('T'.repeat(40),time,'call'),false);
+  assert.equal(attempts.length,1);assert.deepEqual(waits,[]);
+  assert.deepEqual(outcomes.pop(),['call','backpressure']);
+  assert.equal(await sender('T'.repeat(40),time-120001,'message'),false);
+  assert.equal(attempts.length,1);
+  attempts=[]; status=429; header='1';
+  const original=time;
+  assert.equal(await sender('T'.repeat(40),time,'message'),true);
+  assert.deepEqual(waits,[60000]);
+  assert.equal(attempts[0].android.ttl,'120s');
+  assert.equal(attempts[1].android.ttl,'60s');
+  assert.ok(attempts.every(x=>x.data.at===String(original)));
+  assert.deepEqual(outcomes.pop(),['message','accepted']);
+});
+
+test('stalled shared OAuth body times out for both waiters and a later wake recovers',async()=>{
+  let auth=0, sends=0, cancelled=false;
+  const credentials=JSON.stringify({type:'service_account',project_id:'gen-lang-client-0658022317',
+    client_email:'test@gen-lang-client-0658022317.iam.gserviceaccount.com',
+    private_key:'-----BEGIN PRIVATE KEY-----\nAA==\n-----END PRIVATE KEY-----'});
+  const cryptoApi={subtle:{importKey:async()=>({}),sign:async()=>new Uint8Array(32)}};
+  const sender=createFcmWakeSender(credentials,async url=>{
+    if(url.includes('oauth2')) {
+      auth++;
+      if(auth===1) return new Response(new ReadableStream({cancel(){cancelled=true;}}));
+      return new Response(JSON.stringify({access_token:'x'.repeat(40),expires_in:3600}));
+    }
+    sends++;
+    return new Response('{}');
+  },cryptoApi);
+  const outcomes=await Promise.allSettled([sender('A'.repeat(40)),sender('B'.repeat(40))]);
+  assert.ok(outcomes.every(x=>x.status==='rejected'&&x.reason.name==='AbortError'));
+  assert.equal(auth,1);assert.equal(sends,0);assert.equal(cancelled,true);
+  assert.equal(await sender('C'.repeat(40)),true);
+  assert.equal(auth,2);assert.equal(sends,1);
 });

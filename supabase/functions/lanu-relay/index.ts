@@ -19,7 +19,9 @@ function serviceAccountStatus(raw: string | undefined): string {
   return 'shape_valid';
 }
 const fcmCredentials = Deno.env.get('LANU_FCM_SERVICE_ACCOUNT_JSON');
-const sendCallWake = createFcmWakeSender(fcmCredentials);
+const sendCallWake = createFcmWakeSender(fcmCredentials, fetch, crypto, undefined, {
+  onOutcome: (kind: string, outcome: string) => console.info('LANU push ' + kind + ': ' + outcome)
+});
 const sendMessageWake = sendCallWake
   ? (token: string, at: number) => sendCallWake(token, at, 'message')
   : null;

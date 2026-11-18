@@ -86,8 +86,8 @@ class DeliveryCoordinator(context: Context) {
      * immediate drain of the EXISTING durable outbox. WorkManager receives no
      * message, peer, token, identity or conversation identifiers.
      *
-     * KEEP coalesces rapid sends; the existing periodic job covers the race
-     * where another message arrives while an earlier drain is finishing.
+     * Chain a follow-up if a message arrives after a running drain's snapshot.
+     * Do not cancel an in-flight send or defer that message to the periodic job.
      */
     suspend fun enqueuePendingOutbox() = withContext(Dispatchers.IO) {
         scheduling.withLock {
@@ -97,7 +97,7 @@ class DeliveryCoordinator(context: Context) {
                 .setConstraints(constraints(snapshot.options))
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 60, TimeUnit.SECONDS)
                 .addTag(TAG).build()
-            manager().enqueueUniqueWork(OUTBOX, ExistingWorkPolicy.KEEP, request)
+            manager().enqueueUniqueWork(OUTBOX, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
                 .result.get(10, TimeUnit.SECONDS)
         }
     }

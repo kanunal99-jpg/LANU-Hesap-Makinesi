@@ -101,7 +101,7 @@ test('message FCM data contains only opaque type + timestamp and never a notific
     messages.push(JSON.parse(init.body).message);
     return {ok:true};
   };
-  const sender = createFcmWakeSender(credentials, fetcher, webcrypto);
+  const sender = createFcmWakeSender(credentials, fetcher, webcrypto, undefined, {clock:()=>1700000000000});
   assert.equal(await sender('D'.repeat(40),1700000000000,'message'),true);
   const msg = messages[0];
   assert.deepEqual(msg.data, {type:'lanu_message_wake_v1',at:'1700000000000'});
