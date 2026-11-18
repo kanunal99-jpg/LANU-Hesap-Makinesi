@@ -10,6 +10,9 @@ import androidx.work.WorkManager
 import androidx.work.testing.SynchronousExecutor
 import androidx.work.testing.WorkManagerTestInitHelper
 import com.example.core.messaging.*
+import com.example.core.delivery.DeliveryCoordinator
+import com.example.core.delivery.DeliveryOptions
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -34,6 +37,24 @@ class MessageWakeSchedulingTest {
         manager.cancelAllWork().result.get(5, TimeUnit.SECONDS)
         WorkManagerTestInitHelper.closeWorkDatabase()
         context.getSharedPreferences("lanu_message_wake_v1", Context.MODE_PRIVATE).edit().clear().commit()
+    }
+    @Test fun newOutboxMessageKeepsExistingDrainAndQueuesFollowUp() = runBlocking<Unit> {
+        val coordinator = DeliveryCoordinator(context)
+        coordinator.setOptions(DeliveryOptions(true, false))
+        try {
+            coordinator.enqueuePendingOutbox()
+            val first = manager.getWorkInfosForUniqueWork(DeliveryCoordinator.OUTBOX).get().single()
+            coordinator.enqueuePendingOutbox()
+            val work = manager.getWorkInfosForUniqueWork(DeliveryCoordinator.OUTBOX).get()
+            assertEquals(2, work.size)
+            assertEquals(WorkInfo.State.ENQUEUED, work.single { it.id == first.id }.state)
+            assertEquals(WorkInfo.State.BLOCKED, work.single { it.id != first.id }.state)
+            assertTrue(work.all { it.constraints.requiredNetworkType == NetworkType.CONNECTED })
+            assertTrue(work.all { it.outputData.keyValueMap.isEmpty() })
+        } finally { coordinator.setOptions(DeliveryOptions(false, false)) }
+        assertTrue(manager.getWorkInfosForUniqueWork(DeliveryCoordinator.OUTBOX).get().all { it.state.isFinished })
+        coordinator.enqueuePendingOutbox()
+        assertTrue(manager.getWorkInfosForUniqueWork(DeliveryCoordinator.OUTBOX).get().all { it.state.isFinished })
     }
     private fun consent() {
         assertTrue(MessageWakePreferences.beginEnrollment(context))
