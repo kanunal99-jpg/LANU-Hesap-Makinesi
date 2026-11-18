@@ -98,6 +98,7 @@ class NativeCallViewModel(
         attachedHosts++
         pendingHostRelease?.cancel()
         activate()
+        repository.setCallingForeground(true) // visible owner may now ACK retained invitations
         if (_state.value.phase == NativeCallPhase.RINGING) CallWakeNotification.cancel(appContext)
         CallWakePolicy.privateAreaVisible = true
         if (visibleIdlePoll == null) {
@@ -176,7 +177,7 @@ class NativeCallViewModel(
         if (foreground) return
         foreground = true
         com.example.core.calls.CallWakePolicy.privateAreaVisible = attachedHosts > 0
-        repository.setCallingForeground(true)
+        repository.setCallingForeground(true, retainIncomingInvites = !prepare && attachedHosts == 0)
         receiving = viewModelScope.launch {
             repository.callSignals.collect { handle(it) }
         }

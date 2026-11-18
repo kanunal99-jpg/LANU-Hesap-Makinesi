@@ -608,6 +608,11 @@ class NativeCallStateTest {
             assertEquals(signal.callId,awaitSent(CallSignalKind.RINGING).callId)
             assertFalse("Background verification must not claim visible private UI",CallWakePolicy.privateAreaVisible)
             assertEquals(0,mediaCreated)
+            assertEquals("RAM-only verification must retain INVITE for process-death recovery",1,inbox.size)
+            vm.attachHost()
+            repo.pollCallSignals(requestFollowUp = true)
+            assertTrue("Visible host may safely acknowledge retained INVITE",inbox.isEmpty())
+            vm.detachHost()
             inject(CallSignaling.create(signal.callId,CallSignalKind.END,false))
             waitPhase(NativeCallPhase.ENDED)
         } finally { CallWakePreferences.setEnabled(context,false) }
