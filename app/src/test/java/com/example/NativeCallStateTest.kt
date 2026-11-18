@@ -595,7 +595,7 @@ class NativeCallStateTest {
         assertEquals(NativeCallPhase.RINGING,vm.state.value.phase)
     }
 
-    @Test fun displayedWakeVerifiesIncomingCallWithoutAnyUiHostOrMedia() = runBlocking {
+    @Test fun displayedWakeVerifiesIncomingCallWithoutAnyUiHostOrMedia() = runBlocking<Unit> {
         vm.deactivate()
         val context=ApplicationProvider.getApplicationContext<Context>()
         CallWakePreferences.setEnabled(context,true)
