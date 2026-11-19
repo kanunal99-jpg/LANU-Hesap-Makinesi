@@ -75,7 +75,7 @@ interface SettingsDao {
      */
     @Query("""
         SELECT EXISTS(SELECT 1 FROM app_settings WHERE
-            `key` IN ('lanu_remote_registered', 'lanu_full_restore_identity')
+            `key` IN ('lanu_remote_registered', 'lanu_full_restore_identity', 'lanu_event_cursor_v1', 'lanu_quarantine_v1')
             OR `key` GLOB 'lanu_peer_*'
             OR `key` GLOB 'lanu_hidden_*'
             OR `key` GLOB 'lanu_draft_*'

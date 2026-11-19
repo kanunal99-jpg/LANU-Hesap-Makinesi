@@ -197,6 +197,53 @@ class UserCodeMessagingTest {
         assertEquals(recovered, repository().ensureIdentity())
     }
 
+    @Test fun `missing sender keys quarantine full page and advance across repository recreation without false receipts`() = runBlocking<Unit> {
+        val alice = UserCodes.create(); val bob = UserCodes.create(); val missing = UserCodes.create(); vault.save(alice)
+        val badIds = List(200) { java.util.UUID.randomUUID().toString() }
+        val good = java.util.UUID.randomUUID().toString()
+        val acknowledgements = mutableListOf<String>()
+        val relay = object : MessagingRelay {
+            override val configured = true
+            override suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject): JSONObject = when (action) {
+                "register" -> JSONObject().put("code", alice.code).put("nonce", alice.nonce)
+                "sync" -> {
+                    assertEquals(1, data.getInt("eventPaging"))
+                    val after = data.optString("eventAfter")
+                    val ids = if (after.isEmpty()) badIds else listOf(good)
+                    if (after.isNotEmpty()) assertEquals(badIds.last(), after)
+                    val events = org.json.JSONArray()
+                    ids.forEach { id -> events.put(JSONObject().put("id", id).put("message",
+                        JSONObject().put("id", id).put("senderId", if (id == good) bob.id else missing.id).put("recipientId", alice.id)
+                            .put("revision", 1).put("status", "SENT").put("createdAt", 1000)
+                            .put("content", if (id == good) PeerMessageCrypto.encrypt(bob, alice.id, alice.publicKey, id, "healthy") else "lanu2:" + "A".repeat(40)))) }
+                    JSONObject().put("contacts", org.json.JSONArray().put(JSONObject().put("id", bob.id)
+                        .put("code", bob.code).put("nonce", bob.nonce).put("publicKey", bob.publicKey)
+                        .put("codeAtAdd", bob.code).put("mutual", true)))
+                        .put("events", events).put("eventPaging", 1)
+                        .put("nextEventCursor", if (after.isEmpty()) badIds.last() else JSONObject.NULL)
+                }
+                "ack" -> JSONObject().put("acknowledged", true).also {
+                    val ids = data.getJSONArray("eventIds")
+                    repeat(ids.length()) { acknowledgements += ids.getString(it) }
+                }
+                else -> error("Unexpected action: $action")
+            }
+        }
+        assertTrue(runCatching { repository(relay = relay).synchronize() }.exceptionOrNull() is SecurityException)
+        assertEquals(badIds.last(), db.settingsDao().getSettingValue("lanu_event_cursor_v1"))
+        val quarantine = JSONObject(db.settingsDao().getSettingValue(MessageQuarantine.KEY)!!)
+        assertEquals(MessageQuarantine.MAX_ENTRIES, quarantine.length())
+        quarantine.keys().forEach { id ->
+            assertEquals("MISSING_SENDER_KEY", quarantine.getJSONObject(id).getString("reason"))
+            assertNull(db.messageDao().getMessage(id))
+            assertNull(db.settingsDao().getSettingValue("lanu_message_revision_$id"))
+        }
+        repository(relay = relay).synchronize()
+        assertNotNull(db.messageDao().getMessage(good))
+        assertEquals(listOf(good), acknowledgements)
+        assertNull(db.settingsDao().getSettingValue("lanu_event_cursor_v1"))
+    }
+
     @Test fun `rejected full page advances across repository recreation without false receipts`() = runBlocking<Unit> {
         val alice = UserCodes.create(); val bob = UserCodes.create(); vault.save(alice)
         val badIds = List(200) { java.util.UUID.randomUUID().toString() }
@@ -277,6 +324,51 @@ class UserCodeMessagingTest {
         assertEquals("doğrulanmış mesaj", repo.getMessages(conversationId).first()[0].content)
     }
 
+    @Test fun `missing sender key is retained without ACK and retries successfully after key recovery`() = runBlocking {
+        val alice = UserCodes.create()
+        val bob = UserCodes.create()
+        vault.save(alice)
+        val conversationId = UserCodes.conversationId(alice.id, bob.id)
+        val messageId = java.util.UUID.randomUUID().toString()
+        val eventId = java.util.UUID.randomUUID().toString()
+        var ciphertext = "lanu2:" + "A".repeat(40)
+        var acknowledgements = 0
+        var keyAvailable = false
+        val relay = object : MessagingRelay {
+            override val configured = true
+            override suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject): JSONObject = when (action) {
+                "register" -> JSONObject().put("code", alice.code).put("nonce", alice.nonce)
+                "sync" -> JSONObject()
+                    .put("contacts", if (!keyAvailable) org.json.JSONArray() else org.json.JSONArray().put(
+                        JSONObject().put("id", bob.id).put("code", bob.code)
+                            .put("nonce", bob.nonce).put("publicKey", bob.publicKey)
+                            .put("codeAtAdd", bob.code).put("mutual", true)))
+                    .put("events", org.json.JSONArray().put(JSONObject().put("id", eventId)
+                        .put("message", JSONObject().put("id", messageId)
+                            .put("senderId", bob.id).put("recipientId", alice.id)
+                            .put("revision", 1).put("status", "SENT")
+                            .put("createdAt", System.currentTimeMillis())
+                            .put("content", ciphertext))))
+                "ack" -> JSONObject().put("acknowledged", true).also { acknowledgements++ }
+                else -> error("Unexpected relay call: $action")
+            }
+        }
+        val repo = repository(relay = relay)
+        assertTrue(runCatching { repo.synchronize(conversationId) }.exceptionOrNull() is SecurityException)
+        assertNull("Tampered message must never be saved", db.messageDao().getMessage(messageId))
+        assertEquals("An invalid message must never be marked delivered or read", 0, acknowledgements)
+
+        assertEquals("MISSING_SENDER_KEY", JSONObject(db.settingsDao().getSettingValue(MessageQuarantine.KEY)!!)
+            .getJSONObject(messageId).getString("reason"))
+        keyAvailable = true
+        ciphertext = PeerMessageCrypto.encrypt(bob, alice.id, alice.publicKey, messageId, "doğrulanmış mesaj")
+        repository(relay = relay).synchronize(conversationId)
+        assertNull(db.settingsDao().getSettingValue(MessageQuarantine.KEY))
+        assertNotNull("Authentic message must be saved for offline access", db.messageDao().getMessage(messageId))
+        assertTrue("Valid message must be acknowledged", acknowledgements > 0)
+        assertEquals("doğrulanmış mesaj", repo.getMessages(conversationId).first()[0].content)
+    }
+
     @Test fun `bad ciphertext cannot block later authenticated events or acknowledge itself`() = runBlocking {
         val alice = UserCodes.create(); val bob = UserCodes.create(); vault.save(alice)
         val conversation = UserCodes.conversationId(alice.id, bob.id)
@@ -291,6 +383,63 @@ class UserCodeMessagingTest {
                 "sync" -> {
                     fun event(id: String, content: String) = JSONObject().put("id", id).put("message",
                         JSONObject().put("id", id).put("senderId", bob.id).put("recipientId", alice.id)
+                            .put("revision", if (corruptRevision && id == good) 2 else 1).put("status", "SENT").put("createdAt", 1000).put("content", content))
+                    JSONObject().put("contacts", org.json.JSONArray().put(JSONObject()
+                        .put("id", bob.id).put("code", bob.code).put("nonce", bob.nonce)
+                        .put("publicKey", bob.publicKey).put("codeAtAdd", bob.code).put("mutual", true)))
+                        .put("events", org.json.JSONArray()
+                            .put(event(bad, "lanu2:" + "A".repeat(40)))
+                            .put(event(good, if (corruptRevision) "lanu2:" + "A".repeat(40) else
+                                PeerMessageCrypto.encrypt(bob, alice.id, alice.publicKey, good, "valid"))))
+                }
+                "ack" -> {
+                    val ids = data.getJSONArray("eventIds"); val read = data.getJSONArray("readIds")
+                    repeat(ids.length()) { acknowledged += ids.getString(it) }
+                    repeat(read.length()) { reads += read.getString(it) }
+                    JSONObject().put("acknowledged", true)
+                }
+                "send" -> JSONObject().put("status", "SENT").also { sent += data.getString("messageId") }
+                else -> error("Unexpected action: $action")
+            }
+        }
+        val repo = repository(relay = relay)
+        repeat(2) {
+            assertTrue(runCatching { repo.synchronize(conversation) }.exceptionOrNull() is SecurityException)
+            assertNull(db.messageDao().getMessage(bad))
+            assertNull(db.settingsDao().getSettingValue("lanu_message_revision_$bad"))
+            assertNotNull(db.messageDao().getMessage(good))
+        }
+        assertTrue(good in acknowledged); assertTrue(good in reads)
+        assertFalse(bad in acknowledged); assertFalse(bad in reads)
+        assertEquals(1, repo.getMessages(conversation).first().size)
+        val outgoing = repo.sendMessage(conversation, "durable outgoing")
+        val encrypted = db.messageDao().getMessage(outgoing)!!.content
+        assertTrue(runCatching { repo.synchronize(conversation) }.exceptionOrNull() is SecurityException)
+        assertEquals(listOf(outgoing), sent)
+        assertEquals("SENT", db.messageDao().getMessage(outgoing)!!.status)
+        assertEquals(encrypted, db.messageDao().getMessage(outgoing)!!.content)
+        val previousGood = db.messageDao().getMessage(good)!!.content
+        corruptRevision = true; acknowledged.clear(); reads.clear()
+        assertTrue(runCatching { repo.synchronize(conversation) }.exceptionOrNull() is SecurityException)
+        assertTrue(acknowledged.isEmpty()); assertTrue(reads.isEmpty())
+        assertEquals(previousGood, db.messageDao().getMessage(good)!!.content)
+        assertEquals("1", db.settingsDao().getSettingValue("lanu_message_revision_$good"))
+    }
+
+    @Test fun `missing sender key cannot block good same-page event or durable outgoing ciphertext`() = runBlocking {
+        val alice = UserCodes.create(); val bob = UserCodes.create(); val missing = UserCodes.create(); vault.save(alice)
+        val conversation = UserCodes.conversationId(alice.id, bob.id)
+        val bad = java.util.UUID.randomUUID().toString()
+        val good = java.util.UUID.randomUUID().toString()
+        var corruptRevision = false
+        val acknowledged = mutableListOf<String>(); val reads = mutableListOf<String>(); val sent = mutableListOf<String>()
+        val relay = object : MessagingRelay {
+            override val configured = true
+            override suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject): JSONObject = when (action) {
+                "register" -> JSONObject().put("code", alice.code).put("nonce", alice.nonce)
+                "sync" -> {
+                    fun event(id: String, content: String) = JSONObject().put("id", id).put("message",
+                        JSONObject().put("id", id).put("senderId", if (id == bad) missing.id else bob.id).put("recipientId", alice.id)
                             .put("revision", if (corruptRevision && id == good) 2 else 1).put("status", "SENT").put("createdAt", 1000).put("content", content))
                     JSONObject().put("contacts", org.json.JSONArray().put(JSONObject()
                         .put("id", bob.id).put("code", bob.code).put("nonce", bob.nonce)

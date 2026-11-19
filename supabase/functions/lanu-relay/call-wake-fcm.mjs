@@ -172,7 +172,7 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
         // Only two nonsensitive fields. No notification section: Android app
         // creates its own privacy-redacted opt-in notification.
         data:{type:kind === 'message' ? 'lanu_message_wake_v1' : 'lanu_call_wake_v1',at:String(now)},
-        android:{priority:'HIGH',ttl:Math.min(kind === 'message' ? 120 : 45, Math.floor(remaining / 1000))+'s',
+        android:{priority:'HIGH',ttl:(kind === 'message' ? 86_400 : Math.min(45, Math.floor(remaining / 1000)))+'s',
           collapse_key:kind === 'message' ? 'lanu_message_v1' : 'lanu_call_v1'}
       }}),
       // The signed relay ACK and encrypted INVITE are independent of FCM.

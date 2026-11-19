@@ -105,7 +105,9 @@ object MessageWakePreferences {
 
 object MessageWakePolicy {
     const val TYPE = "lanu_message_wake_v1"
-    internal const val PAST_WINDOW_MS = 120_000L
+    // Chat persists across offline intervals. Allow the 24h FCM queue plus
+    // the bounded two-minute transport budget; call freshness is unchanged.
+    internal const val PAST_WINDOW_MS = 86_400_000L + 120_000L
     internal const val FUTURE_GRACE_MS = 15_000L
 
     // A user-selected silent/LOW channel is still a legitimate alert.
@@ -291,6 +293,7 @@ object MessageWakeNotification {
                     .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                     .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
                     .setAutoCancel(true)
+                    .setOnlyAlertOnce(true)
                     // Late or duplicated wake hints must not linger indefinitely
                     // on Android O+; the encrypted conversation remains in Room.
                     .setTimeoutAfter(remaining)

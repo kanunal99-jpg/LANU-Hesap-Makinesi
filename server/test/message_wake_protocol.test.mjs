@@ -106,7 +106,7 @@ test('message FCM data contains only opaque type + timestamp and never a notific
   const msg = messages[0];
   assert.deepEqual(msg.data, {type:'lanu_message_wake_v1',at:'1700000000000'});
   assert.equal(msg.notification,undefined);
-  assert.equal(msg.android.ttl,'120s');
+  assert.equal(msg.android.ttl,'86400s');
   assert.equal(msg.android.collapse_key,'lanu_message_v1');
   assert.equal(await sender('D'.repeat(40),1700000000000,'marketing'),false);
   assert.equal(messages.length,1);

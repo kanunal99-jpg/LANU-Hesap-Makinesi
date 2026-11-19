@@ -345,7 +345,7 @@ test('transient FCM message delivery retries twice with the same privacy-safe hi
     assert.deepEqual(message.data,{type:'lanu_message_wake_v1',at:'1710000000000'});
     assert.equal(message.notification,undefined);
     assert.equal(message.android.priority,'HIGH');
-    assert.equal(message.android.ttl,'120s');
+    assert.equal(message.android.ttl,'86400s');
   }
 });
 
@@ -403,8 +403,8 @@ test('backpressure respects live expiry, stale hints never send, retries shrink 
   const original=time;
   assert.equal(await sender('T'.repeat(40),time,'message'),true);
   assert.deepEqual(waits,[60000]);
-  assert.equal(attempts[0].android.ttl,'120s');
-  assert.equal(attempts[1].android.ttl,'60s');
+  assert.equal(attempts[0].android.ttl,'86400s');
+  assert.equal(attempts[1].android.ttl,'86400s');
   assert.ok(attempts.every(x=>x.data.at===String(original)));
   assert.deepEqual(outcomes.pop(),['message','accepted']);
 });

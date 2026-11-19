@@ -37,3 +37,13 @@ test('single-attempt FCM exposes Retry-After to durable worker without sleeping'
  await assert.rejects(sender('T'.repeat(40),Date.now(),'message'),e=>e instanceof FcmRetryableError&&e.retryAfterMillis===120000);
  assert.equal(sends,1);
 });
+
+test('accepted FCM is not recipient delivery and retry hint uses a fresh clock',async()=>{
+ let available=true, finished, sent;
+ const job={messageId:'private',leaseId:'lease',token:'opaque',at:1000};
+ const store={leaseMessagePush:async()=>available?(available=false,job):null,
+  finishMessagePush:async(j,outcome)=>{finished=outcome;return true;}};
+ await createMessagePushDispatcher(store,async(...args)=>{sent=args;return true;},()=>{},()=>500000)();
+ assert.deepEqual(sent,['opaque',500000,'message']);
+ assert.equal(finished,'accepted');
+});
