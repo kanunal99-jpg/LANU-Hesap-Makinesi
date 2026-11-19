@@ -22,7 +22,7 @@ internal object OtaAssetFallback {
         val selected = matches.single()
         val idText = selected.get("id").toString()
         val id = idText.toLongOrNull()
-        val size = selected.optLong("size", -1)
+        val size = selected.get("size").toString().toLongOrNull() ?: -1L
         require(id != null && id > 0 && selected.optString("state") == "uploaded" &&
             size in 1..(if (name == "app-debug.apk") 90L * 1024 * 1024 else 4096L) &&
             selected.optString("browser_download_url") == "https://github.com/$REPO/releases/download/$tag/$name") { "OTA dosya kimliği geçersiz." }

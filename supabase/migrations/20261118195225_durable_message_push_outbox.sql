@@ -103,3 +103,5 @@ language sql security invoker set search_path='' as $$
 $$;
 revoke all on function public.lanu_push_consume_ticket(text) from public,anon,authenticated;
 grant execute on function public.lanu_push_consume_ticket(text) to service_role;
+
+notify pgrst,'reload schema';

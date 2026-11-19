@@ -12,3 +12,5 @@ returns setof public.lanu_events language sql security invoker set search_path='
 $$;
 revoke all on function public.lanu_message_event_page(text,integer,uuid) from public,anon,authenticated;
 grant execute on function public.lanu_message_event_page(text,integer,uuid) to service_role;
+
+notify pgrst,'reload schema';

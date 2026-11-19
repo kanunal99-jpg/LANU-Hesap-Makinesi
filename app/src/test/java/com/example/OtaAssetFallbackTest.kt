@@ -30,7 +30,7 @@ class OtaAssetFallbackTest {
         assertEquals("verified downstream", result)
     }
     @Test fun invalidAssetIdentityAndDraftCannotRedirectDownloads() {
-        for (raw in listOf(metadata("123x"), metadata(123L, true), metadata().replace(url, "https://example.org/file"))) {
+        for (raw in listOf(metadata("123x"), metadata(123L, true), JSONObject(metadata()).also { it.getJSONArray("assets").getJSONObject(0).put("browser_download_url", "https://example.org/file") }.toString())) {
             assertTrue(runCatching { OtaAssetFallback.apiAsset(raw, tag, name) }.isFailure)
         }
     }

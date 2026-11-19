@@ -444,7 +444,7 @@ export function createRelay(store, clock = Date.now, options = {}) {
         const mediaAware = data.mediaVersion === 1 &&
           await store.mediaVersion(owner) === 1;
         const paged = options.eventPaging === true && data.eventPaging === 1;
-        if (paged) insist(data.eventAfter == null || uuid.test(data.eventAfter), 400, 'Geçersiz olay sayfası.');
+        if (paged) insist(data.eventAfter == null || (typeof data.eventAfter === 'string' && uuid.test(data.eventAfter)), 400, 'Geçersiz olay sayfası.');
         const [contacts, events, calls] = await Promise.all([
           store.contacts(owner), store.events(owner, mediaAware ? 1 : 0, paged ? (data.eventAfter ?? null) : undefined),
           includeCalls ? store.callPoll(owner) : Promise.resolve(null)

@@ -14,6 +14,7 @@ object PrivateRelayHealth {
         RATE_LIMIT("İstek sınırlama"),
         CONFLICT("Kayıt çakışması"),
         RESPONSE("Geçersiz sunucu yanıtı"),
+        CONFIGURATION("Sunucu yapılandırması"),
         LOCAL_STORAGE("Yerel veritabanı erişimi"),
         SECURE_STORAGE("Güvenli depolama/doğrulama"),
         OTHER("Diğer sunucu yanıtı")

@@ -2,6 +2,8 @@
 create extension if not exists pg_net with schema extensions;
 revoke usage on schema net from public,anon,authenticated;
 revoke all on all functions in schema net from public,anon,authenticated;
+revoke all on all tables in schema net from public,anon,authenticated;
+revoke all on all sequences in schema net from public,anon,authenticated;
 create function public.lanu_schedule_message_push() returns void
 language plpgsql security invoker set search_path='' as $$
 declare ticket text;
@@ -17,8 +19,14 @@ begin
   perform net.http_post(
     url:='https://talhknjcjaijqiqwdyhf.supabase.co/functions/v1/lanu-relay',
     headers:='{"Content-Type":"application/json"}'::jsonb,
-    body:=jsonb_build_object('workerTicket',ticket),timeout_milliseconds:=5000);
+    body:=jsonb_build_object('workerTicket',ticket),timeout_milliseconds:=20000);
 end $$;
 revoke all on function public.lanu_schedule_message_push() from public,anon,authenticated,service_role;
 -- Only the database's postgres scheduler may mint tickets; replay/expiry is checked in the Edge RPC.
 select cron.schedule('lanu-message-push-outbox','10 seconds','select public.lanu_schedule_message_push()');
+
+-- Keep only this feature's execution metadata bounded; leave other cron logs untouched.
+select cron.schedule('lanu-push-cron-log-retention','20 3 * * *',
+  $job$delete from cron.job_run_details where jobid in
+    (select jobid from cron.job where jobname in ('lanu-message-push-outbox','lanu-push-cron-log-retention'))
+    and end_time<now()-interval '7 days'$job$);

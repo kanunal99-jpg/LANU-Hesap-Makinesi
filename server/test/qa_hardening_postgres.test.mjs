@@ -22,7 +22,8 @@ test('keyset page passes 200 unacknowledged events; foreign cursor cannot skip o
  const first=(await db.query('select * from lanu_message_event_page($1,0,null)',[B])).rows;
  assert.equal(first.length,200);
  const second=(await db.query('select * from lanu_message_event_page($1,0,$2)',[B,first.at(-1).id])).rows;
- assert.equal(second.length,1);assert.equal(second[0].message_id,ids.at(-1));
+ assert.equal(second.length,1);assert.ok(!first.some(e=>e.id===second[0].id));
+ assert.deepEqual(new Set([...first,...second].map(e=>e.message_id)),new Set(ids));
  const foreign=(await db.query('select id from lanu_events where owner_id=$1 limit 1',[A])).rows[0].id;
  assert.equal((await db.query('select id from lanu_message_event_page($1,0,$2)',[B,foreign])).rows.length,200);
  assert.equal((await db.query('select count(*)::int n from lanu_messages where delivered_at is not null')).rows[0].n,0);
@@ -47,11 +48,33 @@ test('revoke and already-delivered messages expire jobs without dispatch; roles 
  const id=await save();await db.query('delete from lanu_message_wake_devices where owner_id=$1',[B]);
  assert.equal(await lease(),null);
  assert.equal((await db.query('select state from lanu_push_jobs where message_id=$1',[id])).rows[0].state,'expired');
+ await db.query('insert into lanu_message_wake_devices(owner_id,fcm_token) values($1,$2)',[B,'T'.repeat(40)]);
+ const delivered=await save();await db.query('update lanu_messages set delivered_at=now() where id=$1',[delivered]);
+ assert.equal(await lease(),null);
+ assert.equal((await db.query('select state from lanu_push_jobs where message_id=$1',[delivered])).rows[0].state,'expired');
+ await db.query('delete from lanu_message_wake_devices where owner_id=$1',[B]);
  for(const role of ['anon','authenticated']){
   assert.equal((await db.query("select has_table_privilege($1,'lanu_push_jobs','select') v",[role])).rows[0].v,false);
   assert.equal((await db.query("select has_function_privilege($1,'lanu_push_lease()','execute') v",[role])).rows[0].v,false);
   assert.equal((await db.query("select has_function_privilege($1,'lanu_push_consume_ticket(text)','execute') v",[role])).rows[0].v,false);
  }
+});
+test('recipient quota defers the seventh job instead of losing it; rollback creates no orphan job',async()=>{
+ await db.query('insert into lanu_message_wake_devices(owner_id,fcm_token) values($1,$2)',[B,'T'.repeat(40)]);
+ await db.exec('delete from lanu_message_wake_claims');
+ const id=randomUUID();
+ await db.exec('begin');
+ await db.query('insert into lanu_messages(id,sender_id,recipient_id,content) values($1,$2,$3,$4)',[id,A,B,'lanu2:'+'A'.repeat(60)]);
+ await db.exec('rollback');
+ assert.equal((await db.query('select count(*)::int n from lanu_push_jobs where message_id=$1',[id])).rows[0].n,0);
+ for(let i=0;i<7;i++)await save();
+ for(let i=0;i<6;i++){const job=await lease();assert.ok(job);assert.equal(await finish(job,'done'),true);}
+ assert.equal(await lease(),null);
+ const pending=(await db.query("select * from lanu_push_jobs where state='pending' and expires_at>now()")).rows;
+ assert.equal(pending.length,1);assert.ok(pending[0].next_attempt_at>new Date());
+ await db.exec("update lanu_message_wake_claims set created_at=now()-interval '2 minutes';update lanu_push_jobs set next_attempt_at=now() where state='pending'");
+ const recovered=await lease();assert.equal(recovered.messageId,pending[0].message_id);assert.equal(await finish(recovered,'done'),true);
+ await db.query('delete from lanu_message_wake_devices where owner_id=$1',[B]);
 });
 test('scheduler only sends when due and uses expiring single-use tickets without a project secret',async()=>{
  await db.exec("create schema net;create table net.requests(body jsonb);create function net.http_post(url text,headers jsonb,body jsonb,timeout_milliseconds integer) returns bigint language plpgsql as $$begin insert into net.requests values(body);return 1;end$$;create schema cron;create function cron.schedule(text,text,text) returns bigint language sql as $$select 1::bigint$$;");

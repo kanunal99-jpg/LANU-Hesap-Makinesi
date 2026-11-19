@@ -41,11 +41,12 @@ class MessageWakeSyncWorker @JvmOverloads constructor(context: Context, params: 
         }
     }) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
-        if (!MessageWakePreferences.isEnabled(applicationContext)) return Result.success()
+        if (!MessageWakePreferences.isEnabled(applicationContext)) return Result.success(workDataOf("sync_outcome" to "disabled"))
         return try {
             val repository = targetFactory()
-            if (!repository.configured || !repository.hasStoredIdentity() ||
-                !MessageWakePreferences.isEnabled(applicationContext)) return Result.success()
+            if (!repository.configured) return attention(PrivateRelayHealth.Outcome.CONFIGURATION)
+            if (!repository.hasStoredIdentity()) return attention(PrivateRelayHealth.Outcome.SECURE_STORAGE)
+            if (!MessageWakePreferences.isEnabled(applicationContext)) return Result.success(workDataOf("sync_outcome" to "disabled"))
             // No active conversation means NO remote read receipts. Existing
             // encrypted Room queue, peer binding, ACK and idempotent UUIDs are
             // reused rather than inventing a second message transport.
