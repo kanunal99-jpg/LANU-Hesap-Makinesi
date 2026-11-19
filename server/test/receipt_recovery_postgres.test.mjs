@@ -83,3 +83,20 @@ test('receipt closes active lease atomically, transport retry honours delay and 
   assert.equal((await db.query("select has_table_privilege($1,'lanu_push_jobs','select') v",[role])).rows[0].v,false);
  }
 });
+
+test('lost fourth completion cannot cause scheduler ticket polling and expiry preserves pending message',async()=>{
+ const id=await save();
+ for(let n=1;n<=3;n++){await due(id);await finish(await lease(),'accepted');}
+ await due(id);const fourth=await lease();assert.ok(fourth);
+ await db.query("update lanu_push_jobs set lease_until=now()-interval '1 second' where message_id=$1",[id]);
+ await db.exec("create schema net;create table net.requests(body jsonb);create function net.http_post(url text,headers jsonb,body jsonb,timeout_milliseconds integer) returns bigint language plpgsql as $$begin insert into net.requests values(body);return 1;end$$;");
+ await db.exec('select lanu_schedule_message_push();select lanu_schedule_message_push()');
+ assert.equal((await db.query('select count(*)::int n from net.requests')).rows[0].n,0);
+ assert.equal(await lease(),null);const waiting=await job(id);
+ assert.equal(waiting.state,'pending');assert.equal(waiting.lease_id,null);assert.equal(+waiting.next_attempt_at,+waiting.expires_at);
+ assert.equal(await finish(fourth,'accepted'),false);
+ await db.query("update lanu_push_jobs set expires_at=now()-interval '1 second' where message_id=$1",[id]);
+ await db.exec('select lanu_schedule_message_push()');assert.equal((await job(id)).state,'expired');
+ assert.equal((await db.query('select delivered_at from lanu_messages where id=$1',[id])).rows[0].delivered_at,null);
+ await ack(id);assert.equal((await job(id)).state,'done','Late authentic receipt still completes retained job');
+});

@@ -197,6 +197,13 @@ class UserCodeMessagingTest {
         assertEquals(recovered, repository().ensureIdentity())
     }
 
+    @Test fun `quarantine alone prevents replacing an identity bound to retained relay events`() = runBlocking {
+        assertFalse(db.settingsDao().hasIdentityBoundSettings())
+        db.settingsDao().insertSetting(SettingsEntity(MessageQuarantine.KEY, MessageQuarantine.record(null,
+            "message", "event", 1, MessageQuarantine.Reason.MISSING_SENDER_KEY)))
+        assertTrue(db.settingsDao().hasIdentityBoundSettings())
+    }
+
     @Test fun `missing sender keys quarantine full page and advance across repository recreation without false receipts`() = runBlocking<Unit> {
         val alice = UserCodes.create(); val bob = UserCodes.create(); val missing = UserCodes.create(); vault.save(alice)
         val badIds = List(200) { java.util.UUID.randomUUID().toString() }
@@ -361,6 +368,10 @@ class UserCodeMessagingTest {
         assertEquals("MISSING_SENDER_KEY", JSONObject(db.settingsDao().getSettingValue(MessageQuarantine.KEY)!!)
             .getJSONObject(messageId).getString("reason"))
         keyAvailable = true
+        assertTrue(runCatching { repository(relay = relay).synchronize(conversationId) }.exceptionOrNull() is SecurityException)
+        assertEquals(0, acknowledgements)
+        assertEquals("INVALID_CIPHERTEXT", JSONObject(db.settingsDao().getSettingValue(MessageQuarantine.KEY)!!)
+            .getJSONObject(messageId).getString("reason"))
         ciphertext = PeerMessageCrypto.encrypt(bob, alice.id, alice.publicKey, messageId, "doğrulanmış mesaj")
         repository(relay = relay).synchronize(conversationId)
         assertNull(db.settingsDao().getSettingValue(MessageQuarantine.KEY))
