@@ -64,7 +64,7 @@ interface SettingsDao {
     /** Global cleanup precedes the bounded publication batch; no ciphertext is loaded. */
     @Query("""DELETE FROM app_settings WHERE `key` GLOB 'lanu_pending_message_alert_*'
         AND NOT EXISTS (SELECT 1 FROM messages m JOIN conversations c ON c.id = m.conversationId
-            WHERE app_settings.`key` = 'lanu_pending_message_alert_' || m.id
+            WHERE m.id = substr(app_settings.`key`, length('lanu_pending_message_alert_') + 1)
             AND app_settings.value = m.conversationId AND m.status != 'READ' AND c.unreadCount > 0
             AND NOT EXISTS (SELECT 1 FROM app_settings h WHERE h.`key` = 'lanu_hidden_' || m.id AND h.value = 'true')
             AND NOT EXISTS (SELECT 1 FROM app_settings h WHERE h.`key` = 'lanu_hidden_conv_' || c.id AND h.value = 'true'))""")
@@ -72,7 +72,7 @@ interface SettingsDao {
 
     @Query("""SELECT `key` FROM app_settings WHERE `key` IN (:keys)
         AND EXISTS (SELECT 1 FROM messages m JOIN conversations c ON c.id = m.conversationId
-            WHERE app_settings.`key` = 'lanu_pending_message_alert_' || m.id
+            WHERE m.id = substr(app_settings.`key`, length('lanu_pending_message_alert_') + 1)
             AND app_settings.value = m.conversationId AND m.status != 'READ' AND c.unreadCount > 0
             AND NOT EXISTS (SELECT 1 FROM app_settings h WHERE h.`key` = 'lanu_hidden_' || m.id AND h.value = 'true')
             AND NOT EXISTS (SELECT 1 FROM app_settings h WHERE h.`key` = 'lanu_hidden_conv_' || c.id AND h.value = 'true')) ORDER BY `key`""")
