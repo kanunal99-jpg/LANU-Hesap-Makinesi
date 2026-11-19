@@ -55,8 +55,10 @@ fun CallWakeSettings(repository: CommunicationRepository) {
     var pendingRevoke by remember { mutableStateOf(CallWakePreferences.hasPendingRemoteRevoke(context)) }
 
     var readiness by remember { mutableStateOf("") }
+    var lockScreenState by remember { mutableStateOf(com.example.core.calls.CallLockScreenSettings.inspect(context)) }
     androidx.lifecycle.compose.LifecycleResumeEffect(enabled) {
         readiness = if (enabled) com.example.core.calls.CallAlertReadiness.describe(context) else ""
+        lockScreenState = com.example.core.calls.CallLockScreenSettings.inspect(context)
         onPauseOrDispose { }
     }
     // Only the previously authenticated LANU identity signs the revocation.
@@ -274,6 +276,28 @@ fun CallWakeSettings(repository: CommunicationRepository) {
         }) { Text("Yalnız arama bildirimlerini etkinleştir") }
         if (enabled) Text(readiness, style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.padding(vertical = 8.dp))
+        // Also available while opt-out/OS blocking prevents enrollment. This
+        // opens settings only; it must not silently re-enable background calls.
+        CallLockScreenControl(lockScreenState, onOpenApp = {
+            status = when (com.example.core.calls.CallLockScreenSettings.openApp(context)) {
+                com.example.core.calls.CallLockScreenSettings.Destination.APP ->
+                    "Bu uygulamanın kilitliyken içerik göster/gizle bölümünü kontrol edin. Diğer uygulamaların ayarını değiştirmeniz gerekmez."
+                com.example.core.calls.CallLockScreenSettings.Destination.DETAILS ->
+                    "Uygulama bilgileri açıldı. Bildirimler bölümünü kontrol edin."
+                else -> "Bildirim ayarı açılamadı. Telefonun uygulama bildirim ayarını kontrol edin."
+            }
+        }, enabled = !busy) {
+            status = when (com.example.core.calls.CallLockScreenSettings.open(context)) {
+                com.example.core.calls.CallLockScreenSettings.Destination.CHANNEL ->
+                    "Açılan arama kategorisinde Kilit ekranı bölümünü kontrol edin. Seçenekler telefon modeline göre değişebilir."
+                com.example.core.calls.CallLockScreenSettings.Destination.APP ->
+                    "Uygulama bildirim ayarları açıldı. Arama kategorisini ve bildirim iznini kontrol edin."
+                com.example.core.calls.CallLockScreenSettings.Destination.DETAILS ->
+                    "Uygulama bilgileri açıldı. Bildirimler bölümünden arama görünürlüğünü kontrol edin."
+                com.example.core.calls.CallLockScreenSettings.Destination.UNAVAILABLE ->
+                    "Telefon ayarı açılamadı. Ayarlar → Uygulamalar → LANU → Bildirimler yolunu kullanın."
+            }
+        }
         if (enabled && Build.VERSION.SDK_INT >= 34) {
             Text("Tam ekran arama iznini Android Özel uygulama erişimi ekranından açabilirsiniz. İzin kapalıysa normal çağrı bildirimi kullanılır.",
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 6.dp))
