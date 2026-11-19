@@ -2,7 +2,6 @@ package com.example.core.calls
 
 import android.Manifest
 import android.app.Notification
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
@@ -59,10 +58,8 @@ internal object CallLockScreenSettings {
                     .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
                     .putExtra(Settings.EXTRA_CHANNEL_ID, CallWakeNotification.CHANNEL_ID)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                // AOSP can focus the lock-screen section. OEMs may ignore this
-                // optional hint and show the whole exact call category instead.
-                if (Build.VERSION.SDK_INT >= 31) channelIntent.putStringArrayListExtra(
-                    Settings.EXTRA_CHANNEL_FILTER_LIST, arrayListOf(NotificationChannel.EDIT_LOCKSCREEN))
+                // Use only the public category settings API. Lock-screen-only
+                // filter constants are not part of the public Android SDK.
                 if (launch(channelIntent, start)) return Destination.CHANNEL
             }
         }

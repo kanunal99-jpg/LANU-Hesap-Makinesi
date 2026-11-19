@@ -24,7 +24,7 @@ class CallLockScreenSettingsTest {
         if(Build.VERSION.SDK_INT>=33) shadowOf(context).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
     }
     @After fun after() { CallWakePreferences.setEnabled(context,false) }
-    @Test fun opensExactCallCategoryWithLockScreenHintWithoutChangingMute() {
+    @Test fun opensExactCallCategoryWithoutChangingMute() {
         manager.createNotificationChannel(NotificationChannel(CallWakeNotification.CHANNEL_ID,"fixture",NotificationManager.IMPORTANCE_LOW).apply { setSound(null,null) })
         var opened:Intent?=null
         assertEquals(CallLockScreenSettings.Destination.CHANNEL,CallLockScreenSettings.open(context){opened=it})
@@ -32,7 +32,6 @@ class CallLockScreenSettingsTest {
         assertEquals(CallWakeNotification.CHANNEL_ID,opened!!.getStringExtra(Settings.EXTRA_CHANNEL_ID))
         assertEquals(context.packageName,opened!!.getStringExtra(Settings.EXTRA_APP_PACKAGE))
         assertTrue(opened!!.flags and Intent.FLAG_ACTIVITY_NEW_TASK!=0)
-        if(Build.VERSION.SDK_INT>=31) assertEquals(arrayListOf(NotificationChannel.EDIT_LOCKSCREEN),opened!!.getStringArrayListExtra(Settings.EXTRA_CHANNEL_FILTER_LIST))
         val channel=manager.getNotificationChannel(CallWakeNotification.CHANNEL_ID)
         assertNull(channel.sound);assertEquals(NotificationManager.IMPORTANCE_LOW,channel.importance)
     }
