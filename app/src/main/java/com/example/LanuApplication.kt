@@ -60,6 +60,17 @@ class LanuApplication : Application(), Configuration.Provider {
         if (!CallWakePreferences.isEnabled(this)) {
             runCatching { CallWakeNotification.cancel(this) }
         }
+        // Local-only upgrade cleanup also runs with notifications disabled.
+        // It never enrolls FCM, creates identity, synchronizes, or removes unread alerts.
+        credentialMigrationScope.launch {
+            try {
+                container.communicationRepository.prunePendingMessageAlerts()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Preserve the journal on storage failure; the next local pass retries.
+            }
+        }
         // Older installs may contain a Supabase key in Room. Migrate on launch so it
         // does not remain there until a legacy UI happens to request credentials.
         // Keystore errors must never erase originals or crash application startup.

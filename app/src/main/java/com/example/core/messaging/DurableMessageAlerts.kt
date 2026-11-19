@@ -37,28 +37,33 @@ internal class DurableMessageAlerts(private val db: AppDatabase) {
     } catch (_: org.json.JSONException) { null }
       catch (_: IllegalArgumentException) { null }
 
-    private suspend fun unread(id: String): Boolean {
-        val conversation = db.settingsDao().getSettingValue(PREFIX + id) ?: return false
-        val message = db.messageDao().getMessage(id) ?: return false
-        return message.conversationId == conversation && message.status != "READ" &&
-            (db.conversationDao().getConversationById(conversation)?.unreadCount ?: 0) > 0 &&
-            db.settingsDao().getSettingValue("lanu_hidden_$id") != "true" &&
-            db.settingsDao().getSettingValue("lanu_hidden_conv_$conversation") != "true"
+    private suspend fun eligible(ids: List<String>): List<String> =
+        if (ids.isEmpty()) emptyList() else db.settingsDao()
+            .getEligibleMessageAlertKeys(ids.map { PREFIX + it }).map { it.removePrefix(PREFIX) }
+
+    /** Local maintenance is independent of notification consent and performs no network work. */
+    suspend fun prune() = db.withTransaction {
+        db.settingsDao().pruneInvalidMessageAlerts()
+        val raw = db.settingsDao().getSettingValue(BATCH)
+        val batch = decode(raw)
+        if (raw != null && batch == null) db.settingsDao().deleteSetting(BATCH)
+        batch?.let {
+            val live = eligible(batch.ids)
+            if (live.isEmpty()) db.settingsDao().deleteSetting(BATCH)
+            else if (live != batch.ids) db.settingsDao().insertSetting(SettingsEntity(BATCH, batch.copy(ids = live).encode()))
+        }
     }
 
     /** Persist the stable notification token BEFORE the Android side effect. */
     internal suspend fun prepare(): Batch? = db.withTransaction {
+        // Clean the ENTIRE queue first, including rows beyond the 200-item batch.
+        db.settingsDao().pruneInvalidMessageAlerts()
         decode(db.settingsDao().getSettingValue(BATCH))?.let { existing ->
-            val live = existing.ids.filter { unread(it) }
-            for (id in existing.ids - live.toSet()) db.settingsDao().deleteSetting(PREFIX + id)
+            val live = eligible(existing.ids)
             if (live.isNotEmpty()) return@withTransaction existing.copy(ids = live)
             db.settingsDao().deleteSetting(BATCH)
         }
-        val ids = mutableListOf<String>()
-        for (row in db.settingsDao().getPendingMessageAlerts()) {
-            val id = row.key.removePrefix(PREFIX)
-            if (unread(id)) ids += id else db.settingsDao().deleteSetting(row.key)
-        }
+        val ids = db.settingsDao().getPendingMessageAlerts().map { it.key.removePrefix(PREFIX) }
         if (ids.isEmpty()) {
             db.settingsDao().deleteSetting(BATCH)
             null
@@ -75,8 +80,9 @@ internal class DurableMessageAlerts(private val db: AppDatabase) {
             if (decode(db.settingsDao().getSettingValue(BATCH))?.token != batch.token) return@withTransaction false
             // markConversationOpened/deletion and this last check are serialized
             // by Room. No suspension to HTTP occurs while this write lock is held.
-            val live = batch.ids.filter { unread(it) }
-            for (id in batch.ids - live.toSet()) db.settingsDao().deleteSetting(PREFIX + id)
+            val live = eligible(batch.ids)
+            val invalid = (batch.ids - live.toSet()).map { PREFIX + it }
+            if (invalid.isNotEmpty()) db.settingsDao().deleteMessageAlertKeys(invalid)
             if (live.isEmpty()) {
                 db.settingsDao().deleteSetting(BATCH)
                 return@withTransaction false
@@ -84,7 +90,7 @@ internal class DurableMessageAlerts(private val db: AppDatabase) {
             if (!post(batch.token)) return@withTransaction false
             // A failed commit or process death leaves the prepared token durable.
             // Android's active token permits read-back without reposting.
-            for (id in live) db.settingsDao().deleteSetting(PREFIX + id)
+            db.settingsDao().deleteMessageAlertKeys(live.map { PREFIX + it })
             db.settingsDao().insertSetting(SettingsEntity(SHOWN, batch.token))
             db.settingsDao().deleteSetting(BATCH)
             true
