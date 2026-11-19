@@ -11,7 +11,7 @@ class WakeNotificationLifetimePolicyTest {
         WakeNotificationLifetimePolicy.remainingMs(at, clock, 45_000L, 15_000L, 45_000L)
 
     private fun message(at: Long, clock: Long = now): Long? =
-        WakeNotificationLifetimePolicy.remainingMs(at, clock, 120_000L, 15_000L, 120_000L)
+        WakeNotificationLifetimePolicy.remainingMs(at, clock, 86_520_000L, 15_000L, 120_000L)
 
     @Test fun lateCallDoesNotGetFreshRingtonePeriod() {
         assertEquals(45_000L, call(now))
@@ -27,9 +27,10 @@ class WakeNotificationLifetimePolicyTest {
 
     @Test fun delayedMessageReminderExpiresWithoutDeletingEncryptedHistory() {
         assertEquals(120_000L, message(now))
-        assertEquals(1L, message(now - 119_999L))
-        assertNull(message(now - 120_000L))
-        assertNull(message(now - 120_001L))
+        assertEquals(120_000L, message(now - 7_200_000L))
+        assertEquals(1L, message(now - 86_519_999L))
+        assertNull(message(now - 86_520_000L))
+        assertNull(message(now - 86_520_001L))
         assertEquals(120_000L, message(now + 15_000L))
         assertNull(message(now + 15_001L))
     }

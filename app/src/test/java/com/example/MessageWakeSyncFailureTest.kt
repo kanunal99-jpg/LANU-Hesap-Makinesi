@@ -7,7 +7,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.work.*
 import androidx.work.testing.TestListenableWorkerBuilder
 import com.example.core.messaging.*
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -38,4 +38,54 @@ class MessageWakeSyncFailureTest {
             assertEquals(ListenableWorker.Result.success(workDataOf("sync_outcome" to "needs_attention", "sync_reason" to "SECURE_STORAGE")), worker().doWork())
         } finally { context.getSharedPreferences("lanu_message_wake_v1", Context.MODE_PRIVATE).edit().clear().commit() }
     }
+    @Test fun consentRevokedInsideFirstPagePreventsSecondPageAndContinuation() = runBlocking<Unit> {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = context.getSharedPreferences("lanu_message_wake_v1", Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+        assertTrue(MessageWakePreferences.beginEnrollment(context)); assertTrue(MessageWakePreferences.finishEnrollment(context))
+        var pages = 0
+        var pendingChecks = 0
+        val target = object : MessageWakeSyncTarget {
+            override val configured = true
+            override suspend fun hasStoredIdentity() = true
+            override suspend fun synchronize() {
+                pages++
+                assertTrue(MessageWakePreferences.disableAndQueueRemoteRevoke(context))
+            }
+            override suspend fun hasPendingPage(): Boolean { pendingChecks++; return true }
+        }
+        val worker = TestListenableWorkerBuilder<MessageWakeSyncWorker>(context).setWorkerFactory(object : WorkerFactory() {
+            override fun createWorker(appContext: Context, name: String, params: WorkerParameters): ListenableWorker =
+                MessageWakeSyncWorker(appContext, params) { target }
+        }).build()
+        try {
+            assertEquals(ListenableWorker.Result.success(workDataOf("sync_outcome" to "disabled")), worker.doWork())
+            assertEquals(1, pages)
+            assertEquals(0, pendingChecks)
+        } finally { prefs.edit().clear().commit() }
+    }
+
+    @Test fun cancellationInsidePagePropagatesBeforeAnotherPageOrContinuation() = runBlocking<Unit> {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = context.getSharedPreferences("lanu_message_wake_v1", Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+        assertTrue(MessageWakePreferences.beginEnrollment(context)); assertTrue(MessageWakePreferences.finishEnrollment(context))
+        var pages = 0
+        val target = object : MessageWakeSyncTarget {
+            override val configured = true
+            override suspend fun hasStoredIdentity() = true
+            override suspend fun synchronize() { pages++; currentCoroutineContext().cancel() }
+            override suspend fun hasPendingPage(): Boolean = error("Cancelled page must not schedule more work")
+        }
+        val worker = TestListenableWorkerBuilder<MessageWakeSyncWorker>(context).setWorkerFactory(object : WorkerFactory() {
+            override fun createWorker(appContext: Context, name: String, params: WorkerParameters): ListenableWorker =
+                MessageWakeSyncWorker(appContext, params) { target }
+        }).build()
+        try {
+            val task = async { worker.doWork() }
+            try { task.await(); fail("Cancellation must propagate") } catch (_: CancellationException) { }
+            assertEquals(1, pages)
+        } finally { prefs.edit().clear().commit() }
+    }
+
 }

@@ -66,7 +66,7 @@ class MessageWakeNotificationTest {
         assertFalse(MessageWakePolicy.eligible(valid + ("content" to "secret"), now))
         assertFalse(MessageWakePolicy.eligible(valid - "at", now))
         assertFalse(MessageWakePolicy.eligible(mapOf("type" to MessageWakePolicy.TYPE,
-            "at" to (now-121000).toString()), now))
+            "at" to (now-86_521_000).toString()), now))
         assertFalse(MessageWakePolicy.eligible(mapOf("type" to MessageWakePolicy.TYPE,
             "at" to (now+16000).toString()), now))
     }
@@ -78,9 +78,9 @@ class MessageWakeNotificationTest {
             )
         // Time windows are inclusive; no clock perturbation should turn
         // an out-of-range hint into a visible calculator notification.
-        assertTrue(eligible(now - 120_000L, now))
+        assertTrue(eligible(now - 86_520_000L, now))
         assertTrue(eligible(now + 15_000L, now))
-        assertFalse(eligible(now - 120_001L, now))
+        assertFalse(eligible(now - 86_520_001L, now))
         assertFalse(eligible(now + 15_001L, now))
         assertFalse(eligible(Long.MAX_VALUE, now))
         assertFalse(eligible(Long.MIN_VALUE, now))
@@ -91,8 +91,8 @@ class MessageWakeNotificationTest {
         assertTrue(eligible(Long.MAX_VALUE, Long.MAX_VALUE))
         assertTrue(eligible(Long.MAX_VALUE, Long.MAX_VALUE - 15_000L))
         assertFalse(eligible(Long.MAX_VALUE, Long.MAX_VALUE - 15_001L))
-        assertTrue(eligible(Long.MAX_VALUE - 120_000L, Long.MAX_VALUE))
-        assertFalse(eligible(Long.MAX_VALUE - 120_001L, Long.MAX_VALUE))
+        assertTrue(eligible(Long.MAX_VALUE - 86_520_000L, Long.MAX_VALUE))
+        assertFalse(eligible(Long.MAX_VALUE - 86_520_001L, Long.MAX_VALUE))
     }
 
     @Test fun tapAlwaysUsesCalculatorGateNotPrivateDeepLink() {

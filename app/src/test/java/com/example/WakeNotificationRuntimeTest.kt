@@ -55,7 +55,7 @@ class WakeNotificationRuntimeTest {
     @Test fun delayedMessageHasBoundedVisibleLifetimeAndCannotDismissCall() {
         assertTrue(MessageWakePreferences.beginEnrollment(context))
         assertTrue(MessageWakePreferences.finishEnrollment(context))
-        val at = now - 119_000L
+        val at = now - 86_519_000L
         assertTrue(MessageWakeNotification.show(context,
             mapOf("type" to MessageWakePolicy.TYPE, "at" to at.toString()), now))
         val shown = manager.activeNotifications.single {
@@ -63,7 +63,8 @@ class WakeNotificationRuntimeTest {
         }.notification
         assertEquals(1_000L, shown.timeoutAfter)
         assertEquals(Notification.VISIBILITY_SECRET, shown.visibility)
+        assertTrue(shown.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)
         assertFalse(MessageWakeNotification.show(context,
-            mapOf("type" to MessageWakePolicy.TYPE, "at" to (now - 120_000L).toString()), now))
+            mapOf("type" to MessageWakePolicy.TYPE, "at" to (now - 86_520_000L).toString()), now))
     }
 }

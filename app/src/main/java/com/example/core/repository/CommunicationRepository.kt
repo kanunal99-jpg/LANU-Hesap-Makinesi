@@ -974,7 +974,7 @@ class CommunicationRepository(
                 if (revision > previous) {
                     if (message.optBoolean("deleted") || hidden || threadDeleted) messageDao.deleteMessage(id)
                     else {
-                        val peer = settingsDao.getSettingValue("lanu_peer_id_$peerId")?.let(::JSONObject) ?: throw IllegalStateException("Gönderenin anahtarı bulunamadı")
+                        val peer = settingsDao.getSettingValue("lanu_peer_id_$peerId")?.let(::JSONObject) ?: throw RejectedCiphertext(reason = MessageQuarantine.Reason.MISSING_SENDER_KEY)
                         // Never persist or acknowledge an unreadable/tampered encrypted message.
                         // The relay cannot authenticate E2EE ciphertext; only the recipient can.
                         try {
@@ -998,9 +998,17 @@ class CommunicationRepository(
                         }
                     }
                     settingsDao.insertSetting(SettingsEntity("lanu_message_revision_$id", revision.toString()))
+                    val quarantine = MessageQuarantine.clearThrough(settingsDao.getSettingValue(MessageQuarantine.KEY), id, revision)
+                    if (quarantine == null) settingsDao.deleteSetting(MessageQuarantine.KEY)
+                    else settingsDao.insertSetting(SettingsEntity(MessageQuarantine.KEY, quarantine))
                 }
             }
-            } catch (_: RejectedCiphertext) {
+            } catch (rejected: RejectedCiphertext) {
+                database.withTransaction {
+                    val quarantine = MessageQuarantine.record(settingsDao.getSettingValue(MessageQuarantine.KEY),
+                        id, event.getString("id"), message.getLong("revision"), rejected.reason)
+                    settingsDao.insertSetting(SettingsEntity(MessageQuarantine.KEY, quarantine))
+                }
                 // Leave only this unauthenticated event on the relay. Valid
                 // later events and durable outgoing messages must keep moving.
                 rejectedIds.add(id)
@@ -1056,7 +1064,8 @@ class CommunicationRepository(
         deferredAckFailure?.let { throw it }
     }
 
-    private class RejectedCiphertext(cause: Exception? = null) :
+    private class RejectedCiphertext(cause: Exception? = null,
+        val reason: MessageQuarantine.Reason = MessageQuarantine.Reason.INVALID_CIPHERTEXT) :
         SecurityException("Şifreli mesaj doğrulanamadı. Teslim/okundu onayı gönderilmedi.", cause)
 
     private suspend fun drainPendingOutbox(own: MessagingIdentity, resolveContacts: Boolean = true) {

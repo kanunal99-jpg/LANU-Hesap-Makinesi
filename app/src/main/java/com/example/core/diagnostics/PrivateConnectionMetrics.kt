@@ -15,7 +15,7 @@ object PrivateConnectionMetrics {
         val counts = wakes.getValue(kind)
         counts[0] = (counts[0] + 1).coerceAtMost(9999)
         if (originalHigh && receivedNormal) counts[1] = (counts[1] + 1).coerceAtMost(9999)
-        if (ageMs != null && ageMs in 10_001L..120_000L) counts[2] = (counts[2] + 1).coerceAtMost(9999)
+        if (ageMs != null && ageMs in 10_001L..86_520_000L) counts[2] = (counts[2] + 1).coerceAtMost(9999)
     }
     @Synchronized fun wakeSummary(kind: WakeKind): WakeSummary = wakes.getValue(kind).let { WakeSummary(it[0], it[1], it[2]) }
     data class Summary(val samples: Int, val p50Ms: Long?, val p95Ms: Long?, val failed: Int)

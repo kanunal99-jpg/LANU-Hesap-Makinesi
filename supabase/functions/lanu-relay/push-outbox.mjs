@@ -1,7 +1,7 @@
 import { FcmUnregisteredTokenError, FcmRetryableError, FcmPermanentDispatchError } from './call-wake-fcm.mjs';
 
 /** Each lease has one bounded attempt. DB leases, not warm-instance RAM, own jobs. */
-export function createMessagePushDispatcher(store, send, report = () => {}) {
+export function createMessagePushDispatcher(store, send, report = () => {}, clock = Date.now) {
   return async () => {
     if (!send) return;
     for (let i = 0; i < 4; i++) {
@@ -10,7 +10,7 @@ export function createMessagePushDispatcher(store, send, report = () => {}) {
       catch { return; } // Job remains durable for the scheduler.
       if (!job) return;
       let outcome = 'retry', delayMs = 60000;
-      try { outcome = await send(job.token, job.at, 'message') ? 'done' : 'expired'; }
+      try { outcome = await send(job.token, clock(), 'message') ? 'accepted' : 'expired'; }
       catch (error) {
         if (error instanceof FcmUnregisteredTokenError) {
           outcome = 'expired';

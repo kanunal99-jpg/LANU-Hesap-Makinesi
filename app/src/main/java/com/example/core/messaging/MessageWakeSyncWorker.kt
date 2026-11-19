@@ -15,6 +15,8 @@ import androidx.work.WorkerParameters
 import com.example.LanuApplication
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.TimeoutCancellationException
 import android.database.sqlite.SQLiteDatabaseLockedException
 import android.database.sqlite.SQLiteException
@@ -52,13 +54,21 @@ class MessageWakeSyncWorker @JvmOverloads constructor(context: Context, params: 
             // reused rather than inventing a second message transport.
             withTimeout(90_000L) {
                 repeat(3) {
+                    currentCoroutineContext().ensureActive()
+                    if (!MessageWakePreferences.isEnabled(applicationContext)) throw WakeConsentRevoked()
                     try { repository.synchronize() }
                     catch (e: SecurityException) { if (!repository.hasPendingPage()) throw e }
+                    currentCoroutineContext().ensureActive()
+                    if (!MessageWakePreferences.isEnabled(applicationContext)) throw WakeConsentRevoked()
                     if (!repository.hasPendingPage()) return@withTimeout
                 }
             }
+            currentCoroutineContext().ensureActive()
+            if (!MessageWakePreferences.isEnabled(applicationContext)) return Result.success(workDataOf("sync_outcome" to "disabled"))
             if (repository.hasPendingPage()) enqueue(applicationContext)
             Result.success()
+        } catch (_: WakeConsentRevoked) {
+            Result.success(workDataOf("sync_outcome" to "disabled"))
         } catch (_: TimeoutCancellationException) {
             transient(0)
         } catch (cancelled: CancellationException) {
@@ -80,6 +90,8 @@ class MessageWakeSyncWorker @JvmOverloads constructor(context: Context, params: 
             attention(PrivateRelayHealth.Outcome.RESPONSE)
         }
     }
+
+    private class WakeConsentRevoked : Exception()
 
     private fun transient(status: Int): Result =
         if (MessageWakeSyncPolicy.shouldRetry(MessageWakePreferences.isEnabled(applicationContext), status, runAttemptCount)) Result.retry()
