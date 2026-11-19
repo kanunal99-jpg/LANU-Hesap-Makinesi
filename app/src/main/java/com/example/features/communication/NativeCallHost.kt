@@ -240,16 +240,9 @@ fun NativeCallHost(
                     if (state.phase == NativeCallPhase.RINGING) {
                         Text("Doğrudan görüşmede IP adresinizi karşı taraf ve Google/Cloudflare STUN hizmetleri görebilir. Yapılandırdıysanız aktarma sunucusu da bağlantı IP adreslerini görebilir. Aramayı doğrudan yanıtlayabilirsiniz.",
                             style = MaterialTheme.typography.bodySmall)
-                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                            Button(onClick = { authorize(state.callId, state.video, true) },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B5E20), contentColor = Color.White)) {
-                                Icon(Icons.Default.Call, null); Spacer(Modifier.width(8.dp)); Text("Yanıtla")
-                            }
-                            Button(onClick = model::reject,
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
-                                Icon(Icons.Default.CallEnd, null); Spacer(Modifier.width(8.dp)); Text("Reddet")
-                            }
-                        }
+                        IncomingCallActions(
+                            onAnswer = { authorize(state.callId, state.video, true) },
+                            onDecline = model::reject)
                     } else if (ended) Button(onClick = model::dismiss) { Text("Kapat") }
                     else Button(onClick = model::end, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
                         Icon(Icons.Default.CallEnd, null); Spacer(Modifier.width(8.dp)); Text("Aramayı bitir")

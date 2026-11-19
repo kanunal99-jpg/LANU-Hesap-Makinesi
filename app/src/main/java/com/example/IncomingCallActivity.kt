@@ -89,22 +89,10 @@ class IncomingCallActivity : ComponentActivity() {
                         if (!observedLiveCall && state.phase == NativeCallPhase.IDLE) {
                             // Buffer only the user's gesture. Actual media/rejection
                             // still requires a fresh matching decrypted INVITE.
-                            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                Button(enabled = answerAt == 0L && declineAt == 0L, onClick = {
-                                    val at = incomingWakeAt(intent)
-                                    if (CallWakePreferences.isEnabled(this@IncomingCallActivity) &&
-                                        CallWakeTapPolicy.freshWakeIntent(CallWakeTapPolicy.ANSWER, at, System.currentTimeMillis())) answerAt = at
-                                }, colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFF1B5E20))) {
-                                    Text("Yanıtla")
-                                }
-                                Button(enabled = answerAt == 0L && declineAt == 0L, onClick = {
-                                    val at = incomingWakeAt(intent)
-                                    if (CallWakePreferences.isEnabled(this@IncomingCallActivity) &&
-                                        CallWakeTapPolicy.freshWakeIntent(CallWakeTapPolicy.DECLINE, at, System.currentTimeMillis())) declineAt = at
-                                }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
-                                    Text("Reddet")
-                                }
-                            }
+                            com.example.features.communication.IncomingCallActions(
+                                enabled = answerAt == 0L && declineAt == 0L,
+                                onAnswer = { recordWakeGesture(CallWakeTapPolicy.ANSWER) },
+                                onDecline = { recordWakeGesture(CallWakeTapPolicy.DECLINE) })
                         }
                         OutlinedButton(onClick = { finish() }) { Text("Kapat") }
                     }
@@ -139,6 +127,10 @@ class IncomingCallActivity : ComponentActivity() {
             CallWakePreferences.isEnabled(this), live,
             CallWakeTapPolicy.freshWakeIntent(intent?.action, at, System.currentTimeMillis())
         )
+    }
+    private fun recordWakeGesture(action: String) {
+        val current = intent ?: return
+        readWakeIntent(Intent(current).setAction(action))
     }
     private fun readWakeIntent(incoming: Intent?) {
         answerAt = 0L
