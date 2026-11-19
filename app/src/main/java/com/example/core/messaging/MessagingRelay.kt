@@ -115,6 +115,7 @@ class HttpMessagingRelay(private val endpoint: String) : MessagingRelay {
         var metricSuccess = false
         try {
         budget.awaitPermit(identity.id, action)
+        MessageSyncSession.checkCurrent()
         val payload = JSONObject().put("action", action).put("identityId", identity.id).put("ts", System.currentTimeMillis())
             .put("requestId", UUID.randomUUID().toString()).put("data", data).toString()
         val envelope = JSONObject().put("payload", payload).put("signature", UserCodes.sign(identity, payload))

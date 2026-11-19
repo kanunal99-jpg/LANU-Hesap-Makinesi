@@ -30,14 +30,13 @@ class CallWakeMessagingService : FirebaseMessagingService() {
                 // An opt-in FCM hint schedules only a bounded, metadata-free
                 // encrypted sync. The hint never authenticates a peer, opens
                 // private UI, creates an identity or carries message content.
-                MessageWakePolicy.dispatchIndependent(
-                    allowSync = MessageWakeSyncPolicy.shouldSchedule(
+                if (MessageWakeSyncPolicy.shouldSchedule(
                         MessageWakePreferences.isEnabled(applicationContext),
-                        MessageWakePolicy.eligible(message.data, System.currentTimeMillis())
-                    ),
-                    enqueueSync = { MessageWakeSyncWorker.enqueue(applicationContext) },
-                    showAlert = { MessageWakeNotification.show(applicationContext, message.data) }
-                )
+                        MessageWakePolicy.eligible(message.data, System.currentTimeMillis()))) {
+                    MessageWakeSyncWorker.enqueue(applicationContext)
+                }
+                // No notification from the FCM timestamp alone. The Worker
+                // posts only after authenticated NEW incoming Room commits.
             }
             else -> Unit // Never show an unrecognized notification.
         }

@@ -11,6 +11,9 @@ import androidx.paging.cachedIn
 import androidx.paging.testing.asSnapshot
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.async
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.flow.first
 import org.json.JSONObject
 import org.junit.After
@@ -195,6 +198,78 @@ class UserCodeMessagingTest {
         db.conversationDao().deleteConversation("history")
         assertEquals(recovered, repo.restoreIdentity(backup, "a-long-password-123"))
         assertEquals(recovered, repository().ensureIdentity())
+    }
+
+    @Test fun `wake consent revoked while waiting for repository lock prevents all new requests`() = runBlocking<Unit> {
+        val alice = UserCodes.create(); vault.save(alice)
+        val entered = CompletableDeferred<Unit>(); val release = CompletableDeferred<Unit>()
+        val actions = mutableListOf<String>(); var allowed = true
+        val relay = object : MessagingRelay {
+            override val configured = true
+            override suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject): JSONObject {
+                actions += action
+                if (actions.size == 1) { entered.complete(Unit); release.await() }
+                assertEquals("register", action)
+                return JSONObject().put("code", alice.code).put("nonce", alice.nonce)
+            }
+        }
+        val repo = repository(relay = relay)
+        val holder = async { repo.sendQueuedForeground() }
+        entered.await()
+        val waiter = async { repo.synchronizeForMessageWake(MessageSyncSession { allowed }) }
+        yield(); allowed = false; release.complete(Unit); holder.await()
+        try { waiter.await(); fail("Revoked waiter must stop after obtaining lock") } catch (_: MessageSyncRevoked) { }
+        assertEquals(listOf("register"), actions)
+    }
+
+    @Test fun `wake consent revoked between registration and sync blocks the second HTTP request`() = runBlocking<Unit> {
+        val alice = UserCodes.create(); vault.save(alice)
+        var allowed = true; val actions = mutableListOf<String>()
+        val relay = object : MessagingRelay {
+            override val configured = true
+            override suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject): JSONObject {
+                actions += action
+                assertEquals("register", action)
+                allowed = false // first response arrives as owner revokes consent
+                return JSONObject().put("code", alice.code).put("nonce", alice.nonce)
+            }
+        }
+        try { repository(relay = relay).synchronizeForMessageWake(MessageSyncSession { allowed }); fail("No second request") }
+        catch (_: MessageSyncRevoked) { }
+        assertEquals(listOf("register"), actions)
+    }
+
+    @Test fun `wake session counts only committed new authenticated incoming messages and never replay`() = runBlocking<Unit> {
+        val alice = UserCodes.create(); val bob = UserCodes.create(); vault.save(alice)
+        var id = java.util.UUID.randomUUID().toString()
+        var content = PeerMessageCrypto.encrypt(bob, alice.id, alice.publicKey, id, "new message")
+        var revision = 1; var status = "SENT"
+        val relay = object : MessagingRelay {
+            override val configured = true
+            override suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject): JSONObject = when(action) {
+                "register" -> JSONObject().put("code", alice.code).put("nonce", alice.nonce)
+                "sync" -> JSONObject().put("contacts", org.json.JSONArray().put(JSONObject().put("id", bob.id)
+                    .put("code", bob.code).put("nonce", bob.nonce).put("publicKey", bob.publicKey).put("codeAtAdd", bob.code).put("mutual", true)))
+                    .put("events", org.json.JSONArray().put(JSONObject().put("id", id).put("message", JSONObject()
+                        .put("id", id).put("senderId", bob.id).put("recipientId", alice.id).put("revision", revision)
+                        .put("status", status).put("createdAt", 1000).put("content", content))))
+                "ack" -> JSONObject().put("acknowledged", true)
+                else -> error("Unexpected $action")
+            }
+        }
+        val repo = repository(relay = relay)
+        val fresh = MessageSyncSession { true }; repo.synchronizeForMessageWake(fresh)
+        assertEquals(1, fresh.newIncomingCount())
+        val replay = MessageSyncSession { true }; repo.synchronizeForMessageWake(replay)
+        assertEquals(0, replay.newIncomingCount())
+        revision = 2; content = "lanu2:" + "A".repeat(40)
+        val tampered = MessageSyncSession { true }
+        assertTrue(runCatching { repo.synchronizeForMessageWake(tampered) }.exceptionOrNull() is SecurityException)
+        assertEquals(0, tampered.newIncomingCount())
+        id = java.util.UUID.randomUUID().toString(); revision = 1; status = "READ"
+        content = PeerMessageCrypto.encrypt(bob, alice.id, alice.publicKey, id, "already read on another session")
+        val alreadyRead = MessageSyncSession { true }; repo.synchronizeForMessageWake(alreadyRead)
+        assertEquals(0, alreadyRead.newIncomingCount())
     }
 
     @Test fun `quarantine alone prevents replacing an identity bound to retained relay events`() = runBlocking {

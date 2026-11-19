@@ -71,6 +71,7 @@ class LanuApplication : Application(), Configuration.Provider {
                 // Never log secrets or attempt a plaintext storage fallback.
             }
         }
+        com.example.core.messaging.MessageWakeRecovery.reconcile(this)
         credentialMigrationScope.launch {
             // Prior consent permits refresh; pending cleanup permits revoke only.
             // No token, identity or secret enters WorkManager.

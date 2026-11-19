@@ -33,15 +33,19 @@ import java.util.concurrent.TimeUnit
  */
 @Keep
 class MessageWakeSyncWorker @JvmOverloads constructor(context: Context, params: WorkerParameters,
+    private val publishNewMessages: () -> Boolean = { MessageWakeNotification.showVerifiedNewMessages(context) },
     private val targetFactory: () -> MessageWakeSyncTarget = {
         val repo = (context.applicationContext as LanuApplication).container.communicationRepository
+        val session = MessageSyncSession { MessageWakePreferences.isEnabled(context.applicationContext) }
         object : MessageWakeSyncTarget {
+            override val newIncomingCount get() = session.newIncomingCount()
             override val configured get() = repo.relayConfigured
             override suspend fun hasStoredIdentity() = repo.hasStoredIdentity()
-            override suspend fun synchronize() = repo.synchronize(activeConversationId = null, requireExistingIdentity = true)
+            override suspend fun synchronize() = repo.synchronizeForMessageWake(session)
             override suspend fun hasPendingPage() = repo.hasPendingInboxPage()
         }
-    }) : CoroutineWorker(context, params) {
+    }
+) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         if (!MessageWakePreferences.isEnabled(applicationContext)) return Result.success(workDataOf("sync_outcome" to "disabled"))
         return try {
@@ -52,12 +56,20 @@ class MessageWakeSyncWorker @JvmOverloads constructor(context: Context, params: 
             // No active conversation means NO remote read receipts. Existing
             // encrypted Room queue, peer binding, ACK and idempotent UUIDs are
             // reused rather than inventing a second message transport.
+            var notifiedIncoming = 0
             withTimeout(90_000L) {
                 repeat(3) {
                     currentCoroutineContext().ensureActive()
                     if (!MessageWakePreferences.isEnabled(applicationContext)) throw WakeConsentRevoked()
                     try { repository.synchronize() }
                     catch (e: SecurityException) { if (!repository.hasPendingPage()) throw e }
+                    finally {
+                        currentCoroutineContext().ensureActive()
+                        if (MessageWakePreferences.isEnabled(applicationContext) && repository.newIncomingCount > notifiedIncoming) {
+                            // Count is produced only AFTER a successful per-event Room commit.
+                            if (publishNewMessages()) notifiedIncoming = repository.newIncomingCount
+                        }
+                    }
                     currentCoroutineContext().ensureActive()
                     if (!MessageWakePreferences.isEnabled(applicationContext)) throw WakeConsentRevoked()
                     if (!repository.hasPendingPage()) return@withTimeout
@@ -67,6 +79,8 @@ class MessageWakeSyncWorker @JvmOverloads constructor(context: Context, params: 
             if (!MessageWakePreferences.isEnabled(applicationContext)) return Result.success(workDataOf("sync_outcome" to "disabled"))
             if (repository.hasPendingPage()) enqueue(applicationContext)
             Result.success()
+        } catch (_: MessageSyncRevoked) {
+            Result.success(workDataOf("sync_outcome" to "disabled"))
         } catch (_: WakeConsentRevoked) {
             Result.success(workDataOf("sync_outcome" to "disabled"))
         } catch (_: TimeoutCancellationException) {
@@ -149,6 +163,7 @@ internal object MessageWakeSyncPolicy {
 /** Injectable only in-process; never persisted in WorkManager input. */
 interface MessageWakeSyncTarget {
     val configured: Boolean
+    val newIncomingCount: Int get() = 0
     suspend fun hasStoredIdentity(): Boolean
     suspend fun synchronize()
     suspend fun hasPendingPage(): Boolean
