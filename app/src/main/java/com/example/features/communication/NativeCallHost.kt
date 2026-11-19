@@ -59,9 +59,11 @@ fun NativeCallHost(
     // Always inspect the latest private-area gate when delayed system
     // permission callbacks return, not the stale composition that launched it.
     val privateAreaVisible by rememberUpdatedState(revealPeerName)
+    var confirm by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    var permissionTarget by remember { mutableStateOf<Triple<String, Boolean, Boolean>?>(null) }
     LifecycleResumeEffect(model) {
         model.attachHost()
-        onPauseOrDispose { model.detachHost() }
+        onPauseOrDispose { confirm = null; model.detachHost() }
     }
     LifecycleResumeEffect(state.callId, state.phase, context) {
         // RINGING is entered only after decryption of a matching E2EE INVITE.
@@ -76,7 +78,7 @@ fun NativeCallHost(
                 play()
             }
         }.getOrNull() else null
-        if (ringtone?.isPlaying == true) model.onVisibleRingingReady()
+        if (runCatching { ringtone?.isPlaying == true }.getOrDefault(false)) model.onVisibleRingingReady()
         onPauseOrDispose {
             runCatching { ringtone?.stop() }
             stopVibration?.invoke()
@@ -102,11 +104,9 @@ fun NativeCallHost(
             runCatching { tone?.release() }
         }
     }
-    var confirm by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
-    var permissionTarget by remember { mutableStateOf<Triple<String, Boolean, Boolean>?>(null) }
-    LifecycleStartEffect(model, revealPeerName) {
+    LifecycleResumeEffect(model, revealPeerName) {
         model.setRealtimeVisible(revealPeerName)
-        onStopOrDispose { model.setRealtimeVisible(false) }
+        onPauseOrDispose { model.setRealtimeVisible(false) }
     }
     // A delayed chat action must not reopen a private outgoing-call dialog
     // over the public calculator after screen-off or PIN lock. Consume any
