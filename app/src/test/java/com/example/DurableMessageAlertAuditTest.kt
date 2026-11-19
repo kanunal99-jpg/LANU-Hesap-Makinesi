@@ -121,6 +121,16 @@ class DurableMessageAlertAuditTest {
         assertTrue(db.settingsDao().getPendingMessageAlerts().isEmpty())
         assertFalse(journal().publish { error("No duplicate") })
     }
+    @Test fun localMaintenanceRepairsLegacyOrphansWithNotificationsOff() = runBlocking<Unit> {
+        context.getSharedPreferences("lanu_message_wake_v1", Context.MODE_PRIVATE).edit().putBoolean("opted_in", false).commit()
+        db.settingsDao().insertSetting(SettingsEntity(DurableMessageAlerts.PREFIX + "gone", "gone"))
+        db.settingsDao().insertSetting(SettingsEntity(DurableMessageAlerts.BATCH, "malformed old batch"))
+        db.close(); db = open()
+        repo().prunePendingMessageAlerts()
+        assertTrue(db.settingsDao().getPendingMessageAlerts().isEmpty())
+        assertNull(db.settingsDao().getSettingValue(DurableMessageAlerts.BATCH))
+        assertFalse(MessageWakePreferences.isEnabled(context))
+    }
     @Test fun successfulPublicationDoesNotAccumulateShownMessageRows() = runBlocking<Unit> {
         repeat(20) {
             receive(); assertTrue(journal().publish { true })

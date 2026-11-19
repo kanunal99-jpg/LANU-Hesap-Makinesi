@@ -44,7 +44,10 @@ internal class DurableMessageAlerts(private val db: AppDatabase) {
     /** Local maintenance is independent of notification consent and performs no network work. */
     suspend fun prune() = db.withTransaction {
         db.settingsDao().pruneInvalidMessageAlerts()
-        decode(db.settingsDao().getSettingValue(BATCH))?.let { batch ->
+        val raw = db.settingsDao().getSettingValue(BATCH)
+        val batch = decode(raw)
+        if (raw != null && batch == null) db.settingsDao().deleteSetting(BATCH)
+        batch?.let {
             val live = eligible(batch.ids)
             if (live.isEmpty()) db.settingsDao().deleteSetting(BATCH)
             else if (live != batch.ids) db.settingsDao().insertSetting(SettingsEntity(BATCH, batch.copy(ids = live).encode()))
