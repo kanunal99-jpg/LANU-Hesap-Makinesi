@@ -1,6 +1,7 @@
 import { createWakePublisher, bridgeWake } from './realtime-wake.mjs';
 import { createRelay, RestStore, RelayError, readBoundedRequest } from './core.mjs';
 import { createFcmWakeSender } from './call-wake-fcm.mjs';
+import { createMessagePushDispatcher } from './push-outbox.mjs';
 import { createPrivateMediaStorage } from './media-storage.mjs';
 
 const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
@@ -22,9 +23,12 @@ const fcmCredentials = Deno.env.get('LANU_FCM_SERVICE_ACCOUNT_JSON');
 const sendCallWake = createFcmWakeSender(fcmCredentials, fetch, crypto, undefined, {
   onOutcome: (kind: string, outcome: string) => console.info('LANU push ' + kind + ': ' + outcome)
 });
-const sendMessageWake = sendCallWake
-  ? (token: string, at: number) => sendCallWake(token, at, 'message')
-  : null;
+const queuedMessageSender = createFcmWakeSender(fcmCredentials, fetch, crypto, undefined, {singleAttempt:true});
+const sendMessageWake = queuedMessageSender ? (token: string, at: number) => queuedMessageSender(token, at, 'message') : null;
+function messagePushes(store: RestStore) {
+  return createMessagePushDispatcher(store, sendMessageWake,
+    (outcome: string) => console.info('LANU queued push: ' + outcome));
+}
 // Supabase documented background-task API; no 6s Google FCM roundtrip is
 // added to the chat send response. Failures remain isolated and content-free.
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
@@ -58,6 +62,14 @@ Deno.serve(async (request: Request) => {
     if (!url || !key) return new Response(JSON.stringify({ error: 'Sunucu yapılandırması eksik.' }), { status: 503, headers });
     let envelope;
     try { envelope = JSON.parse(raw); } catch { return new Response(JSON.stringify({ error: 'Geçersiz JSON.' }), { status: 400, headers }); }
+    const store = new RestStore(url, key);
+    if (envelope && typeof envelope === 'object' && 'workerTicket' in envelope) {
+      if (Object.keys(envelope).length !== 1 || typeof envelope.workerTicket !== 'string' ||
+          !/^[a-f0-9]{64}$/.test(envelope.workerTicket) ||
+          !await store.consumePushTicket(envelope.workerTicket)) throw new RelayError(403, 'Yetkisiz görev.');
+      EdgeRuntime.waitUntil(messagePushes(store)());
+      return new Response(JSON.stringify({scheduled:true}), {status:202,headers});
+    }
     // Feature gate: no secret -> no registration and no wakeups. No extra
     // network service, billing, or background polling is started by default.
     // Enabling large file transfers requires a separately reviewed, explicit
@@ -67,10 +79,11 @@ Deno.serve(async (request: Request) => {
     // even if a dormant environment flag exists. Separate reviewed activation
     // must explicitly change this gate after private-media acceptance.
     const privateMediaEnabled = false;
-    const result = await createRelay(new RestStore(url, key), Date.now,
-      { calls: true, publishWake: createWakePublisher(url, key),
+    const result = await createRelay(store, Date.now,
+      { calls: true, eventPaging: true, publishWake: createWakePublisher(url, key),
         onWakeUnavailable: () => console.warn('LANU realtime wake unavailable'), callWakeEnabled: Boolean(sendCallWake), sendCallWake,
         messageWakeEnabled: Boolean(sendMessageWake), sendMessageWake,
+        drainMessageWakes: messagePushes(store),
         scheduleMessageWake: (task: Promise<unknown>) => EdgeRuntime.waitUntil(task),
         privateMediaReservation: privateMediaEnabled,
         privateMediaTransfers: privateMediaEnabled,

@@ -85,6 +85,13 @@ export class FcmUnregisteredTokenError extends Error {
   constructor() { super('FCM_UNREGISTERED'); this.name = 'FcmUnregisteredTokenError'; }
 }
 
+export class FcmRetryableError extends Error {
+  constructor(retryAfterMillis) { super('FCM_RETRY_LATER'); this.retryAfterMillis = retryAfterMillis; }
+}
+export class FcmPermanentDispatchError extends Error {
+  constructor() { super('FCM_DISPATCH_REJECTED'); }
+}
+
 export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi = crypto,
   retryWait = ms => new Promise(resolve => setTimeout(resolve, ms)), options = {}) {
   if (!rawCredentials) return null; // Safe default: disabled without credentials.
@@ -153,7 +160,7 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
     // dedupe rejects a duplicate if Google accepted the first lost ACK.
     // Never retry auth, invalid-token,
     // protocol or permanent client-side failures.
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < (options.singleAttempt ? 1 : 3); attempt++) {
       const remaining = deadline - clock();
       if (remaining <= 0) { outcome = 'expired'; return false; }
       let response;
@@ -173,6 +180,8 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
       // the caller. Never loop past the original call's 45-second lifetime.
         }, Math.min(10_000, remaining));
       } catch (error) {
+        if (options.singleAttempt && (error instanceof TypeError || error?.name === 'AbortError'))
+          throw new FcmRetryableError(fcmRetryDelay(0, null, attempt, clock(), options.random));
         if (attempt < 2 &&
             (error instanceof TypeError || error?.name === 'AbortError')) {
           const delay = fcmRetryDelay(0, null, attempt, clock(), options.random);
@@ -198,6 +207,11 @@ export function createFcmWakeSender(rawCredentials, fetcher = fetch, cryptoApi =
           if (error instanceof FcmUnregisteredTokenError) throw error;
         }
       }
+        if (options.singleAttempt) {
+          if ([408, 429, 500, 502, 503, 504].includes(response.status))
+            throw new FcmRetryableError(fcmRetryDelay(response.status, response.headers, attempt, clock(), options.random));
+          throw new FcmPermanentDispatchError();
+        }
         if (attempt < 2 &&
             [408, 429, 500, 502, 503, 504].includes(response.status)) {
           const delay = fcmRetryDelay(response.status, response.headers, attempt, clock(), options.random);

@@ -197,6 +197,46 @@ class UserCodeMessagingTest {
         assertEquals(recovered, repository().ensureIdentity())
     }
 
+    @Test fun `rejected full page advances across repository recreation without false receipts`() = runBlocking<Unit> {
+        val alice = UserCodes.create(); val bob = UserCodes.create(); vault.save(alice)
+        val badIds = List(200) { java.util.UUID.randomUUID().toString() }
+        val good = java.util.UUID.randomUUID().toString()
+        val acknowledgements = mutableListOf<String>()
+        val relay = object : MessagingRelay {
+            override val configured = true
+            override suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject): JSONObject = when (action) {
+                "register" -> JSONObject().put("code", alice.code).put("nonce", alice.nonce)
+                "sync" -> {
+                    assertEquals(1, data.getInt("eventPaging"))
+                    val after = data.optString("eventAfter")
+                    val ids = if (after.isEmpty()) badIds else listOf(good)
+                    if (after.isNotEmpty()) assertEquals(badIds.last(), after)
+                    val events = org.json.JSONArray()
+                    ids.forEach { id -> events.put(JSONObject().put("id", id).put("message",
+                        JSONObject().put("id", id).put("senderId", bob.id).put("recipientId", alice.id)
+                            .put("revision", 1).put("status", "SENT").put("createdAt", 1000)
+                            .put("content", if (id == good) PeerMessageCrypto.encrypt(bob, alice.id, alice.publicKey, id, "healthy") else "lanu2:" + "A".repeat(40)))) }
+                    JSONObject().put("contacts", org.json.JSONArray().put(JSONObject().put("id", bob.id)
+                        .put("code", bob.code).put("nonce", bob.nonce).put("publicKey", bob.publicKey)
+                        .put("codeAtAdd", bob.code).put("mutual", true)))
+                        .put("events", events).put("eventPaging", 1)
+                        .put("nextEventCursor", if (after.isEmpty()) badIds.last() else JSONObject.NULL)
+                }
+                "ack" -> JSONObject().put("acknowledged", true).also {
+                    val ids = data.getJSONArray("eventIds")
+                    repeat(ids.length()) { acknowledgements += ids.getString(it) }
+                }
+                else -> error("Unexpected action: $action")
+            }
+        }
+        assertTrue(runCatching { repository(relay = relay).synchronize() }.exceptionOrNull() is SecurityException)
+        assertEquals(badIds.last(), db.settingsDao().getSettingValue("lanu_event_cursor_v1"))
+        repository(relay = relay).synchronize()
+        assertNotNull(db.messageDao().getMessage(good))
+        assertEquals(listOf(good), acknowledgements)
+        assertNull(db.settingsDao().getSettingValue("lanu_event_cursor_v1"))
+    }
+
     @Test fun `incoming ciphertext must authenticate before storing and sending delivery or read receipts`() = runBlocking {
         val alice = UserCodes.create()
         val bob = UserCodes.create()
