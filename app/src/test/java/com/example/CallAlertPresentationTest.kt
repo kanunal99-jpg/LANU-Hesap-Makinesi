@@ -37,7 +37,8 @@ class CallAlertPresentationTest {
         val n = manager.activeNotifications.single { it.id == 8129 }.notification
         assertEquals(Notification.VISIBILITY_PUBLIC,n.visibility)
         assertNull("No action-less redacted version may replace the generic call",n.publicVersion)
-        assertEquals("Gelen LANU araması",n.extras.getString(Notification.EXTRA_TITLE))
+        assertEquals(if (Build.VERSION.SDK_INT >= 31) "LANU araması" else "Gelen LANU araması",
+            n.extras.getString(Notification.EXTRA_TITLE))
         val actions = n.actions.map { shadowOf(it.actionIntent).savedIntent.action }.toSet()
         assertTrue(actions.containsAll(setOf(CallWakeTapPolicy.ANSWER,CallWakeTapPolicy.DECLINE)))
         for (action in n.actions) assertEquals(IncomingCallActivity::class.java.name,
@@ -48,6 +49,11 @@ class CallAlertPresentationTest {
         val now = System.currentTimeMillis()
         val data=mapOf("type" to CallWakePolicy.TYPE,"at" to now.toString())
         assertTrue(CallWakeNotification.show(context,data,now))
+        // Server dispatch and the encrypted INVITE need not have identical clocks.
+        // Verification must leave the already ringing OS alert untouched.
+        assertTrue(CallWakeNotification.restoreVerified(context,now-500))
+        assertEquals(now,shadowOf(manager.activeNotifications.single { it.id==8129 }.notification.contentIntent)
+            .savedIntent.getLongExtra(CallWakeTapPolicy.EXTRA_WAKE_AT,0L))
         manager.cancel(8129)
         assertFalse(CallWakeNotification.show(context,data,now))
         assertTrue(CallWakeNotification.restoreVerified(context,now))

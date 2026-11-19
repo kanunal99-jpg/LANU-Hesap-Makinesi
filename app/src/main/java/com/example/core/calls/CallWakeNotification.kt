@@ -511,7 +511,8 @@ object CallWakeNotification {
             at = wakeAt,
             restoreMissingVerified = restore,
             alreadyPosted = { manager.activeNotifications.any {
-                it.id == NOTIFICATION_ID && it.notification.extras.getLong(WAKE_EXTRA, 0L) == wakeAt
+                it.id == NOTIFICATION_ID && CallWakeTapPolicy.matchesVerifiedInvite(
+                    it.notification.extras.getLong(WAKE_EXTRA, 0L), wakeAt, now)
             } },
             isConsented = { !CallWakePolicy.privateAreaVisible && CallWakePreferences.isEnabled(context) },
             notify = { manager.notify(NOTIFICATION_ID, notification) },
