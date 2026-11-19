@@ -55,6 +55,12 @@ interface UserProfileDao {
 
 @Dao
 interface SettingsDao {
+    @Query("SELECT * FROM app_settings WHERE `key` GLOB 'lanu_pending_message_alert_*' ORDER BY `key` LIMIT 200")
+    suspend fun getPendingMessageAlerts(): List<SettingsEntity>
+
+    @Query("DELETE FROM app_settings WHERE `key` GLOB 'lanu_pending_message_alert_*' AND value = :conversationId")
+    suspend fun deletePendingMessageAlerts(conversationId: String)
+
     @Query("SELECT * FROM app_settings WHERE `key` GLOB 'lanu_favorite_*'")
     fun getFavoriteSettings(): Flow<List<SettingsEntity>>
 
@@ -75,12 +81,13 @@ interface SettingsDao {
      */
     @Query("""
         SELECT EXISTS(SELECT 1 FROM app_settings WHERE
-            `key` IN ('lanu_remote_registered', 'lanu_full_restore_identity', 'lanu_event_cursor_v1', 'lanu_quarantine_v1')
+            `key` IN ('lanu_remote_registered', 'lanu_full_restore_identity', 'lanu_event_cursor_v1', 'lanu_quarantine_v1', 'lanu_message_alert_batch_v1', 'lanu_message_alert_shown_v1')
             OR `key` GLOB 'lanu_peer_*'
             OR `key` GLOB 'lanu_hidden_*'
             OR `key` GLOB 'lanu_draft_*'
             OR `key` GLOB 'lanu_retry_after_*'
             OR `key` GLOB 'lanu_message_revision_*'
+            OR `key` GLOB 'lanu_pending_message_alert_*'
         )
     """)
     suspend fun hasIdentityBoundSettings(): Boolean

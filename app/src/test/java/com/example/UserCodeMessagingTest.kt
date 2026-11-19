@@ -260,8 +260,13 @@ class UserCodeMessagingTest {
         val repo = repository(relay = relay)
         val fresh = MessageSyncSession { true }; repo.synchronizeForMessageWake(fresh)
         assertEquals(1, fresh.newIncomingCount())
+        assertEquals(1, db.settingsDao().getPendingMessageAlerts().size)
+        var posts = 0
+        assertTrue(repository(relay = relay).publishPendingMessageAlerts { posts++; true })
         val replay = MessageSyncSession { true }; repo.synchronizeForMessageWake(replay)
         assertEquals(0, replay.newIncomingCount())
+        assertFalse(repository(relay = relay).publishPendingMessageAlerts { posts++; true })
+        assertEquals(1, posts)
         revision = 2; content = "lanu2:" + "A".repeat(40)
         val tampered = MessageSyncSession { true }
         assertTrue(runCatching { repo.synchronizeForMessageWake(tampered) }.exceptionOrNull() is SecurityException)

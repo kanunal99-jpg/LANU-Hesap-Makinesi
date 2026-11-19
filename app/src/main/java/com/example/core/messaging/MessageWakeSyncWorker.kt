@@ -33,12 +33,13 @@ import java.util.concurrent.TimeUnit
  */
 @Keep
 class MessageWakeSyncWorker @JvmOverloads constructor(context: Context, params: WorkerParameters,
-    private val publishNewMessages: () -> Boolean = { MessageWakeNotification.showVerifiedNewMessages(context) },
+    private val publishNewMessages: (String) -> Boolean = { batch -> MessageWakeNotification.showPendingBatch(context, batch) },
     private val targetFactory: () -> MessageWakeSyncTarget = {
         val repo = (context.applicationContext as LanuApplication).container.communicationRepository
         val session = MessageSyncSession { MessageWakePreferences.isEnabled(context.applicationContext) }
         object : MessageWakeSyncTarget {
             override val newIncomingCount get() = session.newIncomingCount()
+            override suspend fun publishPendingAlerts(post: (String) -> Boolean) = repo.publishPendingMessageAlerts(post)
             override val configured get() = repo.relayConfigured
             override suspend fun hasStoredIdentity() = repo.hasStoredIdentity()
             override suspend fun synchronize() = repo.synchronizeForMessageWake(session)
@@ -50,13 +51,13 @@ class MessageWakeSyncWorker @JvmOverloads constructor(context: Context, params: 
         if (!MessageWakePreferences.isEnabled(applicationContext)) return Result.success(workDataOf("sync_outcome" to "disabled"))
         return try {
             val repository = targetFactory()
-            if (!repository.configured) return attention(PrivateRelayHealth.Outcome.CONFIGURATION)
             if (!repository.hasStoredIdentity()) return attention(PrivateRelayHealth.Outcome.SECURE_STORAGE)
             if (!MessageWakePreferences.isEnabled(applicationContext)) return Result.success(workDataOf("sync_outcome" to "disabled"))
+            repository.publishPendingAlerts(publishNewMessages)
+            if (!repository.configured) return attention(PrivateRelayHealth.Outcome.CONFIGURATION)
             // No active conversation means NO remote read receipts. Existing
             // encrypted Room queue, peer binding, ACK and idempotent UUIDs are
             // reused rather than inventing a second message transport.
-            var notifiedIncoming = 0
             withTimeout(90_000L) {
                 repeat(3) {
                     currentCoroutineContext().ensureActive()
@@ -65,9 +66,8 @@ class MessageWakeSyncWorker @JvmOverloads constructor(context: Context, params: 
                     catch (e: SecurityException) { if (!repository.hasPendingPage()) throw e }
                     finally {
                         currentCoroutineContext().ensureActive()
-                        if (MessageWakePreferences.isEnabled(applicationContext) && repository.newIncomingCount > notifiedIncoming) {
-                            // Count is produced only AFTER a successful per-event Room commit.
-                            if (publishNewMessages()) notifiedIncoming = repository.newIncomingCount
+                        if (MessageWakePreferences.isEnabled(applicationContext)) {
+                            repository.publishPendingAlerts(publishNewMessages)
                         }
                     }
                     currentCoroutineContext().ensureActive()
@@ -164,6 +164,7 @@ internal object MessageWakeSyncPolicy {
 interface MessageWakeSyncTarget {
     val configured: Boolean
     val newIncomingCount: Int get() = 0
+    suspend fun publishPendingAlerts(post: (String) -> Boolean): Boolean = false
     suspend fun hasStoredIdentity(): Boolean
     suspend fun synchronize()
     suspend fun hasPendingPage(): Boolean

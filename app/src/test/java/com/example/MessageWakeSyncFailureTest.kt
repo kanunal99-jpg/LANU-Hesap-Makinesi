@@ -97,6 +97,11 @@ class MessageWakeSyncFailureTest {
         val target = object : MessageWakeSyncTarget {
             override val configured = true
             override val newIncomingCount get() = count
+            override suspend fun publishPendingAlerts(post: (String) -> Boolean): Boolean {
+                if (count == 0 || !post("stable-opaque-batch")) return false
+                count = 0
+                return true
+            }
             override suspend fun hasStoredIdentity() = true
             override suspend fun synchronize() { syncs++ }
             override suspend fun hasPendingPage() = false
