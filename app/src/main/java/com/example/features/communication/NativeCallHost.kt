@@ -32,6 +32,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleStartEffect
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.example.core.calls.NativeCallEngine
 import com.example.core.calls.CallAudioRouteLabelPolicy
 import com.example.core.calls.CallAudioRoutePolicy
@@ -48,7 +49,7 @@ import org.webrtc.SurfaceViewRenderer
 fun NativeCallHost(
     model: NativeCallViewModel, request: Pair<String, Boolean>?, onRequestConsumed: () -> Unit,
     revealPeerName: Boolean = true, answerHintAtMs: Long = 0L,
-    onAnswerHintConsumed: () -> Unit = {}
+    onAnswerHintConsumed: () -> Unit = {}, embedded: Boolean = false
 ) {
     val state by model.state.collectAsState()
     val media by model.media.collectAsState()
@@ -58,20 +59,27 @@ fun NativeCallHost(
     // Always inspect the latest private-area gate when delayed system
     // permission callbacks return, not the stale composition that launched it.
     val privateAreaVisible by rememberUpdatedState(revealPeerName)
-    LifecycleStartEffect(state.callId, state.phase, context) {
+    var confirm by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    var permissionTarget by remember { mutableStateOf<Triple<String, Boolean, Boolean>?>(null) }
+    LifecycleResumeEffect(model) {
+        model.attachHost()
+        onPauseOrDispose { confirm = null; model.detachHost() }
+    }
+    LifecycleResumeEffect(state.callId, state.phase, context) {
         // RINGING is entered only after decryption of a matching E2EE INVITE.
         // Pair haptics with the existing looping ringtone, not with raw FCM.
         val stopVibration = if (state.phase == NativeCallPhase.RINGING)
             CallRingVibration.start(context) else null
         val ringtone = if (state.phase == NativeCallPhase.RINGING) runCatching {
             RingtoneManager.getRingtone(context, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))?.apply {
-                audioAttributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                audioAttributes = AudioAttributes.Builder().setLegacyStreamType(android.media.AudioManager.STREAM_RING).setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
                 if (Build.VERSION.SDK_INT >= 28) isLooping = true
                 play()
             }
         }.getOrNull() else null
-        onStopOrDispose {
+        if (runCatching { ringtone?.isPlaying == true }.getOrDefault(false)) model.onVisibleRingingReady()
+        onPauseOrDispose {
             runCatching { ringtone?.stop() }
             stopVibration?.invoke()
         }
@@ -96,15 +104,9 @@ fun NativeCallHost(
             runCatching { tone?.release() }
         }
     }
-    var confirm by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
-    var permissionTarget by remember { mutableStateOf<Triple<String, Boolean, Boolean>?>(null) }
-    LifecycleStartEffect(model) {
-        model.attachHost()
-        onStopOrDispose { confirm = null; model.detachHost() }
-    }
-    LifecycleStartEffect(model, revealPeerName) {
+    LifecycleResumeEffect(model, revealPeerName) {
         model.setRealtimeVisible(revealPeerName)
-        onStopOrDispose { model.setRealtimeVisible(false) }
+        onPauseOrDispose { model.setRealtimeVisible(false) }
     }
     // A delayed chat action must not reopen a private outgoing-call dialog
     // over the public calculator after screen-off or PIN lock. Consume any
@@ -171,9 +173,7 @@ fun NativeCallHost(
     }
     if (state.phase != NativeCallPhase.IDLE) {
         val ended = state.phase == NativeCallPhase.ENDED || state.phase == NativeCallPhase.FAILED
-        Dialog(onDismissRequest = { if (ended) model.dismiss() }, properties = DialogProperties(
-            dismissOnBackPress = ended, dismissOnClickOutside = false, usePlatformDefaultWidth = false,
-            securePolicy = SecureFlagPolicy.SecureOn)) {
+        val callContent: @Composable () -> Unit = {
             Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                 Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(18.dp),
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -240,16 +240,9 @@ fun NativeCallHost(
                     if (state.phase == NativeCallPhase.RINGING) {
                         Text("Doğrudan görüşmede IP adresinizi karşı taraf ve Google/Cloudflare STUN hizmetleri görebilir. Yapılandırdıysanız aktarma sunucusu da bağlantı IP adreslerini görebilir. Aramayı doğrudan yanıtlayabilirsiniz.",
                             style = MaterialTheme.typography.bodySmall)
-                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                            Button(onClick = { authorize(state.callId, state.video, true) },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B5E20), contentColor = Color.White)) {
-                                Icon(Icons.Default.Call, null); Spacer(Modifier.width(8.dp)); Text("Yanıtla")
-                            }
-                            Button(onClick = model::reject,
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
-                                Icon(Icons.Default.CallEnd, null); Spacer(Modifier.width(8.dp)); Text("Reddet")
-                            }
-                        }
+                        IncomingCallActions(
+                            onAnswer = { authorize(state.callId, state.video, true) },
+                            onDecline = model::reject)
                     } else if (ended) Button(onClick = model::dismiss) { Text("Kapat") }
                     else Button(onClick = model::end, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
                         Icon(Icons.Default.CallEnd, null); Spacer(Modifier.width(8.dp)); Text("Aramayı bitir")
@@ -257,6 +250,13 @@ fun NativeCallHost(
                 }
             }
         }
+        // The call-only Activity owns a show-when-locked window. Render
+        // controls directly there; do not depend on a separate Dialog window.
+        if (embedded) callContent() else Dialog(
+            onDismissRequest = { if (ended) model.dismiss() }, properties = DialogProperties(
+                dismissOnBackPress = ended, dismissOnClickOutside = false,
+                usePlatformDefaultWidth = false, securePolicy = SecureFlagPolicy.SecureOn)
+        ) { callContent() }
     }
     if (PrivateCallHostDisclosurePolicy.mayShowIdleNotice(revealPeerName, state.phase) &&
         notice != null) {

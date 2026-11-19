@@ -73,15 +73,27 @@ class IncomingCallActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     Column(Modifier.fillMaxSize().padding(24.dp)) {
                         Text(
-                            if (observedLiveCall) "Görüşme" else "Bildirim doğrulanıyor",
+                            if (observedLiveCall) "Görüşme" else "Gelen LANU araması",
                             style = MaterialTheme.typography.headlineMedium
                         )
                         Spacer(Modifier.height(12.dp))
                         Text(
                             if (observedLiveCall) "Bağlantı güvenle yönetiliyor."
-                            else "Lütfen kontrol tamamlanana kadar bekleyin."
+                            else when {
+                                declineAt > 0L -> "Reddetme isteğiniz işleniyor…"
+                                answerAt > 0L -> "Arama bağlanmaya hazırlanıyor…"
+                                else -> "Arama hazırlanıyor…"
+                            }
                         )
                         Spacer(Modifier.height(20.dp))
+                        if (!observedLiveCall && state.phase == NativeCallPhase.IDLE) {
+                            // Buffer only the user's gesture. Actual media/rejection
+                            // still requires a fresh matching decrypted INVITE.
+                            com.example.features.communication.IncomingCallActions(
+                                enabled = answerAt == 0L && declineAt == 0L,
+                                onAnswer = { recordWakeGesture(CallWakeTapPolicy.ANSWER) },
+                                onDecline = { recordWakeGesture(CallWakeTapPolicy.DECLINE) })
+                        }
                         OutlinedButton(onClick = { finish() }) { Text("Kapat") }
                     }
                     NativeCallHost(
@@ -90,7 +102,8 @@ class IncomingCallActivity : ComponentActivity() {
                         onRequestConsumed = {},
                         revealPeerName = false,
                         answerHintAtMs = answerAt,
-                        onAnswerHintConsumed = { answerAt = 0L }
+                        onAnswerHintConsumed = { answerAt = 0L },
+                        embedded = true
                     )
                 }
             }
@@ -114,6 +127,10 @@ class IncomingCallActivity : ComponentActivity() {
             CallWakePreferences.isEnabled(this), live,
             CallWakeTapPolicy.freshWakeIntent(intent?.action, at, System.currentTimeMillis())
         )
+    }
+    private fun recordWakeGesture(action: String) {
+        val current = intent ?: return
+        readWakeIntent(Intent(current).setAction(action))
     }
     private fun readWakeIntent(incoming: Intent?) {
         answerAt = 0L

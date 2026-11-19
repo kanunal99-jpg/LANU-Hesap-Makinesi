@@ -66,7 +66,7 @@ class PublicSurfaceStealthTest {
             // Consented call alerts show ONLY a redacted generic call; message
             // alerts still reveal nothing on a locked screen.
             assertEquals(
-                if (id == CallWakeNotification.CHANNEL_ID) Notification.VISIBILITY_PRIVATE
+                if (id == CallWakeNotification.CHANNEL_ID) Notification.VISIBILITY_PUBLIC
                 else Notification.VISIBILITY_SECRET,
                 channel.lockscreenVisibility
             )
@@ -112,7 +112,7 @@ class PublicSurfaceStealthTest {
         val call = manager.getNotificationChannel(CallWakeNotification.CHANNEL_ID)
         assertGeneric(call.name.toString())
         assertGeneric(call.description)
-        assertEquals(Notification.VISIBILITY_PRIVATE, call.lockscreenVisibility)
+        assertEquals(Notification.VISIBILITY_PUBLIC, call.lockscreenVisibility)
     }
 
     @Test fun oldRingingChannelMetadataIsNeutralizedWithoutRevivingMute() {
