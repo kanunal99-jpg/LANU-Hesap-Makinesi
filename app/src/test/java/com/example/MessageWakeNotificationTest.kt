@@ -424,4 +424,18 @@ class MessageWakeNotificationTest {
         }
     }
 
+    @Test fun durableBatchIsConfirmedFromAndroidAndReusedWithoutReposting() {
+        assertTrue(MessageWakePreferences.beginEnrollment(context))
+        assertTrue(MessageWakePreferences.finishEnrollment(context))
+        val batch = java.util.UUID.randomUUID().toString()
+        assertTrue(MessageWakeNotification.showPendingBatch(context, batch))
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val first = manager.activeNotifications.single { it.id == 8130 }
+        assertEquals(batch, first.notification.extras.getString(MessageWakeNotification.BATCH_EXTRA))
+        assertTrue(MessageWakeNotification.showPendingBatch(context, batch))
+        val second = manager.activeNotifications.single { it.id == 8130 }
+        assertEquals(first.postTime, second.postTime)
+        assertTrue(second.notification.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)
+    }
+
 }

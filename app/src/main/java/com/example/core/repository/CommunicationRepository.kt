@@ -44,6 +44,7 @@ class CommunicationRepository(
     val foregroundNetworkChanges: Flow<Unit> = emptyFlow(),
     private val callPollClockMs: () -> Long = { android.os.SystemClock.elapsedRealtime() }
 ) {
+    private val messageAlerts = DurableMessageAlerts(database)
     private val transport = relay
     private val relay = object : MessagingRelay by transport {
         override suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject): JSONObject {
@@ -548,7 +549,12 @@ class CommunicationRepository(
     suspend fun lookupContactByPhone(code: String) = contactDao.getContactByPhone(UserCodes.normalize(code))
     suspend fun getConversationById(id: String) = conversationDao.getConversationById(id)
     /** UI-only unread reset; server READ receipts still require active conversation sync. */
-    suspend fun markConversationOpened(id: String) = conversationDao.clearUnreadCount(id)
+    suspend fun markConversationOpened(id: String) = database.withTransaction {
+        conversationDao.clearUnreadCount(id)
+        settingsDao.deletePendingMessageAlerts(id)
+    }
+
+    internal suspend fun publishPendingMessageAlerts(post: (String) -> Boolean): Boolean = messageAlerts.publish(post)
     fun normalizePhoneNumber(code: String) = UserCodes.normalize(code)
     private suspend fun savedPeer(code: String): JSONObject? = settingsDao.getSettingValue("lanu_peer_code_$code")?.let(::JSONObject)
     private suspend fun peerForConversation(id: String): JSONObject? = settingsDao.getSettingValue("lanu_peer_conv_$id")?.let(::JSONObject)
@@ -979,6 +985,7 @@ class CommunicationRepository(
             val threadDeleted = settingsDao.getSettingValue("lanu_hidden_conv_$convId") == "true"
             // Message, unread count and replay revision are one durable unit.
             // A crash before commit must not leave a message without its unread badge.
+            val alertSession = kotlinx.coroutines.currentCoroutineContext()[MessageSyncSession]
             var newIncomingCommitted = false
             try { database.withTransaction {
                 val revision = message.getLong("revision")
@@ -1009,6 +1016,9 @@ class CommunicationRepository(
                         if (senderId != own.id && activeConversationId != convId && firstLocalReceipt) {
                             conversationDao.incrementUnreadCount(convId)
                             newIncomingCommitted = message.getString("status") != "READ"
+                            if (newIncomingCommitted && alertSession != null) {
+                                messageAlerts.enqueueInTransaction(id, convId)
+                            }
                         }
                     }
                     settingsDao.insertSetting(SettingsEntity("lanu_message_revision_$id", revision.toString()))

@@ -234,10 +234,12 @@ object MessageWakeNotification {
     const val CHANNEL_ID = "lanu_private_message_alerts_v1"
     internal const val ID = PublicNotificationIds.MESSAGE_WAKE
 
-    /** Called only after authenticated incoming ciphertext committed to Room. */
-    internal fun showVerifiedNewMessages(context: Context): Boolean {
+    internal const val BATCH_EXTRA = "lanu_message_alert_batch_v1"
+
+    /** A stable opaque token is journaled in Room before this callback runs. */
+    internal fun showPendingBatch(context: Context, batch: String): Boolean {
         val now = System.currentTimeMillis()
-        return show(context, mapOf("type" to MessageWakePolicy.TYPE, "at" to now.toString()), now)
+        return show(context, mapOf("type" to MessageWakePolicy.TYPE, "at" to now.toString()), now, batch)
     }
 
     /**
@@ -266,7 +268,7 @@ object MessageWakeNotification {
         )
     }
 
-    fun show(context: Context, data: Map<String, String>, now: Long = System.currentTimeMillis()): Boolean =
+    fun show(context: Context, data: Map<String, String>, now: Long = System.currentTimeMillis(), durableBatch: String? = null): Boolean =
         MessageWakePolicy.safeShow {
             if (CallWakePolicy.privateAreaVisible || !MessageWakePreferences.isEnabled(context) ||
                 !MessageWakePolicy.eligible(data, now)) return@safeShow false
@@ -288,7 +290,13 @@ object MessageWakeNotification {
                 at, now, MessageWakePolicy.PAST_WINDOW_MS,
                 MessageWakePolicy.FUTURE_GRACE_MS, 120_000L
             ) ?: return@safeShow false
-            MessageWakePolicy.publishOnce(at) {
+            fun registered(): Boolean = manager.activeNotifications.any {
+                it.id == ID && it.notification.extras.getString(BATCH_EXTRA) == durableBatch
+            }
+            // A prior Android post may have succeeded just before process death
+            // or Room commit failure. Confirm it without a second notify().
+            if (durableBatch != null && registered()) return@safeShow true
+            val publish = {
                 val launch = Intent(context, MainActivity::class.java).apply {
                     action = MessageWakeTapPolicy.ACTION
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or
@@ -299,6 +307,7 @@ object MessageWakeNotification {
                 val notification = NotificationCompat.Builder(context, CHANNEL_ID)
                     .setSmallIcon(R.drawable.ic_lanu_monochrome)
                     .setContentTitle(PublicNotificationText.TITLE)
+                    .addExtras(android.os.Bundle().apply { if (durableBatch != null) putString(BATCH_EXTRA, durableBatch) })
                     // Deliberately no content text, person, style, count or preview.
                     .setContentIntent(tap)
                     .setVisibility(NotificationCompat.VISIBILITY_SECRET)
@@ -310,13 +319,15 @@ object MessageWakeNotification {
                     // on Android O+; the encrypted conversation remains in Room.
                     .setTimeoutAfter(remaining)
                     .build()
-                MessageWakePolicy.postIfStillEnabled(
+                val accepted = MessageWakePolicy.postIfStillEnabled(
                     isEnabled = {
                         !CallWakePolicy.privateAreaVisible && MessageWakePreferences.isEnabled(context)
                     },
                     post = { manager.notify(ID, notification) },
                     cancel = { manager.cancel(ID) }
                 )
+                accepted && (durableBatch == null || registered())
             }
+            if (durableBatch == null) MessageWakePolicy.publishOnce(at, publish) else publish()
         }
 }
