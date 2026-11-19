@@ -68,7 +68,7 @@ class MessageWakeRecoveryTest {
         val periodic = manager.getWorkInfosForUniqueWork(MessageWakeRecovery.PERIODIC).get().single()
         assertEquals(NetworkType.CONNECTED, periodic.constraints.requiredNetworkType)
         assertTrue(first.outputData.keyValueMap.isEmpty())
-        assertTrue(WorkManagerTestInitHelper.getTestDriver(context)!!.setAllConstraintsMet(first.id))
+        WorkManagerTestInitHelper.getTestDriver(context)!!.setAllConstraintsMet(first.id)
         assertTrue("Network-constrained sync runs without any FCM callback", synced.await(5, TimeUnit.SECONDS))
     }
     @Test fun optingOutCancelsBothRecoveryPathsAndPreventsRequeue() {
