@@ -241,9 +241,9 @@ class UserCodeMessagingTest {
 
     @Test fun `wake session counts only committed new authenticated incoming messages and never replay`() = runBlocking<Unit> {
         val alice = UserCodes.create(); val bob = UserCodes.create(); vault.save(alice)
-        val id = java.util.UUID.randomUUID().toString()
+        var id = java.util.UUID.randomUUID().toString()
         var content = PeerMessageCrypto.encrypt(bob, alice.id, alice.publicKey, id, "new message")
-        var revision = 1
+        var revision = 1; var status = "SENT"
         val relay = object : MessagingRelay {
             override val configured = true
             override suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject): JSONObject = when(action) {
@@ -252,7 +252,7 @@ class UserCodeMessagingTest {
                     .put("code", bob.code).put("nonce", bob.nonce).put("publicKey", bob.publicKey).put("codeAtAdd", bob.code).put("mutual", true)))
                     .put("events", org.json.JSONArray().put(JSONObject().put("id", id).put("message", JSONObject()
                         .put("id", id).put("senderId", bob.id).put("recipientId", alice.id).put("revision", revision)
-                        .put("status", "SENT").put("createdAt", 1000).put("content", content))))
+                        .put("status", status).put("createdAt", 1000).put("content", content))))
                 "ack" -> JSONObject().put("acknowledged", true)
                 else -> error("Unexpected $action")
             }
@@ -266,6 +266,10 @@ class UserCodeMessagingTest {
         val tampered = MessageSyncSession { true }
         assertTrue(runCatching { repo.synchronizeForMessageWake(tampered) }.exceptionOrNull() is SecurityException)
         assertEquals(0, tampered.newIncomingCount())
+        id = java.util.UUID.randomUUID().toString(); revision = 1; status = "READ"
+        content = PeerMessageCrypto.encrypt(bob, alice.id, alice.publicKey, id, "already read on another session")
+        val alreadyRead = MessageSyncSession { true }; repo.synchronizeForMessageWake(alreadyRead)
+        assertEquals(0, alreadyRead.newIncomingCount())
     }
 
     @Test fun `quarantine alone prevents replacing an identity bound to retained relay events`() = runBlocking {

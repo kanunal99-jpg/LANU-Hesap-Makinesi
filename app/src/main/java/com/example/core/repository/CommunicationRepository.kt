@@ -1008,7 +1008,7 @@ class CommunicationRepository(
                         conversationDao.getConversationById(convId)?.let { conversationDao.insertConversation(it.copy(lastMessageText = "Şifreli mesaj", lastMessageTime = maxOf(it.lastMessageTime, message.getLong("createdAt")))) }
                         if (senderId != own.id && activeConversationId != convId && firstLocalReceipt) {
                             conversationDao.incrementUnreadCount(convId)
-                            newIncomingCommitted = true
+                            newIncomingCommitted = message.getString("status") != "READ"
                         }
                     }
                     settingsDao.insertSetting(SettingsEntity("lanu_message_revision_$id", revision.toString()))
