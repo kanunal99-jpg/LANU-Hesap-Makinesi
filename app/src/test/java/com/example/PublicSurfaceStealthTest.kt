@@ -112,7 +112,7 @@ class PublicSurfaceStealthTest {
         val call = manager.getNotificationChannel(CallWakeNotification.CHANNEL_ID)
         assertGeneric(call.name.toString())
         assertGeneric(call.description)
-        assertEquals(Notification.VISIBILITY_PRIVATE, call.lockscreenVisibility)
+        assertEquals(Notification.VISIBILITY_PUBLIC, call.lockscreenVisibility)
     }
 
     @Test fun oldRingingChannelMetadataIsNeutralizedWithoutRevivingMute() {

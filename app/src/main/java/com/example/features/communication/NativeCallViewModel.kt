@@ -99,7 +99,6 @@ class NativeCallViewModel(
         pendingHostRelease?.cancel()
         activate()
         repository.setCallingForeground(true) // visible owner may now ACK retained invitations
-        if (_state.value.phase == NativeCallPhase.RINGING) CallWakeNotification.cancel(appContext)
         CallWakePolicy.privateAreaVisible = true
         if (visibleIdlePoll == null) {
             // FCM is only a wake hint. A consented calculator foreground must
@@ -121,6 +120,11 @@ class NativeCallViewModel(
             }
         }
     }
+    /** The resumed UI has started its ringtone; it can now take over OS alert ownership. */
+    fun onVisibleRingingReady() {
+        if (attachedHosts > 0 && _state.value.phase == NativeCallPhase.RINGING)
+            CallWakeNotification.cancel(appContext)
+    }
     fun detachHost() {
         attachedHosts = (attachedHosts - 1).coerceAtLeast(0)
         if (attachedHosts == 0) {
@@ -128,6 +132,8 @@ class NativeCallViewModel(
             visibleIdlePoll = null
             // Do not suppress FCM while every UI is backgrounded or locked.
             CallWakePolicy.privateAreaVisible = false
+            if (_state.value.phase == NativeCallPhase.RINGING)
+                CallWakeNotification.restoreVerified(appContext, _state.value.inviteAtMs)
             releaseIdleHost()
         }
     }
@@ -361,7 +367,7 @@ class NativeCallViewModel(
                 inviteAtMs = s.createdAt)
             // The secured live host now owns the ringtone and action buttons.
             // Prevent the earlier generic FCM alert from ringing concurrently.
-            if (attachedHosts > 0) CallWakeNotification.cancel(appContext)
+            if (attachedHosts == 0) CallWakeNotification.restoreVerified(appContext, s.createdAt)
             // A relay ACK proves only storage. This separately encrypted signal
             // means the recipient verified the invitation and is alerting.
             viewModelScope.launch {

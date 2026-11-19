@@ -30,21 +30,17 @@ object PublicNotificationChannelSanitizer {
                 LEGACY_CALL_ID,
                 PREVIOUS_CALL_ID,
                 PREVIOUS_RINGING_V3_ID,
+                "lanu_private_calls_ringing_v4",
                 CallWakeNotification.CHANNEL_ID,
                 MessageWakeNotification.CHANNEL_ID
             )) {
                 try {
                     val existing = manager.getNotificationChannel(id) ?: continue
-                    manager.createNotificationChannel(
-                        NotificationChannel(id, PublicNotificationText.CHANNEL_NAME, existing.importance).apply {
-                            description = PublicNotificationText.CHANNEL_DESCRIPTION
-                            // v3/v4 expose only a generic consented call label.
-                            // Older channels and message hints remain secret.
-                            lockscreenVisibility = if (id == CallWakeNotification.CHANNEL_ID ||
-                                id == PREVIOUS_RINGING_V3_ID)
-                                Notification.VISIBILITY_PRIVATE else Notification.VISIBILITY_SECRET
-                        }
-                    )
+                    // Rename only. Rebuilding channels with defaults can undo
+                    // visibility/sound choices and hide lock-screen call actions.
+                    existing.name = PublicNotificationText.CHANNEL_NAME
+                    existing.description = PublicNotificationText.CHANNEL_DESCRIPTION
+                    manager.createNotificationChannel(existing)
                 } catch (_: Exception) {
                     // Notification services on OEM devices are optional and can
                     // fail. Never block ordinary calculator startup.

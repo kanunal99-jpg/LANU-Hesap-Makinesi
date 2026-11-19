@@ -54,6 +54,11 @@ fun CallWakeSettings(repository: CommunicationRepository) {
     var status by remember { mutableStateOf<String?>(null) }
     var pendingRevoke by remember { mutableStateOf(CallWakePreferences.hasPendingRemoteRevoke(context)) }
 
+    var readiness by remember { mutableStateOf("") }
+    androidx.lifecycle.compose.LifecycleResumeEffect(enabled) {
+        readiness = if (enabled) com.example.core.calls.CallAlertReadiness.describe(context) else ""
+        onPauseOrDispose { }
+    }
     // Only the previously authenticated LANU identity signs the revocation.
     // No token/identity is cached in local preferences or logs.
     suspend fun completeRemoteRevoke(): Boolean {
@@ -267,6 +272,8 @@ fun CallWakeSettings(repository: CommunicationRepository) {
             if (needsPermission) notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
             else startRegistration()
         }) { Text("Yalnız arama bildirimlerini etkinleştir") }
+        if (enabled) Text(readiness, style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(vertical = 8.dp))
         if (enabled && Build.VERSION.SDK_INT >= 34) {
             Text("Tam ekran arama iznini Android Özel uygulama erişimi ekranından açabilirsiniz. İzin kapalıysa normal çağrı bildirimi kullanılır.",
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 6.dp))

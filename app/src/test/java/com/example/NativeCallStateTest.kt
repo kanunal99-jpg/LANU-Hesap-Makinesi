@@ -484,6 +484,32 @@ class NativeCallStateTest {
             com.example.core.calls.CallWakePolicy.privateAreaVisible)
     }
 
+    @Test fun verifiedRingingMovesBetweenVisibleAndSystemOwnersUntilRejected() = runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        val manager=context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        CallWakePreferences.setEnabled(context,true)
+        try {
+            vm.attachHost()
+            val invite=CallSignaling.create(UUID.randomUUID().toString(),CallSignalKind.INVITE,false)
+            inject(invite);waitPhase(NativeCallPhase.RINGING)
+            vm.onVisibleRingingReady()
+            assertTrue(manager.activeNotifications.none { it.id==8129 })
+            vm.detachHost()
+            assertTrue(manager.activeNotifications.any { it.id==8129 })
+            assertEquals(0,mediaCreated)
+            vm.attachHost()
+            // Merely attaching must not cancel the OS fallback before UI audio is ready.
+            assertTrue(manager.activeNotifications.any { it.id==8129 })
+            vm.onVisibleRingingReady()
+            assertTrue(manager.activeNotifications.none { it.id==8129 })
+            vm.detachHost()
+            assertTrue(manager.activeNotifications.any { it.id==8129 })
+            vm.reject()
+            assertTrue(manager.activeNotifications.none { it.id==8129 })
+            assertEquals(0,mediaCreated)
+        } finally { CallWakePreferences.setEnabled(context,false) }
+    }
+
     @Test fun activeRingingIsNotClosedByCalculatorToCallScreenHandoff() = runBlocking {
         val invite = CallSignaling.create(UUID.randomUUID().toString(), CallSignalKind.INVITE, false)
         inject(invite)

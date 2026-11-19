@@ -180,9 +180,17 @@ object CallWakePolicy {
         at: Long,
         isConsented: () -> Boolean,
         notify: () -> Unit,
-        cancel: () -> Unit
+        cancel: () -> Unit,
+        restoreMissingVerified: Boolean = false,
+        alreadyPosted: () -> Boolean = { false }
     ): Boolean {
         if (!isConsented()) return false
+        if (restoreMissingVerified) {
+            if (alreadyPosted()) return true
+            // Only a verified live call can re-arm a missing alert. Ordinary
+            // duplicate FCM hints keep their one-shot claim.
+            recent.remove(at)
+        }
         var delivered = false
         val succeeded = publishOnce(at) {
             if (isConsented()) {
@@ -273,7 +281,9 @@ object CallWakeNotification {
     // Android keeps a channel's first sound choice across APK upgrades.
     // Version the once-silent call channel without touching chat notifications.
     // Android notification channel audio/haptics cannot be modified in place.
-    const val CHANNEL_ID = "lanu_private_calls_ringing_v4"
+    const val CHANNEL_ID = "lanu_private_calls_ringing_v5"
+    private const val PREVIOUS_V4_ID = "lanu_private_calls_ringing_v4"
+    private const val WAKE_EXTRA = "lanu_call_alert_at"
     private const val PREVIOUS_RINGING_CHANNEL_ID = "lanu_private_calls_ringing_v3"
     private const val PREVIOUS_CHANNEL_ID = "lanu_private_calls_ringing_v2"
     private const val OLD_CHANNEL_ID = "lanu_private_calls_v1"
@@ -300,7 +310,8 @@ object CallWakeNotification {
         // A new channel is needed because old v2 hid all call notifications
         // from the lock screen. Never revive a channel the user blocked/muted.
         val legacy = manager.getNotificationChannel(OLD_CHANNEL_ID)
-        val previous = manager.getNotificationChannel(PREVIOUS_RINGING_CHANNEL_ID)
+        val previous = manager.getNotificationChannel(PREVIOUS_V4_ID)
+            ?: manager.getNotificationChannel(PREVIOUS_RINGING_CHANNEL_ID)
             ?: manager.getNotificationChannel(PREVIOUS_CHANNEL_ID)
         val legacyMuted = legacy != null && (
             legacy.importance < NotificationManager.IMPORTANCE_DEFAULT ||
@@ -326,13 +337,28 @@ object CallWakeNotification {
         val incoming = NotificationChannel(CHANNEL_ID, PublicNotificationText.CHANNEL_NAME, importance).apply {
             description = PublicNotificationText.CHANNEL_DESCRIPTION
             // Only a generic redacted call is visible; no caller/peer/PIN/SDP.
-            lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+            lockscreenVisibility = if (previous?.lockscreenVisibility == Notification.VISIBILITY_SECRET)
+                Notification.VISIBILITY_SECRET else Notification.VISIBILITY_PUBLIC
             when {
-                previous != null -> setSound(previous.sound, previous.audioAttributes)
+                previous != null -> {
+                    // v4 could inherit an app-created null sound from old channels.
+                    // Repair only on APIs that distinguish a user's explicit silence.
+                    val history = listOfNotNull(previous,
+                        manager.getNotificationChannel(PREVIOUS_RINGING_CHANNEL_ID),
+                        manager.getNotificationChannel(PREVIOUS_CHANNEL_ID), legacy)
+                    val repair = previous.sound == null && !legacyMuted &&
+                        previous.importance >= NotificationManager.IMPORTANCE_DEFAULT &&
+                        Build.VERSION.SDK_INT >= 30 && history.none { it.sound == null && it.hasUserSetSound() }
+                    setSound(if (repair) RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE) else previous.sound,
+                        if (repair) AudioAttributes.Builder().setLegacyStreamType(android.media.AudioManager.STREAM_RING)
+                            .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build() else previous.audioAttributes)
+                }
                 legacyMuted -> setSound(null, null)
                 else -> setSound(
                     RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
                     AudioAttributes.Builder()
+                        .setLegacyStreamType(android.media.AudioManager.STREAM_RING)
                         .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                         .build()
@@ -344,6 +370,7 @@ object CallWakeNotification {
                 (previous.importance < NotificationManager.IMPORTANCE_DEFAULT ||
                     previous.sound == null)
             when {
+                previous?.id == PREVIOUS_V4_ID && !previous.shouldVibrate() -> enableVibration(false)
                 (previousSilent && previous?.shouldVibrate() != true) ||
                     (previous == null && legacyMuted) -> enableVibration(false)
                 previous?.shouldVibrate() == true ->
@@ -366,7 +393,26 @@ object CallWakeNotification {
             CallWakePolicy.fullScreenAllowed(api, granted)
         }
 
+    /** Explicit immutable, app-internal call PendingIntents only; never unlock private UI. */
+    internal fun callActivityPending(context: Context, requestCode: Int, intent: Intent): PendingIntent {
+        val options = try { if (Build.VERSION.SDK_INT >= 35) android.app.ActivityOptions.makeBasic().apply {
+            setPendingIntentCreatorBackgroundActivityStartMode(
+                if (Build.VERSION.SDK_INT >= 36) android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_ALWAYS
+                else android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
+        }.toBundle() else null } catch (_: RuntimeException) { null }
+          catch (_: LinkageError) { null } // Preserve normal actionable notification on OEM ABI failure.
+        return PendingIntent.getActivity(context, requestCode, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE, options)
+    }
+
     fun show(context: Context, data: Map<String, String>, now: Long = System.currentTimeMillis()): Boolean =
+        showInternal(context, data, now, false)
+
+    /** Called only for a fresh, decrypted INVITE when the last visible host pauses. */
+    internal fun restoreVerified(context: Context, at: Long): Boolean = showInternal(
+        context, mapOf("type" to CallWakePolicy.TYPE, "at" to at.toString()), System.currentTimeMillis(), true)
+
+    private fun showInternal(context: Context, data: Map<String, String>, now: Long, restore: Boolean): Boolean =
         CallWakePolicy.safePlatformDelivery {
         if (CallWakePolicy.privateAreaVisible || !CallWakePreferences.isEnabled(context) ||
             !CallWakePolicy.eligible(data, now)) return@safePlatformDelivery false
@@ -397,29 +443,21 @@ object CallWakeNotification {
             putExtra(CallWakeTapPolicy.EXTRA_WAKE_AT, wakeAt)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
-        val pending = PendingIntent.getActivity(context, 0, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val pending = callActivityPending(context, 0, intent)
         val answerIntent = Intent(context, IncomingCallActivity::class.java).apply {
             action = CallWakeTapPolicy.ANSWER
             putExtra(CallWakeTapPolicy.EXTRA_WAKE_AT, wakeAt)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
-        val answerPending = PendingIntent.getActivity(context, 1, answerIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val answerPending = callActivityPending(context, 1, answerIntent)
         val declineIntent = Intent(context, IncomingCallActivity::class.java).apply {
             action = CallWakeTapPolicy.DECLINE
             putExtra(CallWakeTapPolicy.EXTRA_WAKE_AT, wakeAt)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
-        val declinePending = PendingIntent.getActivity(context, 2, declineIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val declinePending = callActivityPending(context, 2, declineIntent)
         // The lock screen may show the existence of a call only after opt-in.
         // Always redact private identity and conversation content.
-        val redacted = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Gelen LANU araması")
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .build()
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("Gelen LANU araması")
@@ -427,8 +465,8 @@ object CallWakeNotification {
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))
-            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-            .setPublicVersion(redacted)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .addExtras(android.os.Bundle().apply { putLong(WAKE_EXTRA, wakeAt) })
             .setTimeoutAfter(remaining)
             .setOngoing(true)
             .setAutoCancel(false)
@@ -466,6 +504,10 @@ object CallWakeNotification {
         }
         CallWakePolicy.publishWhileConsented(
             at = wakeAt,
+            restoreMissingVerified = restore,
+            alreadyPosted = { manager.activeNotifications.any {
+                it.id == NOTIFICATION_ID && it.notification.extras.getLong(WAKE_EXTRA, 0L) == wakeAt
+            } },
             isConsented = { !CallWakePolicy.privateAreaVisible && CallWakePreferences.isEnabled(context) },
             notify = { manager.notify(NOTIFICATION_ID, notification) },
             cancel = { manager.cancel(NOTIFICATION_ID) }

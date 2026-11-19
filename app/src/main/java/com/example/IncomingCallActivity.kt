@@ -90,7 +90,8 @@ class IncomingCallActivity : ComponentActivity() {
                         onRequestConsumed = {},
                         revealPeerName = false,
                         answerHintAtMs = answerAt,
-                        onAnswerHintConsumed = { answerAt = 0L }
+                        onAnswerHintConsumed = { answerAt = 0L },
+                        embedded = true
                     )
                 }
             }

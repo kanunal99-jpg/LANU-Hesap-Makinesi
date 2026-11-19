@@ -178,13 +178,13 @@ class CallWakeNotificationTest {
         assertFalse(CallWakePreferences.isEnabled(context))
     }
 
-    @Test @Config(sdk = [29]) fun callOnlyChannelUsesSystemRingtoneHighImportanceAndHidesLockedContent() {
+    @Test @Config(sdk = [29]) fun callOnlyChannelUsesSystemRingtoneAndOnlyGenericPublicControls() {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         CallWakeNotification.ensureChannel(manager)
         val channel = manager.getNotificationChannel(CallWakeNotification.CHANNEL_ID)
         assertNotNull(channel)
         assertEquals(NotificationManager.IMPORTANCE_HIGH, channel.importance)
-        assertEquals(Notification.VISIBILITY_PRIVATE, channel.lockscreenVisibility)
+        assertEquals(Notification.VISIBILITY_PUBLIC, channel.lockscreenVisibility)
         assertEquals(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE), channel.sound)
         assertNotNull(channel.audioAttributes)
         assertEquals(AudioAttributes.USAGE_NOTIFICATION_RINGTONE, channel.audioAttributes.usage)
@@ -226,7 +226,7 @@ class CallWakeNotificationTest {
             "type" to CallWakePolicy.TYPE, "at" to at.toString()
         ), now = at))
         val notification = manager.activeNotifications.first { it.id == 8129 }.notification
-        assertEquals(Notification.VISIBILITY_PRIVATE, notification.visibility)
+        assertEquals(Notification.VISIBILITY_PUBLIC, notification.visibility)
         assertEquals("Gelen LANU araması",
             notification.extras.getString(Notification.EXTRA_TITLE))
         assertEquals(2, notification.actions.size)
@@ -282,7 +282,7 @@ class CallWakeNotificationTest {
         assertEquals(NotificationManager.IMPORTANCE_HIGH, upgraded.importance)
         assertEquals(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE), upgraded.sound)
         assertTrue(upgraded.shouldVibrate())
-        assertEquals(Notification.VISIBILITY_PRIVATE, upgraded.lockscreenVisibility)
+        assertEquals(Notification.VISIBILITY_PUBLIC, upgraded.lockscreenVisibility)
     }
 
     @Test @Config(sdk = [29]) fun oldSilentV3ChannelNeverRevivesRingOrVibration() {
@@ -322,7 +322,7 @@ class CallWakeNotificationTest {
         CallWakeNotification.ensureChannel(manager)
         val migrated = manager.getNotificationChannel(CallWakeNotification.CHANNEL_ID)
         assertEquals(NotificationManager.IMPORTANCE_NONE, migrated.importance)
-        assertEquals(Notification.VISIBILITY_PRIVATE, migrated.lockscreenVisibility)
+        assertEquals(Notification.VISIBILITY_PUBLIC, migrated.lockscreenVisibility)
         assertFalse(CallWakePolicy.channelCanDisplay(29, migrated.importance))
     }
 

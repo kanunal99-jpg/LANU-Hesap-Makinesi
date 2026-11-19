@@ -32,6 +32,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleStartEffect
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.example.core.calls.NativeCallEngine
 import com.example.core.calls.CallAudioRouteLabelPolicy
 import com.example.core.calls.CallAudioRoutePolicy
@@ -48,7 +49,7 @@ import org.webrtc.SurfaceViewRenderer
 fun NativeCallHost(
     model: NativeCallViewModel, request: Pair<String, Boolean>?, onRequestConsumed: () -> Unit,
     revealPeerName: Boolean = true, answerHintAtMs: Long = 0L,
-    onAnswerHintConsumed: () -> Unit = {}
+    onAnswerHintConsumed: () -> Unit = {}, embedded: Boolean = false
 ) {
     val state by model.state.collectAsState()
     val media by model.media.collectAsState()
@@ -58,20 +59,25 @@ fun NativeCallHost(
     // Always inspect the latest private-area gate when delayed system
     // permission callbacks return, not the stale composition that launched it.
     val privateAreaVisible by rememberUpdatedState(revealPeerName)
-    LifecycleStartEffect(state.callId, state.phase, context) {
+    LifecycleResumeEffect(model) {
+        model.attachHost()
+        onPauseOrDispose { model.detachHost() }
+    }
+    LifecycleResumeEffect(state.callId, state.phase, context) {
         // RINGING is entered only after decryption of a matching E2EE INVITE.
         // Pair haptics with the existing looping ringtone, not with raw FCM.
         val stopVibration = if (state.phase == NativeCallPhase.RINGING)
             CallRingVibration.start(context) else null
         val ringtone = if (state.phase == NativeCallPhase.RINGING) runCatching {
             RingtoneManager.getRingtone(context, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))?.apply {
-                audioAttributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                audioAttributes = AudioAttributes.Builder().setLegacyStreamType(android.media.AudioManager.STREAM_RING).setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
                 if (Build.VERSION.SDK_INT >= 28) isLooping = true
                 play()
             }
         }.getOrNull() else null
-        onStopOrDispose {
+        if (ringtone?.isPlaying == true) model.onVisibleRingingReady()
+        onPauseOrDispose {
             runCatching { ringtone?.stop() }
             stopVibration?.invoke()
         }
@@ -98,10 +104,6 @@ fun NativeCallHost(
     }
     var confirm by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     var permissionTarget by remember { mutableStateOf<Triple<String, Boolean, Boolean>?>(null) }
-    LifecycleStartEffect(model) {
-        model.attachHost()
-        onStopOrDispose { confirm = null; model.detachHost() }
-    }
     LifecycleStartEffect(model, revealPeerName) {
         model.setRealtimeVisible(revealPeerName)
         onStopOrDispose { model.setRealtimeVisible(false) }
@@ -171,9 +173,7 @@ fun NativeCallHost(
     }
     if (state.phase != NativeCallPhase.IDLE) {
         val ended = state.phase == NativeCallPhase.ENDED || state.phase == NativeCallPhase.FAILED
-        Dialog(onDismissRequest = { if (ended) model.dismiss() }, properties = DialogProperties(
-            dismissOnBackPress = ended, dismissOnClickOutside = false, usePlatformDefaultWidth = false,
-            securePolicy = SecureFlagPolicy.SecureOn)) {
+        val callContent: @Composable () -> Unit = {
             Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                 Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(18.dp),
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -257,6 +257,13 @@ fun NativeCallHost(
                 }
             }
         }
+        // The call-only Activity owns a show-when-locked window. Render
+        // controls directly there; do not depend on a separate Dialog window.
+        if (embedded) callContent() else Dialog(
+            onDismissRequest = { if (ended) model.dismiss() }, properties = DialogProperties(
+                dismissOnBackPress = ended, dismissOnClickOutside = false,
+                usePlatformDefaultWidth = false, securePolicy = SecureFlagPolicy.SecureOn)
+        ) { callContent() }
     }
     if (PrivateCallHostDisclosurePolicy.mayShowIdleNotice(revealPeerName, state.phase) &&
         notice != null) {
