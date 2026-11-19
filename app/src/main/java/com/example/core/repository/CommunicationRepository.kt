@@ -554,6 +554,8 @@ class CommunicationRepository(
         settingsDao.deletePendingMessageAlerts(id)
     }
 
+    internal suspend fun prunePendingMessageAlerts() = messageAlerts.prune()
+
     internal suspend fun publishPendingMessageAlerts(post: (String) -> Boolean): Boolean = messageAlerts.publish(post)
     fun normalizePhoneNumber(code: String) = UserCodes.normalize(code)
     private suspend fun savedPeer(code: String): JSONObject? = settingsDao.getSettingValue("lanu_peer_code_$code")?.let(::JSONObject)
@@ -992,7 +994,10 @@ class CommunicationRepository(
                 val previous = settingsDao.getSettingValue("lanu_message_revision_$id")?.toLongOrNull() ?: 0L
                 val hidden = settingsDao.getSettingValue("lanu_hidden_$id") == "true"
                 if (revision > previous) {
-                    if (message.optBoolean("deleted") || hidden || threadDeleted) messageDao.deleteMessage(id)
+                    if (message.optBoolean("deleted") || hidden || threadDeleted) {
+                        messageDao.deleteMessage(id)
+                        settingsDao.deleteSetting(DurableMessageAlerts.PREFIX + id)
+                    }
                     else {
                         val peer = settingsDao.getSettingValue("lanu_peer_id_$peerId")?.let(::JSONObject) ?: throw RejectedCiphertext(reason = MessageQuarantine.Reason.MISSING_SENDER_KEY)
                         // Never persist or acknowledge an unreadable/tampered encrypted message.
@@ -1193,6 +1198,8 @@ class CommunicationRepository(
         database.withTransaction {
             settingsDao.insertSetting(SettingsEntity("lanu_hidden_$messageId", "true"))
             messageDao.deleteMessage(messageId)
+            settingsDao.deleteSetting(DurableMessageAlerts.PREFIX + messageId)
+            messageAlerts.prune()
         }
     }
 
@@ -1210,6 +1217,8 @@ class CommunicationRepository(
             // delayed sync/revision events must never resurrect manually erased content.
             settingsDao.insertSetting(SettingsEntity("lanu_hidden_$messageId", "true"))
             messageDao.deleteMessage(messageId)
+            settingsDao.deleteSetting(DurableMessageAlerts.PREFIX + messageId)
+            messageAlerts.prune()
         }
     }
     suspend fun editMessage(messageId: String, conversationId: String, newText: String) {
@@ -1227,6 +1236,8 @@ class CommunicationRepository(
                 settingsDao.insertSetting(SettingsEntity("lanu_hidden_${message.id}", "true"))
             }
             messageDao.deleteAllMessagesForConversation(conversationId)
+            settingsDao.deletePendingMessageAlerts(conversationId)
+            messageAlerts.prune()
             conversationDao.getConversationById(conversationId)?.let {
                 conversationDao.insertConversation(it.copy(lastMessageText = "", unreadCount = 0))
             }
@@ -1244,6 +1255,8 @@ class CommunicationRepository(
             }
             messageDao.deleteAllMessagesForConversation(id)
             conversationDao.deleteConversation(id)
+            settingsDao.deletePendingMessageAlerts(id)
+            messageAlerts.prune()
         }
     }
     suspend fun addCallLog(partnerName: String, partnerPhone: String, isVideo: Boolean, durationSeconds: Int, isOutgoing: Boolean) {

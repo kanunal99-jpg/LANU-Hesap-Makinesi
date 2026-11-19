@@ -57,6 +57,9 @@ class ScientificCalculatorViewModelTest {
     }
 
     private val fakeSettingsDao = object : SettingsDao {
+        override suspend fun pruneInvalidMessageAlerts() {}
+        override suspend fun getEligibleMessageAlertKeys(keys: List<String>) = emptyList<String>()
+        override suspend fun deleteMessageAlertKeys(keys: List<String>) {}
         override suspend fun getPendingMessageAlerts() = emptyList<SettingsEntity>()
         override suspend fun deletePendingMessageAlerts(conversationId: String) {}
         override fun getFavoriteSettings() = kotlinx.coroutines.flow.flowOf(emptyList<SettingsEntity>())

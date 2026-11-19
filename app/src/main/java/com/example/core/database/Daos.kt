@@ -61,6 +61,26 @@ interface SettingsDao {
     @Query("DELETE FROM app_settings WHERE `key` GLOB 'lanu_pending_message_alert_*' AND value = :conversationId")
     suspend fun deletePendingMessageAlerts(conversationId: String)
 
+    /** Global cleanup precedes the bounded publication batch; no ciphertext is loaded. */
+    @Query("""DELETE FROM app_settings WHERE `key` GLOB 'lanu_pending_message_alert_*'
+        AND NOT EXISTS (SELECT 1 FROM messages m JOIN conversations c ON c.id = m.conversationId
+            WHERE app_settings.`key` = 'lanu_pending_message_alert_' || m.id
+            AND app_settings.value = m.conversationId AND m.status != 'READ' AND c.unreadCount > 0
+            AND NOT EXISTS (SELECT 1 FROM app_settings h WHERE h.`key` = 'lanu_hidden_' || m.id AND h.value = 'true')
+            AND NOT EXISTS (SELECT 1 FROM app_settings h WHERE h.`key` = 'lanu_hidden_conv_' || c.id AND h.value = 'true'))""")
+    suspend fun pruneInvalidMessageAlerts()
+
+    @Query("""SELECT `key` FROM app_settings WHERE `key` IN (:keys)
+        AND EXISTS (SELECT 1 FROM messages m JOIN conversations c ON c.id = m.conversationId
+            WHERE app_settings.`key` = 'lanu_pending_message_alert_' || m.id
+            AND app_settings.value = m.conversationId AND m.status != 'READ' AND c.unreadCount > 0
+            AND NOT EXISTS (SELECT 1 FROM app_settings h WHERE h.`key` = 'lanu_hidden_' || m.id AND h.value = 'true')
+            AND NOT EXISTS (SELECT 1 FROM app_settings h WHERE h.`key` = 'lanu_hidden_conv_' || c.id AND h.value = 'true')) ORDER BY `key`""")
+    suspend fun getEligibleMessageAlertKeys(keys: List<String>): List<String>
+
+    @Query("DELETE FROM app_settings WHERE `key` IN (:keys)")
+    suspend fun deleteMessageAlertKeys(keys: List<String>)
+
     @Query("SELECT * FROM app_settings WHERE `key` GLOB 'lanu_favorite_*'")
     fun getFavoriteSettings(): Flow<List<SettingsEntity>>
 
