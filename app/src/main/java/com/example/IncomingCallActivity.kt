@@ -73,15 +73,39 @@ class IncomingCallActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     Column(Modifier.fillMaxSize().padding(24.dp)) {
                         Text(
-                            if (observedLiveCall) "Görüşme" else "Bildirim doğrulanıyor",
+                            if (observedLiveCall) "Görüşme" else "Gelen LANU araması",
                             style = MaterialTheme.typography.headlineMedium
                         )
                         Spacer(Modifier.height(12.dp))
                         Text(
                             if (observedLiveCall) "Bağlantı güvenle yönetiliyor."
-                            else "Lütfen kontrol tamamlanana kadar bekleyin."
+                            else when {
+                                declineAt > 0L -> "Reddetme isteğiniz işleniyor…"
+                                answerAt > 0L -> "Arama bağlanmaya hazırlanıyor…"
+                                else -> "Arama hazırlanıyor…"
+                            }
                         )
                         Spacer(Modifier.height(20.dp))
+                        if (!observedLiveCall && state.phase == NativeCallPhase.IDLE) {
+                            // Buffer only the user's gesture. Actual media/rejection
+                            // still requires a fresh matching decrypted INVITE.
+                            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                Button(enabled = answerAt == 0L && declineAt == 0L, onClick = {
+                                    val at = incomingWakeAt(intent)
+                                    if (CallWakePreferences.isEnabled(this@IncomingCallActivity) &&
+                                        CallWakeTapPolicy.freshWakeIntent(CallWakeTapPolicy.ANSWER, at, System.currentTimeMillis())) answerAt = at
+                                }, colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFF1B5E20))) {
+                                    Text("Yanıtla")
+                                }
+                                Button(enabled = answerAt == 0L && declineAt == 0L, onClick = {
+                                    val at = incomingWakeAt(intent)
+                                    if (CallWakePreferences.isEnabled(this@IncomingCallActivity) &&
+                                        CallWakeTapPolicy.freshWakeIntent(CallWakeTapPolicy.DECLINE, at, System.currentTimeMillis())) declineAt = at
+                                }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
+                                    Text("Reddet")
+                                }
+                            }
+                        }
                         OutlinedButton(onClick = { finish() }) { Text("Kapat") }
                     }
                     NativeCallHost(
