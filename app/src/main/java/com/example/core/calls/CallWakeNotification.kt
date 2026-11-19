@@ -401,7 +401,12 @@ object CallWakeNotification {
                 else android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
         }.toBundle() else null } catch (_: RuntimeException) { null }
           catch (_: LinkageError) { null } // Preserve normal actionable notification on OEM ABI failure.
-        return PendingIntent.getActivity(context, requestCode, intent,
+        val scoped = Intent(intent)
+        val at = scoped.getLongExtra(CallWakeTapPolicy.EXTRA_WAKE_AT, 0L)
+        // Extras are not PendingIntent identity. Keep an older action from
+        // being rebound to a newer call timestamp via UPDATE_CURRENT.
+        if (at > 0L) scoped.data = android.net.Uri.parse("lanu-call-alert:$at")
+        return PendingIntent.getActivity(context, requestCode, scoped,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE, options)
     }
 

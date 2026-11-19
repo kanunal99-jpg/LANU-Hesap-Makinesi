@@ -56,6 +56,18 @@ class CallAlertPresentationTest {
         assertEquals(first,manager.activeNotifications.single { it.id==8129 }.postTime)
         assertFalse(CallWakeNotification.show(context,data,now))
     }
+    @Test fun oldActionCannotBeReboundToANewerNotificationTimestamp() {
+        val at=System.currentTimeMillis()
+        fun answer()=manager.activeNotifications.single { it.id==8129 }.notification.actions
+            .single { shadowOf(it.actionIntent).savedIntent.action==CallWakeTapPolicy.ANSWER }.actionIntent
+        assertTrue(CallWakeNotification.show(context,mapOf("type" to CallWakePolicy.TYPE,"at" to at.toString()),at))
+        val old=answer()
+        assertTrue(CallWakeNotification.show(context,mapOf("type" to CallWakePolicy.TYPE,"at" to (at+1).toString()),at+1))
+        val current=answer()
+        assertNotEquals(old,current)
+        assertEquals(at,shadowOf(old).savedIntent.getLongExtra(CallWakeTapPolicy.EXTRA_WAKE_AT,0L))
+        assertEquals(at+1,shadowOf(current).savedIntent.getLongExtra(CallWakeTapPolicy.EXTRA_WAKE_AT,0L))
+    }
     @Test fun staleRevokedOrVisibleHandoffCannotRing() {
         assertFalse(CallWakeNotification.restoreVerified(context,System.currentTimeMillis()-46_000))
         CallWakePolicy.privateAreaVisible=true

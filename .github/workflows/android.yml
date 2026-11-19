@@ -77,10 +77,12 @@ jobs:
       - name: Verify deployed Supabase migration IDs and bounded retention schedule
         run: python3 -m unittest discover -s scripts -p 'test_verify_supabase_migrations.py'
 
-      - name: Set up JDK 17
+      # Robolectric Android 16/API36 needs Java21; APK bytecode stays Java11.
+      # Device/legacy OTA jobs below retain their existing JDK17 environment.
+      - name: Set up JDK 21 for Android 16 unit tests
         uses: actions/setup-java@v5
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
 
       - name: Setup Gradle

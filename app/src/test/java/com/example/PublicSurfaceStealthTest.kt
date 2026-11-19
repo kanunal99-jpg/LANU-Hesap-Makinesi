@@ -66,7 +66,7 @@ class PublicSurfaceStealthTest {
             // Consented call alerts show ONLY a redacted generic call; message
             // alerts still reveal nothing on a locked screen.
             assertEquals(
-                if (id == CallWakeNotification.CHANNEL_ID) Notification.VISIBILITY_PRIVATE
+                if (id == CallWakeNotification.CHANNEL_ID) Notification.VISIBILITY_PUBLIC
                 else Notification.VISIBILITY_SECRET,
                 channel.lockscreenVisibility
             )

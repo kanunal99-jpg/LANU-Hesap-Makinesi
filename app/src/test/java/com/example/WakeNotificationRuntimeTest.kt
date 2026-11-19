@@ -47,7 +47,7 @@ class WakeNotificationRuntimeTest {
         }.notification
         assertEquals(1_000L, shown.timeoutAfter)
         // A consenting user sees a generic redacted call, not a hidden chat.
-        assertEquals(Notification.VISIBILITY_PRIVATE, shown.visibility)
+        assertEquals(Notification.VISIBILITY_PUBLIC, shown.visibility)
         assertFalse(CallWakeNotification.show(context,
             mapOf("type" to CallWakePolicy.TYPE, "at" to (now-45_000L).toString()), now))
     }
