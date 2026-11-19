@@ -239,7 +239,7 @@ fun MessageWakeSettings(repository: CommunicationRepository) {
                 modifier = Modifier.testTag("private_message_wake_toggle")
             )
         }
-        Text("Bu tercihi açınca yalnız genel bir bildirim gösterilir ve geçerli anonim uyarı geldiğinde mevcut kimliğinizle şifreli mesajlar arka planda eşitlenir. Mesaj, gönderen, sohbet, kişi ve önizleme bildirimde gösterilmez; yeni kimlik oluşturulmaz. Tercihi kapatınca bu anlık eşitleme de iptal edilir.",
+        Text("Bu tercihi açınca mevcut kimliğinizle şifreli mesajlar arka planda eşitlenir. Ağ geri geldiğinde ve bağlantı varken aralıklarla kurtarma denenir; ayrı periyodik teslimat ayarı kapalı olsa da bu koruma sürer. Yalnız gerçekten yeni mesaj alındığında genel bildirim gösterilir. Mesaj, gönderen, sohbet, kişi ve önizleme bildirimde gösterilmez; yeni kimlik oluşturulmaz. Tercihi kapatınca bu eşitleme ve kurtarma işleri de iptal edilir.",
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 8.dp))
         Text("Bildirime dokununca hesap makinesi açılır; gizli alan yalnız mevcut giriş yöntemi ve isteğe bağlı PIN ile açılır. İnternet, Android pil yönetimi ve Google servisleri nedeniyle bildirimin ulaşması garanti değildir.",
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 8.dp))

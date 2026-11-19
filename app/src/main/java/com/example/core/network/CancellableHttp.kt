@@ -23,6 +23,8 @@ internal object CancellableHttp {
         onNetworkFailure: () -> Unit = {},
         process: suspend (Response) -> T
     ): T = coroutineScope {
+        com.example.core.messaging.MessageSyncSession.checkCurrent()
+        val permission = currentCoroutineContext()[com.example.core.messaging.MessageSyncSession]
         val call = client.newCall(request)
         val cancelWatcher = launch(start = CoroutineStart.UNDISPATCHED) {
             try { awaitCancellation() }
@@ -31,7 +33,7 @@ internal object CancellableHttp {
         try {
             val response = suspendCancellableCoroutine<Response> { continuation ->
                 continuation.invokeOnCancellation { call.cancel() }
-                call.enqueue(object : Callback {
+                val enqueue = { call.enqueue(object : Callback {
                     override fun onFailure(call: Call, error: IOException) {
                         if (continuation.isActive) {
                             onNetworkFailure()
@@ -43,7 +45,13 @@ internal object CancellableHttp {
                             continuation.resume(response, onCancellation = { _, value, _ -> value.close() })
                         } else response.close()
                     }
-                })
+                }) }
+                try {
+                    if (permission == null) enqueue() else permission.startRequest(enqueue)
+                } catch (error: Exception) {
+                    call.cancel()
+                    if (continuation.isActive) continuation.resumeWithException(error)
+                }
             }
             response.use { process(it) }
         } catch (error: IOException) {

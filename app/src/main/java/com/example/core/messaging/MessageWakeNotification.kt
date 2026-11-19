@@ -26,6 +26,7 @@ import com.example.core.calls.CallWakePolicy
  * FCM token, conversation, sender, message content or unread count.
  */
 object MessageWakePreferences {
+    internal val requestGate = Any()
     private const val STORE = "lanu_message_wake_v1"
     private const val ENABLED = "opted_in"
     private const val PENDING = "pending_remote_revoke"
@@ -58,12 +59,16 @@ object MessageWakePreferences {
      * Only a signed server ACK may complete registration. Enrollment runs in
      * an active private UI, while the Worker must not race its rollback.
      */
-    fun finishEnrollment(context: Context): Boolean = try {
-        val prefs = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
-        if (!prefs.getBoolean(ENROLLING, false) || !prefs.getBoolean(PENDING, false)) false
-        else prefs.edit().putBoolean(ENABLED, true)
-            .putBoolean(PENDING, false).putBoolean(ENROLLING, false).commit()
-    } catch (_: Exception) { false }
+    fun finishEnrollment(context: Context): Boolean {
+        val saved = try {
+            val prefs = context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+            if (!prefs.getBoolean(ENROLLING, false) || !prefs.getBoolean(PENDING, false)) false
+            else prefs.edit().putBoolean(ENABLED, true)
+                .putBoolean(PENDING, false).putBoolean(ENROLLING, false).commit()
+        } catch (_: Exception) { false }
+        if (saved) MessageWakeRecovery.reconcile(context)
+        return saved
+    }
 
     fun isEnrollmentInProgress(context: Context): Boolean = try {
         context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
@@ -85,12 +90,13 @@ object MessageWakePreferences {
     fun disableAndQueueRemoteRevoke(context: Context): Boolean {
         // Durable opt-out precedes cancellation. An in-flight worker receives
         // cancellation; any late worker start checks consent again before IO.
-        val saved = try {
+        val saved = synchronized(requestGate) { try {
             context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE).edit()
                 .putBoolean(ENABLED, false).putBoolean(PENDING, true)
                 .putBoolean(ENROLLING, false).commit()
-        } catch (_: Exception) { false }
+        } catch (_: Exception) { false } }
         if (saved) {
+            MessageWakeRecovery.cancel(context)
             MessageWakeSyncWorker.cancel(context)
             MessageWakeTokenRefreshWorker.maintainTokenRecovery(context)
         }
@@ -227,6 +233,12 @@ object MessageWakeTapPolicy {
 object MessageWakeNotification {
     const val CHANNEL_ID = "lanu_private_message_alerts_v1"
     internal const val ID = PublicNotificationIds.MESSAGE_WAKE
+
+    /** Called only after authenticated incoming ciphertext committed to Room. */
+    internal fun showVerifiedNewMessages(context: Context): Boolean {
+        val now = System.currentTimeMillis()
+        return show(context, mapOf("type" to MessageWakePolicy.TYPE, "at" to now.toString()), now)
+    }
 
     /**
      * A local opt-out must also remove an already displayed neutral alert.

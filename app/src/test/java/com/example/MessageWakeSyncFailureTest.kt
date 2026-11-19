@@ -88,4 +88,29 @@ class MessageWakeSyncFailureTest {
         } finally { prefs.edit().clear().commit() }
     }
 
+    @Test fun staleHintAndEmptySyncNeverAlertButCommittedNewMessageDoes() = runBlocking<Unit> {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = context.getSharedPreferences("lanu_message_wake_v1", Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+        assertTrue(MessageWakePreferences.beginEnrollment(context)); assertTrue(MessageWakePreferences.finishEnrollment(context))
+        var count = 0; var alerts = 0; var syncs = 0
+        val target = object : MessageWakeSyncTarget {
+            override val configured = true
+            override val newIncomingCount get() = count
+            override suspend fun hasStoredIdentity() = true
+            override suspend fun synchronize() { syncs++ }
+            override suspend fun hasPendingPage() = false
+        }
+        fun worker() = TestListenableWorkerBuilder<MessageWakeSyncWorker>(context).setWorkerFactory(object : WorkerFactory() {
+            override fun createWorker(appContext: Context, name: String, params: WorkerParameters): ListenableWorker =
+                MessageWakeSyncWorker(appContext, params, publishNewMessages = { alerts++; true }, targetFactory = { target })
+        }).build()
+        try {
+            worker().doWork(); assertEquals(0, alerts)
+            count = 1; worker().doWork(); assertEquals(1, alerts)
+            count = 0; worker().doWork(); assertEquals(1, alerts)
+            assertEquals(3, syncs)
+        } finally { MessageWakePreferences.disableAndQueueRemoteRevoke(context); prefs.edit().clear().commit() }
+    }
+
 }

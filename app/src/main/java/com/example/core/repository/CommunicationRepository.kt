@@ -38,12 +38,19 @@ class CommunicationRepository(
     private val userProfileDao: UserProfileDao,
     private val callLogDao: CallLogDao,
     private val identityStore: MessagingIdentityStore,
-    private val relay: MessagingRelay,
+    relay: MessagingRelay,
     private val database: AppDatabase,
     private val clock: () -> Long = System::currentTimeMillis,
     val foregroundNetworkChanges: Flow<Unit> = emptyFlow(),
     private val callPollClockMs: () -> Long = { android.os.SystemClock.elapsedRealtime() }
 ) {
+    private val transport = relay
+    private val relay = object : MessagingRelay by transport {
+        override suspend fun request(identity: MessagingIdentity, action: String, data: JSONObject): JSONObject {
+            MessageSyncSession.checkCurrent()
+            return transport.request(identity, action, data)
+        }
+    }
     val contacts = contactDao.getAllContacts().map { list -> list.filter { UserCodes.normalize(it.phoneNumber).isNotBlank() } }
     val favoriteCodes = settingsDao.getFavoriteSettings().map { rows ->
         rows.filter { it.key.startsWith("lanu_favorite_") && it.value == "true" }
@@ -908,11 +915,16 @@ class CommunicationRepository(
     private var nextForegroundSendAt = 0L
 
     suspend fun synchronize(activeConversationId: String? = null, requireExistingIdentity: Boolean = false, drainOutbox: Boolean = true) = syncMutex.withLock {
+        MessageSyncSession.checkCurrent() // Recheck AFTER waiting for syncMutex.
         try { synchronizeLocked(activeConversationId, requireExistingIdentity, drainOutbox) }
         catch (e: Exception) {
             registeredIdentity = null
             throw e
         }
+    }
+
+    internal suspend fun synchronizeForMessageWake(session: MessageSyncSession) = withContext(session) {
+        synchronize(activeConversationId = null, requireExistingIdentity = true)
     }
 
     private suspend fun synchronizeLocked(activeConversationId: String?, requireExistingIdentity: Boolean, drainOutbox: Boolean) {
@@ -967,6 +979,7 @@ class CommunicationRepository(
             val threadDeleted = settingsDao.getSettingValue("lanu_hidden_conv_$convId") == "true"
             // Message, unread count and replay revision are one durable unit.
             // A crash before commit must not leave a message without its unread badge.
+            var newIncomingCommitted = false
             try { database.withTransaction {
                 val revision = message.getLong("revision")
                 val previous = settingsDao.getSettingValue("lanu_message_revision_$id")?.toLongOrNull() ?: 0L
@@ -995,6 +1008,7 @@ class CommunicationRepository(
                         conversationDao.getConversationById(convId)?.let { conversationDao.insertConversation(it.copy(lastMessageText = "Şifreli mesaj", lastMessageTime = maxOf(it.lastMessageTime, message.getLong("createdAt")))) }
                         if (senderId != own.id && activeConversationId != convId && firstLocalReceipt) {
                             conversationDao.incrementUnreadCount(convId)
+                            newIncomingCommitted = true
                         }
                     }
                     settingsDao.insertSetting(SettingsEntity("lanu_message_revision_$id", revision.toString()))
@@ -1015,6 +1029,7 @@ class CommunicationRepository(
                 read.remove(id)
                 continue
             }
+            if (newIncomingCommitted) kotlinx.coroutines.currentCoroutineContext()[MessageSyncSession]?.recordNewIncoming()
             ack.put(event.getString("id"))
             if (senderId != own.id && activeConversationId == convId &&
                 !message.optBoolean("deleted") && !threadDeleted) read.add(id)
