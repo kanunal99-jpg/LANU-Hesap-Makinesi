@@ -11,6 +11,7 @@ import com.example.core.calls.CallWakeMessagingService
 import com.example.core.delivery.AndroidDeliveryStore
 import com.example.core.delivery.DeliveryOptions
 import com.google.firebase.messaging.RemoteMessage
+import kotlinx.coroutines.*
 import org.junit.*
 import org.junit.Assert.*
 import org.junit.runner.RunWith
@@ -26,6 +27,7 @@ class MessageWakeRecoveryTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
     private lateinit var manager: WorkManager
     private val synced = CountDownLatch(1)
+    private var onSync: suspend () -> Unit = { synced.countDown() }
     @Before fun setup() {
         context.getSharedPreferences("lanu_message_wake_v1", Context.MODE_PRIVATE).edit().clear().commit()
         AndroidDeliveryStore(context).saveOptions(DeliveryOptions(false, false))
@@ -37,7 +39,7 @@ class MessageWakeRecoveryTest {
                         object : MessageWakeSyncTarget {
                             override val configured = true
                             override suspend fun hasStoredIdentity() = true
-                            override suspend fun synchronize() { synced.countDown() }
+                            override suspend fun synchronize() { onSync() }
                             override suspend fun hasPendingPage() = false
                         }
                     }) else null
@@ -71,6 +73,42 @@ class MessageWakeRecoveryTest {
         WorkManagerTestInitHelper.getTestDriver(context)!!.setAllConstraintsMet(first.id)
         assertTrue("Network-constrained sync runs without any FCM callback", synced.await(5, TimeUnit.SECONDS))
     }
+    @Test fun reconnectDuringSnapshotRetainsOneTrailingPassAndCoalescesFlapping() = runBlocking<Unit> {
+        consent()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var calls = 0
+        MessageWakeRecovery.cancel(context)
+        manager.cancelAllWork().result.get(5, TimeUnit.SECONDS)
+        onSync = {
+            calls++
+            if (calls == 1) { entered.complete(Unit); release.await() }
+        }
+        assertTrue(MessageWakeRecovery.enqueueNetwork(context))
+        val first = manager.getWorkInfosForUniqueWork(MessageWakeRecovery.NETWORK).get().single()
+        val driver = WorkManagerTestInitHelper.getTestDriver(context)!!
+        driver.setAllConstraintsMet(first.id)
+        try {
+            withTimeout(5000) { entered.await() }
+            assertTrue(MessageWakeRecovery.enqueueNetworkChange(context))
+            repeat(20) { assertTrue(MessageWakeRecovery.enqueueNetworkChange(context)) }
+            val work = manager.getWorkInfosForUniqueWork(MessageWakeRecovery.NETWORK).get()
+            assertEquals(2, work.count { !it.state.isFinished })
+            assertEquals(WorkInfo.State.RUNNING, work.single { it.id == first.id }.state)
+            val trailing = work.single { it.id != first.id }
+            assertEquals(WorkInfo.State.BLOCKED, trailing.state)
+            assertTrue(trailing.outputData.keyValueMap.isEmpty())
+            release.complete(Unit)
+            driver.setAllConstraintsMet(trailing.id)
+            withTimeout(5000) {
+                while (manager.getWorkInfoById(trailing.id).get()!!.state != WorkInfo.State.SUCCEEDED) delay(10)
+            }
+            assertEquals(2, calls)
+            assertTrue(MessageWakePreferences.disableAndQueueRemoteRevoke(context))
+            assertFalse(MessageWakeRecovery.enqueueNetworkChange(context))
+        } finally { release.complete(Unit) }
+    }
+
     @Test fun optingOutCancelsBothRecoveryPathsAndPreventsRequeue() {
         consent()
         assertTrue(MessageWakePreferences.disableAndQueueRemoteRevoke(context))

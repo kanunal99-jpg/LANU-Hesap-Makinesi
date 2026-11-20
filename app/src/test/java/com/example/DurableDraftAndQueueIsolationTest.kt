@@ -44,6 +44,7 @@ class DurableDraftAndQueueIsolationTest {
     private var badMessage: String? = null
     private var syncFailure = false
     private val readBatches = mutableListOf<List<String>>()
+    private val eventBatches = mutableListOf<List<String>>()
     private val store = object : MessagingIdentityStore {
         override fun read() = own
         override fun save(identity: MessagingIdentity) { own = identity }
@@ -65,6 +66,8 @@ class DurableDraftAndQueueIsolationTest {
                     JSONObject().put("status", "SENT")
                 }
                 "ack" -> JSONObject().also {
+                    val events = data.getJSONArray("eventIds")
+                    eventBatches += (0 until events.length()).map { events.getString(it) }
                     val ids = data.getJSONArray("readIds")
                     readBatches += (0 until ids.length()).map { ids.getString(it) }
                 }
@@ -212,6 +215,48 @@ class DurableDraftAndQueueIsolationTest {
         assertEquals(3, db.messageDao().countMessages())
         repo.retryMessage(first)
         assertEquals("PENDING", db.messageDao().getMessage(first)!!.status)
+    }
+
+    @Test fun `held hidden thread never claims delivery or stalls a healthy incoming message`() = runBlocking {
+        val hiddenPeer = UserCodes.create()
+        val hiddenConversation = UserCodes.conversationId(own.id, hiddenPeer.id)
+        db.settingsDao().insertSetting(SettingsEntity("lanu_hidden_conv_$hiddenConversation", "true"))
+        val held = UUID.randomUUID().toString(); val good = UUID.randomUUID().toString()
+        val heldEvent = UUID.randomUUID().toString(); val goodEvent = UUID.randomUUID().toString()
+        fun event(sender: MessagingIdentity, id: String, eventId: String) = JSONObject()
+            .put("id", eventId).put("message", JSONObject().put("id", id).put("senderId", sender.id)
+                .put("recipientId", own.id).put("revision", 1).put("createdAt", now).put("status", "SENT")
+                .put("content", PeerMessageCrypto.encrypt(sender, own.id, own.publicKey, id, "authenticated")))
+        inbound = JSONArray().put(event(hiddenPeer, held, heldEvent)).put(event(peer, good, goodEvent))
+        repo.synchronize(conversation)
+        assertNull(db.messageDao().getMessage(held))
+        assertNull(db.conversationDao().getConversationById(hiddenConversation))
+        assertNull(db.settingsDao().getSettingValue("lanu_message_revision_$held"))
+        assertNotNull(db.messageDao().getMessage(good))
+        assertEquals(listOf(goodEvent), eventBatches.flatten())
+        assertEquals(listOf(good), readBatches.flatten())
+        assertEquals("HIDDEN_CONVERSATION", JSONObject(db.settingsDao().getSettingValue(MessageQuarantine.KEY)!!)
+            .getJSONObject(held).getString("reason"))
+    }
+
+    @Test fun `missing peer at queue head cannot starve a later valid conversation`() = runBlocking {
+        val orphanConversation = UserCodes.conversationId(own.id, UserCodes.create().id)
+        repeat(5) { n ->
+            db.messageDao().insertMessage(MessageEntity("orphan-$n", orphanConversation,
+                own.id, "Me", "lanu2:preserve-$n", timestamp = n.toLong(), status = "PENDING"))
+        }
+        val ready = repo.sendMessage(conversation, "later valid peer")
+        repo.sendQueuedForeground()
+        assertEquals("PENDING", db.messageDao().getMessage(ready)!!.status)
+        now += 1001L
+        repository().sendQueuedForeground() // Durable deferral survives repository recreation.
+        assertEquals("SENT", db.messageDao().getMessage(ready)!!.status)
+        repeat(5) { n ->
+            val row = db.messageDao().getMessage("orphan-$n")!!
+            assertEquals("PENDING", row.status)
+            assertEquals("lanu2:preserve-$n", row.content)
+        }
+        assertEquals(6, db.messageDao().countMessages())
     }
 
     @Test fun `more than 200 deferred rows cannot starve a new ready message`() = runBlocking {
