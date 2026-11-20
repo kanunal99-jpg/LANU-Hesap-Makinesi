@@ -985,6 +985,20 @@ class CommunicationRepository(
             // The original thread may have been deleted before this event was downloaded.
             // A messageId tombstone only protects messages that were already on disk.
             val threadDeleted = settingsDao.getSettingValue("lanu_hidden_conv_$convId") == "true"
+            if (threadDeleted && senderId != own.id && !message.optBoolean("deleted") &&
+                settingsDao.getSettingValue("lanu_hidden_$id") != "true") {
+                // A thread tombstone is not proof of recipient delivery. Keep
+                // unseen ciphertext on the relay until the user explicitly
+                // reopens the thread; never resurrect it or ACK a discarded row.
+                database.withTransaction {
+                    settingsDao.insertSetting(SettingsEntity(MessageQuarantine.KEY,
+                        MessageQuarantine.record(settingsDao.getSettingValue(MessageQuarantine.KEY),
+                            id, event.getString("id"), message.getLong("revision"),
+                            MessageQuarantine.Reason.HIDDEN_CONVERSATION)))
+                    if (messageDao.getMessage(id) == null) settingsDao.deleteSetting("lanu_message_revision_$id")
+                }
+                continue // Other messages and the durable page cursor keep moving.
+            }
             // Message, unread count and replay revision are one durable unit.
             // A crash before commit must not leave a message without its unread badge.
             val alertSession = kotlinx.coroutines.currentCoroutineContext()[MessageSyncSession]

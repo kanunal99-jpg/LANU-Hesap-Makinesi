@@ -943,14 +943,22 @@ class UserCodeMessagingTest {
         assertNull("Unseen replay must not reconstruct a deleted thread",
             db.conversationDao().getConversationById(conversationId))
         assertNull("Unseen replay must not be stored on disk", db.messageDao().getMessage(laterId))
-        assertEquals("1", db.settingsDao().getSettingValue("lanu_message_revision_$laterId"))
-        assertTrue("A hidden message can still be acknowledged without persisting", acks >= 2)
+        assertNull(db.settingsDao().getSettingValue("lanu_message_revision_$laterId"))
+        assertEquals("An unseen discarded message must not be reported delivered", 1, acks)
+        assertEquals("HIDDEN_CONVERSATION", JSONObject(db.settingsDao().getSettingValue(MessageQuarantine.KEY)!!)
+            .getJSONObject(laterId).getString("reason"))
         assertEquals("Deleted threads must not be marked READ", 0, readCount)
 
         repo.createConversation(sender.code, "Explicitly reopened")
         assertNull(db.settingsDao().getSettingValue("lanu_hidden_conv_$conversationId"))
         assertNotNull(db.conversationDao().getConversationById(conversationId))
-        // Old already-acknowledged event stays hidden, new events can now arrive.
+        // The SAME held event must be saved and acknowledged after an explicit reopen.
+        repository(relay = relay).synchronize()
+        assertNotNull(db.messageDao().getMessage(laterId))
+        assertEquals(2, acks)
+        assertNull(db.settingsDao().getSettingValue(MessageQuarantine.KEY))
+        assertNull("Explicitly deleted local history stays deleted", db.messageDao().getMessage(firstId))
+        // Fresh events can now arrive too.
         val reopenedMessageId = java.util.UUID.randomUUID().toString()
         currentId = reopenedMessageId
         repo.synchronize()

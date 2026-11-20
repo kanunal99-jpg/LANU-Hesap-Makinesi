@@ -6,7 +6,7 @@ import org.json.JSONObject
 internal object MessageQuarantine {
     const val KEY = "lanu_quarantine_v1"
     const val MAX_ENTRIES = 128
-    enum class Reason { MISSING_SENDER_KEY, INVALID_CIPHERTEXT }
+    enum class Reason { MISSING_SENDER_KEY, INVALID_CIPHERTEXT, HIDDEN_CONVERSATION }
     private fun parse(raw: String?): JSONObject = try { JSONObject(raw ?: "{}") } catch (_: org.json.JSONException) { JSONObject() }
     fun record(raw: String?, id: String, eventId: String, revision: Long, reason: Reason): String {
         val items = parse(raw)
