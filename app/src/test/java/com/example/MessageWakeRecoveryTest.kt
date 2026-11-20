@@ -27,6 +27,7 @@ class MessageWakeRecoveryTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
     private lateinit var manager: WorkManager
     private val synced = CountDownLatch(1)
+    private var onSync: suspend () -> Unit = { synced.countDown() }
     @Before fun setup() {
         context.getSharedPreferences("lanu_message_wake_v1", Context.MODE_PRIVATE).edit().clear().commit()
         AndroidDeliveryStore(context).saveOptions(DeliveryOptions(false, false))
@@ -38,7 +39,7 @@ class MessageWakeRecoveryTest {
                         object : MessageWakeSyncTarget {
                             override val configured = true
                             override suspend fun hasStoredIdentity() = true
-                            override suspend fun synchronize() { synced.countDown() }
+                            override suspend fun synchronize() { onSync() }
                             override suspend fun hasPendingPage() = false
                         }
                     }) else null
@@ -77,25 +78,12 @@ class MessageWakeRecoveryTest {
         val entered = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
         var calls = 0
-        // Replace the test worker factory before scheduling this isolated test.
         MessageWakeRecovery.cancel(context)
         manager.cancelAllWork().result.get(5, TimeUnit.SECONDS)
-        WorkManagerTestInitHelper.closeWorkDatabase()
-        WorkManagerTestInitHelper.initializeTestWorkManager(context, Configuration.Builder()
-            .setExecutor(SynchronousExecutor()).setWorkerFactory(object : WorkerFactory() {
-                override fun createWorker(app: Context, name: String, params: WorkerParameters): ListenableWorker? =
-                    if (name == MessageWakeSyncWorker::class.java.name) MessageWakeSyncWorker(app, params,
-                        targetFactory = { object : MessageWakeSyncTarget {
-                            override val configured = true
-                            override suspend fun hasStoredIdentity() = true
-                            override suspend fun synchronize() {
-                                calls++
-                                if (calls == 1) { entered.complete(Unit); release.await() }
-                            }
-                            override suspend fun hasPendingPage() = false
-                        } }) else null
-            }).build())
-        manager = WorkManager.getInstance(context)
+        onSync = {
+            calls++
+            if (calls == 1) { entered.complete(Unit); release.await() }
+        }
         assertTrue(MessageWakeRecovery.enqueueNetwork(context))
         val first = manager.getWorkInfosForUniqueWork(MessageWakeRecovery.NETWORK).get().single()
         val driver = WorkManagerTestInitHelper.getTestDriver(context)!!
