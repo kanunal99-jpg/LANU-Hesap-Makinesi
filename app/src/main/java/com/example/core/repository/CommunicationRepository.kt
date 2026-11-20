@@ -1123,7 +1123,13 @@ class CommunicationRepository(
             break
         }
         for (message in messageDao.getPendingMessages(now = clock(), limit = if (callInProgress) 1 else 5 - contactRequests)) {
-            val peer = peerForConversation(message.conversationId) ?: continue
+            val peer = peerForConversation(message.conversationId)
+            if (peer == null) {
+                // Keep ciphertext/UUID/status intact, but rotate unresolved
+                // rows out of the next bounded batch so other peers can send.
+                settingsDao.insertSetting(SettingsEntity("lanu_retry_after_${message.id}", (clock() + 60000L).toString()))
+                continue
+            }
             // Never send a queued ciphertext to an unrelated peer if cached
             // contact metadata was corrupted/rebound after this draft was saved.
             if (!PeerConversationBindingPolicy.matches(own.id, message.conversationId,

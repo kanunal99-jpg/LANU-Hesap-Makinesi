@@ -214,6 +214,26 @@ class DurableDraftAndQueueIsolationTest {
         assertEquals("PENDING", db.messageDao().getMessage(first)!!.status)
     }
 
+    @Test fun `missing peer at queue head cannot starve a later valid conversation`() = runBlocking {
+        val orphanConversation = UserCodes.conversationId(own.id, UserCodes.create().id)
+        repeat(5) { n ->
+            db.messageDao().insertMessage(MessageEntity("orphan-$n", orphanConversation,
+                own.id, "Me", "lanu2:preserve-$n", timestamp = n.toLong(), status = "PENDING"))
+        }
+        val ready = repo.sendMessage(conversation, "later valid peer")
+        repo.sendQueuedForeground()
+        assertEquals("PENDING", db.messageDao().getMessage(ready)!!.status)
+        now += 1001L
+        repository().sendQueuedForeground() // Durable deferral survives repository recreation.
+        assertEquals("SENT", db.messageDao().getMessage(ready)!!.status)
+        repeat(5) { n ->
+            val row = db.messageDao().getMessage("orphan-$n")!!
+            assertEquals("PENDING", row.status)
+            assertEquals("lanu2:preserve-$n", row.content)
+        }
+        assertEquals(6, db.messageDao().countMessages())
+    }
+
     @Test fun `more than 200 deferred rows cannot starve a new ready message`() = runBlocking {
         repeat(205) { n ->
             val id = "waiting-$n"
